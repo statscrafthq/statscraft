@@ -69,6 +69,7 @@ use crate::survival;
 use crate::timeseries;
 use crate::tree;
 use crate::ts_models;
+use crate::ts_more;
 use crate::twostep;
 
 /// One supported command: its name, its help text and its parser.
@@ -2840,6 +2841,78 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  its own; INITIAL starts from its estimates, FIT uses them without estimation.",
         example: "ARIMA daily_calls WITH promo /MODEL=(1,0,1)(0,1,1) 7 NOCONSTANT /FORECAST=EXACT.",
         parse: ts_models::arima,
+    },
+    CommandSpec {
+        name: "AREG",
+        summary: "Regression whose errors follow a first-order autoregressive process.",
+        syntax: "AREG [VARIABLES=] series WITH regressors\n\
+                 \x20    [/METHOD=PW | CO | ML] [/CONSTANT | /NOCONSTANT] [/RHO=0] [/MXITER=10]\n\
+                 \x20    [/APPLY [SPECIFICATIONS | INITIAL | FIT]].\n\
+                 The errors of y = a + b x are taken to follow u_t = rho u_(t-1) + e_t. PW (the default,\n\
+                 Prais-Winsten) and CO (Cochrane-Orcutt) alternate two steps: least squares on the\n\
+                 quasi-differences y_t - rho y_(t-1), then a new rho from the lag-one products of the\n\
+                 residuals. CO drops the first case; PW keeps it, scaled by sqrt(1 - rho^2). RHO is the\n\
+                 start (above -1, below 1). The loop ends when no estimate moves by TSET CNVERGE or\n\
+                 after MXITER rounds. Both take missing values at the ends of the USE range only. ML\n\
+                 fits the same model by exact maximum likelihood (the ARIMA engine with one\n\
+                 autoregressive term), missing values allowed anywhere. CONSTANT defaults to TSET.\n\
+                 Output: per iteration rho, its standard error, Durbin-Watson and the mean square error\n\
+                 (TSET PRINT=DETAILED adds the coefficients, BRIEF keeps only the final estimates), the\n\
+                 R square of the transformed regression at the start and the end, an ANOVA table, and\n\
+                 the estimates with t tests; ML shows what ARIMA shows. TSET NEWVAR saves FIT_n, ERR_n,\n\
+                 LCL_n, UCL_n and SEP_n; after the series, PREDICT gives forecasts where the regressors\n\
+                 have values. APPLY without a name repeats the previous AREG with the subcommands given\n\
+                 now replacing its own; INITIAL starts from its estimates, FIT uses them as they are.",
+        example: "AREG heating_cost WITH degree_days /METHOD=CO /RHO=0.3.",
+        parse: ts_more::areg,
+    },
+    CommandSpec {
+        name: "SPECTRA",
+        summary: "Periodogram, smoothed spectral density and cross-spectra of series.",
+        syntax: "SPECTRA VARIABLES= series [/CENTER [NO]] [/CROSS [NO]]\n\
+                 \x20       [/WINDOW=HAMMING | TUKEY | PARZEN | BARTLETT | UNIT | DANIELL [(span)] | NONE | weights]\n\
+                 \x20       [/PLOT=P S CS QS PH A G K ALL NONE [BY FREQ | BY PERIOD]]\n\
+                 \x20       [/SAVE=FREQ(root) PER(root) SIN(root) COS(root) P(root) S(root) RC(root) IC(root)\n\
+                 \x20              CS(root) QS(root) PH(root) A(root) G(root) K(root)] [/APPLY].\n\
+                 The terms are listed for the frequencies K/n, K = 0 to n/2: the sine and cosine\n\
+                 coefficients and the periodogram (a^2 + b^2) n/2. A series needs six cases and no\n\
+                 missing values (use USE or RMV); of an odd count the first case is dropped. CENTER\n\
+                 subtracts the mean, else the periodogram at frequency 0 is 2n times its square. The\n\
+                 density is a moving average of the periodogram whose weights come from the window's\n\
+                 kernel at the span's own frequencies, scaled to sum to 1; the default is HAMMING(5), an\n\
+                 even span loses one, a span of 1 or NONE leaves the periodogram as it is, and a list\n\
+                 of weights runs from the leftmost to the rightmost (an even list lacks the last one).\n\
+                 Values beyond the ends are mirrored. CROSS pairs the first series with each later one:\n\
+                 real and imaginary cross-periodogram, cospectrum (CS), quadrature spectrum (QS),\n\
+                 phase (PH, radians), cross amplitude (A), gain of the second series over the first\n\
+                 (G) and squared coherency (K). Charts come as data, by frequency and by period unless\n\
+                 BY picks one; P (the default) and S are drawn on natural logs. SAVE writes one\n\
+                 variable per series (root_1, root_2 by their place on VARIABLES) or pair (root_1_2),\n\
+                 FREQ and PER under the root itself, from the first case used; a name that exists is\n\
+                 skipped. APPLY repeats the previous SPECTRA, SAVE excepted.",
+        example: "SPECTRA VARIABLES=river_flow rainfall /CENTER /CROSS /WINDOW=PARZEN(7) /PLOT=S K BY FREQ.",
+        parse: ts_more::spectra,
+    },
+    CommandSpec {
+        name: "2SLS",
+        summary: "Two-stage least squares for equations with endogenous predictors.",
+        syntax: "2SLS [EQUATION=] dependent WITH predictors [/[EQUATION=] dependent WITH predictors]\n\
+                 \x20    /INSTRUMENTS=variables [/ENDOGENOUS=variables] [/CONSTANT | /NOCONSTANT]\n\
+                 \x20    [/PRINT=COV] [/SAVE=PRED RESID] [/APPLY].\n\
+                 The first stage regresses every predictor on the instruments (and the constant); the\n\
+                 second regresses the dependent on those predicted values. A predictor that is also an\n\
+                 instrument predicts itself, so naming every predictor as an instrument gives ordinary\n\
+                 least squares. There must be at least as many instruments as predictors in the longest\n\
+                 equation. Repeated INSTRUMENTS lists add up; ENDOGENOUS only documents the model. Case\n\
+                 weights count, and a case missing on any variable of the command leaves every\n\
+                 equation. Per equation: R, R square, the standard error and the mean of the residuals,\n\
+                 an ANOVA table, the coefficients with standardized ones, t tests and tolerances, and\n\
+                 the correlations of the estimates (PRINT=COV or TSET PRINT=DETAILED adds their\n\
+                 covariances). Residuals use the observed predictors. TSET NEWVAR saves FIT_n and ERR_n\n\
+                 per equation; SAVE picks them itself, always under free numbers. CONSTANT defaults to\n\
+                 TSET. APPLY repeats the previous 2SLS with the subcommands given now replacing its own.",
+        example: "2SLS crop_yield WITH fertilizer_kg /INSTRUMENTS=subsidy_rate soil_ph /SAVE=RESID.",
+        parse: ts_more::two_stage,
     },
     CommandSpec {
         name: "TSPLOT",

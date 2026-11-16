@@ -49,13 +49,13 @@ pub(crate) struct Previous {
 }
 
 #[derive(Debug, Clone, Default)]
-struct Estimates {
-    ar: Vec<f64>,
-    ma: Vec<f64>,
-    sar: Vec<f64>,
-    sma: Vec<f64>,
-    reg: Vec<f64>,
-    con: Option<f64>,
+pub(crate) struct Estimates {
+    pub(crate) ar: Vec<f64>,
+    pub(crate) ma: Vec<f64>,
+    pub(crate) sar: Vec<f64>,
+    pub(crate) sma: Vec<f64>,
+    pub(crate) reg: Vec<f64>,
+    pub(crate) con: Option<f64>,
 }
 
 /// The structure of a model: lags, differencing, period, constant.
@@ -838,11 +838,26 @@ impl Engine {
     }
 
     pub(crate) fn arima(&mut self, spec: &Arima) -> Result<Vec<Table>, Error> {
+        let (tables, estimates) = self.arima_model(spec, "ARIMA")?;
+        // a model APPLY can reuse, kept only when the run succeeds
+        self.ts_models.arima = Some(Previous {
+            spec: spec.clone(),
+            estimates: Some(estimates),
+        });
+        Ok(tables)
+    }
+
+    /// Fits an ARIMA model for `what` (ARIMA, or AREG with METHOD=ML) and saves its series.
+    pub(crate) fn arima_model(
+        &mut self,
+        spec: &Arima,
+        what: &str,
+    ) -> Result<(Vec<Table>, Estimates), Error> {
         let data = self.active()?;
         let shown = self.shown();
         let dependent = self.expand(&spec.dependent)?;
         let [dependent] = dependent.as_slice() else {
-            return Err(Error("ARIMA takes one dependent series".into()));
+            return Err(Error(format!("{what} takes one dependent series")));
         };
         let regressors = self.expand(&spec.regressors)?;
         let include = self.tset.include;
@@ -872,50 +887,49 @@ impl Engine {
         };
         if !st.sar.is_empty() || !st.sma.is_empty() || st.sd > 0 {
             let Some(s) = self.ts_period(spec.period) else {
-                return Err(Error(
-                    "ARIMA: a seasonal model needs a period: give it after the seasonal orders \
+                return Err(Error(format!(
+                    "{what}: a seasonal model needs a period: give it after the seasonal orders \
                      on MODEL, with TSET PERIOD or with DATE"
-                        .into(),
-                ));
+                )));
             };
             if s < 2 {
-                return Err(Error(
-                    "ARIMA: the seasonal period must be at least 2".into(),
-                ));
+                return Err(Error(format!(
+                    "{what}: the seasonal period must be at least 2"
+                )));
             }
             st.s = s;
         }
-        let periods = self.periods("ARIMA")?;
+        let periods = self.periods(what)?;
         // the series over the cases from the start of USE to the end of the forecasts
         let window = periods.first..=periods.end.max(periods.last);
         let transform = |v: f64| match log {
             ArimaLog::None => Ok(v),
             _ if v <= 0.0 => Err(Error(format!(
-                "ARIMA: {dependent} has values not above 0, which cannot be logged"
+                "{what}: {dependent} has values not above 0, which cannot be logged"
             ))),
             ArimaLog::Ln => Ok(v.ln()),
             ArimaLog::Log10 => Ok(v.log10()),
         };
-        let (all, _, _) = read_series(data, dependent, include, "ARIMA")?;
+        let (all, _, _) = read_series(data, dependent, include, what)?;
         let y: Values = all[window.clone()]
             .iter()
             .map(|v| v.map(transform).transpose())
             .collect::<Result<_, _>>()?;
         let mut x = Vec::new();
         for name in &regressors {
-            let (column, _, _) = read_series(data, name, include, "ARIMA")?;
+            let (column, _, _) = read_series(data, name, include, what)?;
             x.push(column[window.clone()].to_vec());
         }
         let used_len = periods.last + 1 - periods.first;
         let origin = periods.origin - periods.first;
         // the model starts at the first valid value
         let Some(start) = y[..used_len].iter().position(Option::is_some) else {
-            return Err(Error(format!("ARIMA: {dependent} has no valid values")));
+            return Err(Error(format!("{what}: {dependent} has no valid values")));
         };
         let reach = st.reach();
         if (start..start + reach).any(|t| t >= used_len || y[t].is_none()) {
             return Err(Error(format!(
-                "ARIMA: the first {reach} values of {dependent} from its first valid one must be \
+                "{what}: the first {reach} values of {dependent} from its first valid one must be \
                  valid, as the differencing starts from them"
             )));
         }
@@ -926,7 +940,7 @@ impl Engine {
             .map(|(name, _)| name)
         {
             return Err(Error(format!(
-                "ARIMA: the regressor {name} must be valid at the first {reach} values of \
+                "{what}: the regressor {name} must be valid at the first {reach} values of \
                  {dependent}, as the differencing starts from them"
             )));
         }
@@ -942,7 +956,7 @@ impl Engine {
         let check_count = |name: &str, values: &[f64], wanted: usize| {
             if !values.is_empty() && values.len() != wanted {
                 return Err(Error(format!(
-                    "ARIMA: {name} gives {} initial values for {wanted} parameters",
+                    "{what}: {name} gives {} initial values for {wanted} parameters",
                     values.len()
                 )));
             }
@@ -962,10 +976,9 @@ impl Engine {
         };
         let ssq_of = |t: &[f64]| residuals(t).map(|r| r.iter().map(|v| v * v).sum::<f64>());
         let Some(mut ssq) = ssq_of(&theta) else {
-            return Err(Error(
-                "ARIMA: the initial values give a nonstationary model; give other AR or SAR values"
-                    .into(),
-            ));
+            return Err(Error(format!(
+                "{what}: the initial values give a nonstationary model; give other AR or SAR values"
+            )));
         };
         let mxiter = spec.mxiter.unwrap_or(10) as usize;
         let mxlamb = spec.mxlamb.unwrap_or(1e9);
@@ -1038,12 +1051,12 @@ impl Engine {
             }
         }
         let (r, ssq_plain, n) = scaled_residuals(&st, &theta, &y_used, &x_used, start, used_len)
-            .ok_or_else(|| Error("ARIMA: the estimates give no valid model".into()))?;
+            .ok_or_else(|| Error(format!("{what}: the estimates give no valid model")))?;
         let ssq_adj: f64 = r.iter().map(|v| v * v).sum();
         let df = n as f64 - k as f64;
         if df <= 0.0 {
             return Err(Error(format!(
-                "ARIMA: {n} values are too few for {k} parameters"
+                "{what}: {n} values are too few for {k} parameters"
             )));
         }
         let variance = ssq_plain / df;
@@ -1067,10 +1080,9 @@ impl Engine {
             }
         };
         if covariance.is_none() {
-            warnings.push(
-                "ARIMA: the estimates' covariance is singular, so no standard errors are given"
-                    .to_string(),
-            );
+            warnings.push(format!(
+                "{what}: the estimates' covariance is singular, so no standard errors are given"
+            ));
         }
 
         // names of the parameters
@@ -1081,7 +1093,11 @@ impl Engine {
             ("SAR", &st.sar),
             ("SMA", &st.sma),
         ] {
-            labels.extend(lags.iter().map(|l| format!("{prefix}{l}")));
+            // AREG calls its AR1 rho
+            labels.extend(lags.iter().map(|l| match (what, prefix) {
+                ("AREG", "AR") => "Rho (AR1)".to_string(),
+                _ => format!("{prefix}{l}"),
+            }));
         }
         labels.extend(regressors.iter().map(|r| shown.named(data, r)));
         if st.constant {
@@ -1283,7 +1299,7 @@ impl Engine {
             ArimaForecast::Exact => {
                 let z = adjusted(&st, &theta, &y, &x);
                 let filtered = kalman(&st, &theta, &z, start, origin)
-                    .ok_or_else(|| Error("ARIMA: the estimates give no valid model".into()))?;
+                    .ok_or_else(|| Error(format!("{what}: the estimates give no valid model")))?;
                 let mut fit = vec![None; y.len()];
                 let mut se = vec![None; y.len()];
                 let [_, _, _, _, reg, _] = st.split(&theta);
@@ -1338,8 +1354,10 @@ impl Engine {
             columns[3][case] = Some(back(f + t_crit * sep));
             columns[4][case] = Some(sep * slope(f));
         }
-        let name_model = {
-            let mut m = format!("({},{},{})", st.ar.len(), st.d, st.ma.len());
+        let name_model = if what == "AREG" {
+            "AREG exact maximum likelihood".to_string()
+        } else {
+            let mut m = format!("ARIMA ({},{},{})", st.ar.len(), st.d, st.ma.len());
             if st.s > 1 {
                 m.push_str(&format!(
                     "({},{},{}) {}",
@@ -1355,34 +1373,32 @@ impl Engine {
             m
         };
         let item_labels = vec![
-            format!("Fit of {dependent}, ARIMA {name_model}"),
-            format!("Error of {dependent}, ARIMA {name_model}"),
-            format!("{level}% lower limit of {dependent}, ARIMA {name_model}"),
-            format!("{level}% upper limit of {dependent}, ARIMA {name_model}"),
-            format!("Standard error of the fit of {dependent}, ARIMA {name_model}"),
+            format!("Fit of {dependent}, {name_model}"),
+            format!("Error of {dependent}, {name_model}"),
+            format!("{level}% lower limit of {dependent}, {name_model}"),
+            format!("{level}% upper limit of {dependent}, {name_model}"),
+            format!("Standard error of the fit of {dependent}, {name_model}"),
         ];
         for w in warnings {
             self.warn(w);
         }
         self.save_series(
-            "ARIMA",
+            what,
             &["FIT", "ERR", "LCL", "UCL", "SEP"],
             vec![(item_labels, columns)],
         )?;
-        // a model APPLY can reuse, kept only when the run succeeds
         let [ar, ma, sar, sma, reg, con] = st.split(&theta);
-        self.ts_models.arima = Some(Previous {
-            spec: spec.clone(),
-            estimates: Some(Estimates {
+        Ok((
+            tables,
+            Estimates {
                 ar: ar.to_vec(),
                 ma: ma.to_vec(),
                 sar: sar.to_vec(),
                 sma: sma.to_vec(),
                 reg: reg.to_vec(),
                 con: con.first().copied(),
-            }),
-        });
-        Ok(tables)
+            },
+        ))
     }
 }
 

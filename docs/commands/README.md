@@ -202,6 +202,9 @@ One page per supported command, generated from the same table that the parser an
 | [PREDICT](predict.md) | Set the forecast period of EXSMOOTH and ARIMA. |
 | [EXSMOOTH](exsmooth.md) | Exponential smoothing with or without trend and season, with fitted values and forecasts. |
 | [ARIMA](arima.md) | Seasonal ARIMA models with regressors by exact maximum likelihood, with forecasts. |
+| [AREG](areg.md) | Regression whose errors follow a first-order autoregressive process. |
+| [SPECTRA](spectra.md) | Periodogram, smoothed spectral density and cross-spectra of series. |
+| [2SLS](2sls.md) | Two-stage least squares for equations with endogenous predictors. |
 | [TSPLOT](tsplot.md) | Chart of time series over the cases, as chart data. |
 | [CASEPLOT](caseplot.md) | Chart of time series with the cases down the vertical axis, as chart data. |
 

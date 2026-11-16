@@ -51,6 +51,11 @@ pub(crate) struct Models {
     season: Option<Box<Season>>,
     pub(crate) exsmooth: Option<Box<statscraft_syntax::Exsmooth>>,
     pub(crate) arima: Option<crate::arima::Previous>,
+    pub(crate) spectra: Option<Box<statscraft_syntax::Spectra>>,
+    pub(crate) areg: Option<crate::areg::Previous>,
+    /// The estimates APPLY INITIAL or FIT hands to the next AREG.
+    pub(crate) areg_start: Option<crate::areg::Start>,
+    pub(crate) two_stage: Option<Box<statscraft_syntax::TwoStage>>,
     /// The last TSPLOT and CASEPLOT.
     pub(crate) plots: [Option<Box<statscraft_syntax::SeriesPlot>>; 2],
 }
@@ -1367,7 +1372,17 @@ impl Engine {
         roots: &[&str],
         items: Vec<(Vec<String>, Vec<Values>)>,
     ) -> Result<(), Error> {
-        let newvar = self.tset.newvar;
+        self.save_series_as(command, roots, items, self.tset.newvar)
+    }
+
+    /// `save_series` under the given NEWVAR setting, for a SAVE subcommand that overrides it.
+    pub(crate) fn save_series_as(
+        &mut self,
+        command: &str,
+        roots: &[&str],
+        items: Vec<(Vec<String>, Vec<Values>)>,
+        newvar: NewVar,
+    ) -> Result<(), Error> {
         if newvar == NewVar::None || items.is_empty() {
             return Ok(());
         }
@@ -1443,7 +1458,12 @@ impl Engine {
             ),
             Command::Wls(w) if !w.save_weight && w.weight.is_none() => numbered(&["WGT"], 1),
             Command::Exsmooth(e) => numbered(&["FIT", "ERR"], self.expand(&e.variables)?.len()),
-            Command::Arima(_) => numbered(&["FIT", "ERR", "LCL", "UCL", "SEP"], 1),
+            Command::Arima(_) | Command::Areg(_) => {
+                numbered(&["FIT", "ERR", "LCL", "UCL", "SEP"], 1)
+            }
+            Command::TwoStage(t) if !(t.save_pred || t.save_resid) => {
+                numbered(&["FIT", "ERR"], t.equations.len())
+            }
             _ => Vec::new(),
         })
     }

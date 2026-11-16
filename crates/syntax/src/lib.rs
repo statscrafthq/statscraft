@@ -163,6 +163,7 @@ mod tests_twostep;
 mod timeseries;
 mod tree;
 mod ts_models;
+mod ts_more;
 mod twostep;
 
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
@@ -318,6 +319,10 @@ pub use timeseries::{
 pub use ts_models::{
     Arima, ArimaApply, ArimaForecast, ArimaLog, Exsmooth, PlotJoin, PlotMark, PlotReference,
     SeasonalFactors, Seasonality, SeriesPlot, Smoothing, Trend, smoothing_model_name,
+};
+pub use ts_more::{
+    Areg, AregMethod, Equation, Spectra, SpectraBy, SpectraItem, SpectraPlot, SpectraSmoothing,
+    SpectraWindow, TwoStage,
 };
 pub use twostep::{AnomalySave, ClusterCount, Detectanomaly, Twostep};
 

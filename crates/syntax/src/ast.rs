@@ -273,6 +273,10 @@ pub enum Command {
     Predict(UseRange),
     Exsmooth(Box<crate::ts_models::Exsmooth>),
     Arima(Box<crate::ts_models::Arima>),
+    Spectra(Box<crate::ts_more::Spectra>),
+    Areg(Box<crate::ts_more::Areg>),
+    /// 2SLS.
+    TwoStage(Box<crate::ts_more::TwoStage>),
     /// TSPLOT and CASEPLOT.
     SeriesPlot(Box<crate::ts_models::SeriesPlot>),
     /// PRINT, PRINT EJECT or WRITE.
