@@ -112,6 +112,7 @@ mod summarize;
 mod timeseries;
 mod transform;
 mod tree;
+mod ts_plot;
 mod ts_range;
 mod ttest;
 mod variables;
@@ -772,6 +773,10 @@ impl Engine {
                 return self.with_current_names(&spec);
             }
             Command::Predict(range) => self.ts_predict = Some(range.clone()),
+            Command::SeriesPlot(spec) => {
+                let spec = self.series_plot_spec(spec)?;
+                return self.procedure(&Command::SeriesPlot(Box::new(spec)));
+            }
             Command::Curvefit(_) | Command::Wls(_) => return self.with_current_names(command),
             Command::Frequencies(_)
             | Command::Descriptives(_)
@@ -1084,6 +1089,7 @@ impl Engine {
             Command::Season(command) => self.season(command),
             Command::Exsmooth(command) => self.exsmooth(command),
             Command::Arima(command) => self.arima(command),
+            Command::SeriesPlot(command) => self.series_plot(command),
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),

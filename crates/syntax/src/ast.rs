@@ -268,6 +268,8 @@ pub enum Command {
     Predict(UseRange),
     Exsmooth(Box<crate::ts_models::Exsmooth>),
     Arima(Box<crate::ts_models::Arima>),
+    /// TSPLOT and CASEPLOT.
+    SeriesPlot(Box<crate::ts_models::SeriesPlot>),
     /// PRINT, PRINT EJECT or WRITE.
     Print(Box<crate::output::Print>),
     PrintSpace(crate::output::PrintSpace),

@@ -298,8 +298,8 @@ pub use timeseries::{
     TsetItem, TsetPrint,
 };
 pub use ts_models::{
-    Arima, ArimaApply, ArimaForecast, ArimaLog, Exsmooth, SeasonalFactors, Seasonality, Smoothing,
-    Trend, smoothing_model_name,
+    Arima, ArimaApply, ArimaForecast, ArimaLog, Exsmooth, PlotJoin, PlotMark, PlotReference,
+    SeasonalFactors, Seasonality, SeriesPlot, Smoothing, Trend, smoothing_model_name,
 };
 
 use parser::Parser;

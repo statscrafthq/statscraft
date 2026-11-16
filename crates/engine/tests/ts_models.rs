@@ -464,3 +464,41 @@ fn arima_fit_methods_by_hand() {
     let err = column(&logged.engine, "ERR_1");
     assert!(close(err[0].unwrap(), (12.0f64 / 10.0).ln(), 1e-9));
 }
+
+#[test]
+fn tsplot_and_caseplot_charts() {
+    use statscraft_engine::chart::{ChartKind, Orientation};
+    let small = "DATA LIST FREE /a b c switch.\nBEGIN DATA\n\
+                 4 1 2 0  6 3 5 0  5 8 1 1  9 2 7 1\nEND DATA.\n";
+    let r = run(&format!(
+        "{small}TSPLOT a /LN /DIFF /FORMAT=REFERENCE /MARK=switch.\n"
+    ));
+    let charts = r.engine.clone().take_charts();
+    let chart = &charts[0];
+    assert_eq!(chart.kind, ChartKind::Line);
+    assert_eq!(chart.orientation, Some(Orientation::Vertical));
+    let v = &chart.series[0].values;
+    assert!(v[0].is_nan());
+    assert!(close(v[1], (6.0f64 / 4.0).ln(), 1e-12));
+    // the reference line at the mean of the differences
+    let mean = ((9.0f64 / 4.0).ln()) / 3.0;
+    assert!(chart.series[1].values.iter().all(|r| close(*r, mean, 1e-12)));
+    assert_eq!(
+        chart.footnote.as_deref(),
+        Some("Transformations: natural log, difference (1). Marked at 3.")
+    );
+    let r = run(&format!("{small}CASEPLOT a b c /FORMAT=HILO.\n"));
+    let charts = r.engine.clone().take_charts();
+    assert_eq!(charts[0].kind, ChartKind::HighLow);
+    assert_eq!(charts[0].orientation, Some(Orientation::Horizontal));
+    assert_eq!(charts[0].series[0].values, vec![4.0, 6.0, 8.0, 9.0]);
+    assert_eq!(charts[0].series[1].values, vec![1.0, 3.0, 1.0, 2.0]);
+    // APPLY keeps the format; dates label the cases
+    let r = run(&format!(
+        "{small}DATE YEAR 2001.\nCASEPLOT a b /FORMAT=JOIN.\nCASEPLOT c b /APPLY.\n"
+    ));
+    let charts = r.engine.clone().take_charts();
+    assert_eq!(charts[0].kind, ChartKind::DropLine);
+    assert_eq!(charts[0].categories[0].label, "2001");
+    assert_eq!(charts[0].series[0].name, "c");
+}

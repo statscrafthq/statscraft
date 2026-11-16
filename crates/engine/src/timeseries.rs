@@ -51,6 +51,8 @@ pub(crate) struct Models {
     season: Option<Box<Season>>,
     pub(crate) exsmooth: Option<Box<statscraft_syntax::Exsmooth>>,
     pub(crate) arima: Option<crate::arima::Previous>,
+    /// The last TSPLOT and CASEPLOT.
+    pub(crate) plots: [Option<Box<statscraft_syntax::SeriesPlot>>; 2],
 }
 
 /// A series in case order; None where missing.

@@ -17,6 +17,10 @@
 //!   AR, MA, SAR, SMA, REG (lists) and CON (one value), MXITER, MXLAMB, SSQPCT, PAREPS,
 //!   CINPCT, APPLY [='name'] [SPECIFICATIONS | INITIAL | FIT], FORECAST=EXACT | CLS |
 //!   AUTOINIT.
+//! - TSPLOT and CASEPLOT: `VARIABLES= series`, DIFF[=n] and SDIFF[=n] (default 1), PERIOD=n,
+//!   LN or NOLOG, ID=variable, MARK=variable or date, SPLIT=UNIFORM | SCALE, FORMAT with
+//!   NOFILL or BOTTOM (CASEPLOT: LEFT), NOREFERENCE or REFERENCE[(value)], NOJOIN, JOIN or
+//!   HILO, APPLY [='name'].
 
 use crate::ast::{CasePoint, Command, UseRange, VarItem};
 use crate::error::SyntaxError;
@@ -732,4 +736,179 @@ pub(crate) fn arima(p: &mut Parser) -> PResult<Command> {
         ));
     }
     Ok(Command::Arima(Box::new(c)))
+}
+
+// ---------------------------------------------------------------- TSPLOT and CASEPLOT
+
+/// Where MARK draws its line: where a variable changes, or at a date.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlotMark {
+    Variable(String),
+    Date(Vec<(crate::output::DateUnit, f64)>),
+}
+
+/// The line of FORMAT=REFERENCE.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PlotReference {
+    None,
+    Mean,
+    Value(f64),
+}
+
+/// How several series are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlotJoin {
+    NoJoin,
+    Join,
+    Hilo,
+}
+
+/// TSPLOT or CASEPLOT as written: None for what the command leaves out, for APPLY.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SeriesPlot {
+    /// CASEPLOT: the cases run down the vertical axis.
+    pub casewise: bool,
+    pub variables: Vec<VarItem>,
+    pub apply: Option<Option<String>>,
+    pub diff: Option<u32>,
+    pub sdiff: Option<u32>,
+    pub period: Option<u32>,
+    pub ln: Option<bool>,
+    pub id: Option<String>,
+    pub mark: Option<PlotMark>,
+    /// SPLIT=SCALE (true) or UNIFORM.
+    pub split_scale: Option<bool>,
+    /// BOTTOM (TSPLOT) or LEFT (CASEPLOT) against NOFILL.
+    pub fill: Option<bool>,
+    pub reference: Option<PlotReference>,
+    pub join: Option<PlotJoin>,
+}
+
+fn series_plot(p: &mut Parser, casewise: bool) -> PResult<Command> {
+    let name = if casewise { "CASEPLOT" } else { "TSPLOT" };
+    let fill_word = if casewise { "LEFT" } else { "BOTTOM" };
+    let mut c = SeriesPlot {
+        casewise,
+        ..SeriesPlot::default()
+    };
+    let mut variables = Vec::new();
+    subcommands(
+        p,
+        |p| {
+            variables = list_until(p, &[])?;
+            Ok(())
+        },
+        |p| {
+            let start = p.pos;
+            let count = |p: &mut Parser, what: &str| -> PResult<u32> {
+                p.eat(Punct::Eq);
+                if at_end(p) {
+                    return Ok(1);
+                }
+                whole(p, 1, what)
+            };
+            if p.eat_keyword("APPLY") {
+                c.apply = Some(apply_name(p)?);
+            } else if p.eat_keyword("DIFF") {
+                c.diff = Some(count(p, "DIFF")?);
+            } else if p.eat_keyword("SDIFF") {
+                c.sdiff = Some(count(p, "SDIFF")?);
+            } else if p.eat_keyword("PERIOD") {
+                p.eat(Punct::Eq);
+                c.period = Some(whole(p, 1, "PERIOD")?);
+            } else if p.eat_word("LN") {
+                c.ln = Some(true);
+            } else if p.eat_keyword("NOLOG") {
+                c.ln = Some(false);
+            } else if p.eat_word("ID") {
+                p.eat(Punct::Eq);
+                c.id = Some(p.name("a variable name")?);
+            } else if p.eat_keyword("MARK") {
+                p.eat(Punct::Eq);
+                let is_date = matches!(
+                    (p.peek(), p.peek_at(1)),
+                    (Some(TokenKind::Word(w)), Some(TokenKind::Number(_)) | Some(TokenKind::Punct(Punct::Eq)))
+                        if date_unit(w).is_some()
+                );
+                c.mark = Some(if is_date {
+                    match case_point(p)? {
+                        Some(CasePoint::Date(parts)) => PlotMark::Date(parts),
+                        _ => return Err(error(p, start, "MARK takes a variable or a date")),
+                    }
+                } else {
+                    PlotMark::Variable(p.name("a variable name or a date")?)
+                });
+            } else if p.eat_keyword("SPLIT") {
+                p.eat(Punct::Eq);
+                c.split_scale = Some(if p.eat_keyword("SCALE") {
+                    true
+                } else if p.eat_keyword("UNIFORM") {
+                    false
+                } else {
+                    return Err(p.unexpected(&["UNIFORM", "SCALE"]));
+                });
+            } else if p.eat_keyword("FORMAT") {
+                p.eat(Punct::Eq);
+                let mut any = false;
+                while !at_end(p) {
+                    if p.eat_keyword("NOFILL") {
+                        c.fill = Some(false);
+                    } else if p.eat_keyword(fill_word) {
+                        c.fill = Some(true);
+                    } else if p.eat_keyword("NOREFERENCE") {
+                        c.reference = Some(PlotReference::None);
+                    } else if p.eat_keyword("REFERENCE") {
+                        c.reference = Some(if p.eat(Punct::LParen) {
+                            let v = number(p, "a value")?;
+                            p.expect(Punct::RParen)?;
+                            PlotReference::Value(v)
+                        } else {
+                            PlotReference::Mean
+                        });
+                    } else if p.eat_keyword("NOJOIN") {
+                        c.join = Some(PlotJoin::NoJoin);
+                    } else if p.eat_keyword("JOIN") {
+                        c.join = Some(PlotJoin::Join);
+                    } else if p.eat_keyword("HILO") {
+                        c.join = Some(PlotJoin::Hilo);
+                    } else {
+                        return Err(p.unexpected(&[
+                            "NOFILL",
+                            fill_word,
+                            "NOREFERENCE",
+                            "REFERENCE",
+                            "NOJOIN",
+                            "JOIN",
+                            "HILO",
+                        ]));
+                    }
+                    any = true;
+                    p.eat(Punct::Comma);
+                }
+                if !any {
+                    return Err(p.unexpected(&["a FORMAT keyword"]));
+                }
+            } else {
+                return Ok(false);
+            }
+            Ok(true)
+        },
+        name,
+    )?;
+    c.variables = variables;
+    if c.variables.is_empty() && c.apply.is_none() {
+        return Err(SyntaxError::new(
+            p.span(),
+            format!("{name} needs VARIABLES, or APPLY to use the previous {name}'s"),
+        ));
+    }
+    Ok(Command::SeriesPlot(Box::new(c)))
+}
+
+pub(crate) fn tsplot(p: &mut Parser) -> PResult<Command> {
+    series_plot(p, false)
+}
+
+pub(crate) fn caseplot(p: &mut Parser) -> PResult<Command> {
+    series_plot(p, true)
 }

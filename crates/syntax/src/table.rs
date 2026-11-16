@@ -2561,6 +2561,41 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: ts_models::arima,
     },
     CommandSpec {
+        name: "TSPLOT",
+        summary: "Chart of time series over the cases, as chart data.",
+        syntax: "TSPLOT [VARIABLES=] series [/DIFF[=n]] [/SDIFF[=n]] [/PERIOD=n] [/LN | /NOLOG]\n\
+                 \x20      [/ID=variable] [/MARK=variable | date] [/SPLIT=UNIFORM | SCALE]\n\
+                 \x20      [/FORMAT=[NOFILL | BOTTOM] [NOREFERENCE | REFERENCE[(value)]] | NOJOIN | JOIN | HILO]\n\
+                 \x20      [/APPLY].\n\
+                 The cases run along the horizontal axis, labeled by ID (else TSET ID, else DATE_, else\n\
+                 the case number). Each series may be logged first (LN; values not above 0 become\n\
+                 missing), then differenced DIFF times and over the period SDIFF times (DIFF or SDIFF\n\
+                 alone: once); the period is PERIOD, TSET PERIOD or that of the DATE variables, and\n\
+                 without one SDIFF is skipped with a warning. With one series, BOTTOM fills the area under\n\
+                 the line (only when no value is missing or negative) and REFERENCE adds a flat line at\n\
+                 the value or at the series mean. With several, JOIN links the values of each case and\n\
+                 HILO shows only the highest and lowest of each case (up to three series). MARK names\n\
+                 the cases where a variable changes, or a date given with DATE keywords, in the footnote,\n\
+                 which also lists the transformations. Under SPLIT FILE each group gets a chart; the\n\
+                 reference mean is the group's. USE limits the cases. APPLY without a name repeats the\n\
+                 previous TSPLOT with the subcommands given now replacing its own.",
+        example: "TSPLOT VARIABLES=river_level rainfall /FORMAT=JOIN /MARK=dam_open.",
+        parse: ts_models::tsplot,
+    },
+    CommandSpec {
+        name: "CASEPLOT",
+        summary: "Chart of time series with the cases down the vertical axis, as chart data.",
+        syntax: "CASEPLOT [VARIABLES=] series [/DIFF[=n]] [/SDIFF[=n]] [/PERIOD=n] [/LN | /NOLOG]\n\
+                 \x20        [/ID=variable] [/MARK=variable | date] [/SPLIT=UNIFORM | SCALE]\n\
+                 \x20        [/FORMAT=[NOFILL | LEFT] [NOREFERENCE | REFERENCE[(value)]] | NOJOIN | JOIN | HILO]\n\
+                 \x20        [/APPLY].\n\
+                 TSPLOT turned on its side: the cases run down the vertical axis and the values across.\n\
+                 LEFT fills the area between the axis and the line of a single series. Everything else\n\
+                 is as for TSPLOT.",
+        example: "CASEPLOT VARIABLES=hourly_load /LN /DIFF /FORMAT=REFERENCE.",
+        parse: ts_models::caseplot,
+    },
+    CommandSpec {
         name: "PLUM",
         summary: "Ordinal regression: a cumulative link model of an ordered dependent variable.",
         syntax: "PLUM dependent [BY factors] [WITH covariates]\n\

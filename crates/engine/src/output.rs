@@ -83,6 +83,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Season(_)
         | Command::Exsmooth(_)
         | Command::Arima(_)
+        | Command::SeriesPlot(_)
         | Command::Create(_)
         | Command::MultipleImputation(_)
         | Command::Km(_)

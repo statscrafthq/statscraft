@@ -209,3 +209,38 @@ fn arima_subcommands() {
     assert!(err("ARIMA a /MODEL=(1,0,0) 12.").contains("after the seasonal orders"));
     assert!(err("ARIMA a /CINPCT=100.").contains("below 100"));
 }
+
+#[test]
+fn series_plot_subcommands() {
+    let Command::SeriesPlot(t) = command(
+        "TSPLOT VARIABLES=level flow /DIFF /SDIFF=2 /PER=7 /LN /ID=day /MARK=YEAR 2021 MONTH 4 \
+         /SPLIT=SCALE /FORMAT=HILO.",
+    ) else {
+        panic!()
+    };
+    assert!(!t.casewise);
+    assert_eq!(
+        (t.diff, t.sdiff, t.period, t.ln),
+        (Some(1), Some(2), Some(7), Some(true))
+    );
+    assert_eq!(
+        t.mark,
+        Some(PlotMark::Date(vec![
+            (DateUnit::Year, 2021.0),
+            (DateUnit::Month, 4.0)
+        ]))
+    );
+    assert_eq!((t.split_scale, t.join), (Some(true), Some(PlotJoin::Hilo)));
+    let Command::SeriesPlot(c) =
+        command("CASEPLOT load /MARK=switch /FORMAT=LEFT REFERENCE(12.5).")
+    else {
+        panic!()
+    };
+    assert!(c.casewise);
+    assert_eq!(c.mark, Some(PlotMark::Variable("switch".into())));
+    assert_eq!(c.fill, Some(true));
+    assert_eq!(c.reference, Some(PlotReference::Value(12.5)));
+    let e = err("TSPLOT y /FORMAT=LEFT.");
+    assert!(e.contains("unexpected word LEFT"), "{e}");
+    assert!(err("CASEPLOT y /SPLIT=WIDE.").contains("WIDE"));
+}
