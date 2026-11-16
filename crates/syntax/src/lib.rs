@@ -157,9 +157,12 @@ mod tests_session;
 mod tests_survival;
 #[cfg(test)]
 mod tests_timeseries;
+#[cfg(test)]
+mod tests_twostep;
 mod timeseries;
 mod tree;
 mod ts_models;
+mod twostep;
 
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
 pub use alscal::{Alscal, AlscalLevel};
@@ -311,6 +314,7 @@ pub use ts_models::{
     Arima, ArimaApply, ArimaForecast, ArimaLog, Exsmooth, PlotJoin, PlotMark, PlotReference,
     SeasonalFactors, Seasonality, SeriesPlot, Smoothing, Trend, smoothing_model_name,
 };
+pub use twostep::{AnomalySave, ClusterCount, Detectanomaly, Twostep};
 
 use parser::Parser;
 use table::Resolution;

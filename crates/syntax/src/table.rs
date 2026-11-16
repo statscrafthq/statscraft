@@ -68,6 +68,7 @@ use crate::survival;
 use crate::timeseries;
 use crate::tree;
 use crate::ts_models;
+use crate::twostep;
 
 /// One supported command: its name, its help text and its parser.
 pub struct CommandSpec {
@@ -2073,6 +2074,76 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  centers with CLUSTER_. Weighted when a weight variable is set.",
         example: "QUICK CLUSTER q1 TO q5 /CRITERIA=CLUSTER(3) MXITER(20) /PRINT=INITIAL ANOVA /SAVE=CLUSTER(segment) DISTANCE.",
         parse: factor::quick_cluster,
+    },
+    CommandSpec {
+        name: "TWOSTEP CLUSTER",
+        summary: "Clusters of cases from continuous and categorical variables, the number of clusters chosen by BIC or AIC.",
+        syntax: "TWOSTEP CLUSTER [/CONTINUOUS VARIABLES=varlist] [/CATEGORICAL VARIABLES=varlist]\n\
+                 \x20               [/DISTANCE=LIKELIHOOD | EUCLIDEAN] [/NUMCLUSTERS=AUTO [15] [BIC | AIC] | FIXED=n]\n\
+                 \x20               [/CRITERIA=[INITHRESHOLD(0)] [MXBRANCH(8)] [MXLEVEL(3)]] [/HANDLENOISE=0]\n\
+                 \x20               [/NOSTANDARDIZE [VARIABLES=varlist]] [/MISSING=EXCLUDE | INCLUDE] [/MEMALLOCATE=64]\n\
+                 \x20               [/PRINT=[IC] [COUNT] [SUMMARY]] [/VIEWMODEL [DISPLAY=YES | NO] [EVALUATIONFIELDS=varlist]]\n\
+                 \x20               [/SAVE CLUSTER [VARIABLE=name]] [/OUTFILE [MODEL='file'] [STATE='file']].\n\
+                 Step one reads the cases in file order into a tree of small subclusters: a case joins the\n\
+                 nearest subcluster when it lies within the threshold, else it starts its own; a node holds at\n\
+                 most MXBRANCH entries and the tree at most MXLEVEL levels below its root. A full tree is rebuilt\n\
+                 with a larger threshold; with HANDLENOISE p it first puts aside the subclusters smaller than p\n\
+                 percent of the largest, takes back those that later fit and calls the rest noise. Step two\n\
+                 joins the subclusters, nearest pair first. LIKELIHOOD (default) measures how much the\n\
+                 log-likelihood drops when two groups join, with normal continuous and multinomial categorical\n\
+                 variables; EUCLIDEAN, the distance between group means, takes continuous variables only. AUTO\n\
+                 compares 1 to 15 clusters (or the maximum given): BIC (default) or AIC gives a first count, at\n\
+                 the first step whose change is less than 0.04 of the change from 1 to 2 clusters, and the\n\
+                 ratios of the join distances settle it. Then every case goes to its nearest cluster; when the\n\
+                 tree filled under HANDLENOISE, a case too far from every cluster goes to cluster -1. Continuous\n\
+                 variables are standardized unless NOSTANDARDIZE names them; a constant one is left out.\n\
+                 Tables: Model Summary (unless DISPLAY=NO), Auto-Clustering (IC), Cluster Distribution (COUNT),\n\
+                 Centroids and one frequency table per categorical variable (SUMMARY). Cases missing on any\n\
+                 variable are left out; the weight variable is not used. SAVE adds the cluster numbers, named\n\
+                 TSC_1, TSC_2 and so on unless given. The result depends on the order of the cases. DMCLUSTER\n\
+                 is another name for the command. Not supported yet: INFILE; OUTFILE writes no file.",
+        example: "TWOSTEP CLUSTER /CONTINUOUS VARIABLES=spend visits /CATEGORICAL VARIABLES=region plan\n\
+                  \x20 /NUMCLUSTERS=AUTO 8 BIC /PRINT=COUNT SUMMARY IC /SAVE CLUSTER VARIABLE=segment.",
+        parse: twostep::twostep,
+    },
+    CommandSpec {
+        name: "DMCLUSTER",
+        summary: "Another name for TWOSTEP CLUSTER.",
+        syntax: "DMCLUSTER takes the subcommands of TWOSTEP CLUSTER and runs it.",
+        example: "DMCLUSTER /CONTINUOUS VARIABLES=spend visits /PRINT=COUNT.",
+        parse: twostep::twostep,
+    },
+    CommandSpec {
+        name: "DETECTANOMALY",
+        summary: "Unusual cases: peer groups by two-step clustering, an anomaly index and the variables behind it.",
+        syntax: "DETECTANOMALY [/VARIABLES [CATEGORICAL=varlist] [SCALE=varlist] [ID=var] [EXCEPT=varlist]]\n\
+                 \x20             [/HANDLEMISSING [APPLY=NO | YES] [CREATEMISPROPVAR=NO | YES]]\n\
+                 \x20             [/CRITERIA [MINNUMPEERS=1] [MAXNUMPEERS=15] [MLWEIGHT=6] [NUMREASONS=1]\n\
+                 \x20                        [PCTANOMALOUSCASES=5] [NUMANOMALOUSCASES=n] [ANOMALYCUTPOINT=2 | NONE]]\n\
+                 \x20             [/SAVE [ANOMALY[(name)]] [PEERID[(name)]] [PEERSIZE[(name)]] [PEERPCTSIZE[(name)]]\n\
+                 \x20                    [REASONVAR[(root)]] [REASONMEASURE[(root)]] [REASONVALUE[(root)]] [REASONNORM[(root)]]]\n\
+                 \x20             [/PRINT [CPS] [ANOMALYLIST] [NORMS] [ANOMALYSUMMARY] [REASONSUMMARY] [NONE]] [/OUTFILE MODEL='file'].\n\
+                 Without CATEGORICAL and SCALE every variable but ID and EXCEPT is used, strings and nominal or\n\
+                 ordinal variables as categorical. Keywords are written in full, each subcommand once. The cases\n\
+                 are grouped into peer groups by two-step clustering (log-likelihood distance, the variances\n\
+                 eased by the variable's overall variance over MLWEIGHT, BIC choosing between MINNUMPEERS and\n\
+                 MAXNUMPEERS). For each case, each variable's share of the distance between the case and its\n\
+                 peer group measures how far it strays; their sum over the peer group's mean sum is the anomaly\n\
+                 index, and a variable's share of the sum its impact. The anomaly list takes the cases of\n\
+                 highest index, PCTANOMALOUSCASES percent (rounded down) or NUMANOMALOUSCASES of them, keeping\n\
+                 those with an index of at least ANOMALYCUTPOINT; its reasons are each case's NUMREASONS\n\
+                 variables of largest impact, with the value and the peer group's norm (mean or mode).\n\
+                 Missing values leave the case out unless APPLY=YES, which puts the mean in for a continuous\n\
+                 variable and makes missing a category of a categorical one; CREATEMISPROPVAR=YES then adds the\n\
+                 share of missing values as a variable. A variable that does not vary is left out. Tables:\n\
+                 Case Processing Summary (CPS), the anomaly index, peer and reason lists (ANOMALYLIST, the\n\
+                 default), Scale and Categorical Variable Norms (NORMS), Anomaly Index Summary, Reason Summary.\n\
+                 SAVE adds AnomalyIndex, PeerId, PeerSize, PeerPctSize and per reason k ReasonVar_k,\n\
+                 ReasonMeasure_k, ReasonValue_k and ReasonNorm_k, a free suffix added to a default name in use.\n\
+                 WEIGHT and SPLIT FILE are not used. OUTFILE writes no file yet.",
+        example: "DETECTANOMALY /VARIABLES SCALE=amount days CATEGORICAL=channel ID=order_no\n\
+                  \x20 /CRITERIA NUMREASONS=2 PCTANOMALOUSCASES=2 /SAVE ANOMALY PEERID REASONVAR /PRINT CPS ANOMALYLIST NORMS.",
+        parse: twostep::detectanomaly,
     },
     CommandSpec {
         name: "CLUSTER",

@@ -71,6 +71,8 @@ pub enum Command {
     Reliability(Box<crate::reliability::Reliability>),
     Factor(Box<crate::factor::Factor>),
     QuickCluster(Box<crate::factor::QuickCluster>),
+    Twostep(Box<crate::twostep::Twostep>),
+    Detectanomaly(Box<crate::twostep::Detectanomaly>),
     Logistic(Box<crate::logistic::Logistic>),
     Coxreg(Box<crate::coxreg::Coxreg>),
     Nomreg(Box<crate::nomreg::Nomreg>),

@@ -23,6 +23,7 @@ mod curvefit;
 mod data_list;
 mod date;
 mod descriptives;
+mod detectanomaly;
 mod dictionary;
 mod discriminant;
 mod dist;
@@ -116,6 +117,7 @@ mod tree;
 mod ts_plot;
 mod ts_range;
 mod ttest;
+mod twostep;
 mod variables;
 pub mod vega_lite;
 mod wls;
@@ -801,6 +803,7 @@ impl Engine {
             | Command::Bayes(_)
             | Command::Factor(_)
             | Command::QuickCluster(_)
+            | Command::Twostep(_)
             | Command::Logistic(_)
             | Command::Coxreg(_)
             | Command::Nomreg(_)
@@ -833,6 +836,14 @@ impl Engine {
             | Command::Summarize(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
+            Command::Detectanomaly(_) => {
+                if self.active()?.split_file().is_some() {
+                    self.warn(
+                        "DETECTANOMALY does not use SPLIT FILE: it analyzes all cases together",
+                    );
+                }
+                return self.procedure(command);
+            }
             Command::Codebook(command) => return self.codebook(command),
             Command::Power(command) => return self.power(command),
             Command::TimeProgram => {
@@ -1079,6 +1090,8 @@ impl Engine {
             Command::Bayes(command) => self.bayes(command),
             Command::Factor(command) => self.factor(command),
             Command::QuickCluster(command) => self.quick_cluster(command),
+            Command::Twostep(command) => self.twostep(command),
+            Command::Detectanomaly(command) => self.detectanomaly(command),
             Command::Logistic(command) => self.logistic(command),
             Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),

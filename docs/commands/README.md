@@ -147,6 +147,9 @@ One page per supported command, generated from the same table that the parser an
 | [FACTOR](factor.md) | Factor analysis: principal components and six factoring methods, rotations, factor scores. |
 | [QUICK CLUSTER](quick-cluster.md) | K-means clustering of cases into a given number of clusters. |
 | [CLUSTER](cluster.md) | Hierarchical clustering of cases by one of 37 proximity measures and seven methods. |
+| [TWOSTEP CLUSTER](twostep-cluster.md) | Clusters of cases from continuous and categorical variables, the number of clusters chosen by BIC or AIC. |
+| [DMCLUSTER](dmcluster.md) | Another name for TWOSTEP CLUSTER. |
+| [DETECTANOMALY](detectanomaly.md) | Unusual cases: peer groups by two-step clustering, an anomaly index and the variables behind it. |
 | [PROXIMITIES](proximities.md) | Similarities, dissimilarities or distances between cases or variables by one of 37 measures. |
 | [PROXSCAL](proxscal.md) | Multidimensional scaling of one or more proximity matrices by majorization, with optimal transformations. |
 | [ALSCAL](alscal.md) | Multidimensional scaling of symmetric proximity matrices by alternating least squares on squared distances. |

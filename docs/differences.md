@@ -871,6 +871,32 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - Plots come as chart data. The cases are laid out so that no branches cross: a join puts the second cluster's cases after the first's. The dendrogram rescales the heights to 1 at the first join and 25 at the last, so the first joins stay apart from the cases. Icicle clusters are numbered along that layout.
 - Saved memberships are F8.0 nominal variables labeled with the method and the number of clusters.
 
+### TWOSTEP CLUSTER
+
+- Within a cluster the variance divides by the cluster's case count (the likelihood estimate). The overall variance that is added inside the logarithm, and the standardization, use n - 1.
+- A case joins a leaf entry of the tree when its likelihood (or Euclidean) distance to that entry is at most the threshold. When the tree is full, the new threshold is the median, over the leaf nodes, of the distance of each node's closest pair of entries, and at least twice the old threshold.
+- MXLEVEL counts the levels below the root, so the tree holds at most MXBRANCH to the power MXLEVEL + 1 subclusters (4096 by default).
+- Equal distances go to the first entry or cluster; of equally close pairs the lowest-numbered pair joins first.
+- The automatic count: one cluster when the criterion does not fall from 1 to 2 clusters. Without a step whose change ratio falls below 0.04, the first estimate is the largest count tried. A distance ratio needs the solution with one more cluster, so the largest count of the hierarchy has none; a single ratio decides alone. The case count in BIC counts the cases in the clustered (not noise) subclusters.
+- After clustering every case goes to its nearest cluster, which may differ from the cluster of its subcluster. Clusters are numbered in the order of their first case; a cluster nearest to no case is dropped with a warning.
+- The noise cluster -1 appears only with HANDLENOISE above 0 on a tree that filled. Its critical distance uses the ranges of the variables as clustered (standardized unless NOSTANDARDIZE names them).
+- A continuous variable with one value in every case is left out with a warning. The weight variable is not used, with a warning; SPLIT FILE gives one analysis per group.
+- With only a variable list the Model Summary table is shown (algorithm, number of inputs, number of clusters); with VIEWMODEL DISPLAY=NO and no PRINT or SAVE the command stops with an error. The interactive model view, its charts and the silhouette measure are not produced.
+- SUMMARY: the Centroids table gives the mean and standard deviation (n - 1) of the original values; a categorical variable's table gives each category's count and percent of the cluster's cases.
+- MEMALLOCATE is accepted and not needed. EVALUATIONFIELDS is accepted with a warning. OUTFILE writes no file yet (warning) and INFILE is not supported yet.
+
+### DETECTANOMALY
+
+- HANDLEMISSING APPLY and CREATEMISPROPVAR default to NO, as the syntax chart and the subcommand text mark; the overview describes the window's defaults.
+- A case is an anomaly when its index is at least ANOMALYCUTPOINT (the command's own text; the algorithms chapter says above). PCTANOMALOUSCASES takes that percent of the analyzed cases, rounded down.
+- Peer groups come from the two-step clustering above with its default tree, noise handling at 25 percent, and BIC between MINNUMPEERS and MAXNUMPEERS; a count below MINNUMPEERS is raised to it when the data have enough subclusters, else a warning says so. Each case then belongs to its closest group.
+- A case's deviations are measured against its peer group as it stands, the case itself included. Variances use n - 1. A deviation that rounding makes slightly negative counts as 0.
+- When a case's group deviation is 0 but its group's mean is not, the index is 0 and each impact 1 over the number of variables, as in the case where both are 0.
+- The missing proportion is the share (0 to 1) of the analysis variables missing in the case. It is left out, with a warning, when it is the same in every case. A variable that is constant or empty over the analyzed cases is left out with a warning, a categorical variable with a single valid category too.
+- Ties: the anomaly list keeps file order, reasons keep variable order (scale variables, the missing proportion, then categorical ones), and the mode is the first category in sort order. A missing category shows as Missing.
+- Saved values go to the analyzed cases; other cases get missing values. ReasonValue and ReasonNorm are numbers unless a categorical variable is a string, then text. A name given on SAVE that already exists is an error; a default name in use gets the first free suffix _1, _2 and so on. Reason variables with NUMREASONS=0 are skipped with a warning.
+- OUTFILE writes no model file yet (warning).
+
 ### PROXIMITIES
 
 - The standard deviation of Z and SD has n - 1 in its denominator. MAX divides by the largest value, not the largest absolute value.
@@ -1319,6 +1345,7 @@ Where the documentation is silent:
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
+  - TWOSTEP CLUSTER has no INFILE and writes no OUTFILE model or tree; DETECTANOMALY writes no OUTFILE model.
   - MVA has no OUTFILE under SPLIT FILE.
   - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE, and no cross-validated rows in the casewise listing.
   - USE takes case numbers only with /PERMANENT.

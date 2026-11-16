@@ -68,6 +68,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Coxreg(_)
         | Command::Anova(_)
         | Command::QuickCluster(_)
+        | Command::Twostep(_)
+        | Command::Detectanomaly(_)
         | Command::Tree(_)
         | Command::Csdescriptives(_)
         | Command::Cstabulate(_)
