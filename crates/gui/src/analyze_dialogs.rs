@@ -1048,7 +1048,8 @@ mod tests {
         d.factor = "region".into();
         let syntax = d.syntax().unwrap();
         assert_eq!(syntax, "ONEWAY age BY region.");
-        assert!(runs(&syntax) >= 1);
+        // the runs of this test's option sets are in the dialog walk (app/dialog_walk.rs)
+        assert!(statscraft_syntax::parse(&syntax).1.is_empty());
         d.dependents = v(&["age", "monthly_spend"]);
         d.statistics = [true; 4];
         d.post_hoc = [true; 16];
@@ -1061,8 +1062,7 @@ mod tests {
              /POSTHOC=LSD BONFERRONI SIDAK SCHEFFE FREGW QREGW SNK TUKEY BTUKEY DUNCAN GT2 \
              GABRIEL T2 T3 GH C DUNNETT."
         );
-        // multiple comparisons and homogeneous subsets for both dependents
-        assert!(runs(&syntax) >= 8);
+        assert!(statscraft_syntax::parse(&syntax).1.is_empty());
         d.statistics = [false; 4];
         d.post_hoc = [false; 16];
         d.post_hoc[7] = true;
@@ -1077,7 +1077,7 @@ mod tests {
             "ONEWAY age monthly_spend BY region\n  /POSTHOC=TUKEY GH ALPHA(0.01)\n  \
              /MISSING=LISTWISE\n  /CRITERIA=CILEVEL(0.9)."
         );
-        assert!(runs(&syntax) >= 2);
+        assert!(statscraft_syntax::parse(&syntax).1.is_empty());
         d.alpha = "0".into();
         assert_eq!(
             d.syntax().unwrap_err(),
@@ -1106,7 +1106,11 @@ mod tests {
                 syntax,
                 format!("ONEWAY monthly_spend BY region\n  /POSTHOC={keyword}.")
             );
-            assert!(runs(&syntax) >= 2);
+            assert!(statscraft_syntax::parse(&syntax).1.is_empty());
+            // DUNNETTR(1) runs in the dialog walk with every option on
+            if side != 2 {
+                assert!(runs(&syntax) >= 2);
+            }
         }
     }
 
