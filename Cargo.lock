@@ -4454,6 +4454,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "statscraft-dist"
+version = "0.15.0"
+
+[[package]]
 name = "statscraft-engine"
 version = "0.15.0"
 dependencies = [
@@ -4469,6 +4473,7 @@ dependencies = [
  "serde_json",
  "skrifa 0.49.0",
  "statscraft-data",
+ "statscraft-dist",
  "statscraft-syntax",
  "subsetter",
  "unicode-normalization",

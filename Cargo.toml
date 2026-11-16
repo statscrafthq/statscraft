@@ -30,3 +30,8 @@ opt-level = 3
 
 [profile.dev.package.flate2]
 opt-level = 3
+
+# The studentized range, maximum modulus and Dunnett integrals of the post hoc tests run about
+# nine times slower unoptimized.
+[profile.dev.package.statscraft-dist]
+opt-level = 3

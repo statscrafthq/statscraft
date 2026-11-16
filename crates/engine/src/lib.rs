@@ -27,7 +27,8 @@ mod date;
 mod descriptives;
 mod dictionary;
 mod discriminant;
-mod dist;
+// its own crate so that dev builds can optimize it (see the workspace Cargo.toml)
+use statscraft_dist as dist;
 mod distributions;
 mod examine;
 pub mod excel;
