@@ -39,6 +39,9 @@ use crate::proximities_dialog::Distances;
 use crate::reports_dialog::{Codebook, Summarize};
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
+use crate::timeseries_dialog::{
+    Correlogram, CreateRow, CreateSeries, Dates, IFFT, Season, SeriesOptions, TimeSeries,
+};
 use std::path::Path;
 
 fn s(text: &str) -> String {
@@ -2907,6 +2910,189 @@ fn the_nonparametric_tests_dialogs_write_syntax_that_runs() {
     }
 }
 
+/// Four invented years of a village bakery by month: loaves sold, with a summer peak and slow
+/// growth, and the rainfall in millimetres.
+fn bakery_months() -> String {
+    let peak = [3, 5, 9, 14, 22, 30, 34, 31, 20, 11, 6, 2];
+    let wet = [61, 48, 52, 40, 35, 28, 22, 30, 45, 66, 72, 69];
+    let mut program = String::from("DATA LIST LIST /loaves rainfall.\nBEGIN DATA\n");
+    for t in 0..48usize {
+        let loaves = 180 + 2 * t + peak[t % 12] * 3 + (t * 7) % 5;
+        let rainfall = wet[t % 12] + (t * t) % 7;
+        program.push_str(&format!("{loaves} {rainfall}\n"));
+    }
+    program.push_str("END DATA.\n");
+    program
+}
+
+/// The time series dialogs on the invented bakery months: the syntax is as expected, parses
+/// and runs without a warning.
+#[test]
+fn the_time_series_dialogs_write_syntax_that_runs() {
+    let both = v(&["loaves", "rainfall"]);
+    let series = |d: TimeSeries| Advanced::TimeSeries(Box::new(d));
+    let acf = |d: Correlogram| series(TimeSeries::Correlogram(d));
+    let row = |function: usize, sources: &[&str], first: &str, second: &str| CreateRow {
+        first: s(first),
+        second: s(second),
+        ..CreateRow::new(function, v(sources))
+    };
+    let cases: Vec<(Advanced, &str)> = vec![
+        (
+            acf(Correlogram {
+                variables: v(&["loaves"]),
+                ..Default::default()
+            }),
+            "ACF VARIABLES=loaves.",
+        ),
+        (
+            acf(Correlogram {
+                variables: both.clone(),
+                ln: true,
+                diff: true,
+                sdiff: true,
+                period: s("12"),
+                max_lag: s("10"),
+                display: 2,
+                ma_errors: true,
+                ..Default::default()
+            }),
+            "ACF VARIABLES=loaves rainfall\n  /LN\n  /DIFF=1\n  /SDIFF=1\n  /PERIOD=12\n  \
+             /MXAUTO=10\n  /SERROR=MA\n  /PACF.",
+        ),
+        (
+            acf(Correlogram {
+                variables: v(&["loaves"]),
+                diff: true,
+                diff_order: s("2"),
+                display: 1,
+                ..Default::default()
+            }),
+            "PACF VARIABLES=loaves\n  /DIFF=2.",
+        ),
+        (
+            acf(Correlogram {
+                variables: both.clone(),
+                ..Correlogram::new(true)
+            }),
+            "CCF VARIABLES=loaves rainfall.",
+        ),
+        (
+            acf(Correlogram {
+                variables: both.clone(),
+                ln: true,
+                diff: true,
+                sdiff: true,
+                period: s("12"),
+                max_lag: s("5"),
+                ..Correlogram::new(true)
+            }),
+            "CCF VARIABLES=loaves rainfall\n  /LN\n  /DIFF=1\n  /SDIFF=1\n  /PERIOD=12\n  \
+             /MXCROSS=5.",
+        ),
+        (
+            series(TimeSeries::Season(Season {
+                variables: v(&["loaves"]),
+                period: s("12"),
+                ..Default::default()
+            })),
+            "SEASON VARIABLES=loaves\n  /PERIOD=12.",
+        ),
+        (
+            series(TimeSeries::Season(Season {
+                variables: both.clone(),
+                additive: true,
+                equal: true,
+                period: s("12"),
+            })),
+            "SEASON VARIABLES=loaves rainfall\n  /MODEL=ADDITIVE\n  /MA=EQUAL\n  /PERIOD=12.",
+        ),
+        (
+            series(TimeSeries::Create(CreateSeries {
+                rows: vec![
+                    row(0, &["loaves"], "", ""),
+                    row(1, &["loaves"], "1", ""),
+                    row(2, &["loaves"], "1", "12"),
+                    CreateRow {
+                        names: s("rain_l1 rain_l2"),
+                        ..row(3, &["rainfall"], "1", "2")
+                    },
+                    row(4, &["rainfall"], "1", ""),
+                    row(5, &["loaves"], "5", "3"),
+                    row(6, &["loaves"], "3", ""),
+                    row(7, &["loaves"], "4", ""),
+                    row(8, &["loaves"], "", ""),
+                    row(9, &["rainfall"], "", ""),
+                    // the transform back of the parts the row before made
+                    row(IFFT, &["rainfall_re", "rainfall_im"], "", ""),
+                ],
+                function: 0,
+            })),
+            "CREATE loaves_csum = CSUM(loaves)\n  /loaves_diff = DIFF(loaves, 1)\n  \
+             /loaves_sdiff = SDIFF(loaves, 1, 12)\n  /rain_l1 rain_l2 = LAG(rainfall, 1, 2)\n  \
+             /rainfall_lead = LEAD(rainfall, 1)\n  /loaves_ma = MA(loaves, 5, 3)\n  \
+             /loaves_rmed = RMED(loaves, 3)\n  /loaves_pma = PMA(loaves, 4)\n  \
+             /loaves_t4253h = T4253H(loaves)\n  /rainfall_re rainfall_im = FFT(rainfall)\n  \
+             /rainfall_re_ifft = IFFT(rainfall_re, rainfall_im).",
+        ),
+        (
+            series(TimeSeries::Options(SeriesOptions {
+                reset: true,
+                newvar: 1,
+                mxnewvars: s("30"),
+                mxauto: s("20"),
+                mxcross: s("9"),
+                period: s("12"),
+                cin: s("90"),
+                include: true,
+                acfse_ma: true,
+                print: 1,
+            })),
+            "TSET DEFAULT NEWVAR=NONE MXNEWVARS=30 MXAUTO=20 MXCROSS=9 PERIOD=12 CIN=90 \
+             MISSING=INCLUDE ACFSE=MA PRINT=BRIEF.",
+        ),
+        (
+            series(TimeSeries::Dates(Dates {
+                case: 2,
+                starts: [s("2021"), s("3"), s("")],
+                ..Default::default()
+            })),
+            "DATE YEAR 2021 MONTH 3.",
+        ),
+        (
+            series(TimeSeries::Dates(Dates {
+                case: 19,
+                starts: [s(""), s("2"), s("")],
+                period: s("6"),
+            })),
+            "DATE CYCLE OBS 2 6.",
+        ),
+    ];
+    let program = bakery_months();
+    for (dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let mut result = session.run(&syntax, None).unwrap();
+        // TSET makes no table: the procedures after it take its period
+        if syntax.starts_with("TSET") {
+            result = session
+                .run("ACF loaves /SDIFF.\nSEASON loaves.", None)
+                .unwrap();
+        }
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+}
+
 /// Invented records: trainees of three schools passing a test after hours of practice (with
 /// untrained groups at 0 hours), weekly sales and visits of a shop, and the repair cost of
 /// machines by their running hours and age.
@@ -3462,6 +3648,230 @@ fn the_power_dialogs_write_syntax_that_runs() {
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
         let mut session = statscraft_engine::session::Session::default();
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+}
+
+/// Invented records of thirty students in a tutoring program: their club, weekly minutes, test
+/// scores before and after, two quizzes, a pass flag, help desk visits and a team color, with two
+/// answers missing.
+fn tutoring_students() -> String {
+    let mut program = String::from(
+        "DATA LIST LIST /student club minutes before after quiz1 quiz2 passed visits (9F8.2) \
+         team (A4).\nBEGIN DATA\n",
+    );
+    for i in 1..=30u32 {
+        let club = i % 2 + 1;
+        let minutes = match i {
+            9 => ".".to_string(),
+            _ => (30 + (i * 7) % 25 + club * 3).to_string(),
+        };
+        let before = 50 + (i * 11) % 30;
+        let after = match i {
+            17 => ".".to_string(),
+            _ => (before + (i * 5) % 9 - 2).to_string(),
+        };
+        let quiz1 = 5 + (i * 3) % 7;
+        let quiz2 = quiz1 + i % 4;
+        let passed = u32::from((i * 7) % 10 >= 4);
+        let visits = (i * 5) % 6;
+        let team = if (i * 13) % 5 < 3 { "red" } else { "blue" };
+        program.push_str(&format!(
+            "{i} {club} {minutes} {before} {after} {quiz1} {quiz2} {passed} {visits} {team}\n"
+        ));
+    }
+    program.push_str("END DATA.\n");
+    program
+}
+
+/// The Bayesian Statistics dialogs on invented records: for each command the least it needs, then
+/// a changed analysis, priors and Bayes factor settings. The syntax is as expected, parses and
+/// runs without a warning.
+#[test]
+fn the_bayes_dialogs_write_syntax_that_runs() {
+    use crate::bayes_dialog::{BayesKind::*, Bayesian};
+    let with = |kind, names: &[&str]| Bayesian {
+        variables: v(names),
+        ..Bayesian::new(kind)
+    };
+    let pair = (s("before"), s("after"));
+    let cases: Vec<(Bayesian, &str)> = vec![
+        (
+            with(Normal, &["minutes"]),
+            "BAYES ONESAMPLE /INFERENCE DISTRIBUTION=NORMAL VARIABLES=minutes.",
+        ),
+        (
+            Bayesian {
+                analysis: 2,
+                null: s("40"),
+                variance_prior: 2,
+                prior_a: s("3"),
+                prior_b: s("200"),
+                normal_mean: true,
+                prior_mean: s("38"),
+                kappa: s("4"),
+                ci_level: s("90"),
+                tolerance: s("0.00001"),
+                monte_carlo: true,
+                seed: s("7"),
+                mc_samples: s("20000"),
+                listwise: true,
+                ..with(Normal, &["minutes", "before"])
+            },
+            "BAYES ONESAMPLE /INFERENCE DISTRIBUTION=NORMAL VARIABLES=minutes before \
+             ANALYSIS=BOTH\n  /DATA VARIABLES=minutes before NULLVALUE=40\n  \
+             /PRIOR VARDIST=INVGAMMA(3 200) MEANDIST=NORMAL(38) KAPPA=4\n  \
+             /CRITERIA CILEVEL=90 TOL=0.00001 METHOD=MCA SEED=7 MCSAMPLES=20000\n  \
+             /MISSING SCOPE=LISTWISE.",
+        ),
+        (
+            with(Binomial, &["passed"]),
+            "BAYES ONESAMPLE /INFERENCE DISTRIBUTION=BINOMIAL VARIABLES=passed\n  \
+             /PRIOR TYPE=CONJUGATE(1 1).",
+        ),
+        (
+            Bayesian {
+                analysis: 2,
+                success: 4,
+                success_value: s("red"),
+                null_prior: s("3 3"),
+                alter_prior: s("1, 2"),
+                conjugate: s("0.5 0.5"),
+                ci_level: s("99"),
+                ..with(Binomial, &["team"])
+            },
+            "BAYES ONESAMPLE /INFERENCE DISTRIBUTION=BINOMIAL VARIABLES=team ANALYSIS=BOTH\n  \
+             /DATA VARIABLES=team SUCCESS=LEVEL('red') NULLPRIORPARAM=3 3 ALTERPRIORPARAM=1 2\n  \
+             /PRIOR TYPE=CONJUGATE(0.5 0.5)\n  /CRITERIA CILEVEL=99.",
+        ),
+        (
+            with(Poisson, &["visits"]),
+            "BAYES ONESAMPLE /INFERENCE DISTRIBUTION=POISSON VARIABLES=visits\n  \
+             /PRIOR TYPE=CONJUGATE(1 0).",
+        ),
+        (
+            Bayesian {
+                analysis: 1,
+                null_prior: s("1 1"),
+                alter_prior: s("0.5 2"),
+                listwise: true,
+                ..with(Poisson, &["visits", "quiz1"])
+            },
+            "BAYES ONESAMPLE /INFERENCE DISTRIBUTION=POISSON VARIABLES=visits quiz1 \
+             ANALYSIS=BAYESFACTOR\n  /DATA VARIABLES=visits quiz1 NULLPRIORPARAM=1 1 \
+             ALTERPRIORPARAM=0.5 2\n  /MISSING SCOPE=LISTWISE.",
+        ),
+        (
+            Bayesian {
+                pairs: vec![pair.clone()],
+                ..Bayesian::new(Related)
+            },
+            "BAYES RELATED /PAIR VARIABLES=before after.",
+        ),
+        (
+            Bayesian {
+                pairs: vec![pair.clone(), (s("quiz1"), s("quiz2"))],
+                analysis: 2,
+                known_variance: s("30"),
+                null: s("-1"),
+                g: s("2"),
+                normal_mean: true,
+                prior_mean: s("1"),
+                prior_mean_variance: s("4"),
+                ci_level: s("92.5"),
+                max_iterations: s("500"),
+                ..Bayesian::new(Related)
+            },
+            "BAYES RELATED /PAIR VARIABLES=before after VARIANCE=30 NULLVALUE=-1 ALTERGVALUE=2\n  \
+             /PAIR VARIABLES=quiz1 quiz2 VARIANCE=30 NULLVALUE=-1 ALTERGVALUE=2\n  \
+             /INFERENCE ANALYSIS=BOTH\n  /PRIOR MEANDIST=NORMAL(1 4)\n  \
+             /CRITERIA CILEVEL=92.5 MAXITER=500.",
+        ),
+        (
+            Bayesian {
+                group: s("club"),
+                level1: s("1"),
+                level2: s("2"),
+                ..with(Independent, &["minutes"])
+            },
+            "BAYES INDEPENDENT /INFERENCE VARIABLES=minutes GROUP=club SELECT=LEVEL(1 2).",
+        ),
+        (
+            Bayesian {
+                group: s("team"),
+                level1: s("red"),
+                level2: s("blue"),
+                analysis: 2,
+                equal_variances: true,
+                variance_prior: 2,
+                prior_a: s("2"),
+                prior_b: s("50"),
+                factor: 1,
+                gonen_mean: s("0.2"),
+                gonen_variance: s("0.5"),
+                listwise: true,
+                ..with(Independent, &["minutes", "after"])
+            },
+            "BAYES INDEPENDENT /INFERENCE VARIABLES=minutes after GROUP=team \
+             SELECT=LEVEL('red' 'blue') ANALYSIS=BOTH\n  /ESTBF COMPUTATION=GONEN(0.2 0.5)\n  \
+             /PRIOR EQUALDATAVAR=TRUE VARDIST=INVCHISQ(2 50)\n  /MISSING SCOPE=LISTWISE.",
+        ),
+        (
+            Bayesian {
+                group: s("club"),
+                select: 2,
+                cutpoint: s("2"),
+                analysis: 2,
+                known_variances: true,
+                variance1: s("60"),
+                variance2: s("80"),
+                normal_mean: true,
+                group_means: [s("40"), s("45"), s("100"), s("100")],
+                factor: 2,
+                hyper: s("-0.6"),
+                ..with(Independent, &["minutes"])
+            },
+            "BAYES INDEPENDENT /INFERENCE VARIABLES=minutes GROUP=club SELECT=CUTPOINT(2) \
+             ANALYSIS=BOTH DATAVAR=60 80\n  /ESTBF COMPUTATION=HYPER(-0.6)\n  \
+             /PRIOR MEANDIST=NORMAL(40 45 100 100).",
+        ),
+        (
+            with(Correlation, &["minutes", "before"]),
+            "BAYES CORRELATION /INFERENCE VARIABLES=minutes before.",
+        ),
+        (
+            Bayesian {
+                analysis: 2,
+                cvalue: s("2"),
+                fraction: true,
+                fraction_value: s("0.4"),
+                fraction_null: s("0.1"),
+                tolerance: s("0.00001"),
+                listwise: true,
+                ..with(Correlation, &["minutes", "before", "after"])
+            },
+            "BAYES CORRELATION /INFERENCE VARIABLES=minutes before after ANALYSIS=BOTH CVALUE=2\n  \
+             /ESTBF TYPE=FRACTION(0.4) NULLVALUE=0.1\n  /CRITERIA TOL=0.00001\n  \
+             /MISSING SCOPE=LISTWISE.",
+        ),
+    ];
+    let program = tutoring_students();
+    for (dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(Advanced::Bayes(Box::new(dialog)))
+            .syntax(&data)
+            .unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
         let result = session.run(&syntax, None).unwrap();
         assert!(
             result.commands.iter().any(|c| !c.tables.is_empty()),

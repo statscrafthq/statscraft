@@ -62,6 +62,8 @@ pub fn body(
         Advanced::Wls(d) => crate::regression_more_dialog_view::weight_estimation(ui, d, picked),
         Advanced::Power(d) => crate::power_dialog_view::power(ui, d),
         Advanced::Nptests(d) => crate::nptests_dialog_view::nptests(ui, d, picked),
+        Advanced::Bayes(d) => crate::bayes_dialog_view::bayes(ui, d, picked),
+        Advanced::TimeSeries(d) => crate::timeseries_dialog_view::body(ui, d, picked),
     }
 }
 
