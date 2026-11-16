@@ -159,6 +159,11 @@ fn one_sheet_freezes_columns_and_captions_take_their_look() {
         sheet.contains("xSplit=\"2\"") && !sheet.contains("ySplit"),
         "{sheet}"
     );
+    // a table that freezes nothing keeps the sheet unfrozen
+    let mut loose = other.clone();
+    loose.style.freeze_columns = None;
+    let parts_loose = written_all("caption-loose", &[&table, &loose], true);
+    assert!(!parts_loose["xl/worksheets/sheet1.xml"].contains("xSplit"));
     // title, header, two body rows, then the caption
     assert_eq!(value(&parts, "A5").as_deref(), Some("Filter: all"));
     let a5 = xf(&parts, "A5");

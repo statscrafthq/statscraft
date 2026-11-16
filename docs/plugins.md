@@ -279,7 +279,7 @@ out. The output window ignores them.
   stacked layout dropped its outer column), that Excel keeps in view when scrolling right, as
   with `"freeze_columns": 3` for the labels, the statistic column and the total. More columns
   than the table has are dropped. With all tables on one sheet only columns are kept in view,
-  the fewest that any table there asks for.
+  the fewest that any table there asks for, and none when a table or chart there asks for none.
 - `header_heights`: Excel row heights in points of the header lines, one number per line from
   line 0, as in `"header_heights": [30, 15]`. Each is kept within 1 to 409; lines without a
   number keep Excel's height, and numbers beyond the last header line are dropped.
