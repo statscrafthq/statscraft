@@ -448,8 +448,8 @@ BEGIN DATA
 1 1 5
 1 1 6
 1 2 7
-2 1 8
-2 1 9
+2 2 8
+2 2 9
 2 3 .
 END DATA.
 VARIABLE LEVEL class id (NOMINAL) /score (SCALE).
@@ -459,6 +459,7 @@ SPLIT FILE LAYERED BY class.
 VALIDATEDATA VARIABLES=ALL ID=id /IDCHECKS NONE /SAVE DUPLICATEID.
 SPLIT FILE OFF.
 LIST.");
+    // id 2 is in both classes, yet each class numbers only its own duplicates
     // class is constant within each group but, as a split variable, never checked
     let checks = titled(&tables, "Variable Checks");
     assert!(
