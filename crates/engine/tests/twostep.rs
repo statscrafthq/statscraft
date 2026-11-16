@@ -344,6 +344,36 @@ fn identical_cases_make_one_cluster() {
     assert_eq!(column(find(&tables, "Cluster Distribution"), 2)[0], 4.0);
 }
 
+/// MISSING=INCLUDE keeps user-missing values as valid; INITHRESHOLD wide enough puts every case
+/// into one subcluster, so only one cluster can come out.
+#[test]
+fn include_and_initial_threshold() {
+    let regions: Vec<u32> = DATA
+        .lines()
+        .skip(2)
+        .filter_map(|l| l.split(' ').nth(3)?.parse().ok())
+        .collect();
+    let threes = regions.iter().filter(|&&r| r == 3).count();
+    assert!(threes > 0 && regions.len() == 31);
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        "MISSING VALUES region (3).\n\
+         TWOSTEP CLUSTER /CATEGORICAL VARIABLES=region /CONTINUOUS VARIABLES=visits \
+         /SAVE CLUSTER VARIABLE=out.\n\
+         TWOSTEP CLUSTER /CATEGORICAL VARIABLES=region /CONTINUOUS VARIABLES=visits \
+         /MISSING=INCLUDE /SAVE CLUSTER VARIABLE=in.",
+    );
+    let valid = |name| saved(&engine, name).iter().filter(|v| v.is_some()).count();
+    assert_eq!((valid("out"), valid("in")), (31 - threes, 31));
+
+    let tables = run(
+        &mut Engine::default(),
+        "TWOSTEP CLUSTER /CONTINUOUS VARIABLES=spend visits /CRITERIA INITHRESHOLD(1000).",
+    );
+    assert_eq!(number(&find(&tables, "Model Summary").rows[2][1]), 1.0);
+}
+
 #[test]
 fn euclidean_fixed_count() {
     let mut engine = Engine::default();
@@ -532,6 +562,30 @@ fn single_case_peer_group() {
         warnings.iter().any(|w| w.contains("weight")),
         "{warnings:?}"
     );
+}
+
+/// NUMANOMALOUSCASES lists that many cases when no cutpoint applies; PEERPCTSIZE is the peer
+/// group's size as a percent of the cases analyzed.
+#[test]
+fn anomaly_count_and_peer_percent() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        "DETECTANOMALY /VARIABLES SCALE=spend visits ID=id \
+         /CRITERIA NUMANOMALOUSCASES=4 ANOMALYCUTPOINT=NONE /SAVE PEERSIZE PEERPCTSIZE.",
+    );
+    assert_eq!(find(&tables, "Anomaly Case Index List").rows.len(), 4);
+    let sizes = saved(&engine, "PeerSize");
+    let shares = saved(&engine, "PeerPctSize");
+    let analyzed = sizes.iter().flatten().count() as f64;
+    assert_eq!(analyzed, 30.0);
+    for (size, share) in sizes.iter().zip(&shares) {
+        match (size, share) {
+            (Some(n), Some(p)) => assert!(close(*p, 100.0 * n / analyzed)),
+            (None, None) => {}
+            other => panic!("{other:?}"),
+        }
+    }
 }
 
 #[test]
