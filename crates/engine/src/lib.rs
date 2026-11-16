@@ -20,6 +20,7 @@ mod correlations;
 mod correspondence;
 mod coxreg;
 mod crosstabs;
+mod crosstabs_measures;
 mod ctables;
 mod curvefit;
 mod data_list;

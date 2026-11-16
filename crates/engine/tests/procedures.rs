@@ -584,6 +584,162 @@ fn crosstabs_case_processing_summary() {
     );
 }
 
+/// The measures of association of the weighted 2 x 2 table [[3, 12], [9, 4]] (W = 28).
+/// By hand: chi-square = 28 (12 - 108)^2 / (15 13 12 16) = 6.8923, phi = -root(6.8923 / 28)
+/// (negative like the correlation), V = |phi|, CC = root(6.8923 / 34.8923) = 4/9; doubled
+/// pairs P = 24 and Q = 216, so gamma = -192 / 240 = -0.8, tau-b = -192 / root(390 384),
+/// tau-c = 2 (-192) / 28^2; lambda: rows 6/13, columns 5/12, symmetric 11/25; Goodman and
+/// Kruskal's tau = phi^2. The standard errors, T and significances agree with GNU PSPP run
+/// as a black box.
+#[test]
+fn crosstabs_measures_of_association() {
+    let data = "DATA LIST FREE /a b n.\nBEGIN DATA\n1 1 3\n1 2 12\n2 1 9\n2 2 4\nEND DATA.\nWEIGHT BY n.\n";
+    let mut engine = Engine::default();
+    let tables = crosstabs(
+        &mut engine,
+        &format!(
+            "{data}CROSSTABS a BY b /CELLS=NONE /STATISTICS=PHI CC LAMBDA BTAU CTAU GAMMA CORR."
+        ),
+    );
+    let [symmetric, directional] = &tables[..] else {
+        panic!("{tables:?}")
+    };
+    assert_eq!(symmetric.title, "Symmetric Measures: a by b");
+    let chi = 28.0 * 96.0_f64.powi(2) / (15.0 * 13.0 * 12.0 * 16.0);
+    let phi = -(chi / 28.0).sqrt();
+    let tau_b = -192.0 / (390.0_f64 * 384.0).sqrt();
+    let p = 0.00865674412724605;
+    let rows: Vec<(String, Vec<Option<f64>>)> = symmetric
+        .rows
+        .iter()
+        .map(|r| {
+            (
+                texts(r)[1].clone(),
+                r[2..]
+                    .iter()
+                    .map(|c| match c {
+                        Cell::Number(n) => Some(*n),
+                        _ => None,
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+    let expected: [(&str, [Option<f64>; 4]); 9] = [
+        ("Phi", [Some(phi), None, None, Some(p)]),
+        ("Cramer's V", [Some(-phi), None, None, Some(p)]),
+        (
+            "Contingency Coefficient",
+            [Some(4.0 / 9.0), None, None, Some(p)],
+        ),
+        (
+            "Kendall's tau-b",
+            [
+                Some(tau_b),
+                Some(0.1645027172548249),
+                Some(-2.9833977696002307),
+                Some(0.0028506724950433542),
+            ],
+        ),
+        (
+            "Kendall's tau-c",
+            [
+                Some(-384.0 / 784.0),
+                Some(0.16417385685482314),
+                Some(-2.9833977696002307),
+                Some(0.0028506724950433542),
+            ],
+        ),
+        (
+            "Gamma",
+            [
+                Some(-0.8),
+                Some(0.15874507866387544),
+                Some(-2.9833977696002307),
+                Some(0.0028506724950433542),
+            ],
+        ),
+        (
+            "Spearman Correlation",
+            [
+                Some(tau_b),
+                Some(0.164502717254825),
+                Some(-2.9137254363387344),
+                Some(0.0072491951530327245),
+            ],
+        ),
+        (
+            "Pearson's R",
+            [
+                Some(tau_b),
+                Some(0.164502717254825),
+                Some(-2.9137254363387344),
+                Some(0.0072491951530327245),
+            ],
+        ),
+        // the case count's label stands in the first column
+        ("", [Some(28.0), None, None, None]),
+    ];
+    assert_eq!(rows.len(), expected.len());
+    for ((name, got), (want_name, want)) in rows.iter().zip(&expected) {
+        assert_eq!(name, want_name);
+        for (g, w) in got.iter().zip(want) {
+            match (g, w) {
+                (Some(g), Some(w)) => assert!((g - w).abs() < 1e-9, "{name}: {g} vs {w}"),
+                (None, None) => {}
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+    }
+    assert_eq!(texts(&symmetric.rows[3])[0], "Ordinal by Ordinal");
+    assert_eq!(texts(&symmetric.rows[8])[0], "N of Valid Cases");
+    let lambdas: Vec<f64> = directional.rows[..3]
+        .iter()
+        .map(|r| number(&r[3]))
+        .collect();
+    for (got, want) in lambdas.iter().zip([11.0 / 25.0, 6.0 / 13.0, 5.0 / 12.0]) {
+        assert!((got - want).abs() < 1e-12, "{lambdas:?}");
+    }
+    assert_eq!(
+        directional
+            .rows
+            .iter()
+            .map(|r| texts(r)[2].clone())
+            .collect::<Vec<_>>(),
+        [
+            "Symmetric",
+            "a Dependent",
+            "b Dependent",
+            "a Dependent",
+            "b Dependent"
+        ]
+    );
+    assert_eq!(texts(&directional.rows[0])[0], "Nominal by Nominal");
+    for row in &directional.rows[3..] {
+        assert!((number(&row[3]) - chi / 28.0).abs() < 1e-12);
+    }
+
+    // DVALUE shows the rows the other way round; the measures keep the ascending order
+    let turned = crosstabs(
+        &mut engine,
+        "CROSSTABS a BY b /CELLS=NONE /STATISTICS=GAMMA /FORMAT=DVALUE.",
+    );
+    assert!((number(&turned[0].rows[0][2]) + 0.8).abs() < 1e-12);
+    // a string variable has no correlations; a constant one no measures, only its count
+    let strings = crosstabs(
+        &mut engine,
+        "STRING s (A1).\nCOMPUTE s = 'x'.\nIF a = 2 s = 'y'.\nCOMPUTE k = 1.\n\
+         CROSSTABS /TABLES=s BY b /TABLES=k BY b /CELLS=NONE /STATISTICS=CORR GAMMA.",
+    );
+    let names: Vec<String> = strings[0]
+        .rows
+        .iter()
+        .map(|r| texts(r)[1].clone())
+        .collect();
+    assert_eq!(names, ["Gamma", ""]);
+    assert_eq!(strings[1].rows.len(), 1);
+}
+
 #[test]
 fn crosstabs_missing_values() {
     let mut engine = survey();

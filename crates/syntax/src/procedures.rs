@@ -71,10 +71,8 @@ const CELLS: [(&str, &[CrosstabsCell]); 10] = [
 
 const UNSUPPORTED_CELLS: [&str; 3] = ["BPROP", "PROP", "SUMMARY"];
 
-const UNSUPPORTED_STATISTICS: [&str; 14] = [
-    "PHI", "CC", "LAMBDA", "UC", "BTAU", "CTAU", "RISK", "GAMMA", "D", "KAPPA", "ETA", "CORR",
-    "CMH", "ALL",
-];
+const UNSUPPORTED_STATISTICS: [&str; 8] =
+    ["UC", "RISK", "D", "KAPPA", "ETA", "MCNEMAR", "CMH", "ALL"];
 
 const UNSUPPORTED_FORMATS: [&str; 6] = ["PIVOT", "NOPIVOT", "BOX", "NOBOX", "INDEX", "NOINDEX"];
 
@@ -256,6 +254,7 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         tables: Vec::new(),
         cells: Vec::new(),
         chisq: false,
+        measures: Vec::new(),
         include: false,
         descending: false,
         count: WeightCount::Asis,
@@ -290,10 +289,22 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
             };
             cells.get_or_insert_default().extend(chosen);
         } else if p.eat_keyword("STATISTICS") {
-            const CHOICES: [(&str, &[bool]); 2] = [("CHISQ", &[true]), ("NONE", &[false])];
+            use crate::CrosstabsMeasure as M;
+            // None is CHISQ; NONE chooses nothing
+            const CHOICES: [(&str, &[Option<M>]); 9] = [
+                ("CHISQ", &[None]),
+                ("PHI", &[Some(M::Phi)]),
+                ("CC", &[Some(M::Cc)]),
+                ("LAMBDA", &[Some(M::Lambda)]),
+                ("BTAU", &[Some(M::Btau)]),
+                ("CTAU", &[Some(M::Ctau)]),
+                ("GAMMA", &[Some(M::Gamma)]),
+                ("CORR", &[Some(M::Corr)]),
+                ("NONE", &[]),
+            ];
             // without keywords STATISTICS is the chi-square test
-            command.chisq = if !p.eat(Punct::Eq) && at_end(p) {
-                true
+            if !p.eat(Punct::Eq) && at_end(p) {
+                command.chisq = true;
             } else {
                 let chosen = keywords(p, &CHOICES, |p| {
                     keyword_error(
@@ -303,8 +314,12 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
                         &names(&CHOICES),
                     )
                 })?;
-                chosen.contains(&true)
-            };
+                command.chisq = chosen.contains(&None);
+                let mut measures: Vec<M> = chosen.into_iter().flatten().collect();
+                measures.sort_unstable();
+                measures.dedup();
+                command.measures = measures;
+            }
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
             const CHOICES: [(&str, &[bool]); 2] = [("TABLE", &[false]), ("INCLUDE", &[true])];

@@ -4,6 +4,7 @@
 use crate::chart::{
     self, Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic, Tier,
 };
+use crate::crosstabs_measures::Counts;
 use crate::descriptives::{case_weights, number};
 use crate::dist::chi_square_p;
 use crate::shown::Shown;
@@ -547,9 +548,138 @@ fn tables(
             ..Table::default()
         });
     }
+    if !command.measures.is_empty() {
+        out.extend(measure_tables(
+            &blocks,
+            &variables,
+            command,
+            (shown, &title),
+            layer_names(),
+        ));
+    }
     let chart = (command.barchart && !blocks.is_empty())
         .then(|| bar_chart(&blocks, &variables, shown, (title, command.descending)));
     Ok((out, chart, summary))
+}
+
+/// The Symmetric Measures and Directional Measures tables, a block of lines per layer. A layer
+/// with one row or column has only its case count.
+fn measure_tables(
+    blocks: &[Block],
+    variables: &[Variable],
+    command: &Crosstabs,
+    (shown, title): (&Shown, &str),
+    layer_names: impl Iterator<Item = String>,
+) -> Vec<Table> {
+    let numeric = !variables[0].is_string() && !variables[1].is_string();
+    let layer_names: Vec<String> = layer_names.collect();
+    let value = |k: &Key| match k {
+        Key::Number(n) => *n,
+        Key::Text(_) => 0.0,
+    };
+    let mut symmetric = Vec::new();
+    let mut directional = Vec::new();
+    for block in blocks {
+        let layer: Vec<Cell> = (2..variables.len())
+            .zip(&block.layer)
+            .map(|(v, k)| Cell::Text(shown.value(&variables[v], k)))
+            .collect();
+        // the measures take the categories in ascending order, whatever DVALUE shows
+        let mut f = block.counts.clone();
+        let mut row_values: Vec<f64> = block.rows.iter().map(value).collect();
+        if command.descending {
+            f.reverse();
+            row_values.reverse();
+        }
+        let counts = Counts {
+            f: &f,
+            values: numeric.then(|| (row_values, block.columns.iter().map(value).collect())),
+        };
+        let usable = block.rows.len() >= 2 && block.columns.len() >= 2;
+        let number = |v: Option<f64>| match v {
+            Some(v) if v.is_finite() => Cell::Number(v),
+            _ => Cell::Empty,
+        };
+        let mut group_shown = "";
+        let lines = if usable {
+            counts.symmetric(&command.measures)
+        } else {
+            Vec::new()
+        };
+        for l in lines {
+            let mut row = layer.clone();
+            row.push(Cell::Text(if l.group == group_shown {
+                String::new()
+            } else {
+                l.group.into()
+            }));
+            group_shown = l.group;
+            row.push(Cell::Text(l.name.into()));
+            row.extend([Some(l.value), l.ase, l.t, l.sig].map(number));
+            symmetric.push(row);
+        }
+        let mut row = layer.clone();
+        row.extend([Cell::Text("N of Valid Cases".into()), Cell::Empty]);
+        row.extend([
+            Cell::Number(block.total),
+            Cell::Empty,
+            Cell::Empty,
+            Cell::Empty,
+        ]);
+        symmetric.push(row);
+        if usable {
+            let (mut group_shown, mut name_shown) = ("", "");
+            for l in counts.directional(&command.measures) {
+                let mut row = layer.clone();
+                row.push(Cell::Text(if l.group == group_shown {
+                    String::new()
+                } else {
+                    l.group.into()
+                }));
+                group_shown = l.group;
+                row.push(Cell::Text(if l.name == name_shown {
+                    String::new()
+                } else {
+                    l.name.into()
+                }));
+                name_shown = l.name;
+                row.push(Cell::Text(match l.dependent {
+                    0 => "Symmetric".into(),
+                    d => format!(
+                        "{} Dependent",
+                        shown.variable(&variables[usize::from(d) - 1])
+                    ),
+                }));
+                row.extend([Some(l.value), l.ase, l.t, l.sig].map(number));
+                directional.push(row);
+            }
+        }
+    }
+    let leaves = [
+        "Value",
+        "Asymptotic Standard Error",
+        "Approximate T",
+        "Approximate Significance",
+    ];
+    let table = |name: &str, labels: usize, rows: Vec<Vec<Cell>>| {
+        let mut columns = layer_names.clone();
+        columns.extend(std::iter::repeat_n(String::new(), labels));
+        let headers = columns.len();
+        columns.extend(leaves.map(String::from));
+        Table {
+            title: format!("{name}: {title}"),
+            row_headers: headers,
+            column_groups: vec![Vec::new(); columns.len()],
+            columns,
+            rows,
+            ..Table::default()
+        }
+    };
+    let mut out = vec![table("Symmetric Measures", 2, symmetric)];
+    if !directional.is_empty() {
+        out.push(table("Directional Measures", 3, directional));
+    }
+    out
 }
 
 impl Engine {

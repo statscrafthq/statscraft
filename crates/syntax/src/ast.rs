@@ -927,6 +927,8 @@ pub struct Crosstabs {
     /// In display order, without duplicates. Empty for `/CELLS=NONE`.
     pub cells: Vec<CrosstabsCell>,
     pub chisq: bool,
+    /// The measures of association `/STATISTICS` asks for, in syntax order, without duplicates.
+    pub measures: Vec<CrosstabsMeasure>,
     /// `/MISSING=INCLUDE`: user-missing values form categories of their own.
     pub include: bool,
     /// `/FORMAT=DVALUE`: row categories in descending order.
@@ -937,6 +939,24 @@ pub struct Crosstabs {
     pub truncate: bool,
     /// `/BARCHART`: a clustered bar chart per table.
     pub barchart: bool,
+}
+
+/// A measure of association of CROSSTABS /STATISTICS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CrosstabsMeasure {
+    /// Phi and Cramer's V.
+    Phi,
+    /// The contingency coefficient.
+    Cc,
+    /// Lambda and Goodman and Kruskal's tau.
+    Lambda,
+    /// Kendall's tau-b.
+    Btau,
+    /// Kendall's tau-c.
+    Ctau,
+    Gamma,
+    /// Pearson's r and Spearman's correlation.
+    Corr,
 }
 
 /// How CROSSTABS turns case weights into counts.

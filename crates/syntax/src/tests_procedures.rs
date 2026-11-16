@@ -87,6 +87,7 @@ fn crosstabs() {
             tables: vec![vec![vec![var("a"), var("b")], vec![var("c")]]],
             cells: vec![C::Count],
             chisq: false,
+            measures: Vec::new(),
             include: false,
             descending: false,
             count: WeightCount::Asis,
@@ -105,6 +106,7 @@ fn crosstabs() {
             ],
             cells: vec![C::Count, C::Row, C::Sresid],
             chisq: true,
+            measures: Vec::new(),
             include: true,
             descending: true,
             count: WeightCount::Asis,
@@ -117,12 +119,31 @@ fn crosstabs() {
     };
     assert!(c.cells.is_empty());
 
-    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ PHI.");
+    let Command::Crosstabs(c) =
+        one("CROSSTABS a BY b /STATISTICS=CORR PHI GAMMA PHI CC LAMBDA BTAU CTAU.")
+    else {
+        panic!()
+    };
+    assert!(!c.chisq);
+    use CrosstabsMeasure as M;
+    assert_eq!(
+        c.measures,
+        [
+            M::Phi,
+            M::Cc,
+            M::Lambda,
+            M::Btau,
+            M::Ctau,
+            M::Gamma,
+            M::Corr
+        ]
+    );
+    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ KAPPA.");
     assert_eq!(
         e.message,
-        "PHI in CROSSTABS /STATISTICS is not supported yet"
+        "KAPPA in CROSSTABS /STATISTICS is not supported yet"
     );
-    assert_eq!(e.expected, ["CHISQ", "NONE"]);
+    assert_eq!(e.expected[0], "CHISQ");
     assert!(
         err("CROSSTABS a BY b /MISSING=REPORT.")
             .message

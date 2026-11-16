@@ -9,7 +9,7 @@ Contingency tables with percentages, residuals and chi-square tests.
 ```text
 CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]
           [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]
-          [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE]
+          [/STATISTICS=CHISQ PHI CC LAMBDA BTAU CTAU GAMMA CORR NONE] [/MISSING=TABLE | INCLUDE]
           [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]
           [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].
 ```
@@ -27,6 +27,8 @@ CELLS defaults to COUNT; CELLS alone is COUNT ROW COLUMN TOTAL. Percentages are 
 STATISTICS alone is CHISQ. DVALUE orders the rows from the highest value; columns stay ascending.
 
 CHISQ: Pearson, likelihood ratio, linear-by-linear (numeric variables), and for a 2 x 2 table Fisher's exact test and the continuity correction.
+
+PHI (phi and Cramer's V), CC (contingency coefficient), BTAU, CTAU (Kendall's tau-b, tau-c), GAMMA and CORR (Spearman and Pearson, numeric variables only) go in a Symmetric Measures table; LAMBDA (lambda and Goodman and Kruskal's tau) in a Directional Measures table. Each gives its value, asymptotic standard error, approximate T and significance; a table with one row or column gets none.
 
 MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.
 

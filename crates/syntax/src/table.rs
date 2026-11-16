@@ -1144,7 +1144,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Contingency tables with percentages, residuals and chi-square tests.",
         syntax: "CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]\n\
                  \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
-                 \x20         [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE]\n\
+                 \x20         [/STATISTICS=CHISQ PHI CC LAMBDA BTAU CTAU GAMMA CORR NONE] [/MISSING=TABLE | INCLUDE]\n\
                  \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
                  \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].\n\
                  First a Case Processing Summary: per table the valid, missing and total cases (weighted).\n\
@@ -1157,6 +1157,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  STATISTICS alone is CHISQ. DVALUE orders the rows from the highest value; columns stay ascending.\n\
                  CHISQ: Pearson, likelihood ratio, linear-by-linear (numeric variables), and for a 2 x 2\n\
                  table Fisher's exact test and the continuity correction.\n\
+                 PHI (phi and Cramer's V), CC (contingency coefficient), BTAU, CTAU (Kendall's tau-b, tau-c),\n\
+                 GAMMA and CORR (Spearman and Pearson, numeric variables only) go in a Symmetric Measures table;\n\
+                 LAMBDA (lambda and Goodman and Kruskal's tau) in a Directional Measures table. Each gives its\n\
+                 value, asymptotic standard error, approximate T and significance; a table with one row or\n\
+                 column gets none.\n\
                  MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps\n\
                  user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.\n\
                  BARCHART adds a clustered bar chart per table: a cluster per row category, a bar per column\n\
