@@ -133,6 +133,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "BAYES ANOVA",
             "BAYES REGRESSION",
             "BAYES REPEATED",
+            "BAYES LOGLINEAR",
             "POWER MEANS ONESAMPLE",
             "POWER MEANS INDEPENDENT",
             "POWER MEANS RELATED",

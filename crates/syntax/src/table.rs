@@ -1743,6 +1743,40 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: bayes::repeated,
     },
     CommandSpec {
+        name: "BAYES LOGLINEAR",
+        summary: "Bayesian test of independence in a two-way table, with simulated interaction terms.",
+        syntax: "BAYES LOGLINEAR /TABLE rowvar BY colvar\n\
+                 \x20  [/INFERENCE ANALYSIS=POSTERIOR | BAYESFACTOR | BOTH]\n\
+                 \x20  [/ESTBF [MODEL=MULTINOMIAL | POISSON | NONPARAMETRIC] [FIX_MARGIN=TOTAL | ROW | COLUMN]\n\
+                 \x20          [PRIOR_TYPE=CONJUGATE | MIXTURE_DIRICHLET | INTRINSIC] [SHAPEPARAMS=values]\n\
+                 \x20          [SCALEPARAM=DATA | b] [LAMBDAS=values]]\n\
+                 \x20  [/PRINT [SUPPRESS_TABLE=FALSE | TRUE] [CELLS=OBSERVED ROW COLUMN EXPECTED TOTAL ALL]\n\
+                 \x20          [STATISTICS=CHISQ LRT]]\n\
+                 \x20  [/CRITERIA [CILEVEL=95] [SEED=RANDOM | n] [TOL=0.000001] [MAXITER=2000]\n\
+                 \x20             [POSTSAMPLES=10000] [ORDER=ASCENDING | DESCENDING]].\n\
+                 The table counts cases valid on both variables with rounded case weights; only categories\n\
+                 that occur count, and ORDER sorts both of them. Every Bayes factor is BF01, for\n\
+                 independence. CONJUGATE puts gamma priors with the shapes of SHAPEPARAMS (1 for every cell;\n\
+                 one value, or one row of values per table row with ';' between rows) on the cells;\n\
+                 FIX_MARGIN says whether the grand total, the row totals or the column totals are fixed by\n\
+                 the design. POISSON fixes nothing and uses the gamma scale SCALEPARAM (DATA: rows times\n\
+                 columns times the smallest shape over N). MIXTURE_DIRICHLET mixes symmetric Dirichlet priors\n\
+                 over a log-Cauchy weight, by quadrature with TOL and MAXITER. INTRINSIC needs a 2 x 2 table\n\
+                 (others fall back to the mixture with a warning). NONPARAMETRIC needs FIX_MARGIN=ROW with\n\
+                 two rows or COLUMN with two columns; LAMBDAS holds one Dirichlet parameter, or one per free\n\
+                 category.\n\
+                 The posterior part draws POSTSAMPLES cell probability sets from SEED and reports each log\n\
+                 odds ratio against the last row and column, with a simultaneous credible region for all of\n\
+                 them. PRINT shows the crosstab (observed counts by default) and, for CHISQ, Pearson's\n\
+                 chi-square, the continuity correction of a 2 x 2 table and Fisher's test when an expected count\n\
+                 is below 5; LRT adds the likelihood ratio. Keywords with an underscore may be written\n\
+                 without it or as two words.",
+        example: "BAYES LOGLINEAR /TABLE ferry_route BY ticket_class\n\
+                  \x20 /INFERENCE ANALYSIS=BOTH /ESTBF MODEL=MULTINOMIAL FIX_MARGIN=ROW PRIOR_TYPE=CONJUGATE\n\
+                  \x20 /PRINT CELLS=OBSERVED ROW STATISTICS=CHISQ LRT /CRITERIA SEED=4417.",
+        parse: bayes::loglinear,
+    },
+    CommandSpec {
         name: "POWER MEANS ONESAMPLE",
         summary: "Power or sample size of a one-sample t-test of a mean.",
         syntax: "POWER MEANS ONESAMPLE /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\

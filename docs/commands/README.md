@@ -132,6 +132,7 @@ One page per supported command, generated from the same table that the parser an
 | [BAYES ANOVA](bayes-anova.md) | Bayesian one-way analysis of variance: a Bayes factor for the groups and posteriors of their means. |
 | [BAYES REGRESSION](bayes-regression.md) | Bayesian linear regression: a Bayes factor for the model, posteriors, predictions and F tests. |
 | [BAYES REPEATED](bayes-repeated.md) | Bayesian one-way repeated measures analysis: a Bayes factor and posteriors of the condition means. |
+| [BAYES LOGLINEAR](bayes-loglinear.md) | Bayesian test of independence in a two-way table, with simulated interaction terms. |
 | [POWER MEANS ONESAMPLE](power-means-onesample.md) | Power or sample size of a one-sample t-test of a mean. |
 | [POWER MEANS INDEPENDENT](power-means-independent.md) | Power or group sizes of a t-test comparing the means of two independent groups. |
 | [POWER MEANS RELATED](power-means-related.md) | Power or number of pairs of a paired t-test. |

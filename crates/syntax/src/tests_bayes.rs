@@ -338,3 +338,87 @@ fn repeated_settings() {
     assert!(!c.rouder && c.criteria.mcsamples == 30_000);
     assert!(err("BAYES REPEATED a b /CRITERIA TOL=0.001.").contains("SEED"));
 }
+
+#[test]
+fn loglinear_defaults() {
+    let Bayes::Loglinear(c) = bayes("BAYES LOGLINEAR /TABLE route BY class.") else {
+        panic!()
+    };
+    assert_eq!((c.row.as_str(), c.column.as_str()), ("route", "class"));
+    assert_eq!(c.analysis, BayesAnalysis::Posterior);
+    assert_eq!(
+        (c.model, c.margin, c.prior),
+        (
+            CountModel::Multinomial,
+            FixedMargin::Total,
+            TablePrior::Conjugate
+        )
+    );
+    assert_eq!(c.cells, vec![CrosstabsCell::Count]);
+    assert!(c.chisq && !c.lrt && !c.suppress_table && !c.criteria.descending);
+    assert_eq!((c.criteria.postsamples, c.criteria.seed), (10_000, None));
+}
+
+#[test]
+fn loglinear_settings_and_spellings() {
+    let Bayes::Loglinear(c) = bayes(
+        "BAYES LOGLINEAR /CRITERIA CILEVEL=90 SEED=31 TOL=0.0001 MAXITER=300 POSTSAMPLES=2000\n\
+         ORDER=DESCENDING /INFERENCE ANALYSIS=BOTH /TABLE route BY class\n\
+         /ESTBF MODEL=POISSON FIXMARGINS=COLUMN PRIORTYPE=MIXTURE_DIRICHLET\n\
+         SHAPEPARAMS=1 2; 3 4 SCALEPARAM=0.25\n\
+         /PRINT SUPPRESSTABLE=TRUE CELLS=ALL STATISTICS=LRT.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(c.criteria.ci, 0.9);
+    assert_eq!((c.criteria.seed, c.criteria.maxiter), (Some(31), 300));
+    assert!(c.criteria.descending && c.suppress_table);
+    assert_eq!(
+        (c.model, c.margin),
+        (CountModel::Poisson, FixedMargin::Column)
+    );
+    assert_eq!(c.prior, TablePrior::MixtureDirichlet);
+    assert_eq!(c.shapes, vec![vec![1.0, 2.0], vec![3.0, 4.0]]);
+    assert_eq!(c.scale, Some(0.25));
+    assert_eq!(c.cells.len(), 5);
+    assert!(!c.chisq && c.lrt);
+    // two words, the underscore, abbreviations and a bare FIX MARGIN
+    let Bayes::Loglinear(c) = bayes(
+        "BAYES LOG /TAB a BY b /ESTBF MOD=NONPAR FIX MARGIN=ROW PRIOR TYPE=INTR LAMBDAS=2 0.5\n\
+         /PRINT SUPPRESS_TABLE=FALSE CELLS=EXP ROW STATISTICS= /CRITERIA ORDER=TRUE.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(
+        (c.model, c.margin),
+        (CountModel::Nonparametric, FixedMargin::Row)
+    );
+    assert_eq!(c.prior, TablePrior::Intrinsic);
+    assert_eq!(c.lambdas, vec![2.0, 0.5]);
+    assert_eq!(c.cells, vec![CrosstabsCell::Expected, CrosstabsCell::Row]);
+    assert!(c.chisq && !c.criteria.descending);
+    let Bayes::Loglinear(c) =
+        bayes("BAYES LOGLINEAR /TABLE a BY b /ESTBF FIX_MARGIN= MODEL=POISSON.")
+    else {
+        panic!()
+    };
+    assert_eq!(c.margin, FixedMargin::Total);
+}
+
+#[test]
+fn loglinear_errors() {
+    assert!(err("BAYES LOGLINEAR /ESTBF MODEL=POISSON.").contains("TABLE"));
+    assert!(err("BAYES LOGLINEAR /TABLE a BY a.").contains("two different"));
+    assert!(err("BAYES LOGLINEAR /TABLE a b.").contains("BY"));
+    assert!(
+        err("BAYES LOGLINEAR /TABLE a BY b /ESTBF MODEL=NONPARAMETRIC.").contains("ROW or COLUMN")
+    );
+    assert!(
+        err("BAYES LOGLINEAR /TABLE a BY b /ESTBF MODEL=NONPARAMETRIC FIX_MARGIN=TOTAL.")
+            .contains("ROW or COLUMN")
+    );
+    assert!(err("BAYES LOGLINEAR /TABLE a BY b /ESTBF SHAPEPARAMS=1 0.").contains("above 0"));
+    assert!(err("BAYES LOGLINEAR /TABLE a BY b /ESTBF LAMBDAS=1; 2.").contains("without ';'"));
+    assert!(err("BAYES LOGLINEAR /TABLE a BY b /CRITERIA POSTSAMPLES=10.").contains("POSTSAMPLES"));
+    assert!(err("BAYES LOGLINEAR /TABLE a BY b /CRITERIA MCSAMPLES=1000.").contains("POSTSAMPLES"));
+}

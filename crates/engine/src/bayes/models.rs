@@ -568,7 +568,7 @@ fn model_factor(run: &mut Run, prior: GPrior, fit: &Fit, p: f64) -> f64 {
 }
 
 /// The sorted categories of `variable` among `cases`.
-fn levels(variable: &Variable, cases: &[usize]) -> Vec<Key> {
+pub(super) fn levels(variable: &Variable, cases: &[usize]) -> Vec<Key> {
     let keys = categories(variable, false);
     let mut found: Vec<Key> = Vec::new();
     for &k in cases {
@@ -1487,8 +1487,7 @@ fn rouder_repeated(y: &[Vec<f64>], q: &[f64], draws: usize, seed: u64) -> f64 {
         }
         -0.5 * det + power * (weighted_ss.ln() - (centered - quad).ln())
     };
-    let mut random = Random::default();
-    random.seed = seed;
+    let mut random = Random::seeded(seed);
     let (mut full, mut aux) = (Vec::with_capacity(draws), Vec::with_capacity(draws));
     for _ in 0..draws {
         let g1 = 1.0 / random.normal().powi(2);

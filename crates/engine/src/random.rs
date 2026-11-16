@@ -62,6 +62,15 @@ pub(crate) fn time_seed() -> u64 {
 }
 
 impl Random {
+    /// The congruential generator started at `seed`, kept from 1 to 2^31 - 2: a seed of
+    /// 2^31 - 1 would make every later number 0.
+    pub(crate) fn seeded(seed: u64) -> Random {
+        Random {
+            seed: (seed % MC_MODULUS).max(1),
+            ..Random::default()
+        }
+    }
+
     pub fn set_mtindex(&mut self, index: f64) {
         self.mtindex = index;
         self.twister = None;
@@ -124,7 +133,7 @@ impl Random {
 
     /// Gamma with shape `a` and scale 1: algorithm GS (Ahrens and Dieter) below 1, Fishman's
     /// above 1, as the documented algorithms.
-    fn gamma(&mut self, a: f64) -> f64 {
+    pub(crate) fn gamma(&mut self, a: f64) -> f64 {
         if a == 1.0 {
             return self.exponential();
         }
