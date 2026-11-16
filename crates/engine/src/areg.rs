@@ -203,7 +203,8 @@ impl Engine {
                 }
                 if *how != ArimaApply::Specifications {
                     self.ts_models.areg_start = Some(Start {
-                        rho: previous.rho,
+                        // a RHO given now wins over the earlier estimate
+                        rho: command.rho.unwrap_or(previous.rho),
                         coefficients: previous.coefficients.clone(),
                         fixed: *how == ArimaApply::Fit,
                     });

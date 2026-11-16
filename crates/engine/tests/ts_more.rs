@@ -381,6 +381,13 @@ fn areg_apply_fit_forecasts_and_errors() {
     assert_eq!(err[28], None);
     assert!(sep[29].unwrap() > sep[27].unwrap());
     assert_eq!(find(&r.tables, "Iteration History").rows.len(), 1);
+    // APPLY INITIAL starts from the earlier rho unless RHO is given again
+    let r = run(&format!(
+        "{}AREG power WITH temp.\nAREG APPLY INITIAL /RHO=0.2 /MXITER=1.\n",
+        heater()
+    ));
+    let history = find(&r.tables, "Iteration History");
+    assert!(close(num(&history.rows[0][1]), 0.2, 1e-12));
     let gap = columns("temp power", &[TEMP, &POWER.replacen("70", ".", 1)]);
     assert!(error(&format!("{gap}AREG power WITH temp.\n")).contains("METHOD=ML"));
     // ML takes the gap
