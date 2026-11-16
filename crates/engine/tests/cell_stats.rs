@@ -3,7 +3,7 @@
 
 use statscraft_engine::output_file::{self, Item};
 use statscraft_engine::session::Session;
-use statscraft_engine::{Border, Cell, CellStat, Decoration, Table, TableStyle};
+use statscraft_engine::{Border, Cell, CellStat, ColumnWidth, Decoration, Table, TableStyle};
 
 /// Made-up answers: answer (1 yes, 2 no), group (1, 2), weight w and a score.
 const DATA: &str = "DATA LIST LIST /answer group w score (4F4).
@@ -128,6 +128,7 @@ fn statistics_and_decorations_survive_the_output_file() {
                 left: Some("blue".into()),
                 ..Border::default()
             }),
+            align: Some("center".into()),
             comment: Some("66.7% (13.3% to 100%)".into()),
             ..Decoration::default()
         },
@@ -141,6 +142,7 @@ fn statistics_and_decorations_survive_the_output_file() {
             row: 1,
             col: h,
             fill: Some("red\" onclick=\"x".into()),
+            align: Some("middle".into()),
             comment: Some("total".into()),
             ..Decoration::default()
         },
@@ -157,6 +159,12 @@ fn statistics_and_decorations_survive_the_output_file() {
         font_size: Some(8.0),
         // the second is below the header lines
         header_cells: vec![header(0, h), header(9, h)],
+        plain: true,
+        row_labels: Some("stacked".into()),
+        // off the table, too wide, and the same column twice: dropped, clamped, the first kept
+        column_widths: [(99, 5.0), (h, 3.0), (0, 400.0), (h, 9.0)]
+            .map(|(col, width)| ColumnWidth { col, width })
+            .to_vec(),
     };
     table.set_decorations(cells, style);
     assert_eq!(table.decorations.len(), 2);
@@ -168,11 +176,16 @@ fn statistics_and_decorations_survive_the_output_file() {
     );
     assert_eq!(table.style.header_cells.len(), 1);
     assert_eq!(table.header_decoration(0, h).unwrap().comment, None);
+    assert_eq!(table.decoration(1, h).unwrap().align, None);
+    assert!(table.stacked() && table.style.plain);
+    let widths = [(0, 255.0), (h, 3.0)].map(|(col, width)| ColumnWidth { col, width });
+    assert_eq!(table.style.column_widths, widths);
     // a font name that could break out of a style, and a size beyond Excel's, are dropped
     let mut odd = table.clone();
     let quoted = TableStyle {
         font: Some("x';background:red".into()),
         font_size: Some(1000.0),
+        row_labels: Some("nested".into()),
         ..TableStyle::default()
     };
     odd.set_decorations(Vec::new(), quoted);
@@ -188,10 +201,13 @@ fn statistics_and_decorations_survive_the_output_file() {
     assert_eq!(json["decorations"][0]["fill"], "#a9ecf5");
     assert_eq!(json["decorations"][0]["bold"], true);
     assert_eq!(json["style"]["font"], "Cambria");
+    assert_eq!(json["style"]["row_labels"], "stacked");
+    assert_eq!(json["style"]["column_widths"][1]["width"], 3.0);
+    assert_eq!(json["decorations"][0]["align"], "center");
     let html = statscraft_engine::cell_attributes(&table, 0, h + 1);
     assert_eq!(
         html,
-        " style=\"background:#a9ecf5;color:#094e56;font-weight:bold;\
+        " style=\"background:#a9ecf5;color:#094e56;font-weight:bold;text-align:center;\
          border-bottom:1px solid #4bacc6;\" title=\"66.7% (13.3% to 100%)\""
     );
     assert_eq!(

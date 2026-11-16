@@ -1301,10 +1301,12 @@ fn paint_block(
             if shown.is_empty() {
                 continue;
             }
-            let (pos, align) = if output::right_aligned(table, r, c) {
-                (pos2(x(c + 1) - PAD_X, y0 + PAD_Y), Align::RIGHT)
-            } else {
-                (pos2(x(c) + PAD_X, y0 + PAD_Y), Align::LEFT)
+            let right = output::right_aligned(table, r, c);
+            let (pos, align) = match look.and_then(|d| d.align.as_deref()) {
+                Some("center") => (pos2(place.center().x, y0 + PAD_Y), Align::Center),
+                Some("right") => (pos2(x(c + 1) - PAD_X, y0 + PAD_Y), Align::RIGHT),
+                None if right => (pos2(x(c + 1) - PAD_X, y0 + PAD_Y), Align::RIGHT),
+                _ => (pos2(x(c) + PAD_X, y0 + PAD_Y), Align::LEFT),
             };
             styled_text(
                 &painter,

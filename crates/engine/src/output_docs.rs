@@ -162,7 +162,8 @@ impl Block {
         for (i, (table, chart)) in self.tables.iter().enumerate() {
             let caption = u32::from(self.notes && table.caption.is_some());
             let depth = header_rows(table).len() as u32;
-            let mut height = 1 + depth + table.rows.len() as u32 + caption;
+            let body = table.rows.len() + table.block_starts().len();
+            let mut height = 1 + depth + body as u32 + caption;
             if chart.as_deref().is_some_and(has_beside) {
                 height = height.max(1 + CHART_ROWS);
             }
@@ -170,7 +171,8 @@ impl Block {
         }
         let width = self.tables.iter().map(|(table, chart)| {
             let beside = chart.as_deref().is_some_and(has_beside);
-            table.columns.len() as u16 + u16::from(beside) * (1 + CHART_COLUMNS)
+            let columns = table.columns.len() - usize::from(table.stacked());
+            columns as u16 + u16::from(beside) * (1 + CHART_COLUMNS)
         });
         (row, self.left + width.max().unwrap_or(0))
     }

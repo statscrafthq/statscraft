@@ -4,7 +4,7 @@
 //! standard input, one out on its standard output. A plugin that fails, answers badly or takes
 //! too long gives an error and no decorations; the tables stay as they are.
 
-use crate::{CellStats, Decoration, Table, TableStyle, cell_text, header_rows};
+use crate::{CellStats, ColumnWidth, Decoration, Table, TableStyle, cell_text, header_rows};
 use serde::{Deserialize, Serialize};
 pub use serde_json::{Map, Value};
 use std::io::{Read, Write};
@@ -132,6 +132,11 @@ struct ResponseTable {
     header_cells: Vec<Decoration>,
     font: Option<String>,
     font_size: Option<f64>,
+    #[serde(default)]
+    plain: bool,
+    row_labels: Option<String>,
+    #[serde(default)]
+    column_widths: Vec<ColumnWidth>,
 }
 
 /// Runs `program --describe`.
@@ -205,6 +210,9 @@ fn answers(out: &[u8]) -> Result<Vec<(u64, Answer)>, String> {
                 font: t.font,
                 font_size: t.font_size,
                 header_cells: t.header_cells,
+                plain: t.plain,
+                row_labels: t.row_labels,
+                column_widths: t.column_widths,
             };
             (t.id, (t.cells, style))
         })
@@ -315,15 +323,17 @@ mod tests {
     #[test]
     fn styles_in_an_answer_reach_the_table() {
         let answer = br##"{"tables": [{"id": 3, "font": "Cambria", "font_size": 8,
+            "plain": true, "row_labels": "stacked", "column_widths": [{"col": 2, "width": 3}],
             "cells": [
               {"row": 0, "col": 1, "bold": true, "italic": true, "text": "#1f4e5a",
+               "align": "center",
                "border": {"bottom": "#4bacc6", "top": "teal"}},
               {"row": 0, "col": 0, "fill": "#eeeeee"},
               {"row": 5, "col": 1, "bold": true}],
             "header_cells": [
               {"row": 1, "col": 2, "bold": true, "border": {"left": "#7f7f7f"}, "comment": "x"},
               {"row": 2, "col": 1, "bold": true}]},
-            {"id": 4, "font": "Bad'; name", "font_size": 0}]}"##;
+            {"id": 4, "font": "Bad'; name", "font_size": 0, "row_labels": "sideways"}]}"##;
         let answers = answers(answer).unwrap();
         let mut table = Table {
             row_headers: 1,
@@ -344,6 +354,10 @@ mod tests {
         assert_eq!(table.style.font_size, Some(8.0));
         let d = table.decoration(0, 1).unwrap();
         assert!(d.bold && d.italic);
+        assert_eq!(d.align.as_deref(), Some("center"));
+        assert!(table.style.plain);
+        assert_eq!(table.style.row_labels.as_deref(), Some("stacked"));
+        assert_eq!(table.style.column_widths[0].width, 3.0);
         let border = d.border.as_ref().unwrap();
         assert_eq!(
             (border.bottom.as_deref(), &border.top),

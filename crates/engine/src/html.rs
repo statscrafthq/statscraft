@@ -94,7 +94,7 @@ pub fn table_attributes(table: &Table) -> String {
 }
 
 /// The style of a cell merged from `first` to `last` (its top left and bottom right places):
-/// colours, bold, italic, the top and left border and the comment from the first, the bottom
+/// colours, bold, italic, alignment, the top and left border and the comment from the first, the bottom
 /// and right border from the last.
 fn attributes(first: Option<&Decoration>, last: Option<&Decoration>) -> String {
     let mut style = String::new();
@@ -109,6 +109,10 @@ fn attributes(first: Option<&Decoration>, last: Option<&Decoration>) -> String {
         }
         if d.italic {
             style.push_str("font-style:italic;");
+        }
+        if let Some(align) = &d.align {
+            // set_decorations keeps only left, center and right
+            style.push_str(&format!("text-align:{align};"));
         }
     }
     let border = |d: Option<&Decoration>| d.and_then(|d| d.border.clone()).unwrap_or_default();
@@ -134,25 +138,35 @@ fn attributes(first: Option<&Decoration>, last: Option<&Decoration>) -> String {
     attributes
 }
 
-const STYLE: &str = "body{font-family:system-ui,sans-serif;color:#1d2433;margin:2rem;line-height:1.4}\
+/// The style sheet of a page of tables; a plain table keeps only its plugin's lines and fills.
+pub const STYLE: &str = "body{font-family:system-ui,sans-serif;color:#1d2433;margin:2rem;line-height:1.4}\
 h2{font-size:1rem;color:#4a5468;font-weight:600;margin:2rem 0 .5rem}\
 table{border-collapse:collapse;margin:.5rem 0 1.5rem;font-variant-numeric:tabular-nums}\
 caption{text-align:left;font-weight:600;padding:.25rem 0}\
 th,td{padding:.25rem .6rem;border-bottom:1px solid #dde2ea}\
 thead th{background:#f3f5f8;text-align:center}\
 tbody th{text-align:left;font-weight:normal;vertical-align:top}td{text-align:right}\
-td.text{text-align:left}p.note{font-size:.85rem;color:#4a5468}";
+td.text{text-align:left}p.note{font-size:.85rem;color:#4a5468}\
+table.plain th,table.plain td{border:none}table.plain thead th{background:none;font-weight:normal}";
 
-/// One table: a repeated row label spans its rows; with `notes` the caption follows.
-pub(crate) fn table_html(table: &Table, notes: bool) -> String {
-    let mut html = format!(
-        "<table{}>\n<caption>{}</caption>\n<thead>\n",
-        table_attributes(table),
-        escape(&table.title)
-    );
+/// One table: a repeated row label spans its rows; with `notes` the caption follows. With
+/// stacked row labels (`Table::stacked`) the outer row label column is left out and each
+/// block's label is a row of its own above the block, one cell across the table, styled and
+/// commented as the block's first row in column 0 was.
+pub fn table_html(table: &Table, notes: bool) -> String {
+    let class = match table.style.plain {
+        true => " class=\"plain\"",
+        false => "",
+    };
+    let mut html = format!("<table{class}{}>\n", table_attributes(table));
+    if !table.title.is_empty() {
+        html.push_str(&format!("<caption>{}</caption>\n", escape(&table.title)));
+    }
+    html.push_str("<thead>\n");
+    let shift = usize::from(table.stacked());
     for (line, cells) in header_rows(table).into_iter().enumerate() {
         html.push_str("<tr>");
-        for cell in cells {
+        for cell in cells.into_iter().filter(|cell| cell.first >= shift) {
             let span = match cell.span {
                 1 => String::new(),
                 n => format!(" colspan=\"{n}\""),
@@ -163,9 +177,18 @@ pub(crate) fn table_html(table: &Table, notes: bool) -> String {
         html.push_str("</tr>\n");
     }
     html.push_str("</thead>\n<tbody>\n");
+    let starts = table.block_starts();
+    let width = table.columns.len() - shift;
     for (r, spans) in row_spans(table).iter().enumerate() {
+        if starts.binary_search(&r).is_ok() {
+            let more = cell_attributes(table, r, 0);
+            let label = escape(&cell_text(table, r, 0));
+            html.push_str(&format!(
+                "<tr><th colspan=\"{width}\"{more}>{label}</th></tr>\n"
+            ));
+        }
         html.push_str("<tr>");
-        for c in 0..table.rows[r].len() {
+        for c in shift..table.rows[r].len() {
             let text = escape(&cell_text(table, r, c));
             if c < table.row_headers {
                 let more = |n| label_attributes(table, r, c, n);

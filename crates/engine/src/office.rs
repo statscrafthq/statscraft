@@ -283,7 +283,7 @@ pub(crate) fn put_chart(
     chart: &Chart,
     (top, left): (u32, u16),
     notes: bool,
-    widths: &mut Vec<usize>,
+    widths: &mut Vec<f64>,
     titled: bool,
 ) -> Result<u32, XlsxError> {
     let end = put_table(sheet, table, (top, left), notes, widths)?;

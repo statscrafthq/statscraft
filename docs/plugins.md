@@ -36,13 +36,15 @@ and the status bar says why.
 The decorations are saved with the output document (.scout), so the document shows them again
 without the plugin. What each place shows:
 
-- **Excel exports**: everything: fills, text colours, bold, italic, borders, header cells, the
-  font and its size for every cell of the table (title, header, body and note), and, unless
-  turned off, the comments as Excel notes.
+- **Excel exports**: everything: fills, text colours, bold, italic, alignment, borders, header
+  cells, the font and its size for every cell of the table (title, header, body and note), the
+  plain look, stacked row labels, column widths and, unless turned off, the comments as Excel
+  notes.
 - **Web page exports** and copied tables: the same as styles on the cells, the font on the
-  table, and the comment as the cell's tooltip.
-- **The output window**: fills, text colours, bold, italic, borders and header cells. It keeps
-  its own font and size.
+  table, the plain look and stacked row labels, and the comment as the cell's tooltip. Column
+  widths are left to the browser.
+- **The output window**: fills, text colours, bold, italic, borders, header cells and the
+  alignment of the numbers. It keeps its own font and size, its own lines and its own layout.
 
 ## Settings in the data file
 
@@ -171,10 +173,12 @@ The plugin writes one answer to its standard output and exits with status 0:
   no `comment`.
 - Style keys of a cell, each optional: `fill` (background) and `text` (text colour) as
   `#rrggbb`; `bold` and `italic` as true; `border` with any of `top`, `bottom`, `left` and
-  `right`, each a thin line in the colour `#rrggbb`.
+  `right`, each a thin line in the colour `#rrggbb`; `align` as `left`, `center` or `right`
+  (the text's place across the cell; another value is dropped).
 - `font` and `font_size` (in points, 1 to 409): the font of every cell of the table in the
   exports, header and title included. A font name may have letters, digits, spaces and hyphens,
   at most 31 characters; another is dropped.
+- `plain`, `row_labels` and `column_widths`: the layout of the exports, see below.
 
 Every key but `id`, and of a cell but `row` and `col`, may be left out. Any cell may be
 decorated, totals included. Cells outside the body or the header lines and colours not written
@@ -199,6 +203,47 @@ A merged cell takes its fill, text colour, bold and italic from its top left pla
 the window each place keeps its own borders, and on a web page the top and left border come
 from the top left place and the bottom and right border from the bottom right place. The same
 holds for a row label merged over the rows that repeat it.
+
+#### Layout of the exports
+
+Three optional keys of a table in the answer change how the Excel and web page exports lay it
+out. The output window ignores them.
+
+```json
+{
+  "id": 12,
+  "plain": true,
+  "row_labels": "stacked",
+  "column_widths": [{"col": 1, "width": 30}, {"col": 2, "width": 3}],
+  "cells": [
+    {"row": 0, "col": 3, "align": "center"},
+    {"row": 0, "col": 0, "bold": true, "border": {"top": "#2e75b6"}}
+  ]
+}
+```
+
+- `plain: true`: Statscraft draws none of its own lines around the cells, gives the header no
+  fill and does not make it bold. Number formats and merged cells stay; only the plugin's styles
+  show.
+- `row_labels: "stacked"`: a compact form of the row labels for tables with two row label
+  columns or more. Column 0, the outer row label (in a custom table the variable label,
+  repeated down its categories), leaves the table. Each run of rows that share the same text in
+  column 0 gets a row of its own above it, with that text in the first column and nothing to its
+  right, so a long label runs on across the empty cells beside it (it is not wrapped). The rows
+  of the run follow, every column moved one to the left: the category labels are in the first
+  column, under the label row. Excel freezes only the header lines then, not the label columns.
+  Any other value is dropped, and a table with one row label column keeps its layout.
+- `column_widths`: Excel column widths in characters, kept within 1 to 255. A width for a
+  column off the table is dropped. When two tables share a sheet, the wider need of a column
+  wins.
+
+How cells map with stacked row labels: `col` always counts the columns of the request. The
+style and comment of the first row of a run in column 0 go to that run's label row; column 0 of
+the other rows of the run is not shown, and nor are its styles and comments. A cell or header
+cell in column `c` from 1 on shows in column `c - 1`. A width given for column 0 is dropped;
+one for column `c` sets the width of column `c - 1`. In the answer above, row 0 of column 0
+styles the label row of the first run, and column 2 (a statistic label column) is 3 characters
+wide in the second column of the sheet.
 
 ## The example plugin
 

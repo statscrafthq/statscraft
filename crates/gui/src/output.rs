@@ -289,70 +289,16 @@ fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-const STYLE: &str = "body{font-family:system-ui,sans-serif;color:#1d2433;margin:2rem;line-height:1.4}\
-h2{font-size:1rem;color:#4a5468;font-weight:600;margin:2rem 0 .5rem}\
-table{border-collapse:collapse;margin:.5rem 0 1.5rem;font-variant-numeric:tabular-nums}\
-caption{text-align:left;font-weight:600;padding:.25rem 0}\
-th,td{padding:.25rem .6rem;border-bottom:1px solid #dde2ea}\
-thead th{background:#f3f5f8;text-align:center}\
-tbody th{text-align:left;font-weight:normal;vertical-align:top}td{text-align:right}\
-td.text{text-align:left}p.note{font-size:.85rem;color:#4a5468}";
-
-/// One table as HTML: a repeated row label spans its rows, and the caption follows as a note.
+/// One table as HTML, as the engine's web page exports write it, the caption as a note.
 pub fn table_html(table: &Table) -> String {
-    let font = statscraft_engine::table_attributes(table);
-    let mut html = match table.title.as_str() {
-        "" => format!("<table{font}>\n<thead>\n"),
-        title => format!(
-            "<table{font}>\n<caption>{}</caption>\n<thead>\n",
-            escape(title)
-        ),
-    };
-    for (line, cells) in header_rows(table).into_iter().enumerate() {
-        html.push_str("<tr>");
-        for cell in cells {
-            let span = match cell.span {
-                1 => String::new(),
-                n => format!(" colspan=\"{n}\""),
-            };
-            let more = statscraft_engine::header_attributes(table, line, cell.first, cell.span);
-            html.push_str(&format!("<th{span}{more}>{}</th>", escape(&cell.label)));
-        }
-        html.push_str("</tr>\n");
-    }
-    html.push_str("</thead>\n<tbody>\n");
-    for (r, spans) in row_spans(table).iter().enumerate() {
-        html.push_str("<tr>");
-        for c in 0..table.rows[r].len() {
-            let text = escape(&cell_text(table, r, c));
-            if c < table.row_headers {
-                let more = |n| statscraft_engine::label_attributes(table, r, c, n);
-                match spans.get(c).copied().unwrap_or(1) {
-                    0 => {}
-                    1 => html.push_str(&format!("<th{}>{text}</th>", more(1))),
-                    n => html.push_str(&format!("<th rowspan=\"{n}\"{}>{text}</th>", more(n))),
-                }
-            } else {
-                let more = statscraft_engine::cell_attributes(table, r, c);
-                match right_aligned(table, r, c) {
-                    true => html.push_str(&format!("<td{more}>{text}</td>")),
-                    false => html.push_str(&format!("<td class=\"text\"{more}>{text}</td>")),
-                }
-            }
-        }
-        html.push_str("</tr>\n");
-    }
-    html.push_str("</tbody>\n</table>\n");
-    if let Some(caption) = &table.caption {
-        html.push_str(&format!("<p class=\"note\">{}</p>\n", escape(caption)));
-    }
-    html
+    statscraft_engine::table_html(table, true)
 }
 
 fn page(body: &str) -> String {
+    let style = statscraft_engine::HTML_STYLE;
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
-         <title>Statscraft output</title>\n<style>{STYLE}</style>\n</head>\n<body>\n{body}</body>\n</html>\n"
+         <title>Statscraft output</title>\n<style>{style}</style>\n</head>\n<body>\n{body}</body>\n</html>\n"
     )
 }
 

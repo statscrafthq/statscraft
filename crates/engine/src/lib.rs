@@ -133,7 +133,10 @@ pub use chart::Chart;
 pub use expr::functions;
 pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
 pub use get_data::delimited;
-pub use html::{cell_attributes, header_attributes, label_attributes, table_attributes};
+pub use html::{
+    STYLE as HTML_STYLE, cell_attributes, header_attributes, label_attributes, table_attributes,
+    table_html,
+};
 pub use output_docs::OutputDocument;
 pub use random::RandomState;
 use serde::{Deserialize, Serialize};
@@ -226,8 +229,8 @@ pub struct CellStat {
     pub sd: Option<f64>,
 }
 
-/// How a plugin marks one cell: colours as #rrggbb, bold or italic text, coloured borders
-/// and a comment.
+/// How a plugin marks one cell: colours as #rrggbb, bold or italic text, coloured borders,
+/// the horizontal alignment of its text and a comment.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Decoration {
     pub row: usize,
@@ -242,6 +245,9 @@ pub struct Decoration {
     pub italic: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub border: Option<Border>,
+    /// "left", "center" or "right"; the exports' own alignment without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 }
@@ -266,15 +272,25 @@ pub type CellLook<'a> = (
     bool,
     bool,
     Option<&'a Border>,
+    Option<&'a str>,
 );
 
 impl Decoration {
     pub fn look(&self) -> CellLook<'_> {
         let (fill, text) = (self.fill.as_deref(), self.text.as_deref());
-        (fill, text, self.bold, self.italic, self.border.as_ref())
+        let align = self.align.as_deref();
+        (
+            fill,
+            text,
+            self.bold,
+            self.italic,
+            self.border.as_ref(),
+            align,
+        )
     }
 
-    /// Colours that are not #rrggbb left out, and a border without a side.
+    /// Colours that are not #rrggbb left out, a border without a side and an unknown
+    /// alignment.
     fn clean(&mut self) {
         let keep = |c: &mut Option<String>| *c = c.take().filter(|c| parse_colour(c).is_some());
         keep(&mut self.fill);
@@ -285,11 +301,13 @@ impl Decoration {
                 .for_each(keep);
         }
         self.border = self.border.take().filter(|b| *b != Border::default());
+        let known = |a: &String| ["left", "center", "right"].contains(&a.as_str());
+        self.align = self.align.take().filter(known);
     }
 }
 
-/// What a plugin gave a table as a whole: the font of its exports and the styles of its
-/// header cells, `row` counting the lines of `header_rows` from the top.
+/// What a plugin gave a table as a whole: the font of its exports, the styles of its header
+/// cells (`row` counting the lines of `header_rows` from the top) and the layout of its exports.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TableStyle {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -299,6 +317,24 @@ pub struct TableStyle {
     pub font_size: Option<f64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub header_cells: Vec<Decoration>,
+    /// The exports leave out their own borders, header fill and bold header: only the
+    /// plugin's styles show.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plain: bool,
+    /// "stacked": the exports show each block's outer row label on a row of its own above the
+    /// block, see `Table::stacked`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_labels: Option<String>,
+    /// Excel column widths, by column as in `rows`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub column_widths: Vec<ColumnWidth>,
+}
+
+/// The width of a column in Excel, in characters.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct ColumnWidth {
+    pub col: usize,
+    pub width: f64,
 }
 
 impl TableStyle {
@@ -330,10 +366,34 @@ impl Table {
         found.ok().map(|i| &cells[i])
     }
 
+    /// Whether the exports show the table's row labels stacked: the outer row label column
+    /// (column 0) leaves the table, and each run of rows that share its label gets a row of its
+    /// own above it holding that label in the first column. Only with two row label columns
+    /// or more.
+    pub fn stacked(&self) -> bool {
+        self.row_headers >= 2 && self.style.row_labels.as_deref() == Some("stacked")
+    }
+
+    /// With stacked row labels, the rows that start a block and get a label row above them:
+    /// each row whose outer label is not empty and differs from the label of the row above.
+    /// Empty when the labels are not stacked.
+    pub fn block_starts(&self) -> Vec<usize> {
+        if !self.stacked() {
+            return Vec::new();
+        }
+        let label = |r: usize| cell_text(self, r, 0);
+        let starts = (0..self.rows.len()).filter(|&r| {
+            let text = label(r);
+            !text.is_empty() && (r == 0 || label(r - 1) != text)
+        });
+        starts.collect()
+    }
+
     /// Puts a plugin's decorations and table style on the table: cells outside the body or the
     /// header, colours that are not #rrggbb, a font name that is not plain (letters, digits,
-    /// spaces and hyphens, at most 31 characters) and a size outside 1 to 409 points are left
-    /// out.
+    /// spaces and hyphens, at most 31 characters), a size outside 1 to 409 points, row labels
+    /// other than "stacked" and widths of columns off the table are left out; a width is kept
+    /// within 1 to 255 characters.
     pub fn set_decorations(&mut self, decorations: Vec<Decoration>, style: TableStyle) {
         let columns = self.columns.len();
         let tidy = |mut cells: Vec<Decoration>, rows: usize| {
@@ -355,6 +415,18 @@ impl Table {
             font: style.font.filter(plain),
             font_size: style.font_size.filter(|s| (1.0..=409.0).contains(s)),
             header_cells,
+            plain: style.plain,
+            row_labels: style.row_labels.filter(|r| r == "stacked"),
+            column_widths: {
+                let mut widths = style.column_widths;
+                widths.retain(|w| w.col < columns && w.width.is_finite());
+                widths
+                    .iter_mut()
+                    .for_each(|w| w.width = w.width.clamp(1.0, 255.0));
+                widths.sort_by_key(|w| w.col);
+                widths.dedup_by_key(|w| w.col);
+                widths
+            },
         };
     }
 
