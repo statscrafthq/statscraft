@@ -399,8 +399,8 @@ fn bar_chart(
     }
 }
 
-/// The tables of one combination of variables: rows, columns, then layers; and its chart.
-/// The tables of one crosstabulation, its chart, and its row of the Case Processing Summary.
+/// The tables of one combination of variables (rows, columns, then layers), its chart, and its
+/// row of the Case Processing Summary.
 fn tables(
     data: &Dataset,
     names: &[String],
