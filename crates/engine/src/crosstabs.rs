@@ -4,7 +4,7 @@
 use crate::chart::{
     self, Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic, Tier,
 };
-use crate::crosstabs_measures::{Counts, risk};
+use crate::crosstabs_measures::{Counts, mcnemar as mcnemar_test, risk};
 use crate::descriptives::{case_weights, number};
 use crate::dist::chi_square_p;
 use crate::shown::Shown;
@@ -513,12 +513,40 @@ fn tables(
         });
     }
 
-    if command.chisq {
+    let mcnemar = command.measures.contains(&CrosstabsMeasure::Mcnemar);
+    if command.chisq || mcnemar {
         let numeric = !variables[0].is_string() && !variables[1].is_string();
-        let tests: Vec<_> = blocks.iter().map(|b| (b, b.tests(numeric))).collect();
-        let exact = blocks
+        let mut note = None;
+        let tests: Vec<_> = blocks
             .iter()
-            .any(|b| (b.rows.len(), b.columns.len()) == (2, 2));
+            .map(|b| {
+                let mut rows = match command.chisq {
+                    true => b.tests(numeric),
+                    false => vec![(
+                        "N of Valid Cases",
+                        [Some(b.total), None, None, None, None],
+                    )],
+                };
+                if mcnemar {
+                    // a test of symmetry needs the same values in the rows and the columns
+                    let same = b.rows.len() == b.columns.len()
+                        && b.rows.iter().all(|r| b.columns.iter().any(|c| c.compare(r).is_eq()));
+                    match square(b, &variables).filter(|f| same && f.len() >= 2) {
+                        Some(f) => {
+                            let (name, [value, df, asymptotic, exact]) =
+                                mcnemar_test(&f, |n| whole(n, command.truncate));
+                            let at = rows.len() - 1;
+                            rows.insert(at, (name, [value, df, asymptotic, exact, None]));
+                        }
+                        None => note = Some("The McNemar test needs a square table: the same values, at least two, in the rows and the columns."),
+                    }
+                }
+                (b, rows)
+            })
+            .collect();
+        let exact = tests
+            .iter()
+            .any(|(_, rows)| rows.iter().any(|(_, v)| v[3].is_some()));
         let mut columns: Vec<String> = layer_names().collect();
         let headers = columns.len() + 1;
         columns
@@ -540,6 +568,7 @@ fn tables(
             }
         }
         out.push(Table {
+            caption: note.map(String::from),
             title: format!("Chi-Square Tests: {title}"),
             row_headers: headers,
             column_groups: vec![Vec::new(); columns.len()],

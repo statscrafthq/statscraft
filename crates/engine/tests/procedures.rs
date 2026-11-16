@@ -808,6 +808,78 @@ fn crosstabs_kappa_and_risk() {
     assert!(mixed[0].caption.as_deref().unwrap().contains("same type"));
 }
 
+/// McNemar and the uncertainty coefficient. The 2 x 2 table [[3, 12], [9, 4]] has 12 and 9
+/// off the diagonal: exact two-sided significance 2 sum_{i <= 9} C(21, i) / 2^21. The square
+/// table [[12, 3, 1], [2, 9, 4], [1, 2, 11]]: McNemar-Bowker (3 - 2)^2 / 5 + 0 + (4 - 2)^2 / 6
+/// on 3 degrees of freedom. The uncertainty coefficients are worked out from the entropies of
+/// the totals and cells below; their standard errors agree with GNU PSPP.
+#[test]
+fn crosstabs_mcnemar_and_uncertainty() {
+    let two = "DATA LIST FREE /a b n.\nBEGIN DATA\n1 1 3\n1 2 12\n2 1 9\n2 2 4\nEND DATA.\nWEIGHT BY n.\n";
+    let mut engine = Engine::default();
+    let tables = crosstabs(
+        &mut engine,
+        &format!("{two}CROSSTABS a BY b /CELLS=NONE /STATISTICS=MCNEMAR UC."),
+    );
+    let [tests, directional] = &tables[..] else {
+        panic!("{tables:?}")
+    };
+    assert_eq!(texts(&tests.rows[0])[0], "McNemar Test");
+    let exact: f64 = (0..=9u32)
+        .map(|i| (0..i).fold(1.0, |c, k| c * f64::from(21 - k) / f64::from(k + 1)))
+        .sum::<f64>()
+        * 2.0
+        / 2f64.powi(21);
+    assert_row(&tests.rows[0], 1, &[None, None, None, Some(exact), None]);
+    assert_eq!(texts(&tests.rows[1])[0], "N of Valid Cases");
+    // the entropies of the rows (15, 13), the columns (12, 16) and the cells
+    let h = |counts: &[f64]| {
+        -counts
+            .iter()
+            .map(|n| n / 28.0 * (n / 28.0).ln())
+            .sum::<f64>()
+    };
+    let (ux, uy, uxy) = (
+        h(&[15.0, 13.0]),
+        h(&[12.0, 16.0]),
+        h(&[3.0, 12.0, 9.0, 4.0]),
+    );
+    let gain = ux + uy - uxy;
+    let expected = [
+        ("Symmetric", 2.0 * gain / (ux + uy), 0.1297093312),
+        ("a Dependent", gain / ux, 0.1291746711),
+        ("b Dependent", gain / uy, 0.1303272375),
+    ];
+    for (row, (which, value, ase)) in directional.rows.iter().zip(expected) {
+        assert_eq!(texts(row)[2], which);
+        assert!((number(&row[3]) - value).abs() < 1e-12, "{which}");
+        assert!((number(&row[4]) - ase).abs() < 1e-9, "{which}");
+        assert!((number(&row[5]) - 1.4372722438).abs() < 1e-9, "{which}");
+    }
+    assert_eq!(texts(&directional.rows[0])[1], "Uncertainty Coefficient");
+
+    let square = "DATA LIST FREE /a b n.\nBEGIN DATA\n1 1 12\n1 2 3\n1 3 1\n2 1 2\n2 2 9\n2 3 4\n\
+                  3 1 1\n3 2 2\n3 3 11\nEND DATA.\nWEIGHT BY n.\n";
+    let tables = crosstabs(
+        &mut engine,
+        &format!("{square}CROSSTABS a BY b /CELLS=NONE /STATISTICS=MCNEMAR CHISQ."),
+    );
+    let bowker = tables[0]
+        .rows
+        .iter()
+        .find(|r| texts(r)[0] == "McNemar-Bowker Test")
+        .unwrap();
+    let x = 1.0 / 5.0 + 4.0 / 6.0;
+    assert_row(&bowker[..4], 1, &[Some(x), Some(3.0), Some(0.8334635315)]);
+    // rows and columns with different values: no test, and the table says why
+    let tables = crosstabs(
+        &mut engine,
+        "COMPUTE c = b + 1.\nCROSSTABS a BY c /CELLS=NONE /STATISTICS=MCNEMAR.",
+    );
+    assert_eq!(tables[0].rows.len(), 1);
+    assert!(tables[0].caption.as_deref().unwrap().contains("square"));
+}
+
 #[test]
 fn crosstabs_missing_values() {
     let mut engine = survey();

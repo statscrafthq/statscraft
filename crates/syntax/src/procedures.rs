@@ -71,7 +71,7 @@ const CELLS: [(&str, &[CrosstabsCell]); 10] = [
 
 const UNSUPPORTED_CELLS: [&str; 3] = ["BPROP", "PROP", "SUMMARY"];
 
-const UNSUPPORTED_STATISTICS: [&str; 6] = ["UC", "D", "ETA", "MCNEMAR", "CMH", "ALL"];
+const UNSUPPORTED_STATISTICS: [&str; 4] = ["D", "ETA", "CMH", "ALL"];
 
 const UNSUPPORTED_FORMATS: [&str; 6] = ["PIVOT", "NOPIVOT", "BOX", "NOBOX", "INDEX", "NOINDEX"];
 
@@ -290,7 +290,7 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("STATISTICS") {
             use crate::CrosstabsMeasure as M;
             // None is CHISQ; NONE chooses nothing
-            const CHOICES: [(&str, &[Option<M>]); 11] = [
+            const CHOICES: [(&str, &[Option<M>]); 13] = [
                 ("CHISQ", &[None]),
                 ("PHI", &[Some(M::Phi)]),
                 ("CC", &[Some(M::Cc)]),
@@ -301,6 +301,8 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
                 ("CORR", &[Some(M::Corr)]),
                 ("KAPPA", &[Some(M::Kappa)]),
                 ("RISK", &[Some(M::Risk)]),
+                ("UC", &[Some(M::Uc)]),
+                ("MCNEMAR", &[Some(M::Mcnemar)]),
                 ("NONE", &[]),
             ];
             // without keywords STATISTICS is the chi-square test

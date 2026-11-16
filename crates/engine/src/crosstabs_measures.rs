@@ -25,7 +25,13 @@
 //! - The risk estimate of a 2 x 2 table: the odds ratio f11 f22 / (f12 f21) and, for each
 //!   column, the ratio of the two rows' shares in it, each with a 95% interval exp(+-1.96 v) on
 //!   the log scale.
-//! - The approximate T of lambda, tau-b, tau-c and gamma is the estimate over its standard
+//! - The uncertainty coefficient for the column variable: (U(X) + U(Y) - U(XY)) / U(Y) with
+//!   the entropies U of the row totals, the column totals and the cells; symmetric, twice the
+//!   gain over U(X) + U(Y). Its significance is that of the likelihood-ratio chi-square.
+//! - McNemar: on the square table, for 2 x 2 the exact binomial test of the two off-diagonal
+//!   counts; for larger tables the sum over pairs i < j with counts of (f_ij - f_ji)^2 /
+//!   (f_ij + f_ji), chi-square with n (n - 1) / 2 degrees of freedom.
+//! - The approximate T of lambda, the uncertainty coefficient, tau-b, tau-c and gamma is the estimate over its standard
 //!   error under independence, its significance two-sided normal. The standard error shown is
 //!   the one without that assumption.
 
@@ -203,29 +209,135 @@ impl Counts<'_> {
     /// The directional measures asked for: lambda (symmetric, rows, columns dependent) and
     /// Goodman and Kruskal's tau (rows, columns dependent).
     pub(crate) fn directional(&self, asked: &[M]) -> Vec<Line> {
-        if !asked.contains(&M::Lambda) {
-            return Vec::new();
-        }
         let group = "Nominal by Nominal";
         let t = self.transposed();
         let flipped = Counts {
             f: &t,
             values: None,
         };
-        let mut out = vec![
-            normal_line(group, "Lambda", 0, self.lambda_symmetric()),
-            normal_line(group, "Lambda", 1, flipped.lambda()),
-            normal_line(group, "Lambda", 2, self.lambda()),
-        ];
-        for (dependent, counts) in [(1, &flipped), (2, self)] {
-            let (value, ase, x, df) = counts.goodman_kruskal();
-            out.push(Line {
-                ase: Some(ase),
-                sig: Some(chi_square_p(x, df)),
-                ..line(group, "Goodman and Kruskal tau", dependent, value)
-            });
+        let mut out = Vec::new();
+        if asked.contains(&M::Lambda) {
+            out.extend([
+                normal_line(group, "Lambda", 0, self.lambda_symmetric()),
+                normal_line(group, "Lambda", 1, flipped.lambda()),
+                normal_line(group, "Lambda", 2, self.lambda()),
+            ]);
+            for (dependent, counts) in [(1, &flipped), (2, self)] {
+                let (value, ase, x, df) = counts.goodman_kruskal();
+                out.push(Line {
+                    ase: Some(ase),
+                    sig: Some(chi_square_p(x, df)),
+                    ..line(group, "Goodman and Kruskal tau", dependent, value)
+                });
+            }
+        }
+        if asked.contains(&M::Uc) {
+            let p = self.likelihood_ratio_p();
+            let name = "Uncertainty Coefficient";
+            for (dependent, value) in [
+                (0, self.uncertainty_symmetric()),
+                (1, flipped.uncertainty()),
+                (2, self.uncertainty()),
+            ] {
+                out.push(Line {
+                    sig: Some(p),
+                    ..normal_line(group, name, dependent, value)
+                });
+            }
         }
         out
+    }
+
+    /// The entropies of the rows, the columns and the cells, and the sum P of the manual.
+    fn entropies(&self) -> (f64, f64, f64, f64, f64) {
+        let (r, c) = self.dims();
+        let rows = self.row_totals();
+        let columns = self.column_totals();
+        let w: f64 = rows.iter().sum();
+        let h = |n: f64| {
+            if n > 0.0 {
+                -(n / w) * (n / w).ln()
+            } else {
+                0.0
+            }
+        };
+        let ux: f64 = rows.iter().map(|&n| h(n)).sum();
+        let uy: f64 = columns.iter().map(|&n| h(n)).sum();
+        let mut uxy = 0.0;
+        let mut p = 0.0;
+        for i in 0..r {
+            for j in 0..c {
+                let f = self.f[i][j];
+                if f > 0.0 {
+                    uxy += h(f);
+                    p += f * (columns[j] * rows[i] / (w * f)).ln().powi(2);
+                }
+            }
+        }
+        (ux, uy, uxy, p, w)
+    }
+
+    /// The uncertainty coefficient for predicting the column category: value, standard error
+    /// and that under independence.
+    fn uncertainty(&self) -> (f64, f64, f64) {
+        let (r, c) = self.dims();
+        let rows = self.row_totals();
+        let columns = self.column_totals();
+        let (ux, uy, uxy, p, w) = self.entropies();
+        let gain = ux + uy - uxy;
+        let mut s = 0.0;
+        for i in 0..r {
+            for j in 0..c {
+                let f = self.f[i][j];
+                if f > 0.0 {
+                    let term = uy * (f / rows[i]).ln() + (ux - uxy) * (columns[j] / w).ln();
+                    s += f * term * term;
+                }
+            }
+        }
+        let ase1 = s.sqrt() / (w * uy * uy);
+        let ase0 = (p - w * gain * gain).sqrt() / (w * uy);
+        (gain / uy, ase1, ase0)
+    }
+
+    fn uncertainty_symmetric(&self) -> (f64, f64, f64) {
+        let (r, c) = self.dims();
+        let rows = self.row_totals();
+        let columns = self.column_totals();
+        let (ux, uy, uxy, p, w) = self.entropies();
+        let gain = ux + uy - uxy;
+        let mut s = 0.0;
+        for i in 0..r {
+            for j in 0..c {
+                let f = self.f[i][j];
+                if f > 0.0 {
+                    let term =
+                        uxy * (rows[i] * columns[j] / (w * w)).ln() - (ux + uy) * (f / w).ln();
+                    s += f * term * term;
+                }
+            }
+        }
+        let ase1 = 2.0 * s.sqrt() / (w * (ux + uy).powi(2));
+        let ase0 = 2.0 * (p - w * gain * gain).sqrt() / (w * (ux + uy));
+        (2.0 * gain / (ux + uy), ase1, ase0)
+    }
+
+    /// The significance of the likelihood-ratio chi-square of the table.
+    fn likelihood_ratio_p(&self) -> f64 {
+        let (r, c) = self.dims();
+        let rows = self.row_totals();
+        let columns = self.column_totals();
+        let w: f64 = rows.iter().sum();
+        let mut g = 0.0;
+        for i in 0..r {
+            for j in 0..c {
+                let f = self.f[i][j];
+                if f > 0.0 {
+                    g += 2.0 * f * (f * w / (rows[i] * columns[j])).ln();
+                }
+            }
+        }
+        chi_square_p(g, ((r - 1) * (c - 1)) as f64)
     }
 
     /// Lambda for predicting the column category: value, standard error, and that under
@@ -445,6 +557,47 @@ impl Counts<'_> {
             ..line("Measure of Agreement", "Kappa", 0, kappa)
         }
     }
+}
+
+/// The McNemar test of a square table: for 2 x 2 the exact two-sided binomial significance of
+/// the off-diagonal counts made whole (`truncate` or rounded); for larger tables the
+/// McNemar-Bowker chi-square with n (n - 1) / 2 degrees of freedom. Name, value, df,
+/// asymptotic and exact two-sided significance.
+pub(crate) fn mcnemar(
+    f: &[Vec<f64>],
+    whole: impl Fn(f64) -> f64,
+) -> (&'static str, [Option<f64>; 4]) {
+    let n = f.len();
+    if n == 2 {
+        let (b, c) = (whole(f[0][1]), whole(f[1][0]));
+        let total = b + c;
+        let ln_choose = |k: f64| {
+            crate::dist::ln_gamma(total + 1.0)
+                - crate::dist::ln_gamma(k + 1.0)
+                - crate::dist::ln_gamma(total - k + 1.0)
+        };
+        let tail: f64 = (0..=b.min(c) as u64)
+            .map(|k| (ln_choose(k as f64) - total * std::f64::consts::LN_2).exp())
+            .sum();
+        return (
+            "McNemar Test",
+            [None, None, None, Some((2.0 * tail).min(1.0))],
+        );
+    }
+    let mut x = 0.0;
+    for i in 0..n {
+        for j in i + 1..n {
+            let pair = f[i][j] + f[j][i];
+            if pair > 0.0 {
+                x += (f[i][j] - f[j][i]).powi(2) / pair;
+            }
+        }
+    }
+    let df = (n * (n - 1) / 2) as f64;
+    (
+        "McNemar-Bowker Test",
+        [Some(x), Some(df), Some(chi_square_p(x, df)), None],
+    )
 }
 
 /// The risk estimates of a 2 x 2 table: the odds ratio and the risk ratios for the first and

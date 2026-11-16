@@ -961,6 +961,10 @@ pub enum CrosstabsMeasure {
     Kappa,
     /// The odds ratio and the cohort risk ratios of a 2 x 2 table.
     Risk,
+    /// The uncertainty coefficient.
+    Uc,
+    /// The McNemar (2 x 2) or McNemar-Bowker test of symmetry.
+    Mcnemar,
 }
 
 /// How CROSSTABS turns case weights into counts.

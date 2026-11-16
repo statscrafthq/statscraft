@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CROSSTABS /STATISTICS=MCNEMAR (exact McNemar test for 2 x 2 tables, McNemar-Bowker for larger square ones, in the chi-square table) and UC (uncertainty coefficient, symmetric and directional).
 - CROSSTABS /STATISTICS=KAPPA (Cohen's kappa in the Symmetric Measures table) and RISK (odds ratio and cohort risks of a 2 x 2 table with 95% intervals, in a Risk Estimate table).
 - The Crosstabs dialog offers the new statistics as checkboxes: phi and Cramer's V, the contingency coefficient, lambda, gamma, Kendall's tau-b and tau-c, and the correlations, next to the chi-square tests.
 - CROSSTABS /STATISTICS: PHI (phi and Cramer's V), CC, LAMBDA (with Goodman and Kruskal's tau), BTAU, CTAU, GAMMA and CORR (Spearman and Pearson), in Symmetric Measures and Directional Measures tables with standard errors, approximate T and significance. Checked by hand and against GNU PSPP.
