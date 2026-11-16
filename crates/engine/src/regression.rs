@@ -931,6 +931,14 @@ impl Engine {
                 w: order.iter().map(|&i| mo.w[i]).fold(f64::INFINITY, f64::min),
                 origin: command.origin,
             };
+            // C is a sum of weights: at 1 or less the variances have no degrees of freedom
+            if eq.c <= 1.0 {
+                warnings.push(format!(
+                    "too few cases have valid values of {dependent} and its independent variables; \
+                     it gets no equation"
+                ));
+                continue;
+            }
             if eq.var[eq.y()].is_nan() || eq.var[eq.y()] <= 0.0 {
                 warnings.push(format!(
                     "{dependent} has no variance in the cases of the analysis; it gets no equation"

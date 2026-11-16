@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- REGRESSION: a split group (or a run) where too few cases have valid values is told so, instead of being reported as a dependent without variance.
 - UNIANOVA and GLM show R squared as a period, not NaN, when the dependent does not vary; PROBIT stops with an error when none or all of the subjects responded instead of showing infinite limits.
 - AREG (METHOD=PW or CO) stops with an error on a dependent series with one value throughout, and 2SLS leaves out an equation whose dependent has no variance, with a warning, instead of showing meaningless statistics.
 - Messages that open with their command's name ("TWOSTEP CLUSTER has no variable left to cluster") no longer show the name twice.

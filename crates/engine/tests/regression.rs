@@ -2257,6 +2257,30 @@ fn pin_above_pout_moves_pout_with_a_warning() {
     );
 }
 
+/// A split group without valid cases is told so, not that the dependent has no variance.
+#[test]
+fn a_split_group_without_valid_cases_gets_no_equation() {
+    let mut engine = data_engine(DATA);
+    run(
+        &mut engine,
+        "COMPUTE part = $CASENUM > 6.\nIF part = 1 x1 = $SYSMIS.\nSPLIT FILE BY part.\n\
+         REGRESSION /DEPENDENT=y /METHOD=ENTER x1.",
+    );
+    let warnings = engine.warnings();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.starts_with("part = 1: too few cases have valid values")),
+        "{warnings:?}"
+    );
+    assert!(
+        !warnings
+            .iter()
+            .any(|w| w.contains("no variance") || w.starts_with("part = 0")),
+        "{warnings:?}"
+    );
+}
+
 #[test]
 fn a_variable_that_breaks_the_tolerance_stays_out() {
     let mut engine = data_engine(DATA);
