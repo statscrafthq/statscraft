@@ -35,11 +35,16 @@ pub fn write_xlsx_parts<'a>(
     if one_sheet {
         // no frozen panes here: every table has its own header
         let sheet = workbook.add_worksheet().set_name("Tables")?;
-        let (mut top, mut widths) = (0, Vec::new());
+        let (mut top, mut widths, mut all_plain) = (0, Vec::new(), true);
         for (item, notes) in items {
+            all_plain &= matches!(item, Item::Table(t) if t.style.plain);
             top = put_item(sheet, item, (top, 0), notes, &mut widths)? + 1;
         }
         set_widths(sheet, &widths)?;
+        // plain tables have only the plugin's lines: the sheet's grid would draw the rest
+        if all_plain && top > 0 {
+            sheet.set_screen_gridlines(false);
+        }
     } else {
         let mut names = Vec::new();
         for (item, notes) in items {
@@ -62,13 +67,17 @@ pub fn write_xlsx_parts<'a>(
             put_item(sheet, item, (0, 0), notes, &mut widths)?;
             set_widths(sheet, &widths)?;
             let depth = header_rows(table).len() as u32;
-            // stacked block labels run on to the right, where a frozen column would cut them
-            let columns = if table.stacked() {
-                0
-            } else {
-                table.row_headers
+            // stacked block labels run on to the right, where a frozen column would cut them,
+            // unless the plugin asks for frozen columns
+            let columns = match (table.style.freeze_columns, table.stacked()) {
+                (Some(n), _) => n,
+                (None, true) => 0,
+                (None, false) => table.row_headers as u16,
             };
-            sheet.set_freeze_panes(title_rows(table) + depth, columns as u16)?;
+            sheet.set_freeze_panes(title_rows(table) + depth, columns)?;
+            if table.style.plain {
+                sheet.set_screen_gridlines(false);
+            }
         }
     }
     workbook.save(path)

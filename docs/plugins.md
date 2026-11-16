@@ -178,7 +178,8 @@ The plugin writes one answer to its standard output and exits with status 0:
 - `font` and `font_size` (in points, 1 to 409): the font of every cell of the table in the
   exports, header and title included. A font name may have letters, digits, spaces and hyphens,
   at most 31 characters; another is dropped.
-- `plain`, `row_labels` and `column_widths`: the layout of the exports, see below.
+- `plain`, `row_labels`, `column_widths` and `freeze_columns`: the layout of the exports, see
+  below.
 
 Every key but `id`, and of a cell but `row` and `col`, may be left out. Any cell may be
 decorated, totals included. Cells outside the body or the header lines and colours not written
@@ -223,8 +224,9 @@ out. The output window ignores them.
 ```
 
 - `plain: true`: Statscraft draws none of its own lines around the cells, gives the header no
-  fill and does not make it bold. Number formats and merged cells stay; only the plugin's styles
-  show.
+  fill and does not make it bold, and the Excel sheet hides its grid (with all tables on one
+  sheet, when every table there is plain). Number formats and merged cells stay; only the
+  plugin's styles show.
 - `row_labels: "stacked"`: a compact form of the row labels for tables with two row label
   columns or more. Column 0, the outer row label (in a custom table the variable label,
   repeated down its categories), leaves the table. Each run of rows that share the same text in
@@ -236,6 +238,10 @@ out. The output window ignores them.
 - `column_widths`: Excel column widths in characters, kept within 1 to 255. A width for a
   column off the table is dropped. When two tables share a sheet, the wider need of a column
   wins.
+- `freeze_columns`: the number of columns, from the left of the exported table (after a
+  stacked layout dropped its outer column), that Excel keeps in view when scrolling right, as
+  with `"freeze_columns": 3` for the labels, the statistic column and the total. More columns
+  than the table has are dropped. Only with a sheet per table.
 
 How cells map with stacked row labels: `col` always counts the columns of the request. The
 style and comment of the first row of a run in column 0 go to that run's label row; column 0 of

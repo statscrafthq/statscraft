@@ -290,11 +290,12 @@ fn stacked_plain_tables_have_the_house_layout() {
     // one column fewer: nothing in E
     let sheet = &parts["xl/worksheets/sheet1.xml"];
     assert!(!sheet.contains("<c r=\"E"), "{sheet}");
-    // the header rows frozen, no column
+    // the header rows frozen, no column; a plain table hides the sheet's grid
     assert!(
         sheet.contains("ySplit=\"3\"") && !sheet.contains("xSplit"),
         "{sheet}"
     );
+    assert!(sheet.contains("showGridLines=\"0\""), "{sheet}");
     // the statistic column (2 in the table, B on the sheet) is 3 characters wide
     assert!(
         sheet.contains("<col min=\"2\" max=\"2\" width=\"3.7109375\""),

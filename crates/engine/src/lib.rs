@@ -328,6 +328,10 @@ pub struct TableStyle {
     /// Excel column widths, by column as in `rows`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub column_widths: Vec<ColumnWidth>,
+    /// Excel: the sheet columns kept in view when scrolling right, counted from the left of
+    /// the exported table (after a stacked layout dropped its outer column).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freeze_columns: Option<u16>,
 }
 
 /// The width of a column in Excel, in characters.
@@ -427,6 +431,7 @@ impl Table {
                 widths.dedup_by_key(|w| w.col);
                 widths
             },
+            freeze_columns: style.freeze_columns.filter(|&n| usize::from(n) <= columns),
         };
     }
 

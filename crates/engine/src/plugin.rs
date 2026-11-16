@@ -137,6 +137,7 @@ struct ResponseTable {
     row_labels: Option<String>,
     #[serde(default)]
     column_widths: Vec<ColumnWidth>,
+    freeze_columns: Option<u16>,
 }
 
 /// Runs `program --describe`.
@@ -213,6 +214,7 @@ fn answers(out: &[u8]) -> Result<Vec<(u64, Answer)>, String> {
                 plain: t.plain,
                 row_labels: t.row_labels,
                 column_widths: t.column_widths,
+                freeze_columns: t.freeze_columns,
             };
             (t.id, (t.cells, style))
         })

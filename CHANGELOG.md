@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Plugins: `freeze_columns` keeps the first columns of an exported Excel table in view when scrolling right, and a plain table's sheet hides the Excel grid.
 - `statscraft run --xlsx FILE --plugin PROGRAM`: the plugin colours, comments and lays out the custom tables of the workbook, with its settings from the active data's attributes.
 - Plugins: the settings chosen in Edit > Plugin Settings are also remembered for the data file's path, so a syntax that reads the same file again (GET FILE) before it was saved keeps them.
 - Window on Linux: follows the GNOME light or dark setting where the window system does not report it (as in a remote desktop session), instead of always turning dark. Edit > Settings > AI agents finds Claude Code in the usual user program folders (such as ~/.local/bin) when the window was started from the desktop menu without them on its PATH.

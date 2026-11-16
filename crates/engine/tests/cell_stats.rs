@@ -165,6 +165,7 @@ fn statistics_and_decorations_survive_the_output_file() {
         column_widths: [(99, 5.0), (h, 3.0), (0, 400.0), (h, 9.0)]
             .map(|(col, width)| ColumnWidth { col, width })
             .to_vec(),
+        freeze_columns: Some(2),
     };
     table.set_decorations(cells, style);
     assert_eq!(table.decorations.len(), 2);
@@ -180,6 +181,7 @@ fn statistics_and_decorations_survive_the_output_file() {
     assert!(table.stacked() && table.style.plain);
     let widths = [(0, 255.0), (h, 3.0)].map(|(col, width)| ColumnWidth { col, width });
     assert_eq!(table.style.column_widths, widths);
+    assert_eq!(table.style.freeze_columns, Some(2));
     // a font name that could break out of a style, and a size beyond Excel's, are dropped
     let mut odd = table.clone();
     let quoted = TableStyle {
