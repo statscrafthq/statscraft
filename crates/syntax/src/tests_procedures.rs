@@ -168,11 +168,12 @@ fn crosstabs() {
             .message
             .contains("above 0")
     );
-    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ ALL.");
-    assert_eq!(
-        e.message,
-        "ALL in CROSSTABS /STATISTICS is not supported yet"
-    );
+    let Command::Crosstabs(c) = one("CROSSTABS a BY b /STATISTICS=ALL.") else {
+        panic!()
+    };
+    assert!(c.chisq);
+    assert_eq!(c.measures.len(), 14);
+    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ SOMETHING.");
     assert_eq!(e.expected[0], "CHISQ");
     assert!(
         err("CROSSTABS a BY b /MISSING=REPORT.")

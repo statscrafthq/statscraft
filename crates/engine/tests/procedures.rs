@@ -994,6 +994,28 @@ CROSSTABS a BY b BY g /CELLS=NONE /STATISTICS=CMH."
         ),
     );
     assert!(number(&empty_row[0].rows[0][1]).is_finite());
+    // ALL: the chi-square table with McNemar, both measures tables, the risk estimate and CMH
+    let all = crosstabs(
+        &mut engine,
+        &format!("{data}CROSSTABS a BY b BY g /CELLS=NONE /STATISTICS=ALL."),
+    );
+    let titles: Vec<&str> = all
+        .iter()
+        .map(|t| t.title.split(':').next().unwrap())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Chi-Square Tests",
+            "Symmetric Measures",
+            "Directional Measures",
+            "Risk Estimate",
+            "Tests of Homogeneity of the Odds Ratio",
+            "Tests of Conditional Independence",
+            "Mantel-Haenszel Common Odds Ratio Estimate"
+        ]
+    );
+    assert!(all[0].rows.iter().any(|r| texts(r)[1] == "McNemar Test"));
     // a variable with three values: no tests, and the table says why
     let three = crosstabs(
         &mut engine,
