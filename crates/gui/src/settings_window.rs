@@ -5,6 +5,7 @@
 //! to the AI apps on this computer (connect_window.rs).
 
 use crate::connect_window::Connect;
+use crate::output::Part;
 use crate::settings::{MIOUTPUT, Settings};
 use crate::themes;
 use eframe::egui::{self, Align2, ComboBox, Key, Ui, vec2};
@@ -239,6 +240,16 @@ fn body(ui: &mut Ui, section: Section, settings: &mut Settings) -> bool {
                 settings.log_hidden = !log;
                 changed = true;
             }
+            ui.add_space(8.0);
+            ui.label("Show in the output");
+            let output = &mut settings.output;
+            for (part, on) in Part::ALL.into_iter().zip(&mut output.kinds) {
+                changed |= ui.checkbox(on, part.label()).changed();
+            }
+            changed |= ui
+                .checkbox(&mut output.export_hidden, "Export hidden items")
+                .on_hover_text("Exports and copies take what the output does not show too")
+                .changed();
         }
         Section::Updates => {
             let mut on = settings.updates != Some(false);

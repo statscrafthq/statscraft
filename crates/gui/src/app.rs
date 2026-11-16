@@ -2388,7 +2388,8 @@ impl App {
                 return;
             };
             let chosen = &view.selected;
-            let page = output::html(&view.runs, |id| !selected || chosen.contains(&id));
+            let keep = |id| !selected || chosen.contains(&id);
+            let page = output::html(&view.runs, keep, &view.exported());
             self.status = match std::fs::write(&path, page) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
@@ -2406,7 +2407,7 @@ impl App {
             let Some(view) = self.windows.output(id).map(|o| &o.view) else {
                 return;
             };
-            let bytes = output::pdf(&view.runs, |_| true);
+            let bytes = output::pdf(&view.runs, |_| true, &view.exported());
             self.status = match std::fs::write(&path, bytes) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
@@ -2460,13 +2461,14 @@ impl App {
                 return;
             };
             let chosen = &view.selected;
-            let items = output::tables(&view.runs)
-                .filter(|t| !selected || chosen.contains(&t.id))
-                .map(|t| match &t.chart {
-                    Some(chart) => statscraft_export::Item::Chart(chart),
-                    None => statscraft_export::Item::Table(&t.table),
-                });
-            self.status = match statscraft_export::write_xlsx(&path, items, one_sheet) {
+            let keep = |id| !selected || chosen.contains(&id);
+            let exported = view.exported().exported(&view.runs, keep);
+            let items = exported.iter().flat_map(|(_, tables)| tables);
+            let items = items.map(|(table, chart, notes)| match chart {
+                Some(chart) => (statscraft_export::Item::Chart(chart), *notes),
+                None => (statscraft_export::Item::Table(table), *notes),
+            });
+            self.status = match statscraft_export::write_xlsx_parts(&path, items, one_sheet) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
             };
@@ -3807,10 +3809,12 @@ impl App {
     /// The tables of an output window, with its navigator.
     fn output_view(&mut self, ui: &mut Ui, id: WindowId) {
         let light = !self.settings.paper_follows_system;
+        let show = self.settings.output;
         let Some(o) = self.windows.output_mut(id) else {
             return;
         };
         o.view.light_paper = light;
+        o.view.show = show;
         match o.view.ui(ui) {
             Some(output_view::Request::ExportHtml) => self.export_html(id, true),
             Some(output_view::Request::ExportXlsx { one_sheet }) => {

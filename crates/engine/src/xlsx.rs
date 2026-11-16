@@ -18,18 +18,28 @@ pub fn write_xlsx<'a>(
     items: impl IntoIterator<Item = Item<'a>>,
     one_sheet: bool,
 ) -> Result<(), XlsxError> {
+    write_xlsx_parts(path, items.into_iter().map(|item| (item, true)), one_sheet)
+}
+
+/// `write_xlsx` with each item's notes left out when its bool is false. A table with an empty
+/// title has no title row either.
+pub fn write_xlsx_parts<'a>(
+    path: &Path,
+    items: impl IntoIterator<Item = (Item<'a>, bool)>,
+    one_sheet: bool,
+) -> Result<(), XlsxError> {
     let mut workbook = Workbook::new();
     if one_sheet {
         // no frozen panes here: every table has its own header
         let sheet = workbook.add_worksheet().set_name("Tables")?;
         let (mut top, mut widths) = (0, Vec::new());
-        for item in items {
-            top = put_item(sheet, item, (top, 0), &mut widths)? + 1;
+        for (item, notes) in items {
+            top = put_item(sheet, item, (top, 0), notes, &mut widths)? + 1;
         }
         set_widths(sheet, &widths)?;
     } else {
         let mut names = Vec::new();
-        for item in items {
+        for (item, notes) in items {
             let sheet = workbook.add_worksheet();
             let owned;
             let table = match item {
@@ -39,28 +49,40 @@ pub fn write_xlsx<'a>(
                     &owned
                 }
             };
-            sheet.set_name(sheet_name(&table.title, &mut names))?;
+            // a table without its title is named by its outline label, when it has one
+            let name = match (&table.outline, table.title.as_str()) {
+                (Some(outline), "") => outline,
+                _ => &table.title,
+            };
+            sheet.set_name(sheet_name(name, &mut names))?;
             let mut widths = Vec::new();
-            put_item(sheet, item, (0, 0), &mut widths)?;
+            put_item(sheet, item, (0, 0), notes, &mut widths)?;
             set_widths(sheet, &widths)?;
             let depth = header_rows(table).len() as u32;
-            sheet.set_freeze_panes(1 + depth, table.row_headers as u16)?;
+            sheet.set_freeze_panes(title_rows(table) + depth, table.row_headers as u16)?;
         }
     }
     workbook.save(path)
 }
 
-/// A table with its notes, or a chart with its data table, from `at`; returns the row after it.
+/// A table, or a chart with its data table, with its notes when `notes`, from `at`; returns the
+/// row after it.
 fn put_item(
     sheet: &mut Worksheet,
     item: Item,
     at: (u32, u16),
+    notes: bool,
     widths: &mut Vec<usize>,
 ) -> Result<u32, XlsxError> {
     match item {
-        Item::Table(table) => put_table(sheet, table, at, true, widths),
-        Item::Chart(chart) => put_chart(sheet, &chart.data_table(), chart, at, true, widths, true),
+        Item::Table(table) => put_table(sheet, table, at, notes, widths),
+        Item::Chart(chart) => put_chart(sheet, &chart.data_table(), chart, at, notes, widths, true),
     }
+}
+
+/// The rows a table's title takes: none for an empty title.
+pub(crate) fn title_rows(table: &Table) -> u32 {
+    u32::from(!table.title.is_empty())
 }
 
 /// Writes the title, header, body and, with `notes`, the caption of `table` from the cell
@@ -95,8 +117,10 @@ pub(crate) fn put_table(
         widths[column] = widths[column].max(text.chars().count().min(MAX_WIDTH));
     };
 
-    sheet.write_string_with_format(top, left, &table.title, &Format::new().set_bold())?;
-    let mut row = top + 1;
+    if !table.title.is_empty() {
+        sheet.write_string_with_format(top, left, &table.title, &Format::new().set_bold())?;
+    }
+    let mut row = top + title_rows(table);
     let mut spans = Vec::new();
     let headers = header_rows(table);
     // above each row label column the header levels form one cell holding its label, if any

@@ -148,8 +148,11 @@ impl Layout {
         });
     }
 
-    /// Text wrapped to the frame, line by line onto the pages.
+    /// Text wrapped to the frame, line by line onto the pages; no text takes no room.
     fn paragraph(&mut self, text: &str, size: f32, color: Color, bold: bool) {
+        if text.is_empty() {
+            return;
+        }
         for line in wrap(text, size, FRAME) {
             self.room(size * LEADING);
             self.line(MARGIN, self.y, size, &line, color, bold);
@@ -216,7 +219,10 @@ impl Layout {
         if part.len() > stub.len() || parts.is_empty() {
             parts.push(part);
         }
-        let title_height = wrap(&table.title, TITLE, FRAME).len() as f32 * TITLE * LEADING;
+        let title_height = match table.title.is_empty() {
+            true => 0.0,
+            false => wrap(&table.title, TITLE, FRAME).len() as f32 * TITLE * LEADING,
+        };
         let label = table.outline.as_deref().unwrap_or(&table.title);
         for (i, part) in parts.iter().enumerate() {
             let x: Vec<f32> = part

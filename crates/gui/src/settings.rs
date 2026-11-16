@@ -4,6 +4,7 @@
 //! the parts of multiply imputed output (SET MIOUTPUT) are kept here too, and a new session of
 //! the window starts by running that SET.
 
+use crate::output::{Part, Show};
 use std::path::{Path, PathBuf};
 
 /// The most recent files kept.
@@ -48,6 +49,8 @@ pub struct Settings {
     pub tnumbers: Option<String>,
     /// SET MIOUTPUT chosen in Edit > Settings: its keywords in upper case, space separated.
     pub mioutput: Option<String>,
+    /// The kinds of element the output shows, and whether exports take hidden items.
+    pub output: Show,
 }
 
 impl Settings {
@@ -104,8 +107,9 @@ impl Settings {
     /// `recent PATH`,
     /// `updates on|off`, `update-checked SECONDS`, `paper system`, `theme NAME`, `wrap off`,
     /// `log hidden`, `variable_widths W ...`, `tvars names|labels|both` and
-    /// `tnumbers values|labels|both` and `mioutput` with MIOUTPUT keywords; anything else is
-    /// skipped.
+    /// `tnumbers values|labels|both`, `mioutput` with MIOUTPUT keywords, `output-shows` with
+    /// the kinds of element the output shows (`headings titles tables notes charts`) and
+    /// `export hidden`; anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -141,6 +145,11 @@ impl Settings {
                 "tvars" => settings.tvars = keyword(&TVARS, rest),
                 "tnumbers" => settings.tnumbers = keyword(&TNUMBERS, rest),
                 "mioutput" => settings.mioutput = mi_parts(rest),
+                "output-shows" => {
+                    let words: Vec<&str> = rest.split_whitespace().collect();
+                    settings.output.kinds = Part::ALL.map(|p| words.contains(&p.word()));
+                }
+                "export" => settings.output.export_hidden = rest == "hidden",
                 _ => {}
             }
         }
@@ -196,6 +205,16 @@ impl Settings {
         }
         if let Some(parts) = &self.mioutput {
             text.push_str(&format!("mioutput {}\n", parts.to_lowercase()));
+        }
+        if self.output.kinds != Show::default().kinds {
+            text.push_str("output-shows");
+            for part in Part::ALL.into_iter().filter(|p| self.output.kind(*p)) {
+                text.push_str(&format!(" {}", part.word()));
+            }
+            text.push('\n');
+        }
+        if self.output.export_hidden {
+            text.push_str("export hidden\n");
         }
         text
     }
@@ -284,6 +303,10 @@ mod tests {
             tvars: Some("NAMES".into()),
             tnumbers: Some("BOTH".into()),
             mioutput: Some("IMPUTED POOLED".into()),
+            output: Show {
+                kinds: [true, false, true, false, true],
+                export_hidden: true,
+            },
         };
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
@@ -311,6 +334,26 @@ mod tests {
         // a relative path is kept as the folder it means now
         settings.remember_folder(Path::new("job.sps"));
         assert_eq!(settings.folder, Some(std::env::current_dir().unwrap()));
+    }
+
+    #[test]
+    fn what_the_output_shows_is_kept() {
+        // the defaults write nothing
+        let mut settings = Settings::default();
+        assert_eq!(settings.text(), "");
+        assert!(!settings.output.kind(Part::Heading) && settings.output.kind(Part::Title));
+        settings.output.kinds = [true, false, true, true, true];
+        settings.output.export_hidden = true;
+        let text = settings.text();
+        assert_eq!(
+            text,
+            "output-shows headings tables notes charts\nexport hidden\n"
+        );
+        assert_eq!(Settings::parse(&text), settings);
+        // every kind off is kept too
+        settings.output.kinds = [false; 5];
+        assert_eq!(settings.text(), "output-shows\nexport hidden\n");
+        assert_eq!(Settings::parse(&settings.text()), settings);
     }
 
     #[test]

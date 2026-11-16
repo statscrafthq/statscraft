@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: every part of the output (command headings, titles, tables, notes, charts) is an element in the navigator with its own box to show or hide it, and Edit > Settings > Grids and output > Show in the output switches whole kinds; command headings are off by default. Copies and exports leave out what does not show unless Export hidden items is on. See [the window](docs/window.md#what-the-output-shows).
 - SPECTRA, AREG and 2SLS. SPECTRA gives the periodogram and the smoothed spectral density of series (Tukey-Hamming, Tukey-Hanning, Parzen, Bartlett, Daniell or own weights), cross-spectra of pairs (cospectrum, quadrature spectrum, cross amplitude, gain, phase, squared coherency), charts as data and saved variables. AREG fits a regression with first-order autoregressive errors by Prais-Winsten, Cochrane-Orcutt or exact maximum likelihood, with iteration history, forecasts, prediction limits and APPLY. 2SLS estimates one or more structural equations by two-stage least squares, with the coefficient correlations and covariances and saved fits and residuals. Checked against a general statistics package run as a black box. See [SPECTRA](docs/commands/spectra.md), [AREG](docs/commands/areg.md) and [2SLS](docs/commands/2sls.md).
 
 ## 0.15.0 (2026-11-16)
