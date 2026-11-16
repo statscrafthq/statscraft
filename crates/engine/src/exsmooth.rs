@@ -469,7 +469,7 @@ impl Engine {
                     4 * m.p
                 )));
             }
-            if n < 2 || (m.trend == Trend::Exponential && n < 2) {
+            if n < 2 {
                 return Err(Error(format!("EXSMOOTH needs at least 2 cases of {name}")));
             }
             let positive = m.season == Seasonality::Multiplicative || m.trend == Trend::Exponential;

@@ -222,6 +222,9 @@ fn autocovariances(phi: &[f64], c: &[f64], len: usize) -> Option<Vec<f64>> {
     (gamma[0] > 0.0 && gamma.iter().all(|g| g.is_finite())).then_some(gamma)
 }
 
+/// A state element as (coefficient, lag) terms in past series values and past innovations.
+type Terms = (Vec<(f64, usize)>, Vec<(f64, usize)>);
+
 /// The state space form of the ARMA part: dimension r, and the stationary covariance of
 /// its state (unit innovation variance).
 fn state_covariance(phi: &[f64], c: &[f64], r: usize) -> Option<Vec<Vec<f64>>> {
@@ -236,7 +239,7 @@ fn state_covariance(phi: &[f64], c: &[f64], r: usize) -> Option<Vec<Vec<f64>>> {
         }
     };
     // element j (from 1): sum_(k=j..r) phi_k w_(t-(k-j+1)) + sum_(k=j-1..r-1) c_k a_(t-(k-j+1))
-    let terms = |j: usize| -> (Vec<(f64, usize)>, Vec<(f64, usize)>) {
+    let terms = |j: usize| -> Terms {
         if j == 1 {
             return (vec![(1.0, 0)], Vec::new());
         }
@@ -245,8 +248,7 @@ fn state_covariance(phi: &[f64], c: &[f64], r: usize) -> Option<Vec<Vec<f64>>> {
         (w, a)
     };
     let all: Vec<_> = (1..=r).map(terms).collect();
-    let cross = |(w1, a1): &(Vec<(f64, usize)>, Vec<(f64, usize)>),
-                 (w2, a2): &(Vec<(f64, usize)>, Vec<(f64, usize)>)| {
+    let cross = |(w1, a1): &Terms, (w2, a2): &Terms| {
         let mut v = 0.0;
         for (x, l1) in w1 {
             for (y, l2) in w2 {
@@ -335,13 +337,13 @@ fn kalman(
         })
         .collect();
     let mut steps = Vec::new();
-    for t in start + reach..z.len() {
+    for (t, &value) in z.iter().enumerate().skip(start + reach) {
         let pz: Vec<f64> = (0..m)
             .map(|i| (0..m).map(|j| p[i][j] * zrow[j]).sum())
             .collect();
         let f = (0..m).map(|i| zrow[i] * pz[i]).sum::<f64>();
         let pred = mu + (0..m).map(|i| zrow[i] * a[i]).sum::<f64>();
-        let observed = if t < stop { z[t] } else { None };
+        let observed = if t < stop { value } else { None };
         let innovation = observed.map(|v| v - pred);
         if let Some(v) = innovation {
             if f <= 1e-12 {
@@ -1311,15 +1313,19 @@ impl Engine {
         };
         let cases = data.case_count();
         let mut columns: Vec<Values> = vec![vec![None; cases]; 5];
-        for t in 0..y.len() {
+        for (t, &yt) in y.iter().enumerate() {
             let case = periods.first + t;
+            // forecasts stop at the end of the PREDICT period
+            if t >= origin && case > periods.end {
+                break;
+            }
             let (Some(f), Some(s)) = (prediction.fit[t], prediction.se[t]) else {
                 continue;
             };
             let sep = s * sigma;
             columns[0][case] = Some(back(f));
             if t < origin {
-                columns[1][case] = y[t].map(|v| v - f);
+                columns[1][case] = yt.map(|v| v - f);
             }
             columns[2][case] = Some(back(f - t_crit * sep));
             columns[3][case] = Some(back(f + t_crit * sep));

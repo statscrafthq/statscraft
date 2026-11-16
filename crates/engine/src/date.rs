@@ -336,12 +336,12 @@ pub(crate) fn date_case(
     }
 }
 
+/// Each date variable's name and values, DATE_'s texts and its width.
+type DateColumns = (Vec<(String, Vec<Option<f64>>)>, Vec<String>, usize);
+
 /// The values of every date variable of `spec` over `cases` cases, and DATE_; for cases added
 /// at the end of the file.
-pub(crate) fn date_columns(
-    spec: &DateSpec,
-    cases: usize,
-) -> Result<(Vec<(String, Vec<Option<f64>>)>, Vec<String>, usize), Error> {
+pub(crate) fn date_columns(spec: &DateSpec, cases: usize) -> Result<DateColumns, Error> {
     let parts = date_parts(spec, cases)?;
     let (texts, width, _) = date_texts(&parts, cases);
     let numeric = parts

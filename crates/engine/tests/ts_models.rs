@@ -482,7 +482,12 @@ fn tsplot_and_caseplot_charts() {
     assert!(close(v[1], (6.0f64 / 4.0).ln(), 1e-12));
     // the reference line at the mean of the differences
     let mean = ((9.0f64 / 4.0).ln()) / 3.0;
-    assert!(chart.series[1].values.iter().all(|r| close(*r, mean, 1e-12)));
+    assert!(
+        chart.series[1]
+            .values
+            .iter()
+            .all(|r| close(*r, mean, 1e-12))
+    );
     assert_eq!(
         chart.footnote.as_deref(),
         Some("Transformations: natural log, difference (1). Marked at 3.")
@@ -501,4 +506,22 @@ fn tsplot_and_caseplot_charts() {
     assert_eq!(charts[0].kind, ChartKind::DropLine);
     assert_eq!(charts[0].categories[0].label, "2001");
     assert_eq!(charts[0].series[0].name, "c");
+}
+
+#[test]
+fn arima_forecasts_inside_the_series_stop_at_the_predict_end() {
+    let r = run(&format!(
+        "{}PREDICT 51 THRU 55.\nARIMA level /MODEL=(1,0,0) /FORECAST=CLS.\n",
+        data("level", TANK)
+    ));
+    let fit = column(&r.engine, "FIT_1");
+    let err = column(&r.engine, "ERR_1");
+    assert_eq!(fit.len(), 60);
+    assert!(err[49].is_some() && err[50].is_none());
+    assert!(fit[54].is_some() && fit[55].is_none());
+    // the forecasts decay toward the mean from case 50 (50.3) on
+    let (ar, _) = estimate(&r.tables, "AR1");
+    let (mu, _) = estimate(&r.tables, "Constant");
+    let expected = mu + ar * ar * (50.3 - mu);
+    assert!(close(fit[51].unwrap(), expected, 1e-9));
 }
