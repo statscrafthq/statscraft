@@ -230,7 +230,7 @@ pub struct CellStat {
 }
 
 /// How a plugin marks one cell: colours as #rrggbb, bold or italic text, coloured borders,
-/// the horizontal alignment of its text and a comment.
+/// the horizontal alignment of its text, its own font and size, and a comment.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Decoration {
     pub row: usize,
@@ -248,6 +248,12 @@ pub struct Decoration {
     /// "left", "center" or "right"; the exports' own alignment without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub align: Option<String>,
+    /// The cell's font in the exports, over the table's font.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    /// The cell's font size in points in the exports, over the table's size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 }
@@ -273,6 +279,9 @@ pub type CellLook<'a> = (
     bool,
     Option<&'a Border>,
     Option<&'a str>,
+    Option<&'a str>,
+    // the size's bits: a float cannot be hashed
+    Option<u64>,
 );
 
 impl Decoration {
@@ -286,11 +295,13 @@ impl Decoration {
             self.italic,
             self.border.as_ref(),
             align,
+            self.font.as_deref(),
+            self.size.map(f64::to_bits),
         )
     }
 
-    /// Colours that are not #rrggbb left out, a border without a side and an unknown
-    /// alignment.
+    /// Colours that are not #rrggbb left out, a border without a side, an unknown alignment, a
+    /// font name that is not plain and a size outside 1 to 409 points.
     fn clean(&mut self) {
         let keep = |c: &mut Option<String>| *c = c.take().filter(|c| parse_colour(c).is_some());
         keep(&mut self.fill);
@@ -303,7 +314,21 @@ impl Decoration {
         self.border = self.border.take().filter(|b| *b != Border::default());
         let known = |a: &String| ["left", "center", "right"].contains(&a.as_str());
         self.align = self.align.take().filter(known);
+        self.font = self.font.take().filter(|f| plain_font(f));
+        self.size = self.size.filter(font_size);
     }
+}
+
+/// A plain font name (letters, digits, spaces and hyphens, at most 31 characters), so it cannot
+/// break out of the CSS or the workbook's XML.
+fn plain_font(font: &str) -> bool {
+    let ok = |c: char| c.is_alphanumeric() || c == ' ' || c == '-';
+    (1..=31).contains(&font.chars().count()) && font.chars().all(ok)
+}
+
+/// A font size Excel takes, in points.
+fn font_size(size: &f64) -> bool {
+    (1.0..=409.0).contains(size)
 }
 
 /// What a plugin gave a table as a whole: the font of its exports, the styles of its header
@@ -332,6 +357,12 @@ pub struct TableStyle {
     /// the exported table (after a stacked layout dropped its outer column).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freeze_columns: Option<u16>,
+    /// Excel row heights in points of the header lines, by line of `header_rows`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub header_heights: Vec<f64>,
+    /// Excel: blank sheet rows above the table and its title, 1 to 10.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows_above: Option<u32>,
 }
 
 /// The width of a column in Excel, in characters.
@@ -396,8 +427,9 @@ impl Table {
     /// Puts a plugin's decorations and table style on the table: cells outside the body or the
     /// header, colours that are not #rrggbb, a font name that is not plain (letters, digits,
     /// spaces and hyphens, at most 31 characters), a size outside 1 to 409 points, row labels
-    /// other than "stacked" and widths of columns off the table are left out; a width is kept
-    /// within 1 to 255 characters.
+    /// other than "stacked", widths of columns off the table and heights of header lines the
+    /// table does not have are left out; a width is kept within 1 to 255 characters, a header
+    /// height within 1 to 409 points and the rows above within 10.
     pub fn set_decorations(&mut self, decorations: Vec<Decoration>, style: TableStyle) {
         let columns = self.columns.len();
         // a stacked layout shows one column fewer on the sheet
@@ -410,16 +442,17 @@ impl Table {
             cells
         };
         self.decorations = tidy(decorations, self.rows.len());
-        let mut header_cells = tidy(style.header_cells, header_rows(self).len());
+        let lines = header_rows(self).len();
+        let mut header_cells = tidy(style.header_cells, lines);
         header_cells.iter_mut().for_each(|d| d.comment = None);
-        // a plain name, so it cannot break out of the CSS or the workbook's XML
-        let plain = |f: &String| {
-            let ok = |c: char| c.is_alphanumeric() || c == ' ' || c == '-';
-            (1..=31).contains(&f.chars().count()) && f.chars().all(ok)
-        };
+        let mut header_heights = style.header_heights;
+        header_heights.truncate(lines);
+        header_heights
+            .iter_mut()
+            .for_each(|h| *h = h.clamp(1.0, 409.0));
         self.style = TableStyle {
-            font: style.font.filter(plain),
-            font_size: style.font_size.filter(|s| (1.0..=409.0).contains(s)),
+            font: style.font.filter(|f| plain_font(f)),
+            font_size: style.font_size.filter(font_size),
             header_cells,
             plain: style.plain,
             row_labels: style.row_labels.filter(|r| r == "stacked"),
@@ -436,6 +469,8 @@ impl Table {
             freeze_columns: style
                 .freeze_columns
                 .filter(|&n| usize::from(n) <= columns - usize::from(stacked)),
+            header_heights,
+            rows_above: style.rows_above.map(|n| n.min(10)).filter(|&n| n > 0),
         };
     }
 

@@ -1,7 +1,7 @@
 //! A small Statscraft plugin (see docs/plugins.md). In every row it compares each cell with the
 //! row's total of the same statistic: a cell above the total by more than the threshold turns
-//! one colour, a cell below it by more than the threshold another, both in bold, and every
-//! compared cell gets a comment with the difference.
+//! one colour, a cell below it by more than the threshold another, both in the marked style
+//! (bold unless changed), and every compared cell gets a comment with the difference.
 
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -14,9 +14,10 @@ fn describe() -> Value {
         "protocol": 1,
         "settings": [
             {"key": "threshold", "label": "Smallest difference marked", "kind": "number", "default": 0.05},
-            {"key": "higher", "label": "Colour of a higher cell", "kind": "colour", "default": "#c6efce"},
-            {"key": "lower", "label": "Colour of a lower cell", "kind": "colour", "default": "#ffc7ce"},
-            {"key": "comments", "label": "Write comments", "kind": "bool", "default": true}
+            {"key": "comments", "label": "Write comments", "kind": "bool", "default": true},
+            {"key": "higher", "label": "Colour of a higher cell", "kind": "colour", "default": "#c6efce", "group": "Look"},
+            {"key": "lower", "label": "Colour of a lower cell", "kind": "colour", "default": "#ffc7ce", "group": "Look"},
+            {"key": "marked", "label": "Marked cell", "kind": "style", "default": {"bold": true}, "group": "Look"}
         ]
     })
 }
@@ -32,6 +33,7 @@ fn decorate(table: &Value, settings: &Map<String, Value>) -> Vec<Value> {
         value.unwrap_or(default).to_string()
     };
     let (higher, lower) = (colour("higher", "#c6efce"), colour("lower", "#ffc7ce"));
+    let marked = settings.get("marked").and_then(Value::as_object);
     let comments = settings
         .get("comments")
         .and_then(Value::as_bool)
@@ -76,7 +78,14 @@ fn decorate(table: &Value, settings: &Map<String, Value>) -> Vec<Value> {
             cell["fill"] = json!(lower);
         }
         if difference.abs() > threshold {
-            cell["bold"] = json!(true);
+            // the style's keys are those of a cell; the fill stays the higher or lower colour
+            for (key, value) in marked
+                .into_iter()
+                .flatten()
+                .filter(|(key, _)| *key != "fill")
+            {
+                cell[key.as_str()] = value.clone();
+            }
         }
         if comments {
             let text = match kind.contains("PCT") {

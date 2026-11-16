@@ -129,6 +129,8 @@ fn statistics_and_decorations_survive_the_output_file() {
                 ..Border::default()
             }),
             align: Some("center".into()),
+            font: Some("Verdana".into()),
+            size: Some(7.0),
             comment: Some("66.7% (13.3% to 100%)".into()),
             ..Decoration::default()
         },
@@ -166,6 +168,9 @@ fn statistics_and_decorations_survive_the_output_file() {
             .map(|(col, width)| ColumnWidth { col, width })
             .to_vec(),
         freeze_columns: Some(2),
+        header_heights: vec![20.0],
+        // at most 10
+        rows_above: Some(12),
     };
     table.set_decorations(cells, style);
     assert_eq!(table.decorations.len(), 2);
@@ -206,11 +211,15 @@ fn statistics_and_decorations_survive_the_output_file() {
     assert_eq!(json["style"]["row_labels"], "stacked");
     assert_eq!(json["style"]["column_widths"][1]["width"], 3.0);
     assert_eq!(json["decorations"][0]["align"], "center");
+    assert_eq!(json["decorations"][0]["font"], "Verdana");
+    assert_eq!(json["decorations"][0]["size"], 7.0);
+    assert_eq!(json["style"]["header_heights"][0], 20.0);
+    assert_eq!(json["style"]["rows_above"], 10);
     let html = statscraft_engine::cell_attributes(&table, 0, h + 1);
     assert_eq!(
         html,
         " style=\"background:#a9ecf5;color:#094e56;font-weight:bold;text-align:center;\
-         border-bottom:1px solid #4bacc6;\" title=\"66.7% (13.3% to 100%)\""
+         font-family:'Verdana';font-size:7pt;border-bottom:1px solid #4bacc6;\" title=\"66.7% (13.3% to 100%)\""
     );
     assert_eq!(
         statscraft_engine::table_attributes(&table),

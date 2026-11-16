@@ -52,7 +52,7 @@ fn the_example_plugin_colours_cells_against_their_row_total() {
         (description.name.as_str(), description.protocol),
         ("Example", 1)
     );
-    assert_eq!(description.settings.len(), 4);
+    assert_eq!(description.settings.len(), 5);
     let table = crosstab();
     let h = table.row_headers;
     let defaults = description.values(|_| None);
@@ -81,4 +81,15 @@ fn the_example_plugin_colours_cells_against_their_row_total() {
         description.values(|name| (name == "plugin_example_threshold").then(|| "0.3".into()));
     let answer = plugin::decorate(&program, &values, &[(7, &table)]).unwrap();
     assert!(answer[0].1.0.iter().all(|d| d.fill.is_none()));
+
+    // the marked style from its attribute: italic and a font instead of bold
+    let style = r#"{"italic":true,"font":"Verdana","size":7}"#;
+    let values = description.values(|name| (name == "plugin_example_marked").then(|| style.into()));
+    let answer = plugin::decorate(&program, &values, &[(7, &table)]).unwrap();
+    let marked = answer[0].1.0.iter().find(|d| d.fill.is_some()).unwrap();
+    assert!(marked.italic && !marked.bold);
+    assert_eq!(
+        (marked.font.as_deref(), marked.size),
+        (Some("Verdana"), Some(7.0))
+    );
 }

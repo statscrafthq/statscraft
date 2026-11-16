@@ -36,10 +36,19 @@ fn decorated(rows: usize, columns: usize) -> Table {
 
 /// Writes the table and returns the workbook's parts by name.
 fn written(test: &str, table: &Table) -> std::collections::HashMap<String, String> {
+    written_all(test, &[table], false)
+}
+
+/// Writes the tables, with `one_sheet` all on one sheet, and returns the workbook's parts.
+fn written_all(
+    test: &str,
+    tables: &[&Table],
+    one_sheet: bool,
+) -> std::collections::HashMap<String, String> {
     let dir = std::env::temp_dir().join(format!("statscraft-plugin-{test}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("out.xlsx");
-    write_xlsx(&path, [Item::Table(table)], false).unwrap();
+    write_xlsx(&path, tables.iter().map(|t| Item::Table(t)), one_sheet).unwrap();
     let mut zip = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
     let mut parts = std::collections::HashMap::new();
     for i in 0..zip.len() {
@@ -71,6 +80,56 @@ fn fills_text_colours_and_comments_are_written() {
             .keys()
             .any(|k| k.starts_with("xl/drawings/vmlDrawing"))
     );
+}
+
+/// Blank rows above a table push its title, header, body, comments and frozen panes down;
+/// header lines get their heights; on one sheet every table gets its own blank rows.
+#[test]
+fn rows_above_and_header_heights_are_written() {
+    let mut table = decorated(2, 2);
+    // a group line above the column titles: header lines 0 and 1
+    table.column_groups = vec![vec!["g".into()]; 3];
+    let style = TableStyle {
+        header_heights: vec![30.0, 21.0],
+        rows_above: Some(2),
+        ..TableStyle::default()
+    };
+    // and one cell with a font and size of its own
+    let mut cells = table.decorations.clone();
+    cells[0].font = Some("Verdana".into());
+    cells[0].size = Some(7.0);
+    table.set_decorations(cells, style);
+    let parts = written("above", &table);
+    let sheet = &parts["xl/worksheets/sheet1.xml"];
+    let b6 = xf(&parts, "B6");
+    let id = b6.split("fontId=\"").nth(1).unwrap();
+    let id: usize = id[..id.find('"').unwrap()].parse().unwrap();
+    let font = parts["xl/styles.xml"].split("<font>").nth(id + 1).unwrap();
+    let font = &font[..font.find("</font>").unwrap()];
+    assert!(
+        font.contains("<sz val=\"7\"/>") && font.contains("<name val=\"Verdana\"/>"),
+        "{font}"
+    );
+    // two blank rows, the title, the two header lines, then the body
+    assert_eq!(value(&parts, "A1"), None);
+    assert_eq!(value(&parts, "A3").as_deref(), Some("Decorated"));
+    assert_eq!(value(&parts, "B4").as_deref(), Some("g"));
+    assert_eq!(value(&parts, "B5").as_deref(), Some("c1"));
+    assert_eq!(value(&parts, "A6").as_deref(), Some("row 0"));
+    for (row, height) in [(4, "30"), (5, "21")] {
+        let found = sheet.split(&format!("<row r=\"{row}\"")).nth(1).unwrap();
+        let found = &found[..found.find('>').unwrap()];
+        assert!(found.contains(&format!("ht=\"{height}\"")), "{row} {found}");
+    }
+    assert!(sheet.contains("ySplit=\"5\""), "{sheet}");
+    assert!(parts["xl/comments1.xml"].contains("ref=\"B6\""));
+
+    let parts = written_all("above-one", &[&table, &table], true);
+    // the first table's rows 1 to 7, the blank row between, then the second's two blank rows
+    assert_eq!(value(&parts, "A3").as_deref(), Some("Decorated"));
+    assert_eq!(value(&parts, "A10"), None);
+    assert_eq!(value(&parts, "A11").as_deref(), Some("Decorated"));
+    assert_eq!(value(&parts, "A14").as_deref(), Some("row 0"));
 }
 
 /// 100 000 comments: about 2.5 s in a release build (some 20 s in a debug one), most of it the

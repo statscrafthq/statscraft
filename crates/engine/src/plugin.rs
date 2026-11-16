@@ -38,6 +38,9 @@ pub struct Setting {
     /// The window offers saved values of the setting (a number or text) to choose from.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub presets: bool,
+    /// The heading of the section the window shows the setting in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -47,6 +50,8 @@ pub enum Kind {
     Text,
     Colour,
     Bool,
+    /// An object of optional font, size, bold, italic, text, fill and align keys.
+    Style,
 }
 
 impl Description {
@@ -75,7 +80,8 @@ impl Description {
     }
 
     /// The value of every setting: from the data file attribute `stored` finds, else the
-    /// plugin's default. A number or yes/no that does not read as one takes the default.
+    /// plugin's default. A number or yes/no that does not read as one, and a style that is not a
+    /// JSON object, take the default.
     pub fn values(&self, stored: impl Fn(&str) -> Option<String>) -> Map<String, Value> {
         let mut values = Map::new();
         for setting in &self.settings {
@@ -88,6 +94,7 @@ impl Description {
                     _ => None,
                 },
                 Kind::Text | Kind::Colour => Some(Value::String(text)),
+                Kind::Style => serde_json::from_str(&text).ok().filter(Value::is_object),
             });
             values.insert(
                 setting.key.clone(),
@@ -138,6 +145,9 @@ struct ResponseTable {
     #[serde(default)]
     column_widths: Vec<ColumnWidth>,
     freeze_columns: Option<u16>,
+    #[serde(default)]
+    header_heights: Vec<f64>,
+    rows_above: Option<u32>,
 }
 
 /// Runs `program --describe`.
@@ -215,6 +225,8 @@ fn answers(out: &[u8]) -> Result<Vec<(u64, Answer)>, String> {
                 row_labels: t.row_labels,
                 column_widths: t.column_widths,
                 freeze_columns: t.freeze_columns,
+                header_heights: t.header_heights,
+                rows_above: t.rows_above,
             };
             (t.id, (t.cells, style))
         })
@@ -306,6 +318,39 @@ mod tests {
         assert_eq!(values["notes"], true);
     }
 
+    /// A style setting reaches the plugin as its stored object, or the default when the
+    /// attribute is missing or not a JSON object; a group is read with its setting.
+    #[test]
+    fn style_settings_come_as_objects() {
+        let description: Description = serde_json::from_str(
+            r##"{"name": "House", "version": "1", "protocol": 1, "settings": [
+                {"key": "head", "label": "Header", "kind": "style", "group": "Header",
+                 "default": {"font": "Verdana", "size": 8, "bold": true}},
+                {"key": "data", "label": "Data cell", "kind": "style", "default": {}},
+                {"key": "total", "label": "Total cell", "kind": "style",
+                 "default": {"fill": "#eeeeee"}}]}"##,
+        )
+        .unwrap();
+        assert_eq!(description.settings[0].kind, Kind::Style);
+        assert_eq!(description.settings[0].group.as_deref(), Some("Header"));
+        assert_eq!(description.settings[1].group, None);
+        let values = description.values(|name| match name {
+            "plugin_house_head" => Some(r##"{"italic":true,"text":"#1f4e79"}"##.into()),
+            "plugin_house_data" => Some("{not json".into()),
+            _ => None,
+        });
+        // the stored object as it is: no key filled in from the default
+        assert_eq!(
+            values["head"],
+            serde_json::json!({"italic": true, "text": "#1f4e79"})
+        );
+        assert_eq!(values["data"], serde_json::json!({}));
+        assert_eq!(values["total"], serde_json::json!({"fill": "#eeeeee"}));
+        // a JSON value that is not an object takes the default too
+        let values = description.values(|_| Some("[1]".into()));
+        assert_eq!(values["total"], serde_json::json!({"fill": "#eeeeee"}));
+    }
+
     #[test]
     fn a_plugin_that_cannot_run_gives_an_error() {
         let missing = Path::new("/no/such/plugin/anywhere");
@@ -326,16 +371,18 @@ mod tests {
     fn styles_in_an_answer_reach_the_table() {
         let answer = br##"{"tables": [{"id": 3, "font": "Cambria", "font_size": 8,
             "plain": true, "row_labels": "stacked", "column_widths": [{"col": 2, "width": 3}],
+            "header_heights": [30, 500, 12, 9], "rows_above": 1,
             "cells": [
               {"row": 0, "col": 1, "bold": true, "italic": true, "text": "#1f4e5a",
-               "align": "center",
+               "align": "center", "font": "Verdana", "size": 7.5,
                "border": {"bottom": "#4bacc6", "top": "teal"}},
-              {"row": 0, "col": 0, "fill": "#eeeeee"},
+              {"row": 0, "col": 0, "fill": "#eeeeee", "font": "a<b", "size": 500},
               {"row": 5, "col": 1, "bold": true}],
             "header_cells": [
               {"row": 1, "col": 2, "bold": true, "border": {"left": "#7f7f7f"}, "comment": "x"},
               {"row": 2, "col": 1, "bold": true}]},
-            {"id": 4, "font": "Bad'; name", "font_size": 0, "row_labels": "sideways"}]}"##;
+            {"id": 4, "font": "Bad'; name", "font_size": 0, "row_labels": "sideways",
+             "rows_above": 0}]}"##;
         let answers = answers(answer).unwrap();
         let mut table = Table {
             row_headers: 1,
@@ -357,6 +404,13 @@ mod tests {
         let d = table.decoration(0, 1).unwrap();
         assert!(d.bold && d.italic);
         assert_eq!(d.align.as_deref(), Some("center"));
+        assert_eq!((d.font.as_deref(), d.size), (Some("Verdana"), Some(7.5)));
+        // a font name that is not plain and a size beyond Excel's are dropped
+        let first = table.decoration(0, 0).unwrap();
+        assert_eq!((&first.font, first.size), (&None, None));
+        // two header lines: the heights of lines beyond them dropped, the rest clamped
+        assert_eq!(table.style.header_heights, [30.0, 409.0]);
+        assert_eq!(table.style.rows_above, Some(1));
         assert!(table.style.plain);
         assert_eq!(table.style.row_labels.as_deref(), Some("stacked"));
         assert_eq!(table.style.column_widths[0].width, 3.0);

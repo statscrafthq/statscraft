@@ -57,7 +57,7 @@ pub(crate) fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// The attributes a plugin's decoration gives a body cell: its colours, bold, italic and
+/// The attributes a plugin's decoration gives a body cell: its colours, bold, italic, font and
 /// borders as a style, its comment as a title that shows on hover. Empty without one.
 pub fn cell_attributes(table: &Table, row: usize, column: usize) -> String {
     let d = table.decoration(row, column);
@@ -94,7 +94,7 @@ pub fn table_attributes(table: &Table) -> String {
 }
 
 /// The style of a cell merged from `first` to `last` (its top left and bottom right places):
-/// colours, bold, italic, alignment, the top and left border and the comment from the first, the bottom
+/// colours, bold, italic, alignment, font, the top and left border and the comment from the first, the bottom
 /// and right border from the last.
 fn attributes(first: Option<&Decoration>, last: Option<&Decoration>) -> String {
     let mut style = String::new();
@@ -113,6 +113,13 @@ fn attributes(first: Option<&Decoration>, last: Option<&Decoration>) -> String {
         if let Some(align) = &d.align {
             // set_decorations keeps only left, center and right
             style.push_str(&format!("text-align:{align};"));
+        }
+        if let Some(font) = &d.font {
+            // set_decorations lets only letters, digits, spaces and hyphens through
+            style.push_str(&format!("font-family:'{font}';"));
+        }
+        if let Some(size) = d.size {
+            style.push_str(&format!("font-size:{size}pt;"));
         }
     }
     let border = |d: Option<&Decoration>| d.and_then(|d| d.border.clone()).unwrap_or_default();

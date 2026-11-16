@@ -9,7 +9,7 @@ use crate::syntax_text::quote;
 use crate::windows::WindowId;
 use eframe::egui::{self, Ui};
 use statscraft_data::Dataset;
-use statscraft_engine::plugin::{self, Description, Kind};
+use statscraft_engine::plugin::{self, Description, Kind, Value};
 use statscraft_engine::{Table, parse_colour};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -48,6 +48,96 @@ pub struct Field {
     preset: Option<(String, String)>,
     /// The name typed for a new preset.
     new_name: String,
+    /// A style setting while its Define window is open.
+    style: Option<StyleEdit>,
+}
+
+/// A style setting as its Define window edits it: an empty font or size, a colour switched off
+/// and an empty alignment leave the key out of the style; bold and italic are left out until
+/// ticked or unticked.
+#[derive(Debug, Clone, PartialEq)]
+struct StyleEdit {
+    font: String,
+    size: String,
+    bold: Option<bool>,
+    italic: Option<bool>,
+    text_on: bool,
+    text: String,
+    fill_on: bool,
+    fill: String,
+    align: String,
+}
+
+impl StyleEdit {
+    /// The style of a setting's JSON text; anything but an object reads as an empty style.
+    fn read(json: &str) -> StyleEdit {
+        let value = json.parse::<Value>().unwrap_or_default();
+        let get = |key: &str| value.get(key).filter(|v| !v.is_null());
+        let text = |key: &str| get(key).and_then(Value::as_str).map(str::to_string);
+        StyleEdit {
+            font: text("font").unwrap_or_default(),
+            size: get("size").map(Value::to_string).unwrap_or_default(),
+            bold: get("bold").and_then(Value::as_bool),
+            italic: get("italic").and_then(Value::as_bool),
+            text_on: text("text").is_some(),
+            text: text("text").unwrap_or_else(|| "#000000".into()),
+            fill_on: text("fill").is_some(),
+            fill: text("fill").unwrap_or_else(|| "#ffffff".into()),
+            align: text("align").unwrap_or_default(),
+        }
+    }
+
+    /// The style as compact JSON, the keys not set left out.
+    fn write(&self) -> String {
+        let mut map = plugin::Map::new();
+        let mut put = |key: &str, value: Value| map.insert(key.into(), value);
+        if !self.font.trim().is_empty() {
+            put("font", self.font.trim().into());
+        }
+        if let Ok(size) = self.size.trim().parse::<f64>() {
+            // 8 rather than 8.0; sizes are small, so the whole number fits
+            let whole = size.fract() == 0.0 && size.abs() < 1e9;
+            put(
+                "size",
+                if whole {
+                    (size as i64).into()
+                } else {
+                    size.into()
+                },
+            );
+        }
+        if let Some(bold) = self.bold {
+            put("bold", bold.into());
+        }
+        if let Some(italic) = self.italic {
+            put("italic", italic.into());
+        }
+        if self.text_on {
+            put("text", self.text.trim().into());
+        }
+        if self.fill_on {
+            put("fill", self.fill.trim().into());
+        }
+        if !self.align.is_empty() {
+            put("align", self.align.clone().into());
+        }
+        Value::Object(map).to_string()
+    }
+
+    /// Why the style cannot be kept: a size that is not 1 to 409 points or a colour that is not
+    /// #rrggbb.
+    fn problem(&self) -> Option<&'static str> {
+        let size = self.size.trim();
+        let size_ok =
+            size.is_empty() || size.parse().is_ok_and(|s: f64| (1.0..=409.0).contains(&s));
+        let colour = |on: bool, c: &str| !on || parse_colour(c.trim()).is_some();
+        match () {
+            _ if !size_ok => Some("the size is a number of points from 1 to 409"),
+            _ if !colour(self.text_on, &self.text) => Some("the text colour is not #rrggbb"),
+            _ if !colour(self.fill_on, &self.fill) => Some("the fill is not #rrggbb"),
+            _ => None,
+        }
+    }
 }
 
 impl Field {
@@ -216,6 +306,7 @@ impl Plugins {
                 text,
                 preset,
                 new_name: String::new(),
+                style: None,
             }
         });
         self.dialog = Some((description.clone(), fields.collect()));
@@ -232,6 +323,8 @@ impl Plugins {
     ) -> Option<(String, Vec<(String, String)>)> {
         let (description, fields) = self.dialog.as_mut()?;
         let (mut open, mut ok, mut cancel) = (true, false, false);
+        let screen = ctx.content_rect();
+        let sections = sections(&description.settings);
         egui::Window::new("Plugin Settings")
             .open(&mut open)
             .collapsible(false)
@@ -242,18 +335,45 @@ impl Plugins {
                      remembered on this computer for its file.",
                 );
                 ui.add_space(6.0);
-                egui::Grid::new("plugin settings").show(ui, |ui| {
-                    for f in fields.iter_mut() {
-                        ui.label(&f.setting.label);
-                        field(ui, f.setting.kind, &mut f.text);
-                        if f.setting.presets && matches!(f.setting.kind, Kind::Number | Kind::Text)
-                        {
-                            let attribute = description.attribute(&f.setting.key);
-                            ui.horizontal(|ui| preset_ui(ui, f, presets, &attribute));
+                let mut column = |ui: &mut Ui, sections: &[(String, Vec<usize>)]| {
+                    for (n, (group, list)) in sections.iter().enumerate() {
+                        if !group.is_empty() {
+                            ui.add_space(6.0);
+                            ui.strong(group);
                         }
-                        ui.end_row();
+                        egui::Grid::new(("plugin settings", group)).show(ui, |ui| {
+                            for &i in list {
+                                setting_ui(ui, &mut fields[i], description, presets);
+                            }
+                        });
+                        if n + 1 < sections.len() {
+                            ui.add_space(4.0);
+                        }
                     }
-                });
+                };
+                egui::ScrollArea::vertical()
+                    .max_height(screen.height() * 0.7)
+                    .show(ui, |ui| {
+                        // two columns of sections on a wide screen, the first holding about
+                        // half the rows
+                        if screen.width() < 1100.0 || sections.len() < 2 {
+                            return column(ui, &sections);
+                        }
+                        let rows = |s: &(String, Vec<usize>)| s.1.len() + 1;
+                        let half = sections.iter().map(rows).sum::<usize>().div_ceil(2);
+                        let mut split = 0;
+                        let mut taken = 0;
+                        while split < sections.len() - 1 && taken < half {
+                            taken += rows(&sections[split]);
+                            split += 1;
+                        }
+                        let (left, right) = sections.split_at(split);
+                        ui.horizontal_top(|ui| {
+                            ui.vertical(|ui| column(ui, left));
+                            ui.add_space(18.0);
+                            ui.vertical(|ui| column(ui, right));
+                        });
+                    });
                 let bad = fields.iter().find(|f| !valid(f.setting.kind, &f.text));
                 if let Some(f) = bad {
                     ui.colored_label(
@@ -269,6 +389,19 @@ impl Plugins {
                     cancel = ui.button("Cancel").clicked();
                 });
             });
+        for f in fields.iter_mut() {
+            let Some(edit) = &mut f.style else {
+                continue;
+            };
+            match style_window(ctx, &f.setting, edit) {
+                Some(true) => {
+                    f.text = edit.write();
+                    f.style = None;
+                }
+                Some(false) => f.style = None,
+                None => {}
+            }
+        }
         if !(ok || cancel || !open) {
             return None;
         }
@@ -278,6 +411,173 @@ impl Plugins {
             let pairs = attribute_values(&description, &fields);
             (attribute_syntax(&pairs), pairs)
         })
+    }
+}
+
+/// The settings by section: those without a group first, then each group in the order it first
+/// appears; each with the places of its settings.
+fn sections(settings: &[plugin::Setting]) -> Vec<(String, Vec<usize>)> {
+    let mut sections = vec![(String::new(), Vec::new())];
+    for (i, s) in settings.iter().enumerate() {
+        let group = s.group.as_deref().unwrap_or("").trim();
+        match sections.iter_mut().find(|(g, _)| g == group) {
+            Some((_, list)) => list.push(i),
+            None => sections.push((group.to_string(), vec![i])),
+        }
+    }
+    sections.retain(|(_, list)| !list.is_empty());
+    sections
+}
+
+/// One row of Edit > Plugin Settings: the label, the value and the presets, or for a style its
+/// preview and Define.
+fn setting_ui(ui: &mut Ui, f: &mut Field, description: &Description, presets: &mut Vec<Preset>) {
+    ui.label(&f.setting.label);
+    if f.setting.kind == Kind::Style {
+        ui.horizontal(|ui| {
+            preview(ui, &StyleEdit::read(&f.text));
+            if ui.button("Define...").clicked() {
+                f.style = Some(StyleEdit::read(&f.text));
+            }
+        });
+    } else {
+        field(ui, f.setting.kind, &mut f.text);
+    }
+    if f.setting.presets && matches!(f.setting.kind, Kind::Number | Kind::Text) {
+        let attribute = description.attribute(&f.setting.key);
+        ui.horizontal(|ui| preset_ui(ui, f, presets, &attribute));
+    }
+    ui.end_row();
+}
+
+/// A sample of a style in a small box: its fill, text colour, bold, italic and alignment, and
+/// its font and size as words (the window keeps its own font).
+fn preview(ui: &mut Ui, style: &StyleEdit) {
+    let colour = |on: bool, c: &str| {
+        let [r, g, b] = parse_colour(c.trim()).filter(|_| on)?;
+        Some(egui::Color32::from_rgb(r, g, b))
+    };
+    let words = [style.font.trim(), style.size.trim()].join(" ");
+    let mut text = egui::RichText::new(match words.trim() {
+        "" => "Sample",
+        words => words,
+    });
+    if style.bold == Some(true) {
+        text = text.strong();
+    }
+    if style.italic == Some(true) {
+        text = text.italics();
+    }
+    if let Some(c) = colour(style.text_on, &style.text) {
+        text = text.color(c);
+    }
+    let align = match style.align.as_str() {
+        "center" => egui::Align::Center,
+        "right" => egui::Align::Max,
+        _ => egui::Align::Min,
+    };
+    egui::Frame::new()
+        .fill(colour(style.fill_on, &style.fill).unwrap_or_default())
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .inner_margin(egui::Margin::symmetric(4, 1))
+        .show(ui, |ui| {
+            ui.set_width(130.0);
+            ui.with_layout(egui::Layout::top_down(align), |ui| ui.label(text));
+        });
+}
+
+/// The Define window of a style setting: font, size, bold, italic, text colour, fill and
+/// alignment, with a preview. Some(true) on OK, Some(false) on Cancel or when closed.
+fn style_window(
+    ctx: &egui::Context,
+    setting: &plugin::Setting,
+    edit: &mut StyleEdit,
+) -> Option<bool> {
+    let (mut open, mut done) = (true, None);
+    egui::Window::new(format!("Define Style: {}", setting.label))
+        .id(egui::Id::unique(("plugin style", &setting.key)))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
+            egui::Grid::new(("plugin style grid", &setting.key)).show(ui, |ui| {
+                ui.label("Font");
+                ui.add(egui::TextEdit::singleline(&mut edit.font).hint_text("not set"));
+                ui.end_row();
+                ui.label("Size");
+                ui.horizontal(|ui| {
+                    let size = egui::TextEdit::singleline(&mut edit.size)
+                        .hint_text("not set")
+                        .desired_width(60.0);
+                    ui.add(size);
+                    ui.label("points");
+                });
+                ui.end_row();
+                for (name, value) in [("Bold", &mut edit.bold), ("Italic", &mut edit.italic)] {
+                    ui.label(name);
+                    let mut on = value.unwrap_or(false);
+                    if ui.checkbox(&mut on, "").changed() {
+                        *value = Some(on);
+                    }
+                    ui.end_row();
+                }
+                let colours = [
+                    ("Text colour", "none", &mut edit.text_on, &mut edit.text),
+                    ("Fill", "no fill", &mut edit.fill_on, &mut edit.fill),
+                ];
+                for (name, none, on, colour) in colours {
+                    ui.label(name);
+                    ui.horizontal(|ui| {
+                        let mut off = !*on;
+                        if ui.checkbox(&mut off, none).changed() {
+                            *on = !off;
+                        }
+                        if *on {
+                            field(ui, Kind::Colour, colour);
+                        }
+                    });
+                    ui.end_row();
+                }
+                ui.label("Alignment");
+                let shown = |a: &str| {
+                    if a.is_empty() {
+                        "not set".to_string()
+                    } else {
+                        a.to_string()
+                    }
+                };
+                egui::ComboBox::from_id_salt(("plugin style align", &setting.key))
+                    .selected_text(shown(&edit.align))
+                    .show_ui(ui, |ui| {
+                        for a in ["", "left", "center", "right"] {
+                            ui.selectable_value(&mut edit.align, a.to_string(), shown(a));
+                        }
+                    });
+                ui.end_row();
+                ui.label("Preview");
+                preview(ui, edit);
+                ui.end_row();
+            });
+            let problem = edit.problem();
+            if let Some(problem) = problem {
+                ui.colored_label(ui.visuals().error_fg_color, problem);
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(problem.is_none(), egui::Button::new("OK"))
+                    .clicked()
+                {
+                    done = Some(true);
+                }
+                if ui.button("Cancel").clicked() {
+                    done = Some(false);
+                }
+            });
+        });
+    match open {
+        true => done,
+        false => Some(false),
     }
 }
 
@@ -341,7 +641,7 @@ fn field(ui: &mut Ui, kind: Kind, text: &mut String) {
                 ui.add(egui::TextEdit::singleline(text).desired_width(80.0));
             });
         }
-        Kind::Number | Kind::Text => {
+        Kind::Number | Kind::Text | Kind::Style => {
             ui.text_edit_singleline(text);
         }
     }
@@ -454,6 +754,7 @@ mod tests {
             kind,
             default: default.into(),
             presets: false,
+            group: None,
         };
         let description = Description {
             name: "Example".into(),
@@ -474,6 +775,7 @@ mod tests {
                 text,
                 preset: None,
                 new_name: String::new(),
+                style: None,
             })
             .collect();
         let syntax = attribute_syntax(&attribute_values(&description, &fields));
@@ -507,6 +809,7 @@ mod tests {
                 kind: Kind::Number,
                 default: 0.into(),
                 presets: true,
+                group: None,
             }],
         };
         assert_eq!(
@@ -518,6 +821,7 @@ mod tests {
             text: "1043000".into(),
             preset: Some(("Adults".into(), "1043000".into())),
             new_name: String::new(),
+            style: None,
         };
         let syntax = attribute_syntax(&attribute_values(
             &description,
@@ -542,5 +846,94 @@ mod tests {
             syntax.ends_with("plugin_house_universe_preset('')."),
             "{syntax}"
         );
+    }
+
+    /// A style edited in its Define window becomes compact JSON with only the keys set, is kept
+    /// as a data file attribute and comes back to the plugin as an object.
+    #[test]
+    fn a_style_is_kept_as_json_text() {
+        let mut edit =
+            StyleEdit::read(r##"{"font":"Verdana","size":8,"bold":true,"fill":"#ddebf7"}"##);
+        assert_eq!((edit.font.as_str(), edit.size.as_str()), ("Verdana", "8"));
+        assert_eq!((edit.bold, edit.italic), (Some(true), None));
+        assert!(edit.fill_on && !edit.text_on);
+        // no fill, an alignment, italic switched off: explicit false, unlike a key never set
+        edit.fill_on = false;
+        edit.align = "center".into();
+        edit.italic = Some(false);
+        edit.size = "8.5".into();
+        let json = edit.write();
+        assert_eq!(
+            json,
+            r#"{"font":"Verdana","size":8.5,"bold":true,"italic":false,"align":"center"}"#
+        );
+        assert_eq!(StyleEdit::read(&json).write(), json);
+        assert_eq!(edit.problem(), None);
+        edit.size = "500".into();
+        assert!(edit.problem().is_some());
+        edit.size.clear();
+        edit.text_on = true;
+        edit.text = "navy".into();
+        assert!(edit.problem().is_some());
+        // anything but an object reads as an empty style
+        assert_eq!(StyleEdit::read("[1]").write(), "{}");
+
+        let description = Description {
+            name: "House".into(),
+            version: "1".into(),
+            protocol: 1,
+            settings: vec![plugin::Setting {
+                key: "head".into(),
+                label: "Header".into(),
+                kind: Kind::Style,
+                default: plugin::Value::Object(plugin::Map::new()),
+                presets: false,
+                group: Some("Header".into()),
+            }],
+        };
+        let field = Field {
+            setting: description.settings[0].clone(),
+            text: r#"{"bold":true,"font":"it's"}"#.into(),
+            preset: None,
+            new_name: String::new(),
+            style: None,
+        };
+        let syntax = attribute_syntax(&attribute_values(&description, &[field]));
+        assert_eq!(
+            syntax,
+            r#"DATAFILE ATTRIBUTE ATTRIBUTE=plugin_house_head('{"bold":true,"font":"it''s"}')."#
+        );
+        let mut session = statscraft_engine::session::Session::default();
+        session
+            .run("DATA LIST LIST /x (F1).\nBEGIN DATA\n1\nEND DATA.", None)
+            .unwrap();
+        session.run(&syntax, None).unwrap();
+        let values = description.values(|name| attribute(session.dataset(), name));
+        assert_eq!(values["head"]["font"], "it's");
+        assert_eq!(values["head"]["bold"], true);
+    }
+
+    /// Settings without a group come first, then each group in the order it first appears.
+    #[test]
+    fn settings_are_shown_in_sections() {
+        let setting = |key: &str, group: Option<&str>| plugin::Setting {
+            key: key.into(),
+            label: key.into(),
+            kind: Kind::Bool,
+            default: true.into(),
+            presets: false,
+            group: group.map(str::to_string),
+        };
+        let settings = [
+            setting("a", Some("Look")),
+            setting("b", None),
+            setting("c", Some("Statistics")),
+            setting("d", Some("Look")),
+        ];
+        let shown = sections(&settings);
+        let want = [("", vec![1]), ("Look", vec![0, 3]), ("Statistics", vec![2])];
+        assert_eq!(shown, want.map(|(g, list)| (g.to_string(), list)));
+        // no setting without a group: no empty section
+        assert_eq!(sections(&settings[..1]), [("Look".to_string(), vec![0])]);
     }
 }

@@ -19,6 +19,13 @@ their row, and put a confidence interval in each cell's comment.
   path, so reading the same file again (GET FILE in a syntax, or opening it) before it was
   saved keeps them; attributes the data carries win over the remembered values. A setting
   without a value takes the plugin's default.
+- **Sections**: settings with a `group` show under that heading, groups in the order they
+  first appear, after the settings without a group. On a wide screen the sections stand in two
+  columns; a long list scrolls.
+- **Styles**: a setting of kind `style` shows as one row with a sample of the style and
+  **Define...**, which opens a small window for its font, size, bold, italic, text colour (or
+  none), fill (or no fill) and alignment (or not set). OK there puts the style in the row;
+  nothing is kept until OK in Plugin Settings.
 - **Presets**: a setting the plugin marks with `"presets": true` has a list of saved values
   beside its field, each shown as `name: value`. Choosing one fills the field; **Remove** takes
   the chosen one off the list; a name and **Save as preset** add the value in the field (a
@@ -37,12 +44,12 @@ The decorations are saved with the output document (.scout), so the document sho
 without the plugin. What each place shows:
 
 - **Excel exports**: everything: fills, text colours, bold, italic, alignment, borders, header
-  cells, the font and its size for every cell of the table (title, header, body and note), the
-  plain look, stacked row labels, column widths and, unless turned off, the comments as Excel
-  notes.
+  cells, the font and its size for every cell of the table (title, header, body and note) and
+  for single cells, the plain look, stacked row labels, column widths, header line heights,
+  blank rows above the table and, unless turned off, the comments as Excel notes.
 - **Web page exports** and copied tables: the same as styles on the cells, the font on the
   table, the plain look and stacked row labels, and the comment as the cell's tooltip. Column
-  widths are left to the browser.
+  widths, row heights and the rows above are left to the browser.
 - **The output window**: fills, text colours, bold, italic, borders, header cells and the
   alignment of the numbers. It keeps its own font and size, its own lines and its own layout.
 
@@ -54,6 +61,12 @@ a letter or digit written as `_`, cut to 64 characters. For the example plugin:
 
 ```
 DATAFILE ATTRIBUTE ATTRIBUTE=plugin_example_threshold('0.1') plugin_example_higher('#a9ecf5').
+```
+
+A style is kept as its JSON text on one line:
+
+```
+DATAFILE ATTRIBUTE ATTRIBUTE=plugin_example_marked('{"bold":true,"text":"#1f4e79"}').
 ```
 
 A setting with presets also keeps the name of the preset its value came from, in the attribute
@@ -75,15 +88,31 @@ example plugin's, shortened):
   "protocol": 1,
   "settings": [
     {"key": "threshold", "label": "Smallest difference marked", "kind": "number", "default": 0.05},
-    {"key": "higher", "label": "Colour of a higher cell", "kind": "colour", "default": "#c6efce"},
-    {"key": "comments", "label": "Write comments", "kind": "bool", "default": true}
+    {"key": "comments", "label": "Write comments", "kind": "bool", "default": true},
+    {"key": "higher", "label": "Colour of a higher cell", "kind": "colour", "default": "#c6efce",
+     "group": "Look"},
+    {"key": "marked", "label": "Marked cell", "kind": "style", "default": {"bold": true},
+     "group": "Look"}
   ]
 }
 ```
 
-`kind` is `number`, `text`, `colour` (written `#rrggbb`) or `bool`. A `number` or `text`
-setting may add `"presets": true` for a list of saved values in the dialog (see above). A
-plugin whose `protocol` is not 1 is refused.
+`kind` is `number`, `text`, `colour` (written `#rrggbb`), `bool` or `style`. A `number` or
+`text` setting may add `"presets": true` for a list of saved values in the dialog (see above).
+Any setting may add `"group"` with the heading of its section in the dialog. A plugin whose
+`protocol` is not 1 is refused.
+
+A `style` is a JSON object with these keys, each optional:
+
+```json
+{"font": "Verdana", "size": 8, "bold": true, "italic": false, "text": "#1f4e79",
+ "fill": "#ddebf7", "align": "center"}
+```
+
+`font` is a font name, `size` in points, `text` the text colour and `fill` the background as
+`#rrggbb`, `align` is `left`, `center` or `right`. A key left out means the style does not set
+it. The keys are those of a decorated cell (below), so a plugin can copy a style into a cell as
+it is.
 
 ### Decorating tables
 
@@ -95,7 +124,8 @@ POSITION=BEFORE` on seven made-up cases:
 ```json
 {
   "protocol": 1,
-  "settings": {"threshold": 0.05, "higher": "#c6efce", "lower": "#ffc7ce", "comments": true},
+  "settings": {"threshold": 0.05, "higher": "#c6efce", "lower": "#ffc7ce", "comments": true,
+               "marked": {"bold": true}},
   "tables": [
     {
       "id": 12,
@@ -124,7 +154,9 @@ POSITION=BEFORE` on seven made-up cases:
 ```
 
 - `settings`: every declared setting, from the data file attributes or the default. Numbers
-  come as numbers, yes/no as true or false, text and colours as strings.
+  come as numbers, yes/no as true or false, text and colours as strings, a style as its object
+  (the keys the user set, nothing filled in from the default). A style whose attribute is
+  missing or is not a JSON object comes as the default.
 - `rows`: every cell as it is shown, row label columns first. Rows and columns are counted
   from 0, the row label columns included, in `rows`, `meta` and the answer alike.
 - `header_rows`: the number of column header lines above the body (see Header lines below).
@@ -174,12 +206,14 @@ The plugin writes one answer to its standard output and exits with status 0:
 - Style keys of a cell, each optional: `fill` (background) and `text` (text colour) as
   `#rrggbb`; `bold` and `italic` as true; `border` with any of `top`, `bottom`, `left` and
   `right`, each a thin line in the colour `#rrggbb`; `align` as `left`, `center` or `right`
-  (the text's place across the cell; another value is dropped).
+  (the text's place across the cell; another value is dropped); `font` and `size` for that cell
+  alone, over the table's `font` and `font_size`, with the same rules (the output window keeps
+  its own).
 - `font` and `font_size` (in points, 1 to 409): the font of every cell of the table in the
   exports, header and title included. A font name may have letters, digits, spaces and hyphens,
   at most 31 characters; another is dropped.
-- `plain`, `row_labels`, `column_widths` and `freeze_columns`: the layout of the exports, see
-  below.
+- `plain`, `row_labels`, `column_widths`, `freeze_columns`, `header_heights` and
+  `rows_above`: the layout of the exports, see below.
 
 Every key but `id`, and of a cell but `row` and `col`, may be left out. Any cell may be
 decorated, totals included. Cells outside the body or the header lines and colours not written
@@ -207,7 +241,7 @@ holds for a row label merged over the rows that repeat it.
 
 #### Layout of the exports
 
-Three optional keys of a table in the answer change how the Excel and web page exports lay it
+These optional keys of a table in the answer change how the Excel and web page exports lay it
 out. The output window ignores them.
 
 ```json
@@ -242,6 +276,13 @@ out. The output window ignores them.
   stacked layout dropped its outer column), that Excel keeps in view when scrolling right, as
   with `"freeze_columns": 3` for the labels, the statistic column and the total. More columns
   than the table has are dropped. Only with a sheet per table.
+- `header_heights`: Excel row heights in points of the header lines, one number per line from
+  line 0, as in `"header_heights": [30, 15]`. Each is kept within 1 to 409; lines without a
+  number keep Excel's height, and numbers beyond the last header line are dropped.
+- `rows_above`: blank sheet rows above the table, its title (if any) below them, as in
+  `"rows_above": 1`. At most 10. With a sheet per table the frozen header lines move down with
+  the table; with all tables on one sheet each table gets its own blank rows, after the one
+  blank row that always separates two tables.
 
 How cells map with stacked row labels: `col` always counts the columns of the request. The
 style and comment of the first row of a run in column 0 go to that run's label row; column 0 of
@@ -256,7 +297,8 @@ wide in the second column of the sheet.
 `examples/plugin-example` is a small plugin in Rust that uses only `serde_json`. In every row it
 compares each cell with the cell of the same statistic in the first total column: a cell above
 the total by more than the threshold gets one fill, a cell below it by more than the threshold
-another, both in bold, and every compared cell gets a comment with the difference. Build it
+another, both in the style of the setting Marked cell (bold unless changed; its fill is left to
+the two colours), and every compared cell gets a comment with the difference. Build it
 with:
 
 ```

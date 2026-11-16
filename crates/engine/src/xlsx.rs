@@ -98,9 +98,10 @@ fn put_item(
     }
 }
 
-/// The rows a table's title takes: none for an empty title.
+/// The rows above a table's header: the blank rows a plugin asked for, then the title row
+/// unless the title is empty.
 pub(crate) fn title_rows(table: &Table) -> u32 {
-    u32::from(!table.title.is_empty())
+    table.style.rows_above.unwrap_or(0) + u32::from(!table.title.is_empty())
 }
 
 /// The base formats of a table's cells, by their place in `Formats::bases`.
@@ -135,8 +136,8 @@ impl<'a> Formats<'a> {
     }
 }
 
-/// A plugin's look over a cell's own format: fill, text colour, bold, italic, alignment and
-/// borders.
+/// A plugin's look over a cell's own format: fill, text colour, bold, italic, alignment, font,
+/// size and borders.
 fn paint(format: Format, d: &Decoration) -> Format {
     let colour = |c: &Option<String>| {
         let [r, g, b] = c.as_deref().and_then(parse_colour)?;
@@ -160,6 +161,12 @@ fn paint(format: Format, d: &Decoration) -> Format {
         Some("center") => format = format.set_align(FormatAlign::Center),
         Some("right") => format = format.set_align(FormatAlign::Right),
         _ => {}
+    }
+    if let Some(font) = &d.font {
+        format = format.set_font_name(font);
+    }
+    if let Some(size) = d.size {
+        format = format.set_font_size(size);
     }
     if let Some(b) = &d.border {
         if let Some(c) = colour(&b.top) {
@@ -249,7 +256,8 @@ pub(crate) fn put_table(
     };
 
     if !table.title.is_empty() {
-        sheet.write_string_with_format(top, left, &table.title, &font(Format::new().set_bold()))?;
+        let at = top + table.style.rows_above.unwrap_or(0);
+        sheet.write_string_with_format(at, left, &table.title, &font(Format::new().set_bold()))?;
     }
     let mut row = top + title_rows(table);
     let mut spans = Vec::new();
@@ -282,6 +290,9 @@ pub(crate) fn put_table(
         fit(&mut own, c, &label);
     }
     for (line, cells) in headers.iter().enumerate() {
+        if let Some(&height) = table.style.header_heights.get(line) {
+            sheet.set_row_height(row, height)?;
+        }
         for cell in cells.iter().filter(|cell| cell.first >= table.row_headers) {
             let column = column_of(cell.first);
             let format = formats.get(HEADER, String::new(), style(line, cell.first));
