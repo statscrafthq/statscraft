@@ -1757,6 +1757,8 @@ pub struct Aggregation {
     pub function: AggregateFunction,
     /// Empty for `N` and `NU` without arguments.
     pub sources: Vec<VarItem>,
+    /// The values after the variables of the range functions (PGT ... COUT): one or two.
+    pub values: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1773,6 +1775,20 @@ pub enum AggregateFunction {
     Nu,
     Nmiss,
     Numiss,
+    /// Percentage, fraction and count of the valid values greater than, less than, inside
+    /// (bounds included) or outside (bounds excluded) the given value or range.
+    Pgt,
+    Plt,
+    Pin,
+    Pout,
+    Fgt,
+    Flt,
+    Fin,
+    Fout,
+    Cgt,
+    Clt,
+    Cin,
+    Cout,
 }
 
 /// An expression. Nothing is evaluated and function names are not checked.

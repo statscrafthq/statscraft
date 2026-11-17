@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- AGGREGATE: the percentage, fraction and count functions PGT, PLT, PIN, POUT, FGT, FLT, FIN, FOUT, CGT, CLT, CIN and COUT.
 - AGGREGATE /MISSING=COLUMNWISE (a group with a missing source value gets a missing result) and /PRESORTED (a group per run of adjacent cases with the same break values; before, the cases were sorted anyway).
 - DATA LIST reads DATETIME, YMDHMS, TIME, MTIME and DTIME fields. GET DATA reads YMDHMS year first and MTIME as minutes and seconds (it took the day first in some dates and hours and minutes for MTIME).
 - SAVE and XSAVE write the compression asked for: /UNCOMPRESSED works now, and /ZCOMPRESSED gives zlib blocks whatever the file is named (before, only a .zsav name did).

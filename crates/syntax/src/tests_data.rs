@@ -169,21 +169,25 @@ fn aggregate() {
                     targets: vec![(var("mean_income"), Some("Mean income".into()))],
                     function: F::Mean,
                     sources: vec![var("income")],
+                    values: vec![],
                 },
                 Aggregation {
                     targets: targets(&["n"]),
                     function: F::N,
                     sources: vec![],
+                    values: vec![],
                 },
                 Aggregation {
                     targets: targets(&["lo", "hi"]),
                     function: F::Min,
                     sources: vec![var("age"), var("q1")],
+                    values: vec![],
                 },
                 Aggregation {
                     targets: vec![(range("m1", "m3"), None)],
                     function: F::Sum,
                     sources: vec![range("v1", "v3")],
+                    values: vec![],
                 },
             ],
         })
@@ -201,10 +205,25 @@ fn aggregate() {
 
 #[test]
 fn aggregate_errors() {
-    let error = err("AGGREGATE /OUTFILE=* /BREAK=g /p = PGT(age, 40).");
-    assert_eq!(error.message, "aggregate function PGT is not supported");
+    let error = err("AGGREGATE /OUTFILE=* /BREAK=g /p = PCT(age, 40).");
+    assert_eq!(error.message, "aggregate function PCT is not supported");
     assert_eq!((error.span.line, error.span.column), (1, 36));
     assert!(error.expected.contains(&"MEDIAN".to_string()));
+    let Command::Aggregate(c) =
+        one("AGGREGATE /OUTFILE=* /BREAK=g /p = PGT(age, 40) /q = CIN(name 'a' 'm').")
+    else {
+        panic!()
+    };
+    assert_eq!(c.aggregations[0].values, [Value::Number(40.0)]);
+    assert_eq!(
+        c.aggregations[1].values,
+        [Value::String("a".into()), Value::String("m".into())]
+    );
+    assert!(
+        err("AGGREGATE /OUTFILE=* /p = FIN(age, 40).")
+            .expected
+            .contains(&"a value".to_string())
+    );
 
     let Command::Aggregate(c) =
         one("AGGREGATE /OUTFILE=* /MISSING=COLUMNWISE /PRESORTED /BREAK=g /m = MEAN(a).")

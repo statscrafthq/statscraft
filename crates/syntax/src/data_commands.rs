@@ -12,7 +12,7 @@ use crate::table::matches_keyword;
 
 const AGGREGATE_SUBCOMMANDS: [&str; 1] = ["DOCUMENT"];
 
-const AGGREGATE_FUNCTIONS: [(&str, AggregateFunction); 12] = [
+const AGGREGATE_FUNCTIONS: [(&str, AggregateFunction); 24] = [
     ("SUM", AggregateFunction::Sum),
     ("MEAN", AggregateFunction::Mean),
     ("SD", AggregateFunction::Sd),
@@ -25,7 +25,29 @@ const AGGREGATE_FUNCTIONS: [(&str, AggregateFunction); 12] = [
     ("NU", AggregateFunction::Nu),
     ("NMISS", AggregateFunction::Nmiss),
     ("NUMISS", AggregateFunction::Numiss),
+    ("PGT", AggregateFunction::Pgt),
+    ("PLT", AggregateFunction::Plt),
+    ("PIN", AggregateFunction::Pin),
+    ("POUT", AggregateFunction::Pout),
+    ("FGT", AggregateFunction::Fgt),
+    ("FLT", AggregateFunction::Flt),
+    ("FIN", AggregateFunction::Fin),
+    ("FOUT", AggregateFunction::Fout),
+    ("CGT", AggregateFunction::Cgt),
+    ("CLT", AggregateFunction::Clt),
+    ("CIN", AggregateFunction::Cin),
+    ("COUT", AggregateFunction::Cout),
 ];
+
+/// How many values follow the variables of an aggregate function.
+fn value_count(function: AggregateFunction) -> usize {
+    use AggregateFunction as F;
+    match function {
+        F::Pgt | F::Plt | F::Fgt | F::Flt | F::Cgt | F::Clt => 1,
+        F::Pin | F::Pout | F::Fin | F::Fout | F::Cin | F::Cout => 2,
+        _ => 0,
+    }
+}
 
 fn at_word(p: &Parser) -> bool {
     matches!(p.peek(), Some(TokenKind::Word(_)))
@@ -185,8 +207,17 @@ fn aggregation(p: &mut Parser) -> PResult<Aggregation> {
         error.expected = AGGREGATE_FUNCTIONS.map(|(name, _)| name.to_string()).into();
         return Err(error);
     };
+    let mut values = Vec::new();
     let sources = if p.eat(Punct::LParen) {
         let sources = p.var_list()?;
+        // the values of a range function, after a comma or a blank
+        for _ in 0..value_count(*function) {
+            p.eat(Punct::Comma);
+            match p.value() {
+                Some(value) => values.push(value),
+                None => return Err(p.unexpected(&["a value"])),
+            }
+        }
         p.expect(Punct::RParen)?;
         sources
     } else if matches!(function, AggregateFunction::N | AggregateFunction::Nu) {
@@ -198,6 +229,7 @@ fn aggregation(p: &mut Parser) -> PResult<Aggregation> {
         targets,
         function: *function,
         sources,
+        values,
     })
 }
 

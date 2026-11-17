@@ -844,3 +844,32 @@ fn aggregate_presorted_runs_and_columnwise_missing() {
     assert_eq!(column(&engine, "n"), [Some(3.0), Some(2.0)]);
     assert_eq!(column(&engine, "nm"), [Some(0.0), Some(1.0)]);
 }
+
+/// The range functions of AGGREGATE over the valid values 4, 5, 6, 8 (one case missing): above
+/// 5 are 6 and 8, so PGT is 50, FGT 0.5 and CGT 2; inside 4 to 8 (bounds included, given the
+/// wrong way round) are all four; outside them (bounds excluded) none; below 5 only 4. Strings
+/// compare as text: 'a' and 'b' lie within 'a' to 'b', 'c' does not.
+#[test]
+fn aggregate_range_functions() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        "DATA LIST LIST /x (F2) s (A1).\nBEGIN DATA\n4, a\n5, b\n6, c\n8, a\n., b\nEND DATA.\n\
+         AGGREGATE OUTFILE=* /pg=PGT(x, 5) /fg=FGT(x, 5) /cg=CGT(x, 5) /pl=PLT(x 5) \
+         /fi=FIN(x, 8, 4) /po=POUT(x, 4, 8) /cs=CIN(s, 'a', 'b').",
+    );
+    for (name, want) in [
+        ("pg", 50.0),
+        ("fg", 0.5),
+        ("cg", 2.0),
+        ("pl", 25.0),
+        ("fi", 1.0),
+        ("po", 0.0),
+        ("cs", 4.0),
+    ] {
+        assert_eq!(column(&engine, name), [Some(want)], "{name}");
+    }
+    run(&mut engine, "DATA LIST LIST /x.\nBEGIN DATA\n1\nEND DATA.");
+    let message = error(&mut engine, "AGGREGATE OUTFILE=* /p=PGT(x, 'a').");
+    assert!(message.contains("needs numbers"), "{message}");
+}

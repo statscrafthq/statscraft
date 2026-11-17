@@ -679,6 +679,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  OUTFILE=dataset puts it into a dataset that DATASET DECLARE or DATASET NAME defined.\n\
                  Without OUTFILE the targets are added to every case, as with OUTFILE=* MODE=ADDVARIABLES.\n\
                  functions: SUM MEAN SD MEDIAN MIN MAX FIRST LAST N NU NMISS NUMISS; N and NU also without (varlist).\n\
+                 PGT PLT FGT FLT CGT CLT (varlist, value) and PIN POUT FIN FOUT CIN COUT (varlist, low, high): the\n\
+                 percentage, fraction or count of the valid values above, below, inside (bounds included) or\n\
+                 outside (bounds excluded); bounds the wrong way round are swapped, strings compare as text.\n\
                  Missing values are skipped; with MISSING=COLUMNWISE a group with one missing value gets a missing\n\
                  result (N, NU, NMISS and NUMISS still count). PRESORTED keeps the cases in file order and makes a\n\
                  group of each run of adjacent cases with the same break values. With a weight variable SUM,\n\

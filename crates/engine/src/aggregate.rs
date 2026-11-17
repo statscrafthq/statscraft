@@ -3,7 +3,7 @@
 use crate::variables::{Column, duplicate, new_names, unused_names};
 use crate::{Engine, Error};
 use statscraft_data::{Dataset, Values, Variable};
-use statscraft_syntax::{Aggregate, AggregateFunction as F, Aggregation};
+use statscraft_syntax::{Aggregate, AggregateFunction as F, Aggregation, Value};
 use std::cmp::Ordering;
 
 /// A target variable with one value per group.
@@ -30,6 +30,40 @@ fn name(function: F) -> &'static str {
         F::Nu => "NU",
         F::Nmiss => "NMISS",
         F::Numiss => "NUMISS",
+        F::Pgt => "PGT",
+        F::Plt => "PLT",
+        F::Pin => "PIN",
+        F::Pout => "POUT",
+        F::Fgt => "FGT",
+        F::Flt => "FLT",
+        F::Fin => "FIN",
+        F::Fout => "FOUT",
+        F::Cgt => "CGT",
+        F::Clt => "CLT",
+        F::Cin => "CIN",
+        F::Cout => "COUT",
+    }
+}
+
+/// Whether a value counts for a range function: above `low`, below it, between `low` and
+/// `high` with both included, or outside them with both excluded.
+fn in_range<T: PartialOrd>(function: F, x: &T, low: &T, high: &T) -> bool {
+    match function {
+        F::Pgt | F::Fgt | F::Cgt => x > low,
+        F::Plt | F::Flt | F::Clt => x < low,
+        F::Pin | F::Fin | F::Cin => low <= x && x <= high,
+        _ => x < low || x > high,
+    }
+}
+
+/// A range function of one group from the weights of the valid values and of those that
+/// count: a percentage, a fraction or the count itself.
+fn share(function: F, counted: f64, valid: f64) -> Option<f64> {
+    match function {
+        F::Cgt | F::Clt | F::Cin | F::Cout => Some(counted),
+        _ if valid <= 0.0 => None,
+        F::Fgt | F::Flt | F::Fin | F::Fout => Some(counted / valid),
+        _ => Some(100.0 * counted / valid),
     }
 }
 
@@ -129,12 +163,18 @@ fn aggregated(
     groups: &[Vec<usize>],
     weights: Option<&[f64]>,
     columnwise: bool,
+    bounds: &[Value],
 ) -> Result<(Column, Result<String, &'static str>), Error> {
     let weight = |case: usize| weights.map_or(1.0, |w| w[case]);
     let counting = matches!(function, F::N | F::Nu | F::Nmiss | F::Numiss);
     let picking = matches!(function, F::Min | F::Max | F::First | F::Last);
+    let ranging = !bounds.is_empty();
     let like = match source {
         Some(source) if picking => Ok(source.name().to_string()),
+        _ if matches!(function, F::Pgt | F::Plt | F::Pin | F::Pout) => Err("F5.1"),
+        _ if matches!(function, F::Fgt | F::Flt | F::Fin | F::Fout) => Err("F5.3"),
+        _ if ranging && weights.is_some() => Err("F8.2"),
+        _ if ranging => Err("F7.0"),
         _ if !counting => Err("F8.2"),
         _ if weights.is_some() && matches!(function, F::N | F::Nmiss) => Err("F8.2"),
         _ => Err("F7.0"),
@@ -144,12 +184,38 @@ fn aggregated(
     };
     let column = match source.map(|source| (source, source.values())) {
         None => numbers(&|group| Some(count(function, group, |_| true, weight))),
+        Some((source, Values::Numeric(_)))
+            if bounds.iter().any(|b| matches!(b, Value::String(_))) =>
+        {
+            return Err(Error(format!(
+                "{} of the numeric variable {} needs numbers, not quoted values",
+                name(function),
+                source.name()
+            )));
+        }
         Some((source, Values::Numeric(values))) => {
             let valid = |case: usize| values.get(case).filter(|v| !source.is_user_missing(*v));
             numbers(&|group| {
                 // MISSING=COLUMNWISE: one missing value leaves the group without a result
                 if columnwise && !counting && group.iter().any(|&case| valid(case).is_none()) {
                     None
+                } else if ranging {
+                    let number = |i: usize| match bounds.get(i).or(bounds.first()) {
+                        Some(Value::Number(n)) => Some(*n),
+                        _ => None,
+                    };
+                    let (low, high) = (number(0)?, number(1)?);
+                    let (low, high) = (low.min(high), low.max(high));
+                    let (mut counted, mut total) = (0.0, 0.0);
+                    for &case in group {
+                        if let Some(x) = valid(case) {
+                            total += weight(case);
+                            if in_range(function, &x, &low, &high) {
+                                counted += weight(case);
+                            }
+                        }
+                    }
+                    share(function, counted, total)
                 } else if counting {
                     Some(count(function, group, |case| valid(case).is_some(), weight))
                 } else if picking {
@@ -166,7 +232,33 @@ fn aggregated(
         Some((source, Values::String(values))) => {
             let valid =
                 |case: usize| Some(values.get(case)).filter(|v| !source.is_user_missing_str(v));
-            if counting {
+            if ranging {
+                let text = |i: usize| match bounds.get(i).or(bounds.first()) {
+                    Some(Value::String(s)) => Ok(s.trim_end().to_string()),
+                    _ => Err(Error(format!(
+                        "{} of the string variable {} needs quoted values",
+                        name(function),
+                        source.name()
+                    ))),
+                };
+                let (a, b) = (text(0)?, text(1)?);
+                let (low, high) = if a <= b { (a, b) } else { (b, a) };
+                numbers(&|group| {
+                    if columnwise && group.iter().any(|&case| valid(case).is_none()) {
+                        return None;
+                    }
+                    let (mut counted, mut total) = (0.0, 0.0);
+                    for &case in group {
+                        if let Some(x) = valid(case) {
+                            total += weight(case);
+                            if in_range(function, &x.trim_end(), &low.as_str(), &high.as_str()) {
+                                counted += weight(case);
+                            }
+                        }
+                    }
+                    share(function, counted, total)
+                })
+            } else if counting {
                 numbers(&|group| Some(count(function, group, |case| valid(case).is_some(), weight)))
             } else if picking {
                 let picked = |group: &Vec<usize>| {
@@ -271,8 +363,14 @@ impl Engine {
         let mut targets = Vec::new();
         for (i, (name, label)) in names.into_iter().enumerate() {
             let source = sources.get(i).map(|s| data.variable(s)).transpose()?;
-            let (column, like) =
-                aggregated(function, source.as_ref(), groups, weights, columnwise)?;
+            let (column, like) = aggregated(
+                function,
+                source.as_ref(),
+                groups,
+                weights,
+                columnwise,
+                &aggregation.values,
+            )?;
             targets.push(Target {
                 name,
                 label,
