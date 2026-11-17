@@ -118,14 +118,6 @@ look, such as the size of the population the sample was drawn from: design templ
 out, and it always comes from the data file. Any setting may add `"group"` with the heading
 of its section in the dialog. A plugin whose `protocol` is not 1 is refused.
 
-A plugin sold under a licence may add `"licence": true` next to `protocol`. Edit > Settings >
-Plugins then shows a **Licence code** field with **Activate**, which runs
-`plugin --activate CODE`: the plugin prints one line on success (shown as it is) or exits with
-an error and one line on its standard error saying why. The plugin keeps what it needs itself;
-Statscraft does not store the code. A plugin that refuses to work (no licence, or an expired
-one) exits with an error and one line on its standard error; the window shows that line in
-place of the plugin's colours.
-
 A `style` is a JSON object with these keys, each optional:
 
 ```json

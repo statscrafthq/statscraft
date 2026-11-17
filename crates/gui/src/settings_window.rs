@@ -7,11 +7,9 @@
 
 use crate::connect_window::Connect;
 use crate::output::Part;
-use crate::plugins::Licence;
 use crate::settings::{MIOUTPUT, Settings};
 use crate::themes;
 use eframe::egui::{self, Align2, ComboBox, Key, Ui, vec2};
-use statscraft_engine::plugin;
 
 #[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum Section {
@@ -69,15 +67,14 @@ const VALUE_CHOICES: (&str, [(&str, &str); 3]) = (
 );
 
 /// The dialog while `section` is set; closing it clears `section`. Returns the SET command a
-/// choice of the session asks for, to run. `plugin` says what the plugin program is, with its
-/// licence field when it takes a licence code.
+/// choice of the session asks for, to run. `plugin` says what the plugin program is.
 pub fn show(
     ctx: &egui::Context,
     section: &mut Option<Section>,
     settings: &mut Settings,
     labels: &TableLabels,
     connect: &mut Connect,
-    (plugin, mut licence): (&str, Option<&mut Licence>),
+    plugin: &str,
 ) -> Option<String> {
     let current = section.as_mut()?;
     let mut open = true;
@@ -112,9 +109,6 @@ pub fn show(
                     changed = body(ui, *current, settings);
                     if *current == Section::Plugins {
                         changed |= plugins(ui, settings, plugin);
-                        if let Some(licence) = &mut licence {
-                            licence_ui(ui, settings, licence);
-                        }
                     }
                     if *current == Section::GridsAndOutput {
                         ui.add_space(8.0);
@@ -185,40 +179,6 @@ fn plugins(ui: &mut Ui, settings: &mut Settings, plugin: &str) -> bool {
     ui.add_space(8.0);
     ui.weak("Edit > Plugin Settings sets the plugin's values for the active data.");
     changed
-}
-
-/// The licence code field: Activate runs the plugin with `--activate CODE` and shows its answer.
-fn licence_ui(ui: &mut Ui, settings: &Settings, licence: &mut Licence) {
-    ui.add_space(8.0);
-    ui.label("Licence code");
-    ui.horizontal(|ui| {
-        let field = egui::TextEdit::singleline(&mut licence.code)
-            .hint_text("Paste the code")
-            .desired_width(240.0);
-        ui.add(field);
-        let ready = !licence.code.trim().is_empty();
-        if ui
-            .add_enabled(ready, egui::Button::new("Activate"))
-            .clicked()
-            && let Some(program) = &settings.plugin
-        {
-            let answer = plugin::activate(program, &licence.code);
-            licence.activated = answer.is_ok();
-            if answer.is_ok() {
-                licence.code.clear();
-            }
-            licence.answer = Some(answer);
-        }
-    });
-    match &licence.answer {
-        Some(Ok(text)) => {
-            ui.label(text);
-        }
-        Some(Err(text)) => {
-            ui.colored_label(ui.visuals().error_fg_color, text);
-        }
-        None => {}
-    }
 }
 
 /// How tables show variables and values; a new choice gives its SET subcommand and keyword.

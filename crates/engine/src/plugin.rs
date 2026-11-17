@@ -25,10 +25,6 @@ pub struct Description {
     pub protocol: u64,
     #[serde(default)]
     pub settings: Vec<Setting>,
-    /// The plugin takes a licence code: the window offers a field that runs
-    /// `plugin --activate CODE`.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub licence: bool,
 }
 
 /// A setting the plugin takes, with its value when none is set.
@@ -166,15 +162,6 @@ fn placeless(mut look: Map<String, Value>) -> Option<Decoration> {
     look.insert("row".into(), 0.into());
     look.insert("col".into(), 0.into());
     serde_json::from_value(Value::Object(look)).ok()
-}
-
-/// Runs `program --activate CODE` and gives the plugin's answer: its first line of output when
-/// it succeeds, its first line of errors when it does not.
-pub fn activate(program: &Path, code: &str) -> Result<String, String> {
-    let out = run(program, &["--activate", code.trim()], None, DESCRIBE_TIME)?;
-    let text = String::from_utf8_lossy(&out);
-    let line = text.lines().map(str::trim).find(|l| !l.is_empty());
-    Ok(line.unwrap_or("activated").to_string())
 }
 
 /// Runs `program --describe`.
@@ -325,32 +312,6 @@ fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A plugin that takes a licence code answers `--activate` with a line, or an error.
-    #[cfg(unix)]
-    #[test]
-    fn activation_gives_the_plugins_line() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("statscraft-activate-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let program = dir.join("plugin");
-        let script = "#!/bin/sh\n[ \"$2\" = good ] && { echo; echo 'Activated for Marina'; exit 0; }\n\
-                      echo 'the licence code is not valid' >&2; exit 1\n";
-        std::fs::write(&program, script).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(
-            activate(&program, " good ").unwrap(),
-            "Activated for Marina"
-        );
-        let error = activate(&program, "bad").unwrap_err();
-        assert!(error.ends_with("the licence code is not valid"), "{error}");
-        std::fs::remove_dir_all(&dir).unwrap();
-        let described: Description = serde_json::from_str(
-            r#"{"name": "A", "version": "1", "protocol": 1, "licence": true}"#,
-        )
-        .unwrap();
-        assert!(described.licence);
-    }
 
     #[test]
     fn settings_come_from_attributes_or_defaults() {

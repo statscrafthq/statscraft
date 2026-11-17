@@ -4005,18 +4005,14 @@ impl App {
             None => String::new(),
         };
         let chosen = (self.settings.plugin.clone(), self.settings.plugin_off);
-        let licence = self.settings_section.is_some() && self.plugins.takes_licence(&self.settings);
         let set = settings_window::show(
             ctx,
             &mut self.settings_section,
             &mut self.settings,
             &labels,
             &mut self.connect,
-            (&plugin, licence.then_some(&mut self.plugins.licence)),
+            &plugin,
         );
-        if std::mem::take(&mut self.plugins.licence.activated) {
-            self.plugins.changed();
-        }
         if let Some(syntax) = set {
             self.run(&syntax, None, After::Show);
         }
