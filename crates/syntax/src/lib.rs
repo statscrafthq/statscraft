@@ -128,6 +128,7 @@ mod tests_factor;
 mod tests_genlin;
 #[cfg(test)]
 mod tests_genlinmixed;
+#[cfg(test)]
 mod tests_ggraph;
 #[cfg(test)]
 mod tests_glm;

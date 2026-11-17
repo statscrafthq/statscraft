@@ -961,9 +961,10 @@ fn run(
             }
         };
         engine.format_new_variables(command, &names).map_err(fail)?;
-        engine
-            .route_output(&raw.name, &mut tables, true)
-            .map_err(fail)?;
+        // an OMS file that cannot be written is a warning: the command's own output stays
+        if let Err(e) = engine.route_output(&raw.name, &mut tables, true) {
+            engine.warn(format!("OMS: {e}"));
+        }
         // SET MPRINT=YES: the command as macro expansion made it, before its results
         if let Some(echo) = &raw.echo {
             let rows = echo.lines().map(|l| vec![Cell::Text(l.to_string())]);
@@ -999,9 +1000,9 @@ fn run(
     // what the pass at the end of the run printed shows with the last command
     let mut printed = std::mem::take(&mut engine.flushed);
     if let Some(last) = outputs.last_mut() {
-        engine
-            .route_output(&last.name, &mut printed, false)
-            .map_err(|e| vec![Failure::plain("run", e.to_string())])?;
+        if let Err(e) = engine.route_output(&last.name, &mut printed, false) {
+            engine.warn(format!("OMS: {e}"));
+        }
         let syntax = source_lines(source, last.first_line, last.last_line);
         let append = last.document.is_some() && last.opened.is_none();
         if let Some(document) = engine.record_output(&last.name, &syntax, &printed, append) {

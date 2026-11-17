@@ -1348,6 +1348,9 @@ impl Engine {
                     self.warn(
                         "OPTIMAL BINNING does not use SPLIT FILE: it bins all cases together",
                     );
+                }
+                return self.procedure(command);
+            }
             Command::Naivebayes(_) => {
                 if self.active()?.split_file().is_some() {
                     self.warn("NAIVEBAYES does not use SPLIT FILE: it analyzes all cases together");

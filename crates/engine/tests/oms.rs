@@ -322,3 +322,21 @@ fn columns_pivot_the_file_and_the_log_records_start_and_end() {
         ]
     );
 }
+
+/// An OMS file that cannot be written gives a warning; the command's own tables still show.
+#[test]
+fn an_unwritable_destination_warns_and_keeps_the_output() {
+    let mut s = Session::default();
+    run(&mut s, DATA);
+    let dir = folder("unwritable");
+    let missing = dir.join("no such folder").join("out.sav");
+    let (tables, warnings) = run(
+        &mut s,
+        &format!(
+            "OMS /SELECT TABLES /DESTINATION FORMAT=SAV OUTFILE='{}'.\nDESCRIPTIVES score.",
+            path_text(&missing)
+        ),
+    );
+    assert_eq!(titles(&tables), ["Descriptive Statistics"]);
+    assert!(warnings.iter().any(|w| w.starts_with("OMS")), "{warnings:?}");
+}
