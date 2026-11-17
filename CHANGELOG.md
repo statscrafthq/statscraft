@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- DATA LIST reads DATETIME, YMDHMS, TIME, MTIME and DTIME fields. GET DATA reads YMDHMS year first and MTIME as minutes and seconds (it took the day first in some dates and hours and minutes for MTIME).
 - SAVE and XSAVE write the compression asked for: /UNCOMPRESSED works now, and /ZCOMPRESSED gives zlib blocks whatever the file is named (before, only a .zsav name did).
 - CTABLES SEMEAN with fractional weights divides by the cell's weight rounded to a whole number, as a standard error does under Weights and Rounding (and as MEAN.SE already did).
 - RECODE (CONVERT): strings that read as numbers become those numbers at CONVERT's place among the specifications, blanks system-missing, other strings go on to the specifications after it.

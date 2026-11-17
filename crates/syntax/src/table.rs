@@ -283,7 +283,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  between. Inside INPUT PROGRAM each run reads the next case's records into the case being\n\
                  built; without variables it passes over a record. END (fixed data in an input program\n\
                  only) names a variable that is 0, and 1 once the data are used up.\n\
-                 Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE.\n\
+                 Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE, DATETIME,\n\
+                 YMDHMS (year first), TIME (hours:minutes:seconds), MTIME (minutes:seconds), DTIME (days, then time).\n\
                  A value that cannot be read is system-missing, with a warning naming its line.",
         example: "DATA LIST LIST /id (F3) name (A12) score.",
         parse: data_list::data_list,

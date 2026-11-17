@@ -28,7 +28,7 @@ pub(crate) fn display_format(format: Format) -> Format {
 }
 
 /// The input formats DATA LIST reads.
-const INPUT_FORMATS: [FormatType; 12] = [
+const INPUT_FORMATS: [FormatType; 17] = [
     FormatType::F,
     FormatType::N,
     FormatType::E,
@@ -41,6 +41,11 @@ const INPUT_FORMATS: [FormatType; 12] = [
     FormatType::Adate,
     FormatType::Edate,
     FormatType::Sdate,
+    FormatType::Datetime,
+    FormatType::Ymdhms,
+    FormatType::Time,
+    FormatType::Mtime,
+    FormatType::Dtime,
 ];
 
 /// Names for new variables: `v1 TO v3` counts the number at the end of the name up, keeping
@@ -111,7 +116,10 @@ fn input_format(p: &Parser, text: &str) -> PResult<Format> {
                 parsed.kind.name().to_uppercase()
             ),
         )
-        .hint("supported: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE"));
+        .hint(
+            "supported: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE, DATETIME, \
+             YMDHMS, TIME, MTIME, DTIME",
+        ));
     }
     if parsed.width == 0 || parsed.width > 32767 {
         return Err(SyntaxError::new(

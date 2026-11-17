@@ -150,7 +150,12 @@ pub(crate) fn number(
                 Some(at) => (&text[..at], text[at + 1..].trim()),
                 None => (text, ""),
             };
-            let day = any_date(date, epoch)?.ok_or("is not a date")?;
+            // YMDHMS is year, month, day by definition; DATETIME takes the usual orders
+            let day = match format.kind {
+                FormatType::Ymdhms => crate::data_list::date(date, FormatType::Sdate, epoch)?,
+                _ => any_date(date, epoch)?,
+            }
+            .ok_or("is not a date")?;
             let time = if time.is_empty() {
                 0.0
             } else {
@@ -158,7 +163,15 @@ pub(crate) fn number(
             };
             Ok(Some(day + time))
         }
-        FormatType::Time | FormatType::Mtime => time_of_day(text).map(Some).ok_or("is not a time"),
+        FormatType::Time => time_of_day(text).map(Some).ok_or("is not a time"),
+        // MTIME is minutes and seconds
+        FormatType::Mtime => {
+            let (minutes, seconds) = text.split_once(':').unwrap_or((text, "0"));
+            match (minutes.trim().parse::<f64>(), seconds.trim().parse::<f64>()) {
+                (Ok(m), Ok(s)) => Ok(Some(m * 60.0 + s)),
+                _ => Err("is not a time in minutes and seconds"),
+            }
+        }
         FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
             crate::data_list::date(text, format.kind, epoch)
         }

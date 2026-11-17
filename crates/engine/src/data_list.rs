@@ -23,7 +23,7 @@
 
 use crate::{Engine, Error, Table};
 use statscraft_data::Dataset;
-use statscraft_syntax::{DataField, DataLayout, DataList, FormatType};
+use statscraft_syntax::{DataField, DataLayout, DataList, Format, FormatType};
 
 /// Warnings beyond this many are counted, not listed.
 pub(crate) const SHOWN_WARNINGS: usize = 20;
@@ -370,6 +370,26 @@ pub(crate) fn read(
     let result = match format.kind {
         FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
             date(text, format.kind, reading.epoch)
+        }
+        // a date with a time of day, or a time, read as GET DATA reads them
+        FormatType::Datetime | FormatType::Ymdhms | FormatType::Time | FormatType::Mtime => {
+            crate::get_data::number(text, format, false, reading.epoch)
+        }
+        // days, a blank, then a time of day
+        FormatType::Dtime => {
+            let text = text.trim();
+            let (days, time) = text.split_once(' ').unwrap_or(("0", text));
+            let time_format = Format {
+                kind: FormatType::Time,
+                ..format
+            };
+            match (
+                days.trim().parse::<f64>(),
+                crate::get_data::number(time, time_format, false, None),
+            ) {
+                (Ok(d), Ok(Some(t))) => Ok(Some(d * 86_400.0 + t)),
+                _ => Err("is not a duration in days and hours"),
+            }
         }
         kind => number(text, kind, decimals),
     };

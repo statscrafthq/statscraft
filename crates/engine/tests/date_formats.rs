@@ -245,3 +245,26 @@ fn a_custom_currency_needs_three_commas_or_three_periods() {
         ["-/-Dfl 1.000,00-", "-/-Dfl 2.000,00-", "-/-Dfl 4.000,00-"]
     );
 }
+
+/// DATA LIST reads the date and time input formats: DATETIME (date and time of day), YMDHMS
+/// (year, month, day first), TIME (hours, minutes, seconds), MTIME (minutes and seconds) and
+/// DTIME (days, then the time). Each value is checked against the same moment built from parts.
+#[test]
+fn data_list_reads_dates_with_times_and_durations() {
+    let tables = run(
+        "DATA LIST FIXED /stamp 1-20 (DATETIME) dur 22-29 (TIME) d 31-40 (DTIME) \
+         ymd 42-60 (YMDHMS) mt 62-66 (MTIME).\n\
+         BEGIN DATA\n\
+         01-JAN-2024 10:30:00 01:30:00 2 03:04:05 2024-02-29 23:59:59 12:30\n\
+         END DATA.\n\
+         COMPUTE ok1 = stamp = DATE.DMY(1, 1, 2024) + TIME.HMS(10, 30, 0).\n\
+         COMPUTE ok2 = dur = TIME.HMS(1, 30, 0).\n\
+         COMPUTE ok3 = d = TIME.DAYS(2) + TIME.HMS(3, 4, 5).\n\
+         COMPUTE ok4 = ymd = DATE.DMY(29, 2, 2024) + TIME.HMS(23, 59, 59).\n\
+         COMPUTE ok5 = mt = 12 * 60 + 30.\n\
+         FORMATS ok1 TO ok5 (F1).\n\
+         LIST ok1 TO ok5.",
+    );
+    let list = tables.last().unwrap();
+    assert_eq!(row(list, 0), ["1", "1", "1", "1", "1"]);
+}

@@ -17,7 +17,7 @@ FREE and LIST: var \[(format)\], values separated by blanks and commas or by the
 
 Without FILE the data follow between BEGIN DATA and END DATA; transformations may stand between. Inside INPUT PROGRAM each run reads the next case's records into the case being built; without variables it passes over a record. END (fixed data in an input program only) names a variable that is 0, and 1 once the data are used up.
 
-Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE.
+Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE, DATETIME, YMDHMS (year first), TIME (hours:minutes:seconds), MTIME (minutes:seconds), DTIME (days, then time).
 
 A value that cannot be read is system-missing, with a warning naming its line.
 
