@@ -11,6 +11,7 @@ use crate::cluster;
 use crate::codebook;
 use crate::commands;
 use crate::complex_samples;
+use crate::conjoint;
 use crate::correspondence;
 use crate::coxreg;
 use crate::ctables;
@@ -2422,6 +2423,74 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  FILE.",
         example: "ALSCAL VARIABLES=s1 TO s9 /LEVEL=ORDINAL /CRITERIA=DIMENS(2,3) /PLOT.",
         parse: alscal::alscal,
+    },
+    CommandSpec {
+        name: "ORTHOPLAN",
+        summary: "Generates an orthogonal main-effects plan of profiles for a conjoint study.",
+        syntax: "ORTHOPLAN [/FACTORS=name ['label'] [name ['label'] ...] (value ['label'] ... | 'level' ...) ...]\n\
+                 \x20  [/REPLACE | /OUTFILE='file' | dataset] [/MINIMUM=n] [/HOLDOUT=n] [/MIXHOLD=YES | NO].\n\
+                 Builds the smallest plan in which every pair of factors is balanced against each other (the\n\
+                 full factorial when that is smallest), with at least MINIMUM profiles when a plan of at most 81\n\
+                 can have them, else the largest one. A factor has 2 to 9 levels, 90 levels in all; the levels are\n\
+                 values, each with an optional label, or quoted texts that become levels 1, 2, ... with the texts\n\
+                 as labels, and a level list serves every name written since the last list. The plan's columns and\n\
+                 order are random: SET SEED repeats them. HOLDOUT adds random profiles that repeat neither the plan\n\
+                 nor each other, after the plan or, with MIXHOLD=YES, mixed into it. STATUS_ is 0 for the plan, 1\n\
+                 for holdouts and 2 for simulation profiles; CARD_ numbers the profiles. Without FACTORS the\n\
+                 variables of the active dataset are the factors and their value labels the levels. Cases in the\n\
+                 active dataset whose variables are the factors are kept after the plan as simulation profiles.\n\
+                 The plan replaces the active dataset with REPLACE, goes to the file or dataset of OUTFILE, and is\n\
+                 otherwise added to the active dataset. SPLIT FILE and WEIGHT are not used. A table counts the\n\
+                 profiles of each kind.",
+        example: "ORTHOPLAN FACTORS=brand 'Brand' ('Acme' 'Brio' 'Cora') price 'Price' (5 '5 euro' 7 '7 euro' 9 '9 euro') organic (0 'no' 1 'yes') /HOLDOUT=2.",
+        parse: conjoint::orthoplan,
+    },
+    CommandSpec {
+        name: "PLANCARDS",
+        summary: "Shows the profiles of a conjoint plan as a list or as one card per profile.",
+        syntax: "PLANCARDS [/FACTORS=varlist] [/FORMAT=LIST | CARD | BOTH] [/TITLE='line' ...] [/FOOTER='line' ...]\n\
+                 \x20  [/OUTFILE='file'].\n\
+                 Shows the profiles of the active dataset, a plan from ORTHOPLAN or typed in, with the factor and\n\
+                 value labels: FACTORS picks the factors and their order (default every variable but STATUS_ and\n\
+                 CARD_; string variables are allowed). LIST (default) is one table per split group, holdouts marked\n\
+                 and simulation profiles in a table of their own; CARD is a table per experimental or holdout\n\
+                 profile, without split groups; BOTH (or ALL) gives both. TITLE and FOOTER take one or more strings,\n\
+                 a line each, and repeat to add lines; on cards )CARD becomes the profile's number. OUTFILE writes\n\
+                 the cards to a text file instead of showing them (also with BOTH; ignored with LIST).",
+        example: "PLANCARDS /FORMAT=CARD /TITLE='Profile )CARD' /FOOTER='Your score from 0 to 10:'.",
+        parse: conjoint::plancards,
+    },
+    CommandSpec {
+        name: "CONJOINT",
+        summary: "Part-worth utilities and importances from rankings or scores of the profiles of a plan.",
+        syntax: "CONJOINT [PLAN=* | 'file' | dataset] [/DATA=* | 'file' | dataset] /SEQUENCE | RANK | SCORE=varlist\n\
+                 \x20  [/SUBJECT=variable]\n\
+                 \x20  [/FACTORS=varlist ['label'] ([DISCRETE [MORE | LESS] | LINEAR [MORE | LESS] | IDEAL | ANTIIDEAL]\n\
+                 \x20            [value ['label'] ...]) ...]\n\
+                 \x20  [/PRINT=ALL | ANALYSIS | SIMULATION | NONE [SUMMARYONLY]] [/UTILITY='file' | dataset]\n\
+                 \x20  [/PLOT=[SUMMARY] [SUBJECT] [ALL] | NONE].\n\
+                 The plan (STATUS_ 0 experimental, 1 holdout, 2 simulation, the simulations last; every variable\n\
+                 but STATUS_ and CARD_ a numeric factor) and the responses come from PLAN and DATA, one of them a\n\
+                 file or dataset and the other by default the active dataset. The response variables follow the\n\
+                 experimental and holdout profiles in plan order: SCORE holds scores (higher is better), RANK the\n\
+                 rank of each profile (1 is best), SEQUENCE the profile numbers from the best down. Consecutive\n\
+                 cases with one SUBJECT value are one subject; without SUBJECT all cases are one. A subject with a\n\
+                 missing response is skipped. Least squares on the experimental profiles estimates per subject\n\
+                 and for the group the utilities: DISCRETE (the default) one per level summing to 0, LINEAR the\n\
+                 value times a coefficient, IDEAL and ANTIIDEAL a quadratic of the value; the levels of the FACTORS\n\
+                 list replace the factor's values from the smallest up, and labels its labels. MORE and LESS (and\n\
+                 the quadratic models) only count subjects whose estimates go the other way. Tables: Model\n\
+                 Description, recoded values, Cramer's V when the plan is not orthogonal, Utilities with standard\n\
+                 errors and the constant, Importance Values (range of a factor's utilities as a percent of all\n\
+                 ranges, averaged over subjects), Coefficients, Correlations (Pearson's R and Kendall's tau of the\n\
+                 predicted and observed preferences, Kendall's tau for holdouts, one-tailed), reversals, and for\n\
+                 simulation profiles the predicted scores and the mean probabilities of maximum utility,\n\
+                 Bradley-Terry-Luce and logit choice. PRINT picks analysis or simulation results, SUMMARYONLY drops\n\
+                 the subjects' tables. UTILITY writes a case per subject: split and subject variables, CONSTANT,\n\
+                 the utilities (name1, name2, ... or name_L and name_Q) and the predicted SCOREn and SIMULn. PLOT\n\
+                 draws bar charts of the importances and utilities, SUMMARY for the group, SUBJECT per subject.",
+        example: "CONJOINT PLAN='plan.sav' /FACTORS=price (LINEAR LESS) brand /SUBJECT=id /RANK=r1 TO r11 /PLOT=SUMMARY.",
+        parse: conjoint::conjoint,
     },
     CommandSpec {
         name: "DISCRIMINANT",

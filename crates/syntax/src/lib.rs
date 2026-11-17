@@ -25,6 +25,7 @@ mod cluster;
 mod codebook;
 mod commands;
 mod complex_samples;
+mod conjoint;
 mod correspondence;
 mod coxreg;
 mod ctables;
@@ -219,6 +220,10 @@ pub use complex_samples::{
     CsplanMode, Csselect, Cstabulate,
 };
 pub use complex_samples::{CsCoxAssumptions, CsCoxTimeFunction};
+pub use conjoint::{
+    CardFormat, Conjoint, ConjointFactor, ConjointModel, ConjointPrint, Direction, Orthoplan,
+    PlanFactor, PlanLevel, Plancards, ResponseKind,
+};
 pub use correspondence::{
     Correspondence, CorrespondenceMeasure, CorrespondenceNormalization, CorrespondencePlot,
     CorrespondencePrint, CorrespondenceStandardize, CorrespondenceTable, PlotLabels,

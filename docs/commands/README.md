@@ -158,6 +158,9 @@ One page per supported command, generated from the same table that the parser an
 | [PROXIMITIES](proximities.md) | Similarities, dissimilarities or distances between cases or variables by one of 37 measures. |
 | [PROXSCAL](proxscal.md) | Multidimensional scaling of one or more proximity matrices by majorization, with optimal transformations. |
 | [ALSCAL](alscal.md) | Multidimensional scaling of symmetric proximity matrices by alternating least squares on squared distances. |
+| [ORTHOPLAN](orthoplan.md) | Generates an orthogonal main-effects plan of profiles for a conjoint study. |
+| [PLANCARDS](plancards.md) | Shows the profiles of a conjoint plan as a list or as one card per profile. |
+| [CONJOINT](conjoint.md) | Part-worth utilities and importances from rankings or scores of the profiles of a plan. |
 | [DISCRIMINANT](discriminant.md) | Linear discriminant analysis with direct or stepwise entry and classification of cases. |
 | [CORRESPONDENCE](correspondence.md) | Correspondence analysis: rows and columns of a two-way table as points in a few dimensions. |
 | [MULTIPLE CORRESPONDENCE](multiple-correspondence.md) | Multiple correspondence (homogeneity) analysis: cases and categories of several nominal variables as points in a few dimensions. |

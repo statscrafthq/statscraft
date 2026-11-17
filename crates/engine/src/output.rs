@@ -134,6 +134,9 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::CasesToVars(_)
         | Command::Dataset(_)
         | Command::NewFile
+        | Command::Orthoplan(_)
+        | Command::Plancards(_)
+        | Command::Conjoint(_)
         | Command::Date(_) => Stage::Pass,
         Command::Title { .. }
         | Command::Echo(_)

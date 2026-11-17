@@ -99,7 +99,7 @@ fn kendall_s(x: &[f64], y: &[f64], weights: &[f64]) -> f64 {
 }
 
 /// Coefficient, two-tailed significance and N of one pair of variables over (x, y, weight).
-fn coefficient(cases: &[(f64, f64, f64)], kendall: bool) -> [f64; 3] {
+pub(crate) fn coefficient(cases: &[(f64, f64, f64)], kendall: bool) -> [f64; 3] {
     let x: Vec<f64> = cases.iter().map(|c| c.0).collect();
     let y: Vec<f64> = cases.iter().map(|c| c.1).collect();
     let w: Vec<f64> = cases.iter().map(|c| c.2).collect();

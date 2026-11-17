@@ -16,6 +16,7 @@ mod cluster;
 mod codebook;
 mod compare_datasets;
 mod complex_samples;
+mod conjoint;
 mod contrast;
 mod correlations;
 mod correspondence;
@@ -82,6 +83,7 @@ mod olap_cubes;
 mod oneway;
 mod optimal_binning;
 mod optimal_scaling;
+mod orthoplan;
 mod output;
 mod output_docs;
 pub mod output_file;
@@ -817,6 +819,8 @@ pub struct Engine {
     /// MATRIX=OUT(*) of the older optimal scaling commands: the matrix that replaces the
     /// active dataset when the procedure is done.
     replacement: Option<Dataset>,
+    /// CONJOINT /UTILITY: the rows of every split group.
+    conjoint_out: Vec<Dataset>,
     /// MULTIPLE IMPUTATION: per split group, the stacked imputations (original data first)
     /// and the FCS iteration history.
     imputed: Vec<(Vec<Dataset>, Option<Dataset>)>,
@@ -1333,6 +1337,9 @@ impl Engine {
                 return tables;
             }
             Command::Power(command) => return self.power(command),
+            Command::Orthoplan(command) => return self.orthoplan(command),
+            Command::Plancards(command) => return self.plancards(command),
+            Command::Conjoint(command) => return self.conjoint(command),
             Command::TimeProgram => {
                 self.time_program = Some(coxreg::TimeProgram {
                     collecting: true,
@@ -1651,6 +1658,8 @@ impl Engine {
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),
             Command::List(list) => self.list(list),
+            Command::Plancards(command) => self.plan_list(command),
+            Command::Conjoint(command) => self.conjoint_group(command),
             _ => unreachable!("only procedures come here"),
         }?;
         for format in tables.iter_mut().flat_map(|t| &mut t.formats).flatten() {

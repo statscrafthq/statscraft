@@ -86,7 +86,7 @@ impl LeastSquares {
         (f, f_p(f, self.df_reg(), self.df_res()))
     }
     /// The covariance of slopes a and b over the mean square error.
-    fn slope_cov(&self, a: usize, b: usize) -> f64 {
+    pub(crate) fn slope_cov(&self, a: usize, b: usize) -> f64 {
         self.rinv[a][b] / (self.scales[a] * self.scales[b])
     }
     pub fn slope_se(&self, a: usize) -> f64 {

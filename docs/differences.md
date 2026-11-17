@@ -1065,6 +1065,28 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - Under SPLIT FILE each group runs on its own rows and writes OUTFILE in turn, so the file keeps the last group (PROXSCAL OUTFILE alike).
 - Several dimensionalities give every table for each, titled with the number of dimensions; the plots show the smallest.
 
+### ORTHOPLAN and PLANCARDS
+
+- The plans are built rather than read from a printed library: every run is a vector of GF(p)^k (p is 2, 3, 5 or 7, at most 81 runs) and a factor reads a subspace of linear forms big enough for its levels; subspaces that share only 0 make orthogonal factors. The full factorial is also a candidate and wins a tie. A factor with fewer levels than its column folds the symbols onto its levels as evenly as the counts allow (a 2-level factor in a 9-run plan has 6 and 3). Plan sizes can therefore differ from other programs: there are no 12, 18, 20 or 36 run plans, so 8 to 11 two-level factors take 16 runs, 6 three-level factors take 25 (5-level columns folded onto 3 levels) and 7 take 27.
+- The runs are shuffled after the plan is built; holdouts are drawn at random from the combinations outside the plan. SET SEED repeats both.
+- Quoted texts without values on FACTORS become the levels 1, 2, 3, ... with the texts as value labels, so that CONJOINT can use the factor. Mixing such texts with values is an error.
+- Cases already in the active dataset become simulation profiles (STATUS_ 2 unless they have a STATUS_) after the plan, also with OUTFILE when their variables are the factors; otherwise OUTFILE writes the plan alone. A case with STATUS_ 0 that is also in the plan is dropped; a simulation profile that is also in the plan is kept with a warning.
+- ORTHOPLAN shows a table with the number of design, holdout and simulation profiles.
+- PLANCARDS shows the TITLE lines joined in the title of the listing and of each card table, and the FOOTER lines as their caption. With OUTFILE the cards go to the text file only, each with its title lines, a line per factor (`factor: level`) and its footer lines; no list is shown then, as OUTFILE with BOTH means CARD.
+
+### CONJOINT
+
+- Ranks are turned into n + 1 - rank with n the number of rated (experimental and holdout) profiles; SEQUENCE data are turned into such ranks first. A profile number outside 1 to n, or a repeated one, skips the subject.
+- The standard errors use the residual degrees of freedom of the least-squares fit; the last level of a DISCRETE factor has the variance of minus the sum of the other levels' estimates (the sum of all their variances and covariances). The constant's standard error is that of the intercept of the fit on the uncentered values.
+- With SUBJECT the summary is the fit to the subjects' mean responses, one set per subject, so its utilities are the means of the subjects' utilities and its correlations compare the predictions with the mean responses; the importances are the means of the subjects' importances. Without SUBJECT all cases are one subject (each case a replicate) and only the summary is shown.
+- A subject whose responses do not vary, or cannot be fitted, is skipped with a warning, like a subject with a missing response.
+- One-tailed significance is half the two-tailed one. Pearson's R and Kendall's tau use the experimental profiles; Kendall's tau for the holdouts is shown with at least two holdouts.
+- Reversals: DISCRETE MORE (LESS) counts a reversal when the utility falls (rises) from one level to the next; LINEAR MORE (LESS) when the coefficient is negative (positive); IDEAL when the quadratic coefficient is positive, ANTIIDEAL when it is negative. Number of Reversals counts the subjects per factor; Reversal Summary lists the subjects by their number of reversals.
+- Maximum utility gives a tie for the best simulation profile equal shares. BTL and logit use only subjects whose simulation scores are all positive, for both methods. Probabilities are proportions from 0 to 1.
+- SCOREn and SIMULn in the UTILITY file are the predicted preferences on the scale of the fit (for ranks, n + 1 - rank). With split groups the rows of every group are written one after the other.
+- The weight variable is not used. The plan cannot be the active dataset under SPLIT FILE.
+- PLOT SUMMARY draws the averaged importances and each factor's summary utilities as bar charts; PLOT SUBJECT draws the same per subject as clustered bars.
+
 ### DISCRIMINANT
 
 - A group value that is not a whole number counts as out of range.

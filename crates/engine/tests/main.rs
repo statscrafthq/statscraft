@@ -15,6 +15,7 @@ mod chart_input;
 mod charts;
 mod cluster;
 mod complex_samples;
+mod conjoint;
 mod correspondence;
 mod coxreg;
 mod cs_cox;
