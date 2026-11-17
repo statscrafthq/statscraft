@@ -67,6 +67,7 @@ mod multiple_correspondence;
 mod multiple_imputation;
 mod mva;
 mod naivebayes;
+mod neural;
 mod nomreg;
 mod npar;
 mod nptests;
@@ -162,6 +163,8 @@ mod tests_multiple_imputation;
 mod tests_multivariate;
 #[cfg(test)]
 mod tests_mva;
+#[cfg(test)]
+mod tests_neural;
 #[cfg(test)]
 mod tests_nomreg;
 #[cfg(test)]
@@ -325,6 +328,10 @@ pub use multiple_correspondence::{McaPlot, McaPlots, McaPrint, MultipleCorrespon
 pub use multiple_imputation::{ImputeConstraint, ImputeMethod, ImputeRole, MultipleImputation};
 pub use mva::{AddType, Mva, MvaEstimate, MvaPattern, MvaTtest};
 pub use naivebayes::{Naivebayes, NbSubset, NbTraining};
+pub use neural::{
+    Activation, NEURAL_PLOT, NEURAL_PRINT, Neural, NeuralArchitecture, NeuralCriteria, Partition,
+    Rescale, StoppingRules, Training,
+};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,
     NomregStepwise, StepMethod, StepRule,

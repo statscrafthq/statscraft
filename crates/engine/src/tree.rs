@@ -513,7 +513,7 @@ fn sorted_unique(mut keys: Vec<Key>) -> Vec<Key> {
 /// The measurement level of a variable: the one written, else the dictionary's, else the one
 /// its data give it (the rule of a data pass, as the manual says for an unknown level, with SET
 /// SCALEMIN as `scale_min`).
-fn level_of(
+pub(crate) fn level_of(
     data: &Dataset,
     variable: &Variable,
     written: Option<Level>,

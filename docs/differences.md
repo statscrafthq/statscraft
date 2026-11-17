@@ -1309,6 +1309,24 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - The tree diagram comes as chart data with the statistics of every node; its orientation (DISPLAY) and NODES are not kept.
 - PLOT GAIN, RESPONSE and INDEX come as line charts, one chart per keyword with one line per TARGET category, over the cumulative percentile groups of INCREMENT. The terminal nodes take the order of the gain tables (SORT), and the node that holds a cut counts in proportion to its part below the cut. Without a TARGET category there is no chart, with a warning.
 
+### MLP and RBF
+
+- Random partitions draw one uniform number per valid case in case order from the session's generator (SET SEED, SET RNG), so the shares are met on average, not exactly. The sample for initial weights and the automatic architecture, the random weights and their perturbations, and the order of the cases for online and mini-batch training all come from the same generator, in that order; a run with the same seed, data and command repeats exactly.
+- Online and mini-batch training take the training cases in one random order and wrap around it from pass to pass; a pass is as many groups as the training cases fill.
+- The momentum cut of gradient descent applies to the step at hand; the next step starts again from MOMENTUM. Batch gradient descent stops when halving the learning rate cannot lower the error (below 1e-30).
+- Each step's training error is computed, also for online training that watches only the testing cases; the change and ratio rules then stay off, as the manual says.
+- The weights kept are those of the step with the lowest testing error when there are testing cases (the earlier of the two lowest steps), else of the lowest training error.
+- NUMUNITS=AUTO and the starting count of the automatic architecture: min(g, 20, h), at least 1, with g and h from the numbers of input units, output units and training cases. With two hidden layers and AUTO the second layer gets half the first, rounded up.
+- Simulated annealing trains each candidate with batch scaled conjugate gradient and the default stopping rules, without the timer; the timer limits only the final training.
+- The relative error and the percent incorrect of the Model Summary use the cases of each sample; a categorical prediction is the category with the largest output, the first one on a tie.
+- Importance uses the minimum, the three quartiles (linear between the ordered values) and the maximum of each covariate over the training and testing cases.
+- A constant covariate or dependent in the training cases is rescaled by a divisor of 1 instead of 0.
+- RBF: the two-step clustering of the training cases uses the log-likelihood distance with the rescaled covariates as continuous variables (not standardized again) and the factors as categorical ones, the default tree (threshold 0, 8 branches, 3 levels) and BIC with at most 15 clusters for K. A cluster's standard deviation divides by n - 1 (0 for one case). A range that reaches past the number of subclusters stops there, with a warning. The default range starts at min(K, R) for ORBF, as the manual gives it.
+- RBF output weights are least squares; a hidden unit whose activations repeat the others gets weight 0.
+- Charts: NETWORK shows the units of each layer as labelled points (the weights are in PRINT SOLUTION); PREDICTED for a categorical dependent is a boxplot of each category's pseudo-probability by observed category; ROC, gains and lift are drawn from the training and testing cases, gains and lift at every 5 percent of the cases.
+- SAVE PSEUDOPROB names are the root with _1, _2, ... for the categories. Default names that already exist get a further _1, _2; a name given that exists is an error. Predictions go to every case whose predictors are valid and known to the training cases, in any sample.
+- OUTFILE writes Statscraft's own JSON instead of PMML: each file holds the whole network (inputs with their categories or rescaling, outputs, weights or centers and widths) and names its dependent.
+
 ### GRAPH
 
 - BAR, LINE, PIE, ERRORBAR, PARETO, HILO, HISTOGRAM and SCATTERPLOT (BIVARIATE, OVERLAY, MATRIX and XYZ, with a control variable and point labels) make one chart, as data and as a picture like the charts of the procedures. The chart's layout follows the function specification; a SIMPLE or GROUPED keyword that does not fit it changes nothing, as the manual says. Several areas stack.

@@ -189,6 +189,8 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
             lexer.colon = matches!(
                 spec.name,
                 "NOMREG"
+                    | "MLP"
+                    | "RBF"
                     | "PLUM"
                     | "GENLIN"
                     | "CSLOGISTIC"

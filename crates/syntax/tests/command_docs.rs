@@ -204,6 +204,8 @@ const AREAS: &[(&str, &[&str])] = &[
             "CLEAR TIME PROGRAM",
             "ANOVA",
             "TREE",
+            "MLP",
+            "RBF",
             "GRAPH",
             "GGRAPH",
             "BEGIN GPL",

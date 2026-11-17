@@ -86,6 +86,8 @@ pub enum Command {
     Logistic(Box<crate::logistic::Logistic>),
     Coxreg(Box<crate::coxreg::Coxreg>),
     Nomreg(Box<crate::nomreg::Nomreg>),
+    /// MLP and RBF.
+    Neural(Box<crate::neural::Neural>),
     Mva(Box<crate::mva::Mva>),
     Hiloglinear(Box<crate::loglinear::Hiloglinear>),
     Genlog(Box<crate::loglinear::Genlog>),

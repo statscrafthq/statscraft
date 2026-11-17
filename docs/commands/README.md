@@ -203,6 +203,8 @@ One page per supported command, generated from the same table that the parser an
 | [CLEAR TIME PROGRAM](clear-time-program.md) | Drop the time-dependent covariates of the last TIME PROGRAM. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
+| [MLP](mlp.md) | Multilayer perceptron: a neural network with one or two hidden layers that predicts scale dependents and classifies categorical ones. |
+| [RBF](rbf.md) | Radial basis function network: Gaussian hidden units at two-step clusters and least squares output weights. |
 | [GRAPH](graph.md) | One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram, a scatterplot or a scatterplot matrix. |
 | [GGRAPH](ggraph.md) | A chart from a graph dataset and a chart program in BEGIN GPL: bars (clustered, stacked), lines, areas, points, a pie or a histogram. |
 | [BEGIN GPL](begin-gpl.md) | The chart program of the GGRAPH command right before it, up to END GPL. |

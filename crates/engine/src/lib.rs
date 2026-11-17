@@ -77,6 +77,8 @@ mod mult_response;
 mod multiple_correspondence;
 mod multiple_imputation;
 mod mva;
+mod neural;
+mod neural_net;
 mod nomreg;
 mod nonpar_corr;
 mod npar_groups;
@@ -1297,6 +1299,7 @@ impl Engine {
             | Command::Logistic(_)
             | Command::Coxreg(_)
             | Command::Nomreg(_)
+            | Command::Neural(_)
             | Command::Mva(_)
             | Command::Hiloglinear(_)
             | Command::Manova(_)
@@ -1668,6 +1671,7 @@ impl Engine {
             Command::Logistic(command) => self.logistic(command),
             Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),
+            Command::Neural(command) => self.neural(command),
             Command::Mva(command) => self.mva(command),
             Command::Hiloglinear(command) => self.hiloglinear(command),
             Command::Manova(command) => self.manova(command),

@@ -49,6 +49,7 @@ use crate::multiple_correspondence;
 use crate::multiple_imputation;
 use crate::mva;
 use crate::naivebayes;
+use crate::neural;
 use crate::nomreg;
 use crate::npar;
 use crate::nptests;
@@ -3006,6 +3007,90 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  CELLPROB, HISTORY and ASSOCIATION.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
+    },
+    CommandSpec {
+        name: "MLP",
+        summary: "Multilayer perceptron: a neural network with one or two hidden layers that predicts scale dependents and classifies categorical ones.",
+        syntax: "MLP dependent [(MLEVEL=S | O | N)] [dependent ...] [BY factors] [WITH covariates]\n\
+                 \x20  [/EXCEPT VARIABLES=varlist]\n\
+                 \x20  [/RESCALE [COVARIATE=STANDARDIZED | NORMALIZED | ADJNORMALIZED | NONE]\n\
+                 \x20            [DEPENDENT=STANDARDIZED | NORMALIZED [(CORRECTION=0.02)] | ADJNORMALIZED [(CORRECTION=0.02)] | NONE]]\n\
+                 \x20  [/PARTITION TRAINING=70 TESTING=30 HOLDOUT=0 | VARIABLE=var]\n\
+                 \x20  [/ARCHITECTURE [AUTOMATIC=YES [(MINUNITS=1, MAXUNITS=50)] | NO]\n\
+                 \x20                 [HIDDENLAYERS=1 | 2 [(NUMUNITS=AUTO | n [, n])]] [HIDDENFUNCTION=TANH | SIGMOID]\n\
+                 \x20                 [OUTPUTFUNCTION=IDENTITY | SIGMOID | SOFTMAX | TANH]]\n\
+                 \x20  [/CRITERIA [TRAINING=BATCH | ONLINE | MINIBATCH] [MINIBATCHSIZE=AUTO | n] [MEMSIZE=1000]\n\
+                 \x20             [OPTIMIZATION=GRADIENTDESCENT | SCALEDCONJUGATE] [LEARNINGINITIAL=0.4]\n\
+                 \x20             [LEARNINGLOWER=0.001] [MOMENTUM=0.9] [LEARNINGEPOCHS=10] [LAMBDAINITIAL=0.0000005]\n\
+                 \x20             [SIGMAINITIAL=0.00005] [INTERVALCENTER=0] [INTERVALOFFSET=0.5]]\n\
+                 \x20  [/STOPPINGRULES [ERRORSTEPS=1 [(DATA=AUTO | BOTH)]] [TRAININGTIMER=ON [(MAXTIME=15)] | OFF]\n\
+                 \x20                  [MAXEPOCHS=AUTO | n] [ERRORCHANGE=0.0001] [ERRORRATIO=0.001]]\n\
+                 \x20  [/MISSING USERMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/PRINT [CPS] [NETWORKINFO] [SUMMARY] [CLASSIFICATION] [SOLUTION] [IMPORTANCE] [NONE]]\n\
+                 \x20  [/PLOT [NETWORK] [PREDICTED] [RESIDUAL] [ROC] [GAIN] [LIFT] [NONE]]\n\
+                 \x20  [/SAVE [PREDVAL[(names)]] [PSEUDOPROB[(root[:25] ...)]]] [/OUTFILE MODEL='file' ...].\n\
+                 Keywords are written in full and each subcommand comes once. A dependent is scale or categorical by\n\
+                 MLEVEL, else by its measurement level; categorical dependents and factors get one unit per category\n\
+                 of the training cases. Cases missing on any variable are left out (user-missing values of\n\
+                 categorical variables count with INCLUDE); the rest go to training, testing and holdout at random by\n\
+                 the shares (SET SEED makes it repeatable), or by the sign of the VARIABLE: positive trains, 0 tests,\n\
+                 negative holds out. Covariates and scale dependents are rescaled by the training cases. Hidden units\n\
+                 use TANH (default) or SIGMOID; the output units IDENTITY when a dependent is scale, else SOFTMAX with\n\
+                 cross-entropy error; other outputs use the sum of squares. SIGMOID outputs need NORMALIZED\n\
+                 dependents and TANH outputs ADJNORMALIZED, the defaults for them. AUTOMATIC=YES (default) uses one\n\
+                 TANH layer and searches the number of units between MINUNITS and MAXUNITS on a sample of at most\n\
+                 MEMSIZE (and 1000) cases, removing the weakest unit or adding one while the testing error drops.\n\
+                 NUMUNITS=AUTO starts from a count based on the numbers of input and output units and of training\n\
+                 cases. Starting weights come from random draws in INTERVALCENTER +- INTERVALOFFSET, trained and\n\
+                 shaken by simulated annealing on that sample. BATCH training uses SCALEDCONJUGATE by default;\n\
+                 ONLINE and MINIBATCH use GRADIENTDESCENT on the cases in a random order, the learning rate falling\n\
+                 from LEARNINGINITIAL to LEARNINGLOWER over LEARNINGEPOCHS passes. Training stops when the error\n\
+                 (testing cases when there are any) has not reached a new low for ERRORSTEPS steps, at MAXTIME\n\
+                 minutes, after MAXEPOCHS passes (AUTO: twice the weights plus 1, at least 100), or when the\n\
+                 training error changes by less than ERRORCHANGE or falls below ERRORRATIO times that of predicting\n\
+                 the means; the weights kept are those of the lowest error. Tables: Case Processing Summary (CPS),\n\
+                 Network Information, Model Summary with the error, the relative error or percent incorrect and the\n\
+                 rule that stopped training (SUMMARY), Classification per categorical dependent, Parameter Estimates\n\
+                 (SOLUTION) and Independent Variable Importance with a chart (IMPORTANCE). Charts: the units of the\n\
+                 network (NETWORK, default), predicted by observed (PREDICTED), residual by predicted (RESIDUAL),\n\
+                 ROC with the areas, cumulative gains and lift of each category, from the training and testing\n\
+                 cases. SAVE adds the predicted value or category (MLP_PredictedValue) and the first n outputs of each\n\
+                 categorical dependent (MLP_PseudoProbability_1, ...). OUTFILE writes Statscraft's own JSON model,\n\
+                 one file per dependent, not with SPLIT FILE. The weight variable is not used.",
+        example: "SET SEED=20251.\n\
+                  MLP churned (MLEVEL=N) BY plan region WITH tenure spend\n\
+                  \x20 /PARTITION TRAINING=6 TESTING=2 HOLDOUT=2 /ARCHITECTURE AUTOMATIC=NO HIDDENLAYERS=1 (NUMUNITS=4)\n\
+                  \x20 /PRINT CPS NETWORKINFO SUMMARY CLASSIFICATION IMPORTANCE /PLOT ROC /SAVE PREDVAL PSEUDOPROB.",
+        parse: neural::mlp,
+    },
+    CommandSpec {
+        name: "RBF",
+        summary: "Radial basis function network: Gaussian hidden units at two-step clusters and least squares output weights.",
+        syntax: "RBF dependent [(MLEVEL=S | O | N)] [dependent ...] [BY factors] [WITH covariates]\n\
+                 \x20  [/EXCEPT VARIABLES=varlist]\n\
+                 \x20  [/RESCALE [COVARIATE=STANDARDIZED | NORMALIZED | ADJNORMALIZED | NONE]\n\
+                 \x20            [DEPENDENT=STANDARDIZED | NORMALIZED | ADJNORMALIZED | NONE]]\n\
+                 \x20  [/PARTITION TRAINING=70 TESTING=30 HOLDOUT=0 | VARIABLE=var]\n\
+                 \x20  [/ARCHITECTURE [MINUNITS=AUTO | n MAXUNITS=AUTO | n | NUMUNITS=n] [HIDDENFUNCTION=NRBF | ORBF]]\n\
+                 \x20  [/CRITERIA OVERLAP=AUTO | number] [/MISSING USERMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/PRINT [CPS] [NETWORKINFO] [SUMMARY] [CLASSIFICATION] [SOLUTION] [IMPORTANCE] [NONE]]\n\
+                 \x20  [/PLOT [NETWORK] [PREDICTED] [RESIDUAL] [ROC] [GAIN] [LIFT] [NONE]]\n\
+                 \x20  [/SAVE [PREDVAL[(names)]] [PSEUDOPROB[(root[:25] ...)]]] [/OUTFILE MODEL='file' ...].\n\
+                 Variables, missing values, partitions, rescaling (STANDARDIZED by default for scale dependents too),\n\
+                 tables, charts, SAVE (RBF_PredictedValue, RBF_PseudoProbability) and OUTFILE work as in MLP. The\n\
+                 training cases are clustered by the two-step method (covariates as continuous, factors as\n\
+                 categorical variables). Each hidden unit is a Gaussian at a cluster's means and category shares,\n\
+                 its width the square root of OVERLAP (AUTO: 1 + 0.1 per input unit) times the root mean square of\n\
+                 the cluster's standard deviations and of p(1 - p) for categories. NRBF (default) divides the units\n\
+                 by their sum; ORBF keeps them and adds a bias. The output weights are least squares, with identity\n\
+                 outputs and the sum of squares error for every dependent. Without NUMUNITS the number of units is\n\
+                 searched between MINUNITS and MAXUNITS (AUTO: from the two-step cluster count K and the R output\n\
+                 units, min(K, R), at least 2 for NRBF, to max(10, 2K, R)): the lowest error of the testing cases\n\
+                 wins, or without them the lowest BIC of the training cases. The weight variable is not used.",
+        example: "SET SEED=4417.\n\
+                  RBF spend BY plan WITH tenure visits /ARCHITECTURE HIDDENFUNCTION=ORBF\n\
+                  \x20 /PRINT CPS NETWORKINFO SUMMARY SOLUTION /PLOT PREDICTED RESIDUAL /SAVE PREDVAL(spend_hat).",
+        parse: neural::rbf,
     },
     CommandSpec {
         name: "MVA",
