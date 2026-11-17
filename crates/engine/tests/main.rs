@@ -98,6 +98,7 @@ mod tree;
 mod ts_models;
 mod ts_more;
 mod twostep;
+mod varcomp;
 mod vega_lite;
 mod workbook;
 

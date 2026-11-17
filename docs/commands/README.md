@@ -176,6 +176,7 @@ One page per supported command, generated from the same table that the parser an
 | [UNIANOVA](unianova.md) | General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression. |
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, several (multivariate analysis of variance and covariance), or repeated measures with WSFACTOR. |
 | [MIXED](mixed.md) | Linear mixed model: fixed effects with random effects of subjects and correlated repeated measures. |
+| [VARCOMP](varcomp.md) | Variance components: how much each random effect of a linear model adds to the variance of the dependent variable. |
 | [COXREG](coxreg.md) | Cox proportional hazards regression of survival times, with strata, categorical covariates, stepwise selection and time-dependent covariates. |
 | [TIME PROGRAM](time-program.md) | Start the transformations that define time-dependent covariates for the next COXREG. |
 | [CLEAR TIME PROGRAM](clear-time-program.md) | Drop the time-dependent covariates of the last TIME PROGRAM. |

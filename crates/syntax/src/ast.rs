@@ -93,6 +93,7 @@ pub enum Command {
     Survival(Box<crate::survival::Survival>),
     Glm(Box<crate::glm::Glm>),
     Mixed(Box<crate::mixed::Mixed>),
+    Varcomp(Box<crate::varcomp::Varcomp>),
     Csplan(Box<crate::complex_samples::Csplan>),
     Csselect(Box<crate::complex_samples::Csselect>),
     Csdescriptives(Box<crate::complex_samples::Csdescriptives>),

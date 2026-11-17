@@ -177,6 +177,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "UNIANOVA",
             "GLM",
             "MIXED",
+            "VARCOMP",
             "COXREG",
             "TIME PROGRAM",
             "CLEAR TIME PROGRAM",

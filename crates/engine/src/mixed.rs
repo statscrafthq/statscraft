@@ -607,7 +607,7 @@ enum Depth {
 
 /// The inverse of a symmetric positive definite matrix and its log determinant, by Cholesky;
 /// None when it is not positive definite.
-fn cholesky_inverse(a: &Matrix) -> Option<(Matrix, f64)> {
+pub(crate) fn cholesky_inverse(a: &Matrix) -> Option<(Matrix, f64)> {
     let n = a.len();
     let mut l = vec![vec![0.0; n]; n];
     for i in 0..n {
@@ -1944,7 +1944,7 @@ fn l_table(title: &str, names: &[String], l: &[(String, Vec<f64>)], caption: Str
 }
 
 /// A square matrix table with the same names on its rows and columns.
-fn matrix_table(
+pub(crate) fn matrix_table(
     title: &str,
     names: &[String],
     value: &dyn Fn(usize, usize) -> Cell,

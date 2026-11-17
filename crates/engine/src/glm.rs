@@ -40,7 +40,7 @@ use crate::oneway::{Group, group, posthoc_tables};
 use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Chart, Engine, Error, Table};
-use statscraft_data::{Measure, Values, Variable};
+use statscraft_data::{Dataset, Measure, Values, Variable};
 use statscraft_syntax::{
     Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmTemp, LRow, PercentileMethod, Posthoc, Profile,
     Term,
@@ -782,6 +782,136 @@ pub(crate) fn key_value_text(variable: &Variable, key: &Key) -> String {
     }
 }
 
+/// The cases of a linear model: those whose rounded case weight and regression weight are
+/// positive and whose dependents, factors and covariates are all valid, with the levels of
+/// the factors sorted. Also returns the level texts as tables show them (SET TNUMBERS).
+pub(crate) fn model_data(
+    data: &Dataset,
+    shown: &Shown,
+    dep_vars: &[Variable],
+    factor_vars: &[Variable],
+    cov_vars: &[Variable],
+    regwgt: Option<&Variable>,
+    include: bool,
+) -> Result<(Data, Vec<Vec<String>>), Error> {
+    let cases = data.case_count();
+    let weights = case_weights(data)?;
+    let numeric = |v: &Variable, k: usize| -> Option<f64> {
+        if !crate::means::is_valid(v, k, include) {
+            return None;
+        }
+        match v.values() {
+            Values::Numeric(values) => values.get(k),
+            Values::String(_) => None,
+        }
+    };
+    let factor_keys: Vec<Vec<Option<Key>>> =
+        factor_vars.iter().map(|v| categories(v, include)).collect();
+    let mut rows: Vec<usize> = Vec::new();
+    for k in 0..cases {
+        let f = weights.as_ref().map_or(1.0, |w| w[k].round());
+        let g = match &regwgt {
+            Some(v) => numeric(v, k).unwrap_or(0.0),
+            None => 1.0,
+        };
+        let valid = f > 0.0
+            && g > 0.0
+            && dep_vars.iter().all(|v| numeric(v, k).is_some())
+            && cov_vars.iter().all(|v| numeric(v, k).is_some())
+            && factor_keys.iter().all(|col| col[k].is_some());
+        if valid {
+            rows.push(k);
+        }
+    }
+    let mut levels: Vec<Vec<Key>> = Vec::new();
+    for col in &factor_keys {
+        let mut found: Vec<Key> = Vec::new();
+        for &k in &rows {
+            let key = col[k].as_ref().expect("valid");
+            if !found.iter().any(|l| l.compare(key).is_eq()) {
+                found.push(match key {
+                    Key::Number(n) => Key::Number(*n),
+                    Key::Text(t) => Key::Text(t.clone()),
+                });
+            }
+        }
+        found.sort_by(|a, b| a.compare(b));
+        levels.push(found);
+    }
+    // the levels as tables show them (SET TNUMBERS)
+    let level_texts: Vec<Vec<String>> = factor_vars
+        .iter()
+        .zip(&levels)
+        .map(|(v, ls)| ls.iter().map(|k| shown.value(v, k)).collect())
+        .collect();
+    let labels = Shown::labels(shown.currencies.clone());
+    let d = Data {
+        factors: factor_vars.iter().map(|v| v.name().to_string()).collect(),
+        factor_texts: factor_vars.iter().map(|v| shown.variable(v)).collect(),
+        values: factor_vars
+            .iter()
+            .zip(&levels)
+            .map(|(v, ls)| ls.iter().map(|k| key_value_text(v, k)).collect())
+            .collect(),
+        labels: factor_vars
+            .iter()
+            .zip(&levels)
+            .map(|(v, ls)| ls.iter().map(|k| labels.value(v, k)).collect())
+            .collect(),
+        // the Value Label column, which SET TNUMBERS=VALUES leaves out
+        labelled: factor_vars.iter().any(|v| !v.value_labels().is_empty())
+            && shown.values != Show::Plain,
+        covariates: cov_vars.iter().map(|v| v.name().to_string()).collect(),
+        level: rows
+            .iter()
+            .map(|&k| {
+                factor_keys
+                    .iter()
+                    .zip(&levels)
+                    .map(|(col, ls)| {
+                        let key = col[k].as_ref().expect("valid");
+                        ls.iter()
+                            .position(|l| l.compare(key).is_eq())
+                            .expect("a level")
+                    })
+                    .collect()
+            })
+            .collect(),
+        cov: rows
+            .iter()
+            .map(|&k| {
+                cov_vars
+                    .iter()
+                    .map(|v| numeric(v, k).expect("valid"))
+                    .collect()
+            })
+            .collect(),
+        y: rows
+            .iter()
+            .map(|&k| {
+                dep_vars
+                    .iter()
+                    .map(|v| numeric(v, k).expect("valid"))
+                    .collect()
+            })
+            .collect(),
+        f: rows
+            .iter()
+            .map(|&k| weights.as_ref().map_or(1.0, |w| w[k].round()))
+            .collect(),
+        g: rows
+            .iter()
+            .map(|&k| {
+                regwgt
+                    .as_ref()
+                    .map_or(1.0, |v| numeric(v, k).expect("valid"))
+            })
+            .collect(),
+        case: rows,
+    };
+    Ok((d, level_texts))
+}
+
 impl Engine {
     pub(crate) fn glm(&mut self, command: &Glm) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
@@ -829,7 +959,6 @@ impl Engine {
             }
         }
         let cases = data.case_count();
-        let weights = case_weights(data)?;
         let regwgt = match &command.regwgt {
             Some(n) => {
                 let v = data.variable(n)?;
@@ -842,126 +971,20 @@ impl Engine {
             }
             None => None,
         };
-        let numeric = |v: &Variable, k: usize| -> Option<f64> {
-            if !crate::means::is_valid(v, k, command.include) {
-                return None;
-            }
-            match v.values() {
-                Values::Numeric(values) => values.get(k),
-                Values::String(_) => None,
-            }
-        };
-        let factor_keys: Vec<Vec<Option<Key>>> = factor_vars
-            .iter()
-            .map(|v| categories(v, command.include))
-            .collect();
-        let mut rows: Vec<usize> = Vec::new();
-        for k in 0..cases {
-            let f = weights.as_ref().map_or(1.0, |w| w[k].round());
-            let g = match &regwgt {
-                Some(v) => numeric(v, k).unwrap_or(0.0),
-                None => 1.0,
-            };
-            let valid = f > 0.0
-                && g > 0.0
-                && dep_vars.iter().all(|v| numeric(v, k).is_some())
-                && cov_vars.iter().all(|v| numeric(v, k).is_some())
-                && factor_keys.iter().all(|col| col[k].is_some());
-            if valid {
-                rows.push(k);
-            }
-        }
-        if rows.is_empty() {
+        let (d, level_texts) = model_data(
+            data,
+            &shown,
+            &dep_vars,
+            &factor_vars,
+            &cov_vars,
+            regwgt.as_ref(),
+            command.include,
+        )?;
+        if d.rows() == 0 {
             return Err(Error(format!(
                 "{name}: no case has valid values on every variable"
             )));
         }
-        let mut levels: Vec<Vec<Key>> = Vec::new();
-        for col in &factor_keys {
-            let mut found: Vec<Key> = Vec::new();
-            for &k in &rows {
-                let key = col[k].as_ref().expect("valid");
-                if !found.iter().any(|l| l.compare(key).is_eq()) {
-                    found.push(match key {
-                        Key::Number(n) => Key::Number(*n),
-                        Key::Text(t) => Key::Text(t.clone()),
-                    });
-                }
-            }
-            found.sort_by(|a, b| a.compare(b));
-            levels.push(found);
-        }
-        // the levels as tables show them (SET TNUMBERS)
-        let level_texts: Vec<Vec<String>> = factor_vars
-            .iter()
-            .zip(&levels)
-            .map(|(v, ls)| ls.iter().map(|k| shown.value(v, k)).collect())
-            .collect();
-        let labels = Shown::labels(shown.currencies.clone());
-        let d = Data {
-            factors: factor_names.clone(),
-            factor_texts: factor_vars.iter().map(|v| shown.variable(v)).collect(),
-            values: factor_vars
-                .iter()
-                .zip(&levels)
-                .map(|(v, ls)| ls.iter().map(|k| key_value_text(v, k)).collect())
-                .collect(),
-            labels: factor_vars
-                .iter()
-                .zip(&levels)
-                .map(|(v, ls)| ls.iter().map(|k| labels.value(v, k)).collect())
-                .collect(),
-            // the Value Label column, which SET TNUMBERS=VALUES leaves out
-            labelled: factor_vars.iter().any(|v| !v.value_labels().is_empty())
-                && shown.values != Show::Plain,
-            covariates: covariate_names.clone(),
-            level: rows
-                .iter()
-                .map(|&k| {
-                    factor_keys
-                        .iter()
-                        .zip(&levels)
-                        .map(|(col, ls)| {
-                            let key = col[k].as_ref().expect("valid");
-                            ls.iter()
-                                .position(|l| l.compare(key).is_eq())
-                                .expect("a level")
-                        })
-                        .collect()
-                })
-                .collect(),
-            cov: rows
-                .iter()
-                .map(|&k| {
-                    cov_vars
-                        .iter()
-                        .map(|v| numeric(v, k).expect("valid"))
-                        .collect()
-                })
-                .collect(),
-            y: rows
-                .iter()
-                .map(|&k| {
-                    dep_vars
-                        .iter()
-                        .map(|v| numeric(v, k).expect("valid"))
-                        .collect()
-                })
-                .collect(),
-            f: rows
-                .iter()
-                .map(|&k| weights.as_ref().map_or(1.0, |w| w[k].round()))
-                .collect(),
-            g: rows
-                .iter()
-                .map(|&k| {
-                    regwgt
-                        .as_ref()
-                        .map_or(1.0, |v| numeric(v, k).expect("valid"))
-                })
-                .collect(),
-            case: rows,
-        };
         let terms = match &command.design {
             Some(terms) => {
                 let mut terms = terms.clone();
@@ -1612,7 +1635,7 @@ fn contrast_name(kind: &Contrast) -> &'static str {
     }
 }
 
-fn between_factors(d: &Data) -> Table {
+pub(crate) fn between_factors(d: &Data) -> Table {
     let mut columns = plain(&["", ""]);
     if d.labelled {
         columns.extend(plain(&["Value Label"]));

@@ -811,6 +811,16 @@ Choices where the documentation says nothing, and where it is not followed:
 - The predicted random effects, TEST rows with random coefficients, SEPRED and DFPRED use the prediction error covariance of the mixed model equations. Their Satterthwaite df take the gradient in the covariance parameters by central differences (or a one-sided difference at the edge of the parameter space). The random coefficients of a TEST row are one subject's; with SUBJECT they are divided among all subjects.
 - PRINT CPS counts cases with their frequency weights. HISTORY shows the covariance and the fixed parameters at the start and after every n-th iteration, and the last iteration always; the update type is Scoring for the first SCORING iterations and when a Newton step falls back to the expected Hessian.
 
+### VARCOMP
+
+- GNU PSPP has no VARCOMP. The numbers were compared with separate dense calculations in R run on synthetic data: MINQUE from its definition, ML and REML from the score equations, and the ANOVA method from projections (Type I sequential, Type III with sum-to-zero coding); the balanced case also matches the textbook expected mean squares.
+- ML: the fixed effects are profiled out of the likelihood, so the iterations run over the variance ratios and the residual variance only. The estimates, the log likelihood and the covariance matrix are the same as with the fixed effects in the parameter vector, but the iteration history can take other steps.
+- ML and REML: a variance ratio held at 0 whose gradient points below 0 stays out of the step, so the other parameters still take full Newton steps. A step that lowers the log likelihood by less than 1E-9 of its size still counts as a rise, since near the top the value is flat to its rounding error. When no halving of a step passes, the fit has reached the top within the precision of the numbers and stops as converged.
+- With REGWGT the log likelihood is that of the weighted data (each row times the square root of its weight), without the constant the weights would add.
+- The documentation does not say where OUTFILE puts the estimates and the matrix. The file has one row per component: VarName_ holds its label, Estimate its estimate (VAREST) and VC1, VC2, ... its row of the covariance or correlation matrix (COVB or CORB), each labelled with a component.
+- PRINT EMS and SS without SSTYPE, PRINT HISTORY without ML or REML, and COVB or CORB without ML or REML are ignored with a warning; CONVERGE and ITERATE do nothing outside ML and REML.
+- Expected Mean Squares lists every effect, the Intercept and fixed effects included, with the fixed effects whose coefficients enter under Quadratic Term. The ANOVA method stops with an error when a random effect has no degrees of freedom of its own, or when the equations of the random rows and the error row have no unique solution.
+
 ### ANOVA
 
 - **Beyond the documentation:** the first analysis list may come without VARIABLES=, as the later lists of the manual's examples are written.

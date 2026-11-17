@@ -129,6 +129,7 @@ mod ttest;
 mod two_stage;
 mod twostep;
 mod validatedata;
+mod varcomp;
 mod variables;
 pub mod vega_lite;
 mod wls;
@@ -1269,6 +1270,7 @@ impl Engine {
             | Command::Survival(_)
             | Command::Glm(_)
             | Command::Mixed(_)
+            | Command::Varcomp(_)
             | Command::Csdescriptives(_)
             | Command::Cstabulate(_)
             | Command::CsModel(_)
@@ -1584,6 +1586,7 @@ impl Engine {
             Command::Survival(command) => self.life_tables(command),
             Command::Glm(command) => self.glm(command),
             Command::Mixed(command) => self.mixed_model(command),
+            Command::Varcomp(command) => self.varcomp(command),
             Command::Csdescriptives(command) => self.csdescriptives(command),
             Command::Csselect(command) => self.csselect(command),
             Command::Cstabulate(command) => self.cstabulate(command),

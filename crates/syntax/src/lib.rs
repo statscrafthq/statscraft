@@ -163,11 +163,14 @@ mod tests_survival;
 mod tests_timeseries;
 #[cfg(test)]
 mod tests_twostep;
+#[cfg(test)]
+mod tests_varcomp;
 mod timeseries;
 mod tree;
 mod ts_models;
 mod ts_more;
 mod twostep;
+mod varcomp;
 
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
 pub use alscal::{Alscal, AlscalLevel};
@@ -334,6 +337,7 @@ pub use ts_more::{
     SpectraWindow, TwoStage,
 };
 pub use twostep::{AnomalySave, ClusterCount, Detectanomaly, Twostep};
+pub use varcomp::{Varcomp, VarcompMethod, VarcompOutfile, VarcompPrint};
 
 use parser::Parser;
 use table::Resolution;
