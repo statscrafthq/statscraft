@@ -31,8 +31,8 @@ pub struct State {
     /// The command's name, when its first words name one.
     pub command: Option<&'static str>,
     comment: bool,
-    /// The lines between BEGIN DATA and END DATA, or BEGIN CHART and END CHART: the block's
-    /// second word.
+    /// The lines between BEGIN DATA and END DATA, BEGIN CHART and END CHART, or BEGIN GPL and
+    /// END GPL: the block's second word.
     data: Option<&'static str>,
 }
 
@@ -246,6 +246,7 @@ pub fn line_with(text: &str, state: &mut State, macros: &[String]) -> Vec<(Range
             state.data = match name {
                 "BEGIN DATA" => Some("DATA"),
                 "BEGIN CHART" => Some("CHART"),
+                "BEGIN GPL" => Some("GPL"),
                 _ => None,
             };
         }
@@ -539,6 +540,16 @@ mod tests {
             [
                 ("BEGIN CHART", Kind::Command),
                 ("END CHART.", Kind::Command)
+            ]
+        );
+        // and so is a chart program
+        assert_eq!(
+            kinds("BEGIN GPL\nELEMENT: interval(position(a*b))\nEND GPL.\nEXECUTE."),
+            [
+                ("BEGIN GPL", Kind::Command),
+                ("END GPL.", Kind::Command),
+                ("EXECUTE", Kind::Command),
+                (".", Kind::Period),
             ]
         );
         let text = "GET FILE='a.sav'.\nFREQUENCIES\n  VARIABLES=x";
