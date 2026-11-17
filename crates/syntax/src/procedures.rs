@@ -42,7 +42,7 @@ const STATISTICS: [(&str, &[Stat]); 14] = [
     ),
 ];
 
-const CROSSTABS_SUBCOMMANDS: [&str; 4] = ["VARIABLES", "WRITE", "METHOD", "EXACT"];
+const CROSSTABS_SUBCOMMANDS: [&str; 3] = ["WRITE", "METHOD", "EXACT"];
 
 const CELLS: [(&str, &[CrosstabsCell]); 10] = [
     ("COUNT", &[CrosstabsCell::Count]),
@@ -258,6 +258,7 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         count: WeightCount::Asis,
         truncate: false,
         barchart: false,
+        ranges: Vec::new(),
     };
     let mut cells: Option<Vec<CrosstabsCell>> = None;
     let mut no_tables = false;
@@ -271,6 +272,39 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         if p.eat_keyword("TABLES") {
             p.expect(Punct::Eq)?;
             command.tables.push(crosstabs_table(p)?);
+        } else if p.eat_keyword("VARIABLES") {
+            if !command.tables.is_empty() {
+                let message = "VARIABLES must come before TABLES";
+                return Err(SyntaxError::new(p.span_from(p.pos - 1), message));
+            }
+            p.eat(Punct::Eq);
+            while !at_end(p) {
+                let list = p.var_list()?;
+                if list.is_empty() {
+                    return Err(p.unexpected(&["a variable name"]));
+                }
+                p.expect(Punct::LParen)?;
+                let start = p.pos;
+                // the bounds are whole numbers; a fraction is cut off
+                let low = p
+                    .number()
+                    .ok_or_else(|| p.unexpected(&["the lowest value"]))?;
+                p.eat(Punct::Comma);
+                let high = p
+                    .number()
+                    .ok_or_else(|| p.unexpected(&["the highest value"]))?;
+                let (low, high) = (low.trunc(), high.trunc());
+                if low > high {
+                    let message = format!("the lowest value {low} is above the highest {high}");
+                    return Err(SyntaxError::new(p.span_from(start), message));
+                }
+                p.expect(Punct::RParen)?;
+                command.ranges.push((list, low, high));
+                p.eat(Punct::Comma);
+            }
+            if command.ranges.is_empty() {
+                return Err(p.unexpected(&["variables with their range, as a (1,5)"]));
+            }
         } else if p.eat_keyword("CELLS") {
             // without keywords CELLS shows the counts and all three percentages
             let chosen = if !p.eat(Punct::Eq) && at_end(p) {

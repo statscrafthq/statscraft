@@ -584,6 +584,134 @@ fn crosstabs_case_processing_summary() {
     );
 }
 
+/// Integer mode: every whole value of a row or column range is a category, empty or not; a
+/// fraction is cut off (2.7 counts as 2); a value outside its range, or user-missing, makes the
+/// case missing; TO on TABLES follows the order of VARIABLES (q before p), not the file's.
+/// Cases (p, q, weight): (1,2,2) (2,1,1) (2.7,1,1) (3,1,1) (1,1,1) (6,1,1) (2,3,1) (0,2,1)
+/// (4,9,1). For q by p the first five are valid (weight 6): q 1 by p = [1, 2, 1, 0, 0] and
+/// q 2 by p = [2, 0, 0, 0, 0]. For p by p the seventh and the last are valid too (weight 8).
+#[test]
+fn crosstabs_integer_mode() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        "DATA LIST FREE /p q w.\nBEGIN DATA\n1 2 2\n2 1 1\n2.7 1 1\n3 1 1\n1 1 1\n\
+         6 1 1\n2 3 1\n0 2 1\n4 9 1\nEND DATA.\nMISSING VALUES q (3).\nWEIGHT BY w.\n\
+         CROSSTABS VARIABLES=q p (1,5) /TABLES=q TO p BY p /CELLS=COUNT COLUMN /STATISTICS=CHISQ.",
+    );
+    let titled = |title: &str| tables.iter().find(|t| t.title == title).unwrap();
+    let summary = titled("Case Processing Summary");
+    let labels: Vec<String> = summary.rows.iter().map(|r| texts(r)[0].clone()).collect();
+    assert_eq!(labels, ["q * p", "p * p"]);
+    let shares = |valid: f64| {
+        [
+            Some(valid),
+            Some(valid * 10.0),
+            Some(10.0 - valid),
+            Some(100.0 - valid * 10.0),
+            Some(10.0),
+            Some(100.0),
+        ]
+    };
+    assert_row(&summary.rows[0], 1, &shares(6.0));
+    assert_row(&summary.rows[1], 1, &shares(8.0));
+
+    let q = titled("q by p");
+    assert_eq!(q.columns[2..], ["1", "2", "3", "4", "5", "Total"]);
+    let labels: Vec<String> = q
+        .rows
+        .iter()
+        .step_by(2)
+        .map(|r| texts(r)[0].clone())
+        .collect();
+    assert_eq!(labels, ["1", "2", "3", "4", "5", "Total"]);
+    assert_row(
+        &q.rows[0],
+        2,
+        &[
+            Some(1.0),
+            Some(2.0),
+            Some(1.0),
+            Some(0.0),
+            Some(0.0),
+            Some(4.0),
+        ],
+    );
+    // a column without cases has no percentage
+    let third = 100.0 / 3.0;
+    assert_row(
+        &q.rows[1],
+        2,
+        &[
+            Some(third),
+            Some(100.0),
+            Some(100.0),
+            None,
+            None,
+            Some(2.0 * third),
+        ],
+    );
+    assert_row(
+        &q.rows[4],
+        2,
+        &[
+            Some(0.0),
+            Some(0.0),
+            Some(0.0),
+            Some(0.0),
+            Some(0.0),
+            Some(0.0),
+        ],
+    );
+    assert_row(
+        &q.rows[5],
+        2,
+        &[Some(0.0), Some(0.0), Some(0.0), None, None, Some(0.0)],
+    );
+    // the statistics use the values that occur: 2 rows by 3 columns
+    let chi = titled("Chi-Square Tests: q by p");
+    assert_eq!(texts(&chi.rows[0])[0], "Pearson Chi-Square");
+    assert_row(&chi.rows[0][2..3], 0, &[Some(2.0)]);
+
+    let p = titled("p by p");
+    assert_row(
+        &p.rows[6],
+        2,
+        &[
+            Some(0.0),
+            Some(0.0),
+            Some(0.0),
+            Some(1.0),
+            Some(0.0),
+            Some(1.0),
+        ],
+    );
+    assert_row(
+        &p.rows[10],
+        2,
+        &[
+            Some(3.0),
+            Some(3.0),
+            Some(1.0),
+            Some(1.0),
+            Some(0.0),
+            Some(8.0),
+        ],
+    );
+
+    assert_eq!(
+        error(&mut engine, "CROSSTABS VARIABLES=p (1,4) /TABLES=p BY q."),
+        "q is not on VARIABLES; in integer mode TABLES uses only those"
+    );
+    assert!(
+        error(
+            &mut engine,
+            "CROSSTABS VARIABLES=p (1,4) q (0,5000) /TABLES=p BY q."
+        )
+        .contains("at most 1000")
+    );
+}
+
 /// The measures of association of the weighted 2 x 2 table [[3, 12], [9, 4]] (W = 28).
 /// By hand: chi-square = 28 (12 - 108)^2 / (15 13 12 16) = 6.8923, phi = -root(6.8923 / 28)
 /// (negative like the correlation), V = |phi|, CC = root(6.8923 / 34.8923) = 4/9; doubled

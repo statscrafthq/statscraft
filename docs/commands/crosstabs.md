@@ -8,6 +8,7 @@ Contingency tables with percentages, residuals and chi-square tests.
 
 ```text
 CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]
+          [/VARIABLES=varlist (min, max) [varlist (min, max) ...]  (before TABLES)]
           [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]
           [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE]
           [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]
@@ -33,6 +34,8 @@ PHI (phi and Cramer's V), CC (contingency coefficient), BTAU, CTAU (Kendall's ta
 MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.
 
 BARCHART adds a clustered bar chart per table: a cluster per row category, a bar per column category, the counts of the table summed over its layers.
+
+VARIABLES switches to integer mode: a range follows each list (it covers the whole list) and values are cut to whole numbers. Rows and columns are every value of the range, with or without cases; a value outside it makes the case missing. The statistics use the values that occur. TABLES then names only variables of VARIABLES, and TO and ALL follow their order there.
 
 ## Example
 

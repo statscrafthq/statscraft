@@ -941,6 +941,9 @@ pub struct Crosstabs {
     pub truncate: bool,
     /// `/BARCHART`: a clustered bar chart per table.
     pub barchart: bool,
+    /// `/VARIABLES` (integer mode): each list with its lowest and highest whole value. Empty in
+    /// general mode.
+    pub ranges: Vec<(Vec<VarItem>, f64, f64)>,
 }
 
 /// A measure of association of CROSSTABS /STATISTICS.

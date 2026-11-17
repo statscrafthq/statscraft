@@ -94,6 +94,7 @@ fn crosstabs() {
             count: WeightCount::Asis,
             truncate: false,
             barchart: false,
+            ranges: Vec::new(),
         })
     );
     assert_eq!(
@@ -114,8 +115,36 @@ fn crosstabs() {
             count: WeightCount::Asis,
             truncate: false,
             barchart: false,
+            ranges: Vec::new(),
         })
     );
+    // integer mode: a range after a list covers the whole list; fractions are cut off
+    let Command::Crosstabs(c) =
+        one("CROSSTABS VARIABLES=a b (1,3) c TO e (-2.5, 4.9) /TABLES=a BY c.")
+    else {
+        panic!()
+    };
+    assert_eq!(
+        c.ranges,
+        [
+            (vec![var("a"), var("b")], 1.0, 3.0),
+            (vec![VarItem::Range("c".into(), "e".into())], -2.0, 4.0)
+        ]
+    );
+    for (source, message) in [
+        (
+            "CROSSTABS /TABLES=a BY b /VARIABLES=a b (1,2).",
+            "VARIABLES must come before TABLES",
+        ),
+        (
+            "CROSSTABS VARIABLES=a (3,1) /TABLES=a BY a.",
+            "the lowest value 3 is above the highest 1",
+        ),
+        ("CROSSTABS VARIABLES=a /TABLES=a BY a.", "'('"),
+    ] {
+        let error = err(source).to_string();
+        assert!(error.contains(message), "{error}");
+    }
     let Command::Crosstabs(c) = one("CROSSTABS a BY b /CELLS=NONE.") else {
         panic!()
     };

@@ -10,7 +10,7 @@ use crate::dist::chi_square_p;
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
-use statscraft_syntax::{Crosstabs, CrosstabsCell as C, CrosstabsMeasure, WeightCount};
+use statscraft_syntax::{Crosstabs, CrosstabsCell as C, CrosstabsMeasure, VarItem, WeightCount};
 use std::cmp::Ordering;
 
 /// A category: the value of a case.
@@ -47,6 +47,31 @@ pub(crate) fn categories(variable: &Variable, include: bool) -> Vec<Option<Key>>
             .collect(),
     }
 }
+
+/// Integer mode: the category of every case, its value cut to a whole number, None where it is
+/// missing or outside `low` to `high`.
+fn whole_categories(
+    variable: &Variable,
+    include: bool,
+    (low, high): (f64, f64),
+) -> Vec<Option<Key>> {
+    let Values::Numeric(values) = variable.values() else {
+        return Vec::new();
+    };
+    values
+        .iter()
+        .map(|v| {
+            let v = v
+                .filter(|v| include || !variable.is_user_missing(*v))?
+                .trunc();
+            (low..=high).contains(&v).then_some(Key::Number(v))
+        })
+        .collect()
+}
+
+/// Integer mode shows every whole value of a row or column variable's range, so a range is kept
+/// to this many values.
+const MOST_VALUES: f64 = 1000.0;
 
 /// One layer of a table: the categories that occur in it and the weighted counts.
 pub(crate) struct Block {
@@ -229,11 +254,12 @@ fn ordered(a: &Key, b: &Key, descending: bool) -> Ordering {
 
 /// The blocks of one table: every combination of layer categories that occurs, the last layer
 /// variable outermost. `descending` orders the rows from the highest value; columns and layers
-/// stay ascending. `/COUNT CELL` makes every cell a whole count before the totals.
+/// stay ascending. `/COUNT CELL` makes every cell a whole count before the totals. `fixed` gives
+/// the rows and columns of integer mode, every value of their ranges.
 fn blocks(
     keys: &[Vec<Option<Key>>],
     weights: Option<&[f64]>,
-    descending: bool,
+    (descending, fixed): (bool, Option<&[Vec<Key>; 2]>),
     (count, truncate): (WeightCount, bool),
 ) -> Vec<Block> {
     let order = |a: &Key, b: &Key| a.compare(b);
@@ -267,8 +293,15 @@ fn blocks(
         .map(|layer| {
             let inside: Vec<&(Vec<&Key>, f64)> =
                 cases.iter().filter(|(v, _)| v[2..] == layer[..]).collect();
-            let rows = distinct(inside.iter().map(|(v, _)| v[0]).collect(), descending);
-            let columns = distinct(inside.iter().map(|(v, _)| v[1]).collect(), false);
+            let (rows, columns) = match fixed {
+                Some([rows, columns]) => {
+                    (distinct(rows.iter().collect(), descending), columns.clone())
+                }
+                None => (
+                    distinct(inside.iter().map(|(v, _)| v[0]).collect(), descending),
+                    distinct(inside.iter().map(|(v, _)| v[1]).collect(), false),
+                ),
+            };
             let mut counts = vec![vec![0.0; columns.len()]; rows.len()];
             for (values, w) in inside {
                 let i = rows
@@ -405,20 +438,48 @@ type Crosstab = (Vec<Table>, Option<Chart>, Vec<Cell>);
 
 /// The tables of one combination of variables (rows, columns, then layers), its chart, and its
 /// row of the Case Processing Summary.
+/// row of the Case Processing Summary. `ranges` holds the range of every variable in integer
+/// mode and is empty in general mode.
 fn tables(
     data: &Dataset,
     names: &[String],
     command: &Crosstabs,
+    ranges: &[(String, f64, f64)],
     (shown, outline): (&Shown, &Shown),
 ) -> Result<Crosstab, Error> {
     let variables: Vec<Variable> = names
         .iter()
         .map(|name| data.variable(name))
         .collect::<Result<_, _>>()?;
+    let range = |v: &Variable| {
+        let found = ranges.iter().find(|(name, ..)| name == v.name());
+        found.map(|&(_, low, high)| (low, high))
+    };
     let keys: Vec<Vec<Option<Key>>> = variables
         .iter()
-        .map(|v| categories(v, command.include))
+        .map(|v| match range(v) {
+            Some(r) => whole_categories(v, command.include, r),
+            None => categories(v, command.include),
+        })
         .collect();
+    // integer mode: the rows and columns are every value of their ranges
+    let every = |v: &Variable| -> Result<Vec<Key>, Error> {
+        let (low, high) = range(v).expect("integer mode lists every variable");
+        if high - low + 1.0 > MOST_VALUES {
+            return Err(Error(format!(
+                "the range of {} holds {} values; as a row or column it can hold at most {MOST_VALUES}",
+                v.name(),
+                high - low + 1.0
+            )));
+        }
+        Ok(((low as i64)..=(high as i64))
+            .map(|x| Key::Number(x as f64))
+            .collect())
+    };
+    let fixed = match ranges.is_empty() {
+        true => None,
+        false => Some([every(&variables[0])?, every(&variables[1])?]),
+    };
     let mut weights = case_weights(data)?;
     if command.count == WeightCount::Case {
         // every case's weight as a whole number; one that becomes 0 is left out
@@ -450,7 +511,17 @@ fn tables(
         summary.push(Cell::Number(n));
         summary.push(number((total > 0.0).then(|| 100.0 * n / total)));
     }
-    let blocks = blocks(&keys, weights.as_deref(), command.descending, count);
+    let blocks = blocks(&keys, weights.as_deref(), (command.descending, None), count);
+    // integer mode shows empty values of the ranges too; the statistics use the values that occur
+    let shown_blocks = match &fixed {
+        Some(fixed) => &self::blocks(
+            &keys,
+            weights.as_deref(),
+            (command.descending, Some(fixed)),
+            count,
+        ),
+        None => &blocks,
+    };
     let layer_variables = &variables[2..];
     let layer_cells = |block: &Block| -> Vec<Cell> {
         let pairs = layer_variables.iter().zip(&block.layer);
@@ -461,9 +532,9 @@ fn tables(
     let title = title.join(" by ");
     let mut out = Vec::new();
 
-    if !command.cells.is_empty() && !blocks.is_empty() {
+    if !command.cells.is_empty() && !shown_blocks.is_empty() {
         // the columns of every layer; a layer without one of them leaves its cells blank
-        let mut union: Vec<&Key> = blocks.iter().flat_map(|b| &b.columns).collect();
+        let mut union: Vec<&Key> = shown_blocks.iter().flat_map(|b| &b.columns).collect();
         union.sort_by(|a, b| a.compare(b));
         union.dedup();
         let mut columns: Vec<String> = layer_names().collect();
@@ -476,7 +547,7 @@ fn tables(
             group.push(shown.variable(&variables[1]));
         }
         let mut rows = Vec::new();
-        for block in &blocks {
+        for block in shown_blocks {
             let own: Vec<Option<usize>> = union
                 .iter()
                 .map(|k| block.columns.iter().position(|c| c == *k))
@@ -946,6 +1017,36 @@ fn measure_tables(
     out
 }
 
+/// Integer mode: the names of a TABLES list, where TO and ALL follow the order of VARIABLES.
+fn listed(items: &[VarItem], ranges: &[(String, f64, f64)]) -> Result<Vec<String>, Error> {
+    let position = |name: &str| {
+        let found = ranges
+            .iter()
+            .position(|(n, ..)| n.eq_ignore_ascii_case(name));
+        found.ok_or_else(|| {
+            Error(format!(
+                "{name} is not on VARIABLES; in integer mode TABLES uses only those"
+            ))
+        })
+    };
+    let mut names = Vec::new();
+    for item in items {
+        let (first, last) = match item {
+            VarItem::All => (0, ranges.len() - 1),
+            VarItem::Name(name) => (position(name)?, position(name)?),
+            VarItem::Range(a, b) => (position(a)?, position(b)?),
+        };
+        if first > last {
+            return Err(Error(format!(
+                "in a TO list the first variable must come before the second on VARIABLES ({} TO {})",
+                ranges[first].0, ranges[last].0
+            )));
+        }
+        names.extend(ranges[first..=last].iter().map(|(n, ..)| n.clone()));
+    }
+    Ok(names)
+}
+
 impl Engine {
     pub(crate) fn crosstabs(&mut self, command: &Crosstabs) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
@@ -953,10 +1054,29 @@ impl Engine {
         let mut out = Vec::new();
         let mut charts = Vec::new();
         let mut summary = Vec::new();
+        // integer mode: every variable of VARIABLES with its range, a later range replacing an
+        // earlier one
+        let mut ranges: Vec<(String, f64, f64)> = Vec::new();
+        for (items, low, high) in &command.ranges {
+            for name in self.expand(items)? {
+                if data.variable(&name)?.is_string() {
+                    return Err(Error(format!(
+                        "integer mode needs numeric variables, and {name} is a string"
+                    )));
+                }
+                match ranges.iter_mut().find(|(n, ..)| *n == name) {
+                    Some(found) => *found = (name, *low, *high),
+                    None => ranges.push((name, *low, *high)),
+                }
+            }
+        }
         for dimensions in &command.tables {
             let lists: Vec<Vec<String>> = dimensions
                 .iter()
-                .map(|items| self.expand(items))
+                .map(|items| match ranges.is_empty() {
+                    true => self.expand(items),
+                    false => listed(items, &ranges),
+                })
                 .collect::<Result<_, _>>()?;
             // every combination, the first dimension outermost
             let mut combinations: Vec<Vec<String>> = vec![Vec::new()];
@@ -973,7 +1093,8 @@ impl Engine {
                     .collect();
             }
             for names in combinations {
-                let (tables, chart, row) = tables(data, &names, command, (&shown, &outline))?;
+                let (tables, chart, row) =
+                    tables(data, &names, command, &ranges, (&shown, &outline))?;
                 out.extend(tables);
                 charts.extend(chart);
                 summary.push(row);

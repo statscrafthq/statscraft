@@ -1155,6 +1155,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "CROSSTABS",
         summary: "Contingency tables with percentages, residuals and chi-square tests.",
         syntax: "CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]\n\
+                 \x20         [/VARIABLES=varlist (min, max) [varlist (min, max) ...]  (before TABLES)]\n\
                  \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
                  \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE]\n\
                  \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
@@ -1184,7 +1185,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps\n\
                  user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.\n\
                  BARCHART adds a clustered bar chart per table: a cluster per row category, a bar per column\n\
-                 category, the counts of the table summed over its layers.",
+                 category, the counts of the table summed over its layers.\n\
+                 VARIABLES switches to integer mode: a range follows each list (it covers the whole list) and\n\
+                 values are cut to whole numbers. Rows and columns are every value of the range, with or\n\
+                 without cases; a value outside it makes the case missing. The statistics use the values\n\
+                 that occur. TABLES then names only variables of VARIABLES, and TO and ALL follow their order there.",
         example: "CROSSTABS /TABLES=region BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.",
         parse: procedures::crosstabs,
     },
