@@ -1803,6 +1803,11 @@ impl App {
                         if ui.button("Binary Logistic...").clicked() {
                             self.open_dialog(Dialog::Logistic(Default::default()));
                         }
+                        if ui.button("2-Stage Least Squares...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::TimeSeries(Box::new(
+                                TimeSeries::TwoSls(Default::default()),
+                            ))));
+                        }
                         for (label, dialog) in [
                             (
                                 "Multinomial Logistic...",

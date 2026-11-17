@@ -6,6 +6,7 @@
 //! session's TSET settings.
 
 use crate::dialogs::whole;
+use crate::forecast_more_dialog::{Areg, Spectra, TwoSls};
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::syntax_text::number;
 use statscraft_data::{Dataset, is_valid_name};
@@ -23,10 +24,13 @@ pub enum TimeSeries {
     Arima(ArimaModel),
     Range(TimeRange),
     Chart(SeriesChart),
+    Spectra(Spectra),
+    Areg(Areg),
+    TwoSls(TwoSls),
 }
 
 /// The Analyze > Forecasting menu, in order.
-pub fn forecasting_menu() -> [(&'static str, TimeSeries); 8] {
+pub fn forecasting_menu() -> [(&'static str, TimeSeries); 10] {
     [
         (
             "Exponential Smoothing...",
@@ -53,6 +57,11 @@ pub fn forecasting_menu() -> [(&'static str, TimeSeries); 8] {
             "Forecast Period...",
             TimeSeries::Range(TimeRange::new(true)),
         ),
+        (
+            "Spectral Analysis...",
+            TimeSeries::Spectra(Default::default()),
+        ),
+        ("Autoregression...", TimeSeries::Areg(Default::default())),
         ("Options...", TimeSeries::Options(Default::default())),
     ]
 }
@@ -72,6 +81,9 @@ impl TimeSeries {
             TimeSeries::Range(_) => "Select Cases by Time Range",
             TimeSeries::Chart(d) if d.casewise => "Case Plots",
             TimeSeries::Chart(_) => "Sequence Charts",
+            TimeSeries::Spectra(_) => "Spectral Analysis",
+            TimeSeries::Areg(_) => "Autoregression",
+            TimeSeries::TwoSls(_) => "2-Stage Least Squares",
         }
     }
 
@@ -87,6 +99,9 @@ impl TimeSeries {
             TimeSeries::Arima(_) => TimeSeries::Arima(Default::default()),
             TimeSeries::Range(d) => TimeSeries::Range(TimeRange::new(d.predict)),
             TimeSeries::Chart(d) => TimeSeries::Chart(SeriesChart::new(d.casewise)),
+            TimeSeries::Spectra(_) => TimeSeries::Spectra(Default::default()),
+            TimeSeries::Areg(_) => TimeSeries::Areg(Default::default()),
+            TimeSeries::TwoSls(_) => TimeSeries::TwoSls(Default::default()),
         }
     }
 
@@ -101,6 +116,9 @@ impl TimeSeries {
             TimeSeries::Arima(d) => d.syntax(data),
             TimeSeries::Range(d) => d.syntax(data),
             TimeSeries::Chart(d) => d.syntax(data),
+            TimeSeries::Spectra(d) => d.syntax(data),
+            TimeSeries::Areg(d) => d.syntax(data),
+            TimeSeries::TwoSls(d) => d.syntax(data),
         }
     }
 }

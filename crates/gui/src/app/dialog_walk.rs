@@ -27,6 +27,7 @@ use crate::dialogs::{
     Adjust, Autorecode, Categories, Compute, Count, Crosstabs, CustomTables, Descriptives,
     Frequencies, Letters, NewValue, OldValue, Rank, Recode, RecodeRule, Subtotal,
 };
+use crate::forecast_more_dialog::{Areg, Spectra, TwoSls};
 use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::imputation_dialog::{Imputation, Limits};
@@ -486,6 +487,14 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             ..ProbabilityPlot::new(pp)
         }));
     }
+    list.push(Dialog::Advanced(Advanced::TimeSeries(Box::new(
+        TimeSeries::TwoSls(TwoSls {
+            dependent: s("monthly_spend"),
+            explanatory: v(&["age"]),
+            instruments: v(&["age", "q1_satisfaction"]),
+            ..Default::default()
+        }),
+    ))));
     list.push(Dialog::RocCurve(RocCurve {
         tests: v(&["age"]),
         state: s("q5_1"),
@@ -1988,6 +1997,17 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ..ProbabilityPlot::new(pp)
         }));
     }
+    list.push(Dialog::Advanced(Advanced::TimeSeries(Box::new(
+        TimeSeries::TwoSls(TwoSls {
+            dependent: s("monthly_spend"),
+            explanatory: v(&["age", "q2_recommend"]),
+            instruments: v(&["age", "q2_recommend", "q1_satisfaction"]),
+            constant: 2,
+            covariances: true,
+            save_predicted: true,
+            save_residuals: true,
+        }),
+    ))));
     list.push(Dialog::RocCurve(RocCurve {
         tests: v(&["age", "monthly_spend"]),
         state: s("plan"),
@@ -3632,6 +3652,71 @@ fn the_forecasting_dialogs_write_syntax_that_runs() {
                 ..SeriesChart::new(true)
             }),
             "CASEPLOT VARIABLES=rainfall\n  /FORMAT=LEFT REFERENCE\n  /APPLY.",
+            "",
+        ),
+        (
+            "",
+            series(TimeSeries::Spectra(Spectra {
+                variables: v(&["loaves"]),
+                ..Default::default()
+            })),
+            "SPECTRA VARIABLES=loaves\n  /CENTER.",
+            "",
+        ),
+        (
+            "",
+            series(TimeSeries::Spectra(Spectra {
+                variables: v(&["loaves", "rainfall"]),
+                cross: true,
+                window: 2,
+                span: s("7"),
+                plots: [false, true, false, false, false, false, false, true],
+                axis: 1,
+                saves: {
+                    let mut saves = Spectra::default().saves;
+                    saves[4] = (true, s("pg"));
+                    saves[13] = (true, s("co"));
+                    saves
+                },
+                ..Default::default()
+            })),
+            "SPECTRA VARIABLES=loaves rainfall\n  /CENTER\n  /CROSS\n  /WINDOW=PARZEN(7)\n  \
+             /PLOT=S K BY FREQ\n  /SAVE=P(pg) K(co).",
+            "",
+        ),
+        (
+            "",
+            series(TimeSeries::Areg(Areg {
+                dependent: s("loaves"),
+                independents: v(&["rainfall"]),
+                ..Default::default()
+            })),
+            "AREG VARIABLES=loaves WITH rainfall.",
+            "",
+        ),
+        (
+            "",
+            series(TimeSeries::Areg(Areg {
+                dependent: s("loaves"),
+                independents: v(&["rainfall"]),
+                method: 1,
+                constant: 1,
+                rho: s("0.3"),
+                mxiter: s("20"),
+            })),
+            "AREG VARIABLES=loaves WITH rainfall\n  /METHOD=CO\n  /CONSTANT\n  /RHO=0.3\n  \
+             /MXITER=20.",
+            "",
+        ),
+        (
+            "",
+            series(TimeSeries::Areg(Areg {
+                dependent: s("loaves"),
+                independents: v(&["rainfall"]),
+                method: 2,
+                ..Default::default()
+            })),
+            "AREG VARIABLES=loaves WITH rainfall\n  /METHOD=ML.",
             "",
         ),
     ];

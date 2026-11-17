@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Analyze > Forecasting > Spectral Analysis (SPECTRA), Analyze > Forecasting > Autoregression (AREG) and Analyze > Regression > 2-Stage Least Squares (2SLS) dialogs.
 - Window: Data > Validation > Validate Data (VALIDATEDATA), Data > Compare Datasets (COMPARE DATASETS) and File > Apply Data Dictionary (APPLY DICTIONARY) dialogs.
 - Window: Analyze > Complex Samples > Sampling Plan (CSPLAN SAMPLE: strata and clusters for up to two stages, the equal-probability and PPS methods with a measure of size, sample size or rate, names of the weight and inclusion probability variables) and Select a Sample (CSSELECT: seed, add the weights to the data or write the selected cases to a file, joint probabilities file).
 - The window no longer reopens at a tiny size: a size under 300 by 200 points or a place far off any screen (a window never shown, or minimized) is neither kept nor restored.

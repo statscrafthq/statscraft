@@ -30,6 +30,8 @@ mod dialogs;
 mod editor;
 mod edits;
 mod fonts;
+mod forecast_more_dialog;
+mod forecast_more_dialog_view;
 mod genlin_dialog;
 mod genlin_dialog_view;
 mod graph_dialogs;

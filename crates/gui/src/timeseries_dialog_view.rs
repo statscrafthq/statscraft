@@ -22,6 +22,9 @@ pub fn body(ui: &mut Ui, data: &Dataset, d: &mut TimeSeries, picked: &mut Vec<St
         TimeSeries::Arima(d) => arima(ui, d, picked),
         TimeSeries::Range(d) => range(ui, data, d),
         TimeSeries::Chart(d) => chart(ui, d, picked),
+        TimeSeries::Spectra(d) => crate::forecast_more_dialog_view::spectra(ui, d, picked),
+        TimeSeries::Areg(d) => crate::forecast_more_dialog_view::areg(ui, d, picked),
+        TimeSeries::TwoSls(d) => crate::forecast_more_dialog_view::two_sls(ui, d, picked),
     }
 }
 
