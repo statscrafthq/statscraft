@@ -2695,7 +2695,6 @@ fn maximal(out: &Path) -> Vec<Dialog> {
     list
 }
 
-/// The syntax of each dialog is Ok, parses without an error and runs on the survey file.
 /// Draws the dialog as its window does (variable list, body, footer) for two frames, with no
 /// input: a panic in the view code, or two widgets sharing an id, fails the test. The id clash
 /// warning only paints a fire sign, so the shapes are searched for it.
@@ -2744,6 +2743,7 @@ fn drawn(mut dialog: Dialog, data: &statscraft_data::Dataset) -> Result<String, 
     dialog.syntax(data)
 }
 
+/// The syntax of each dialog is Ok, parses without an error and runs on the survey file.
 fn walk(dialogs: Vec<Dialog>) {
     let mut failures = Vec::new();
     for dialog in dialogs {
