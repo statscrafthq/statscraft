@@ -82,6 +82,7 @@ mod npar_tests;
 mod nptests;
 pub mod office;
 mod olap_cubes;
+mod oms;
 mod oneway;
 mod optimal_binning;
 mod optimal_scaling;
@@ -813,6 +814,8 @@ pub struct Engine {
     clean: Option<Box<output::Clean>>,
     /// The output documents and the workbooks OUTPUT EXPORT wrote.
     documents: output_docs::Documents,
+    /// The OMS requests in force and the OMS log.
+    oms: oms::State,
     /// See `error_position`.
     error_at: Option<(u32, u32)>,
     /// While a procedure runs on a split group: each split variable with the group's value.
@@ -1510,6 +1513,10 @@ impl Engine {
                 self.charts.push(chart);
             }
             Command::Output(output) => return self.output_command(output),
+            Command::Oms(spec) => return self.oms(spec),
+            Command::Omsend(end) => return self.omsend(end),
+            Command::Omsinfo => return Ok(self.omsinfo()),
+            Command::Omslog(log) => return self.omslog(log),
             Command::Finish => {}
             Command::EndCase => self.end_case()?,
             Command::EndFile => self.end_file()?,

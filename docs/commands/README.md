@@ -289,6 +289,10 @@ One page per supported command, generated from the same table that the parser an
 | [OUTPUT SAVE](output-save.md) | Save an output document as a Statscraft output file (.scout). |
 | [OUTPUT OPEN](output-open.md) | Open a Statscraft output file (.scout) as a new output document. |
 | [OUTPUT MODIFY](output-modify.md) | Delete, hide, rename, sort, transpose or reformat items of an output document. |
+| [OMS](oms.md) | Send the tables, charts and warnings of the commands that follow to a file, or keep them out of the results. |
+| [OMSEND](omsend.md) | End OMS requests and the OMS log. |
+| [OMSINFO](omsinfo.md) | List the OMS requests in force. |
+| [OMSLOG](omslog.md) | Keep a log of when OMS requests start and end and which files they write. |
 | [BEGIN CHART](begin-chart.md) | A Statscraft extension: a chart given as JSON goes to the output like a procedure's chart. |
 | [FINISH](finish.md) | End the job: the commands after it are not read. |
 

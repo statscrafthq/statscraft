@@ -961,6 +961,9 @@ fn run(
             }
         };
         engine.format_new_variables(command, &names).map_err(fail)?;
+        engine
+            .route_output(&raw.name, &mut tables, true)
+            .map_err(fail)?;
         // SET MPRINT=YES: the command as macro expansion made it, before its results
         if let Some(echo) = &raw.echo {
             let rows = echo.lines().map(|l| vec![Cell::Text(l.to_string())]);
@@ -994,8 +997,11 @@ fn run(
         .finish()
         .map_err(|e| vec![Failure::plain("run", e.to_string())])?;
     // what the pass at the end of the run printed shows with the last command
-    let printed = std::mem::take(&mut engine.flushed);
+    let mut printed = std::mem::take(&mut engine.flushed);
     if let Some(last) = outputs.last_mut() {
+        engine
+            .route_output(&last.name, &mut printed, false)
+            .map_err(|e| vec![Failure::plain("run", e.to_string())])?;
         let syntax = source_lines(source, last.first_line, last.last_line);
         let append = last.document.is_some() && last.opened.is_none();
         if let Some(document) = engine.record_output(&last.name, &syntax, &printed, append) {

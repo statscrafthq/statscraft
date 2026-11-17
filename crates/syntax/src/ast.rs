@@ -202,6 +202,10 @@ pub enum Command {
     Dataset(DatasetCommand),
     /// OUTPUT NEW, NAME, ACTIVATE, CLOSE, DISPLAY and EXPORT.
     Output(crate::output_docs::OutputCommand),
+    Oms(Box<crate::oms::Oms>),
+    Omsend(crate::oms::Omsend),
+    Omsinfo,
+    Omslog(crate::oms::Omslog),
     MatrixData(Box<crate::matrix_data::MatrixData>),
     /// MATRIX with its statements up to END MATRIX.
     Matrix(Box<crate::matrix::MatrixProgram>),

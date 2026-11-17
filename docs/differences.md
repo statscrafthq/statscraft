@@ -1577,6 +1577,20 @@ Significance tests:
 - ENCODING=LOCALE writes UTF-8.
 - In TEXT, the columns are as wide as their widest cell (COLUMNWIDTH=n wraps at n characters) and numbers align right.
 
+### OMS, OMSEND, OMSINFO and OMSLOG
+
+- Command identifiers are Statscraft command names in any case (`'Frequencies'` is FREQUENCIES, `'T-Test'` is T-TEST); Factor Analysis, Cases to Variables, Variables to Cases, Explore and Custom Tables name FACTOR, CASESTOVARS, VARSTOCASES, EXAMINE and CTABLES. Subtypes are Statscraft table titles in any case, such as `'Descriptive Statistics'` or `'Statistics'`; the tables of single variables from FREQUENCIES also answer to `'Frequencies'`. LABELS compare the outline text (the title unless OUTPUT MODIFY changed it) in any case.
+- Kinds: TABLES are tables; TEXTS are the output of ECHO, TITLE and SUBTITLE; CHARTS are charts; WARNINGS are the warnings of one command, taken as one item labelled Warnings, which a file shows as a one-column table. HEADINGS, LOGS, MODELS and TREES choose nothing: Statscraft has no such items, and HTML and PDF files show each command's heading over its items anyway. There are no notes tables.
+- Each file is written again after every command that sends it output, so it is complete even without OMSEND. A request that never got any output writes no file, and OMSEND says so in a warning.
+- FORMAT=SAV: Subtype_ holds the subtype, Label_ the outline text. A table whose number of row label columns differs from the first table of the file is left out of the file with a warning, and the file still holds the others. A column of numbers (empty cells allowed) becomes a numeric variable with as many decimals as its cells show; any other column a string variable holding the cells as shown. Each variable made from a column gets the column's full header as its label. NUMBERED adds its variable after Label_.
+- Statscraft tables have no layers and no named dimensions. SEQUENCE counts row elements (R1, R2, ...) by row label column and column elements (C1, C2, ...) by header level, the outermost first; L names nothing. DIMNAMES finds a row element by the header above its label column; a table holding none of the names keeps its layout, where the other program would put everything in the rows.
+- HTML, TEXT, TABTEXT, XLSX, DOC and PDF are written as OUTPUT EXPORT writes them (TABTEXT as TEXT with tabs). TEXT and TABTEXT leave charts out; HTML puts them in as pictures in IMAGEFORMAT (PNG by default) at CHARTSIZE percent, unless IMAGES=NO.
+- Not written: OXML, SPV, SPW, XLS, REPORTHTML and REPORTMHT, and the targets XMLWORKSPACE and OUTPUTSET. Such a request gives a warning, writes nothing and hides nothing (its VIEWER=NO is not applied), and OMSINFO lists it. IMAGEROOT, IMAGEMAP, TREEFORMAT, CHARTFORMAT, MODELFORMAT, TABLES and FOLDER change nothing and give a warning unless NOWARN.
+- A request without TAG gets the tag $Oms1, $Oms2 and so on, in the order the requests started; tags compare in any case.
+- OMSINFO shows a table with a row per request: tag, kinds, format, destination and whether the chosen items still show in the results.
+- OMSLOG writes, per event, the time, the event (start or end), the tag and the destination; TEXT as one tab-separated line, XML as an `event` element inside `omsLog`.
+- A file that cannot be written fails the command whose output was going to it.
+
 ### BEGIN CHART
 
 - **Beyond the documentation:** BEGIN CHART and END CHART are a Statscraft extension, not a command of the language. The JSON lines between them are a chart that joins the designated output document like a procedure's chart. See [BEGIN CHART](commands/begin-chart.md) and [Charts as input](command-line.md#charts-as-input).

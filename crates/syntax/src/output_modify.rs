@@ -267,7 +267,7 @@ const NO_TEMPLATES: &str = "Statscraft charts have no templates or style sheets"
 
 /// The keyword at the parser among `list`: written in full, or shortened to three or more
 /// letters that start no other keyword of the list. None when the word is none of them.
-fn keyword_in(p: &Parser, list: &[&'static str]) -> PResult<Option<&'static str>> {
+pub(crate) fn keyword_in(p: &Parser, list: &[&'static str]) -> PResult<Option<&'static str>> {
     let Some(TokenKind::Word(word)) = p.peek() else {
         return Ok(None);
     };
@@ -294,7 +294,7 @@ fn keyword_in(p: &Parser, list: &[&'static str]) -> PResult<Option<&'static str>
 }
 
 /// Reads the keyword among `list` and moves past it, or fails listing them.
-fn expect_keyword(p: &mut Parser, list: &[&'static str]) -> PResult<&'static str> {
+pub(crate) fn expect_keyword(p: &mut Parser, list: &[&'static str]) -> PResult<&'static str> {
     match keyword_in(p, list)? {
         Some(k) => {
             p.pos += 1;
@@ -332,7 +332,7 @@ fn settings(
     Ok(())
 }
 
-fn yes_no(p: &mut Parser) -> PResult<bool> {
+pub(crate) fn yes_no(p: &mut Parser) -> PResult<bool> {
     Ok(expect_keyword(p, &["YES", "NO"])? == "YES")
 }
 
@@ -349,7 +349,7 @@ fn whole(p: &mut Parser, min: f64, what: &str) -> PResult<usize> {
 }
 
 /// `[ item item ... ]`, commas between items optional; at least one item.
-fn bracket_list<T>(
+pub(crate) fn bracket_list<T>(
     p: &mut Parser,
     mut item: impl FnMut(&mut Parser) -> PResult<T>,
 ) -> PResult<Vec<T>> {

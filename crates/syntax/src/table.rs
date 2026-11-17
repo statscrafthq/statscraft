@@ -51,6 +51,7 @@ use crate::npar;
 use crate::nptests;
 use crate::olap_cubes;
 use crate::optimal_binning;
+use crate::oms;
 use crate::output;
 use crate::output_docs;
 use crate::output_modify;
@@ -5347,6 +5348,69 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "OUTPUT MODIFY /SELECT TABLES /IF COMMANDS=['Means'] /TABLE SORT=COLLABEL('Mean')\n\
                  \x20 SORTDIRECTION=DESCENDING /TABLECELLS SELECT=['Mean'] SELECTDIMENSION=COLUMNS FORMAT=F8.1.",
         parse: output_modify::output_modify,
+    },
+    CommandSpec {
+        name: "OMS",
+        summary: "Send the tables, charts and warnings of the commands that follow to a file, or keep them out of the results.",
+        syntax: "OMS [/SELECT kinds | ALL [EXCEPT=[kinds]]]\n\
+                 \x20  [/IF [COMMANDS=['name' ...]] [SUBTYPES=['title' ...]] [LABELS=['text' ...]] [INSTANCES=[n ... LAST]]]\n\
+                 \x20  [/EXCEPTIF [COMMANDS=[...]] [SUBTYPES=[...]] [LABELS=[...]]]\n\
+                 \x20  /DESTINATION [FORMAT=SAV | HTML | TEXT | TABTEXT | XLSX | DOC | PDF OUTFILE='file' | dataset]\n\
+                 \x20       [VIEWER=YES | NO] [NUMBERED[='name']] [IMAGES=YES | NO] [IMAGEFORMAT=PNG | JPG | BMP] [CHARTSIZE=n]\n\
+                 \x20  [/COLUMNS DIMNAMES=['name' ...] | SEQUENCE=[R1 R2 ... RALL C1 ... CALL]]\n\
+                 \x20  [/TAG='name'] [/NOWARN].\n\
+                 Kinds: TABLES, CHARTS, WARNINGS (the warnings of a command, as one item), TEXTS (the output\n\
+                 of ECHO, TITLE and SUBTITLE); HEADINGS, LOGS, MODELS and TREES choose nothing, as Statscraft\n\
+                 makes no such items (HTML and PDF show each command's heading anyway). COMMANDS take names\n\
+                 such as 'Frequencies' or 'T-Test', any case; SUBTYPES take table titles, any case, and the\n\
+                 tables of single variables from FREQUENCIES also answer to 'Frequencies'; LABELS take the\n\
+                 outline text, any case. A trailing * matches every text that starts with what comes before\n\
+                 it. INSTANCES keep the nth of the matching items of each command. An item must meet every\n\
+                 list of /IF, and is left out when it meets every list of /EXCEPTIF. The request lasts until\n\
+                 OMSEND, and its file is\n\
+                 written again after each command that adds to it. FORMAT=SAV makes a data file of the\n\
+                 tables: string variables Command_, Subtype_ and Label_, Var1, Var2, ... for the row labels,\n\
+                 and one variable per column, named after its header (levels joined by _); a column of\n\
+                 numbers is numeric. A table whose number of row labels differs from the earlier tables is\n\
+                 left out with a warning. OUTFILE may name a dataset that DATASET DECLARE made. HTML, TEXT,\n\
+                 TABTEXT, XLSX, DOC and PDF write as OUTPUT EXPORT does. VIEWER=NO keeps the chosen items\n\
+                 out of the results; when several requests choose an item, the latest decides. COLUMNS puts\n\
+                 the named row labels (DIMNAMES, by the header of their column) or positions (SEQUENCE) in\n\
+                 the columns and the rest in the rows, in the files only. OXML, SPV, XLS, the report formats,\n\
+                 XMLWORKSPACE and OUTPUTSET are not written: a warning, and the request only lists in\n\
+                 OMSINFO. Keywords that change nothing here, such as IMAGEMAP, give a warning unless NOWARN.",
+        example: "OMS /SELECT TABLES /IF COMMANDS=['Descriptives'] /DESTINATION FORMAT=SAV OUTFILE='stats.sav'\n\
+                 \x20 VIEWER=NO /TAG='desc'.",
+        parse: oms::oms,
+    },
+    CommandSpec {
+        name: "OMSEND",
+        summary: "End OMS requests and the OMS log.",
+        syntax: "OMSEND [TAG=['name' ...] | TAG=ALL] [FILE=['file' ...]] [LOG].\n\
+                 TAG ends the requests of those names, FILE those that write those files; a name or file\n\
+                 that no request has gives a warning. LOG ends the log of OMSLOG. With nothing given, every\n\
+                 request and the log end.",
+        example: "OMSEND TAG=['desc'].",
+        parse: oms::omsend,
+    },
+    CommandSpec {
+        name: "OMSINFO",
+        summary: "List the OMS requests in force.",
+        syntax: "OMSINFO.\n\
+                 A table with a row per request: its tag, the kinds it chooses, its format, its file and\n\
+                 whether the chosen items still show in the results.",
+        example: "OMSINFO.",
+        parse: oms::omsinfo,
+    },
+    CommandSpec {
+        name: "OMSLOG",
+        summary: "Keep a log of when OMS requests start and end and which files they write.",
+        syntax: "OMSLOG FILE='file' [/APPEND=NO | YES] [/FORMAT=XML | TEXT].\n\
+                 Each event gets a line (TEXT) or an element (XML) with its name, the tag, the file and the\n\
+                 time. A later OMSLOG starts a new log; APPEND=YES with TEXT adds to a file that exists.\n\
+                 OMSEND LOG ends the log.",
+        example: "OMSLOG FILE='oms_log.txt' /FORMAT=TEXT.",
+        parse: oms::omslog,
     },
     CommandSpec {
         name: "BEGIN CHART",

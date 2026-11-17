@@ -69,6 +69,7 @@ mod npar;
 mod nptests;
 mod olap_cubes;
 mod optimal_binning;
+mod oms;
 mod optimal_scaling;
 mod output;
 mod output_docs;
@@ -317,6 +318,7 @@ pub use nptests::{
 };
 pub use olap_cubes::{OlapCubes, OlapDifference, OlapPair};
 pub use optimal_binning::{BinningMethod, OptimalBinning};
+pub use oms::{Oms, OmsColumns, OmsCondition, OmsDestination, OmsKind, Omsend, Omslog};
 pub use optimal_scaling::{Discretize, Impute, McaMissing, McaNormalization, ScalingCommon};
 pub use output::{
     DateSpec, DateUnit, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,

@@ -66,6 +66,7 @@ mod nptests;
 mod office;
 mod olap_cubes;
 mod optimal_binning;
+mod oms;
 mod output;
 mod output_docs;
 mod output_file;

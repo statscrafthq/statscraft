@@ -136,7 +136,7 @@ struct Sheet {
 }
 
 /// A table, or a chart with its data table.
-type Shown = (Arc<Table>, Option<Arc<Chart>>);
+pub(crate) type Shown = (Arc<Table>, Option<Arc<Chart>>);
 
 /// The item of an export that `shown` is.
 fn item((table, chart): &Shown) -> Item<'_> {
@@ -577,14 +577,24 @@ impl Engine {
         let mut all = at.map_or_else(Vec::new, |at| self.documents.open[at].shown());
         // CONTENTS EXPORT=VISIBLE leaves out what OUTPUT MODIFY hid
         all.retain(|(_, (table, _))| !(export.visible_only && table.hidden));
+        if all.is_empty() {
+            self.warn("the output document holds no tables yet; the files have none");
+        }
+        self.export_items(export, all)
+    }
+
+    /// Writes the files of `export` with `all`, each item with the command it came from; OMS
+    /// writes its files through here too.
+    pub(crate) fn export_items(
+        &mut self,
+        export: &OutputExport,
+        all: Vec<(String, Shown)>,
+    ) -> Result<(), Error> {
         let shown: Vec<Shown> = all.iter().map(|(_, s)| s.clone()).collect();
         let tables: Vec<(String, Arc<Table>)> = all
             .iter()
             .map(|(c, (t, _))| (c.clone(), t.clone()))
             .collect();
-        if tables.is_empty() {
-            self.warn("the output document holds no tables yet; the files have none");
-        }
         if self.dry_run {
             return Ok(());
         }

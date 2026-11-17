@@ -163,6 +163,10 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Csplan(_)
         | Command::Power(_)
         | Command::Output(_)
+        | Command::Oms(_)
+        | Command::Omsend(_)
+        | Command::Omsinfo
+        | Command::Omslog(_)
         | Command::Finish
         | Command::ClearTransformations
         | Command::TimeProgram

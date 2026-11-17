@@ -20,8 +20,9 @@
 //!   PAGETITLE the tables of TITLE and SUBTITLE, TABLES every other table, CHARTS the charts,
 //!   UNKNOWN the unknown items. The other kinds have no items in a Statscraft document.
 //! - A command identifier is the command name (FREQUENCIES, T-TEST), in any case; the
-//!   identifiers Factor Analysis, Cases to Variables and Variables to Cases name FACTOR,
-//!   CASESTOVARS and VARSTOCASES. A subtype is a table title, in any case.
+//!   identifiers Factor Analysis, Cases to Variables, Variables to Cases, Explore and Custom
+//!   Tables name FACTOR, CASESTOVARS, VARSTOCASES, EXAMINE and CTABLES. A subtype is a table
+//!   title, in any case.
 //! - Deleting a heading deletes the command's items with it; VISIBLE on a heading hides or
 //!   shows all of them. OUTLINELABEL and TEXT on a heading change the heading.
 //! - Without /INDEXING, )INDEX counts 1, 2, 3, ...
@@ -204,13 +205,17 @@ fn kind_of(kind: ItemKind) -> Option<Kind> {
     }
 }
 
+/// Command identifiers that differ from the command name, with the command they name.
+pub(crate) const ALIASES: [(&str, &str); 5] = [
+    ("Factor Analysis", "FACTOR"),
+    ("Cases to Variables", "CASESTOVARS"),
+    ("Variables to Cases", "VARSTOCASES"),
+    ("Explore", "EXAMINE"),
+    ("Custom Tables", "CTABLES"),
+];
+
 /// True when the identifier of COMMANDS names the command.
 fn names_command(identifier: &str, command: &str) -> bool {
-    const ALIASES: [(&str, &str); 3] = [
-        ("Factor Analysis", "FACTOR"),
-        ("Cases to Variables", "CASESTOVARS"),
-        ("Variables to Cases", "VARSTOCASES"),
-    ];
     let identifier = identifier.trim();
     identifier.eq_ignore_ascii_case(command)
         || ALIASES
