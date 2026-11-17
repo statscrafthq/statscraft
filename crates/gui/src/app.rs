@@ -1330,7 +1330,7 @@ impl App {
                 self.add_recent(&path);
                 self.windows.open_syntax(text, Some(&path));
             }
-            Err(e) => self.status = Err(format!("{}: {e}", path.display())),
+            Err(e) => self.status = Err(format!("{}: {e}", file_name(&path))),
         }
     }
 
@@ -1348,7 +1348,7 @@ impl App {
                 true
             }
             Err(e) => {
-                self.status = Err(format!("{}: {e}", path.display()));
+                self.status = Err(format!("{}: {e}", file_name(&path)));
                 false
             }
         }
@@ -2482,7 +2482,7 @@ impl App {
             let page = output::html(&view.runs, keep, &view.exported());
             self.status = match std::fs::write(&path, page) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
-                Err(e) => Err(format!("{}: {e}", path.display())),
+                Err(e) => Err(format!("{}: {e}", file_name(&path))),
             };
         }
     }
@@ -2500,7 +2500,7 @@ impl App {
             let bytes = output::pdf(&view.runs, |_| true, &view.exported());
             self.status = match std::fs::write(&path, bytes) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
-                Err(e) => Err(format!("{}: {e}", path.display())),
+                Err(e) => Err(format!("{}: {e}", file_name(&path))),
             };
         }
     }
@@ -2533,7 +2533,7 @@ impl App {
         self.status = match bytes {
             Some(Ok(bytes)) => match std::fs::write(&path, bytes) {
                 Ok(()) => Ok(format!("chart saved to {}", path.display())),
-                Err(e) => Err(format!("{}: {e}", path.display())),
+                Err(e) => Err(format!("{}: {e}", file_name(&path))),
             },
             Some(Err(e)) => Err(e),
             None => Err("this kind of chart has no picture yet".into()),
@@ -2565,7 +2565,7 @@ impl App {
             });
             self.status = match statscraft_export::write_xlsx_parts(&path, items, one_sheet) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
-                Err(e) => Err(format!("{}: {e}", path.display())),
+                Err(e) => Err(format!("{}: {e}", file_name(&path))),
             };
         }
     }
@@ -4172,6 +4172,15 @@ impl WindowKind {
 }
 
 /// The app icon as a texture, at 128 px so it stays sharp on a high-density screen.
+/// The last part of a path, for messages: the full path shows the user's folders and says
+/// little about what went wrong with the file they just picked.
+pub(crate) fn file_name(path: &Path) -> String {
+    match path.file_name() {
+        Some(name) => name.to_string_lossy().into_owned(),
+        None => path.display().to_string(),
+    }
+}
+
 fn logo(ctx: &egui::Context) -> egui::TextureHandle {
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../icons/statscraft-128.png"))
         .expect("the bundled icon is a valid PNG");

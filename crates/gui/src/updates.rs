@@ -1,6 +1,7 @@
 //! Updates in the window: a check at most once a day in the background, or from Help, and a
 //! small bar under the menu when there is something to say.
 
+use crate::app::file_name;
 use crate::settings::Settings;
 use eframe::egui::{self, Ui};
 use statscraft_update::{Client, Done, Install, Release, current};
@@ -236,7 +237,7 @@ impl Updates {
                     self.quit = true;
                     ui.ctx().request_repaint();
                 } else {
-                    let missing = format!("cannot restart: {} is missing", program.display());
+                    let missing = format!("cannot restart: {} is missing", file_name(&program));
                     self.bar = Bar::Message(Err(missing));
                 }
             }

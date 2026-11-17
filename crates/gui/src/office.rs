@@ -1,6 +1,7 @@
 //! A chart of the output in the office programs: opened as a file of its own, or copied as an
 //! editable chart. The files and the clipboard package come from the engine's `office` module.
 
+use crate::app::file_name;
 use statscraft_engine::Chart;
 use statscraft_engine::office::{self, Item};
 use statscraft_export::picture::Paper;
@@ -43,7 +44,7 @@ pub fn open(chart: &Chart, program: Program) -> Result<String, String> {
     };
     let bytes = bytes.map_err(|e| e.to_string())?;
     let dir = std::env::temp_dir().join(format!("statscraft-charts-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", file_name(&dir)))?;
     let name: String = chart
         .title
         .chars()
@@ -55,8 +56,8 @@ pub fn open(chart: &Chart, program: Program) -> Result<String, String> {
         .collect();
     let n = WRITTEN.fetch_add(1, Ordering::Relaxed) + 1;
     let path = dir.join(format!("{} {n}.{extension}", name.trim()));
-    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
-    open_with_system(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", file_name(&path)))?;
+    open_with_system(&path).map_err(|e| format!("cannot open {}: {e}", file_name(&path)))?;
     Ok(format!("chart opened from {}", path.display()))
 }
 
