@@ -122,6 +122,7 @@ One page per supported command, generated from the same table that the parser an
 | [PARTIAL CORR](partial-corr.md) | Partial correlations of variables controlling for others, with significance. |
 | [NPAR TESTS](npar-tests.md) | Nonparametric tests: one-sample, two and k related samples, two and k independent samples. |
 | [NPTESTS](nptests.md) | Nonparametric tests picked by measurement level: one sample, independent samples, related samples. |
+| [PROPORTIONS](proportions.md) | Tests and confidence intervals for a proportion or a difference of two proportions. |
 | [EXAMINE](examine.md) | Descriptives, percentiles, M-estimators, extreme values and normality tests, by factor cells. |
 | [REGRESSION](regression.md) | Linear regression with forced entry or removal and stepwise selection, residuals and diagnostics. |
 | [RELIABILITY](reliability.md) | Reliability of a scale: Cronbach's alpha, split-half and other models, item statistics and ICC. |

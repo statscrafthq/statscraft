@@ -71,6 +71,7 @@ mod portable;
 mod power;
 mod pplot_roc;
 mod procedures;
+mod proportions;
 mod proximities;
 mod proxscal;
 mod random;

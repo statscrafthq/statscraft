@@ -58,6 +58,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::WeightedKappa(_)
         | Command::FleissKappa(_)
         | Command::RatioStatistics(_)
+        | Command::Proportions(_)
         | Command::Bayes(_)
         | Command::Factor(_)
         | Command::Cluster(_)

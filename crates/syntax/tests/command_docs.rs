@@ -123,6 +123,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "PARTIAL CORR",
             "NPAR TESTS",
             "NPTESTS",
+            "PROPORTIONS",
             "EXAMINE",
             "REGRESSION",
             "RELIABILITY",

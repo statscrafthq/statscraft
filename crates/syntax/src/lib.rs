@@ -72,6 +72,7 @@ mod power;
 mod pplot;
 mod preprocess;
 mod procedures;
+mod proportions;
 mod proximities;
 mod proxscal;
 mod rank;
@@ -287,6 +288,7 @@ pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
 pub use power::{PairwiseAdjust, Power, PowerKind, PowerPlot, ProportionTest, RankVariance};
 pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
 pub use preprocess::{FileHandle, MacroState};
+pub use proportions::{Proportions, ProportionsAnalysis, ProportionsGroups, ProportionsSuccess};
 pub use proximities::{Proximities, Standardize};
 pub use proxscal::{
     ProxShape, ProxTransformation, Proxscal, ProxscalOutfile, ProxscalPlot, ProxscalPrint,

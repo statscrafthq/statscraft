@@ -517,6 +517,21 @@ Where the documentation is silent:
 - The hypothesis summary marks each significance as exact, asymptotic, Monte Carlo or Lilliefors. Charts are not drawn; the detail tables carry their numbers.
 - A SPLIT FILE variable may be named as a test field; it is constant within each group, so its tests come out empty.
 
+### PROPORTIONS
+
+Where the documentation is silent or reads two ways:
+
+- Weights count as frequencies and are not rounded; the exact and mid-p probabilities, which need whole counts, round the counts. A case with weight 0 or below is left out.
+- LAST, FIRST and MIDPOINT look at the valid values of the cases each analysis uses (with LISTWISE, the cases complete on every variable named). Under LEVEL the values not listed are failures, not ignored: ignoring them would make every proportion 1.
+- SELECT=MIDPOINT splits at the middle of the grouping variable's range, (lowest + highest) / 2, as SUCCESSVALUE MIDPOINT does, over the cases with a valid group value.
+- Two-sided p values are twice the smaller tail and are capped at 1. A z statistic whose standard error is 0 (such as Wald with no successes) is left empty, and so is a logit interval with no successes or no failures.
+- The continuity-corrected Wilson interval uses Newcombe's bounds, each with its own sign terms under the root, 0 below when there are no successes and 1 above when there are no failures; the printed algorithm repeats the lower bound's terms in the upper bound.
+- The paired Wald intervals are centred on the observed difference (n10 - n01) / n; the printed algorithm divides by n + 2, which belongs to the adjusted intervals.
+- The pooled proportion of the independent Wald H0 test is (r1 + r2) / (n1 + n2); the printed formula writes 2n.
+- CILEVEL is a percent; a value below 1 is read as a fraction, so 0.95 and 95 both ask for 95%.
+- TESTTYPES, CITYPES, TESTVAL and SELECT may be written inside the analysis subcommand, as the syntax chart shows, or as subcommands of their own, as the examples show. NONE cannot be combined with other types.
+- (PAIRED) with lists of different lengths pairs what it can and warns about the rest; a variable paired with itself is left out. A variable or pair without valid cases, or an independent analysis with an empty group, is skipped with a warning.
+
 ### REGRESSION
 
 - METHOD takes variable lists and STEPWISE, FORWARD, BACKWARD and REMOVE (GNU PSPP differs).

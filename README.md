@@ -51,6 +51,7 @@ The [command pages](docs/commands/README.md) list every supported command. In sh
   - linear regression (REGRESSION, with stepwise selection, residuals and diagnostics);
   - scale reliability (RELIABILITY: alpha, split-half and other models, intraclass correlations);
   - agreement between raters (WEIGHTED KAPPA, FLEISS MULTIRATER KAPPA) and statistics of a ratio (RATIO STATISTICS);
+  - tests and confidence intervals for proportions and their differences (PROPORTIONS);
   - Bayesian tests of a mean, proportion, rate, paired or independent means and correlations (BAYES ONESAMPLE, RELATED, INDEPENDENT, CORRELATION);
   - power and sample size of t-tests, tests of proportions, one-way analysis of variance, correlations and regression (the POWER commands);
   - logistic regression (LOGISTIC REGRESSION, with categorical covariates, stepwise selection and case diagnostics);

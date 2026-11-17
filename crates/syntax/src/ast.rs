@@ -201,6 +201,7 @@ pub enum Command {
     WeightedKappa(Box<crate::agreement::WeightedKappa>),
     FleissKappa(Box<crate::agreement::FleissKappa>),
     RatioStatistics(Box<crate::ratio_statistics::RatioStatistics>),
+    Proportions(Box<crate::proportions::Proportions>),
     MultipleCorrespondence(Box<crate::multiple_correspondence::MultipleCorrespondence>),
     Catpca(Box<crate::catpca::Catpca>),
     Power(Box<crate::power::Power>),

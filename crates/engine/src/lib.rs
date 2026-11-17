@@ -95,6 +95,7 @@ mod power;
 mod pplot;
 mod print;
 mod probit;
+mod proportions;
 mod proximities;
 mod proxscal;
 mod quick_cluster;
@@ -1243,6 +1244,7 @@ impl Engine {
             | Command::WeightedKappa(_)
             | Command::FleissKappa(_)
             | Command::RatioStatistics(_)
+            | Command::Proportions(_)
             | Command::Bayes(_)
             | Command::Factor(_)
             | Command::QuickCluster(_)
@@ -1544,6 +1546,7 @@ impl Engine {
             Command::WeightedKappa(command) => self.weighted_kappa(command),
             Command::FleissKappa(command) => self.fleiss_kappa(command),
             Command::RatioStatistics(command) => self.ratio_statistics(command),
+            Command::Proportions(command) => self.proportions(command),
             Command::Bayes(command) => self.bayes(command),
             Command::Factor(command) => self.factor(command),
             Command::QuickCluster(command) => self.quick_cluster(command),
