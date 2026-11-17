@@ -5,7 +5,8 @@ use crate::advanced_dialogs_view::{means_editor, plan_path, terms_editor, tests_
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::cs_model_dialog::{
     CS_ADJUSTMENTS, CS_CONTRASTS, CS_INTERCEPTS, CS_LEVELS, CS_PRINT, CS_STATISTICS, CS_TESTS,
-    GLM_SAVE, Held, LOGISTIC_SAVE, OddsRatio, SampleModel,
+    GLM_SAVE, Held, LOGISTIC_SAVE, ORDINAL_LINKS, ORDINAL_PARALLEL, ORDINAL_SAVE, OddsRatio,
+    SampleModel,
 };
 use crate::genlin_dialog::GENLIN_MODELS;
 use crate::stats_dialogs_view::small_field;
@@ -20,7 +21,12 @@ pub fn sample_model(
 ) {
     plan_path(ui, &mut d.plan, false, folder);
     target_one(ui, "Dependent variable", &mut d.dependent, picked);
-    if d.logistic {
+    if let Some(o) = &mut d.ordinal {
+        ui.checkbox(
+            &mut o.descending,
+            "Order the categories from the highest down",
+        );
+    } else if d.logistic {
         ui.horizontal(|ui| {
             ui.label("Reference category");
             for (i, label) in CS_LEVELS.iter().enumerate() {
@@ -36,8 +42,12 @@ pub fn sample_model(
     d.forget_old_odds();
     ui.add_space(6.0);
     let model = d.model_variables();
+    let ordinal = d.ordinal.is_some();
     egui::CollapsingHeader::new("Model").show(ui, |ui| {
-        ui.add_enabled_ui(d.intercept != 2, |ui| {
+        if let Some(o) = &mut d.ordinal {
+            choice(ui, "Link function", &ORDINAL_LINKS, &mut o.link);
+        }
+        ui.add_enabled_ui(d.intercept != 2 || ordinal, |ui| {
             ui.horizontal(|ui| {
                 for (i, label) in GENLIN_MODELS.iter().enumerate() {
                     ui.radio_value(&mut d.model, i, *label);
@@ -47,10 +57,13 @@ pub fn sample_model(
                 terms_editor(ui, "model", &model, &mut d.terms);
             });
         });
-        choice(ui, "Intercept", &CS_INTERCEPTS, &mut d.intercept);
-        ui.add_enabled_ui(d.intercept == 0, |ui| {
-            ui.checkbox(&mut d.show_intercept, "Show the intercept in the tables");
-        });
+        // the thresholds of an ordinal model take the intercept's place
+        if !ordinal {
+            choice(ui, "Intercept", &CS_INTERCEPTS, &mut d.intercept);
+            ui.add_enabled_ui(d.intercept == 0, |ui| {
+                ui.checkbox(&mut d.show_intercept, "Show the intercept in the tables");
+            });
+        }
     });
     let (statistics, tables) = d.offered();
     egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
@@ -68,10 +81,12 @@ pub fn sample_model(
             &mut d.adjustment,
         );
     });
-    egui::CollapsingHeader::new("Tests").show(ui, |ui| {
-        ui.weak("INTERCEPT comes first in a row. End a row with = value to test against it");
-        tests_editor(ui, &mut d.tests);
-    });
+    if !ordinal {
+        egui::CollapsingHeader::new("Tests").show(ui, |ui| {
+            ui.weak("INTERCEPT comes first in a row. End a row with = value to test against it");
+            tests_editor(ui, &mut d.tests);
+        });
+    }
     if d.logistic {
         egui::CollapsingHeader::new("Odds ratios").show(ui, |ui| {
             odds_editor(ui, d);
@@ -114,6 +129,11 @@ pub fn sample_model(
             "User-missing values of factors and design variables are valid",
         );
     });
+    if let Some(o) = &mut d.ordinal {
+        egui::CollapsingHeader::new("Parallel lines").show(ui, |ui| {
+            checkboxes(ui, &ORDINAL_PARALLEL, &mut o.parallel);
+        });
+    }
     egui::CollapsingHeader::new("Subpopulation").show(ui, |ui| {
         target_one(ui, "Variable", &mut d.domain, picked);
         field(ui, "Value", &mut d.domain_value, 80.0);
@@ -128,6 +148,25 @@ pub fn sample_model(
         }
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
+        if let Some(o) = &mut d.ordinal {
+            for (i, (_, label)) in ORDINAL_SAVE.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut o.save[i], *label);
+                    ui.label(if i < 2 { "root" } else { "name" });
+                    small_field(ui, o.save[i], &mut o.save_names[i]);
+                    if i < 2 {
+                        ui.label("how many");
+                        let count = if i == 0 {
+                            &mut o.cumulative_count
+                        } else {
+                            &mut o.category_count
+                        };
+                        small_field(ui, o.save[i], count);
+                    }
+                });
+            }
+            return;
+        }
         let options = if d.logistic { LOGISTIC_SAVE } else { GLM_SAVE };
         for (i, (_, label)) in options.iter().enumerate() {
             ui.horizontal(|ui| {

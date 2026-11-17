@@ -14,7 +14,7 @@ use crate::analyze_dialogs::{
 use crate::catpca_dialog::{Catpca, CatpcaVariable};
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
 use crate::cox_dialog::Cox;
-use crate::cs_model_dialog::{Held, OddsRatio, SampleModel};
+use crate::cs_model_dialog::{CsOrdinal, Held, OddsRatio, SampleModel};
 use crate::data_dialogs::{
     Aggregate, AggregateTo, Aggregated, ExportData, ImportData, Make, MergeFiles, Mrsets,
     Restructure, RestructureKind, SelectCases, SelectMode, SortCases, SortVariables, SplitFile,
@@ -378,6 +378,11 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             plan: plan.clone(),
             dependent: s("q5_1"),
             ..SampleModel::new(true)
+        }))),
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("q5_3"),
+            ..SampleModel::new_ordinal()
         }))),
         Dialog::Advanced(Advanced::Tables(SampleTables {
             crosstabs: true,
@@ -1575,6 +1580,72 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             save: [true; 2],
             save_names: [s("prob"), s("guess")],
             probabilities: s("2"),
+            ..SampleModel::new(true)
+        }))),
+        // the logit link, with the statistics and odds ratios that need it
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("q5_3"),
+            factors: v(&["plan", "q5_2"]),
+            covariates: v(&["age"]),
+            model: 1,
+            statistics: [true; 7],
+            test_type: 2,
+            adjustment: 1,
+            odds: vec![
+                OddsRatio {
+                    variable: s("plan"),
+                    level: 2,
+                    reference: s("BASIC"),
+                    control: vec![Held {
+                        name: s("q5_2"),
+                        level: 2,
+                        value: s("1"),
+                        covariate: false,
+                    }],
+                    covariate: false,
+                },
+                OddsRatio {
+                    variable: s("age"),
+                    reference: s("1 10"),
+                    covariate: true,
+                    ..Default::default()
+                },
+            ],
+            ci_level: s("99"),
+            df: s("100"),
+            iterations: s("50"),
+            halvings: s("10"),
+            pconverge: s("0.0000001"),
+            lconverge: s("0.00001"),
+            separation: s("5"),
+            domain: s("region"),
+            domain_value: s("1"),
+            include: true,
+            print: [true; 8],
+            history: s("2"),
+            ordinal: Some(CsOrdinal {
+                descending: true,
+                parallel: [true; 3],
+                save: [true; 5],
+                save_names: [s("cum"), s("cat"), s("guess"), s("guessp"), s("obsp")],
+                cumulative_count: s("2"),
+                category_count: s("2"),
+                ..Default::default()
+            }),
+            ..SampleModel::new(true)
+        }))),
+        // another link function, with the default tables
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("q5_3"),
+            factors: v(&["plan"]),
+            covariates: v(&["age"]),
+            ordinal: Some(CsOrdinal {
+                link: 2,
+                parallel: [true, false, false],
+                ..Default::default()
+            }),
             ..SampleModel::new(true)
         }))),
         Dialog::Advanced(Advanced::Tables(SampleTables {

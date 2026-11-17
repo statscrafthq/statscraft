@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Analyze > Classify: new dialogs TwoStep Cluster (TWOSTEP CLUSTER) and Identify Unusual Cases (DETECTANOMALY).
+- Window: Analyze > Complex Samples > Ordinal Regression writes CSORDINAL (link function, descending order, parallel-lines test, odds ratios, saved probabilities).
 
 ## 0.17.0 (2026-11-17)
 

@@ -1974,6 +1974,10 @@ impl App {
                                 "Logistic Regression...",
                                 Advanced::Model(Box::new(SampleModel::new(true))),
                             ),
+                            (
+                                "Ordinal Regression...",
+                                Advanced::Model(Box::new(SampleModel::new_ordinal())),
+                            ),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));

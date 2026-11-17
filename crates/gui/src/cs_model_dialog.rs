@@ -114,10 +114,53 @@ pub struct Held {
     pub covariate: bool,
 }
 
-/// CSGLM or CSLOGISTIC.
+/// LINK FUNCTION of CSORDINAL, keyword and label; the first is the default.
+pub const ORDINAL_LINKS: [(&str, &str); 5] = [
+    ("LOGIT", "Logit"),
+    ("PROBIT", "Probit"),
+    ("CLOGLOG", "Complementary log-log"),
+    ("NLOGLOG", "Negative log-log"),
+    ("CAUCHIT", "Cauchit"),
+];
+
+/// The tests and tables NONPARALLEL gives, keyword and label.
+pub const ORDINAL_PARALLEL: [(&str, &str); 3] = [
+    ("TEST", "Test of parallel lines"),
+    ("PARAMETER", "Estimates of the general model"),
+    ("COVB", "Covariance of the general model"),
+];
+
+/// The variables of SAVE for CSORDINAL, keyword and label; the first two take a root.
+pub const ORDINAL_SAVE: [(&str, &str); 5] = [
+    ("CUMPROB", "Cumulative probabilities"),
+    ("PREDPROB", "Predicted probabilities"),
+    ("PREDVAL", "Predicted category"),
+    ("PREDVALPROB", "Probability of the predicted category"),
+    ("OBSVALPROB", "Probability of the observed category"),
+];
+
+/// What only CSORDINAL has beyond the other models.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct CsOrdinal {
+    /// Index into `ORDINAL_LINKS`.
+    pub link: usize,
+    /// The categories are ordered from the highest down.
+    pub descending: bool,
+    /// One flag per entry of `ORDINAL_PARALLEL`.
+    pub parallel: [bool; 3],
+    /// One flag per entry of `ORDINAL_SAVE`, and the names (a root for the first two).
+    pub save: [bool; 5],
+    pub save_names: [String; 5],
+    /// How many cumulative and category probabilities get a variable (empty: all that exist).
+    pub cumulative_count: String,
+    pub category_count: String,
+}
+
+/// CSGLM, CSLOGISTIC or CSORDINAL (`ordinal` is set, and `logistic` too).
 #[derive(Clone, PartialEq, Debug)]
 pub struct SampleModel {
     pub logistic: bool,
+    pub ordinal: Option<CsOrdinal>,
     pub plan: String,
     pub dependent: String,
     /// CSLOGISTIC: index into `CS_LEVELS`.
@@ -180,6 +223,7 @@ impl SampleModel {
     pub fn new(logistic: bool) -> Self {
         Self {
             logistic,
+            ordinal: None,
             plan: String::new(),
             dependent: String::new(),
             reference: 0,
@@ -212,6 +256,13 @@ impl SampleModel {
             save: [false; 2],
             save_names: Default::default(),
             probabilities: "25".into(),
+        }
+    }
+
+    pub fn new_ordinal() -> Self {
+        Self {
+            ordinal: Some(CsOrdinal::default()),
+            ..Self::new(true)
         }
     }
 
@@ -261,7 +312,11 @@ impl SampleModel {
     }
 
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
-        let command = if self.logistic { "CSLOGISTIC" } else { "CSGLM" };
+        let command = match (&self.ordinal, self.logistic) {
+            (Some(_), _) => "CSORDINAL",
+            (None, true) => "CSLOGISTIC",
+            (None, false) => "CSGLM",
+        };
         let plan = plan_file(&self.plan)?;
         let variables = model_variables(&self.dependent, &self.factors, &self.covariates)?;
         let dependent = self.dependent.trim();
@@ -277,7 +332,9 @@ impl SampleModel {
         };
 
         let mut text = format!("{command} {dependent}");
-        if self.logistic && self.reference > 0 {
+        if self.ordinal.as_ref().is_some_and(|o| o.descending) {
+            text.push_str("(DESCENDING)");
+        } else if self.logistic && self.ordinal.is_none() && self.reference > 0 {
             let reference = match self.reference {
                 1 => "LOW".to_string(),
                 _ => match self.reference_value.trim() {
@@ -291,8 +348,10 @@ impl SampleModel {
         text.push_str(&plan);
 
         let model = self.model_variables();
-        let only = self.intercept == 2;
-        let intercept = self.intercept != 1;
+        // CSORDINAL has thresholds instead of an intercept
+        let thresholds = self.ordinal.is_some();
+        let only = self.intercept == 2 && !thresholds;
+        let intercept = self.intercept != 1 || thresholds;
         if !intercept && model.is_empty() {
             return Err("without the intercept the model needs factors or covariates".into());
         }
@@ -311,7 +370,9 @@ impl SampleModel {
             text.push_str(&format!("\n  /MODEL {}", written.join(" ")));
         }
         let mut parts = Vec::new();
-        if self.intercept > 0 {
+        if thresholds {
+            // no INTERCEPT subcommand
+        } else if self.intercept > 0 {
             parts.push(format!("INCLUDE={}", CS_INTERCEPTS[self.intercept].0));
         } else if !self.show_intercept {
             parts.push("SHOW=NO".into());
@@ -319,7 +380,7 @@ impl SampleModel {
         if !parts.is_empty() {
             text.push_str(&format!("\n  /INTERCEPT {}", parts.join(" ")));
         }
-        for (i, test) in self.tests.iter().enumerate() {
+        for (i, test) in self.tests.iter().enumerate().filter(|_| !thresholds) {
             text.push_str(&custom(test, &terms, intercept, i + 1)?);
         }
         // a variable the terms leave out has no means or odds ratios
@@ -332,6 +393,14 @@ impl SampleModel {
             }
         }
 
+        if let Some(o) = &self.ordinal
+            && o.link > 0
+        {
+            text.push_str(&format!("\n  /LINK FUNCTION={}", ORDINAL_LINKS[o.link].0));
+            if self.statistics[6] || !self.odds.is_empty() {
+                return Err("exponentiated estimates and odds ratios need the logit link".into());
+            }
+        }
         let criteria = self.criteria()?;
         if !criteria.is_empty() {
             text.push_str(&format!("\n  /CRITERIA {}", criteria.join(" ")));
@@ -395,7 +464,15 @@ impl SampleModel {
             };
             text.push_str(&format!("\n  /PRINT {print}"));
         }
-        text.push_str(&self.save_syntax(data)?);
+        if let Some(o) = &self.ordinal {
+            let chosen = keywords(&ORDINAL_PARALLEL, &o.parallel);
+            if !chosen.is_empty() {
+                text.push_str(&format!("\n  /NONPARALLEL {}", chosen.join(" ")));
+            }
+            text.push_str(&Self::ordinal_save(o, data)?);
+        } else {
+            text.push_str(&self.save_syntax(data)?);
+        }
         text.push('.');
         Ok(text)
     }
@@ -603,6 +680,52 @@ impl SampleModel {
             }
         }
         Ok(out)
+    }
+
+    /// `/SAVE` of CSORDINAL: names valid, free and not given twice; the first two take a root
+    /// and a count, and the engine suffixes a root's variables that are taken.
+    fn ordinal_save(o: &CsOrdinal, data: &Dataset) -> Result<String, String> {
+        let mut out = Vec::new();
+        let mut given: Vec<String> = Vec::new();
+        for (i, (keyword, label)) in ORDINAL_SAVE.iter().enumerate() {
+            if !o.save[i] {
+                continue;
+            }
+            let name = o.save_names[i].trim();
+            if !name.is_empty() && !is_valid_name(name) {
+                return Err(format!("{name} cannot name a variable"));
+            }
+            let count = match i {
+                0 | 1 => {
+                    let text = if i == 0 {
+                        &o.cumulative_count
+                    } else {
+                        &o.category_count
+                    };
+                    whole(text, 1, &format!("the number of {}", label.to_lowercase()))?
+                }
+                _ => None,
+            };
+            if !name.is_empty() && i > 1 {
+                if data.variable(name).is_ok() {
+                    return Err(format!("{name} is already a variable"));
+                }
+                if given.iter().any(|g| g.eq_ignore_ascii_case(name)) {
+                    return Err(format!("{name} names two saved variables"));
+                }
+                given.push(name.to_string());
+            }
+            out.push(match (name, count) {
+                ("", None) => keyword.to_string(),
+                (name, None) => format!("{keyword}({name})"),
+                ("", Some(n)) => format!("{keyword}(:{n})"),
+                (name, Some(n)) => format!("{keyword}({name}:{n})"),
+            });
+        }
+        Ok(match out.is_empty() {
+            true => String::new(),
+            false => format!("\n  /SAVE {}", out.join(" ")),
+        })
     }
 
     /// `/SAVE` with the names given, checked: valid, not taken and not given twice.
@@ -1178,6 +1301,86 @@ mod tests {
             "q3_comment is a string; the command needs numbers"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn ordinal_regression() {
+        let (mut session, path, dir) = survey("csordinal");
+        let data = data(&session);
+        let mut d = SampleModel {
+            plan: path.clone(),
+            dependent: "q5_3".into(),
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            ..SampleModel::new_ordinal()
+        };
+        let syntax = d.syntax(&data).unwrap();
+        assert_eq!(
+            syntax,
+            format!(
+                "CSORDINAL q5_3 BY gender WITH age\n  /PLAN FILE={}.",
+                quote(&path)
+            )
+        );
+        assert!(runs_in(&mut session, &syntax) >= 4);
+
+        d.ordinal = Some(CsOrdinal {
+            link: 1,
+            descending: true,
+            parallel: [true, false, true],
+            save: [true, true, true, false, true],
+            save_names: [
+                "cum".into(),
+                "cat".into(),
+                "guess".into(),
+                "".into(),
+                "".into(),
+            ],
+            cumulative_count: "2".into(),
+            ..Default::default()
+        });
+        d.statistics = [true, true, true, false, false, false, false];
+        d.intercept = 2;
+        d.tests = vec![ContrastTest {
+            label: "ignored".into(),
+            rows: "nonsense".into(),
+        }];
+        let syntax = d.syntax(&data).unwrap();
+        assert!(
+            syntax.starts_with("CSORDINAL q5_3(DESCENDING) BY gender WITH age\n"),
+            "{syntax}"
+        );
+        assert!(
+            syntax.ends_with(
+                "\n  /LINK FUNCTION=PROBIT\n  /STATISTICS PARAMETER SE TTEST\n  \
+                 /NONPARALLEL TEST COVB\n  \
+                 /SAVE CUMPROB(cum:2) PREDPROB(cat) PREDVAL(guess) OBSVALPROB."
+            ),
+            "{syntax}"
+        );
+        // no INTERCEPT and no CUSTOM: the command has neither
+        assert!(!syntax.contains("/INTERCEPT") && !syntax.contains("/CUSTOM"));
+        assert!(runs_in(&mut session, &syntax) >= 4);
+
+        // EXP and odds ratios need the logit link
+        d.statistics[6] = true;
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "exponentiated estimates and odds ratios need the logit link"
+        );
+        d.ordinal.as_mut().unwrap().link = 0;
+        d.odds = vec![OddsRatio {
+            variable: "gender".into(),
+            ..Default::default()
+        }];
+        // the run before saved guess
+        d.ordinal.as_mut().unwrap().save_names[2] = "guess2".into();
+        let syntax = d.syntax(&data).unwrap();
+        assert!(syntax.contains("/ODDSRATIOS FACTOR=[gender]"), "{syntax}");
+        assert!(runs_in(&mut session, &syntax) >= 4);
+        d.ordinal.as_mut().unwrap().save_names[2] = "age".into();
+        assert_eq!(d.syntax(&data).unwrap_err(), "age is already a variable");
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
