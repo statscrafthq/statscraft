@@ -338,5 +338,8 @@ fn an_unwritable_destination_warns_and_keeps_the_output() {
         ),
     );
     assert_eq!(titles(&tables), ["Descriptive Statistics"]);
-    assert!(warnings.iter().any(|w| w.starts_with("OMS")), "{warnings:?}");
+    assert!(
+        warnings.iter().any(|w| w.starts_with("OMS")),
+        "{warnings:?}"
+    );
 }
