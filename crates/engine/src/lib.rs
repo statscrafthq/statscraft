@@ -89,6 +89,7 @@ mod pass;
 pub mod pdf;
 pub mod picture;
 pub mod plot;
+mod pls;
 pub mod plugin;
 mod plum;
 mod pooling;
@@ -1264,6 +1265,7 @@ impl Engine {
             | Command::Probit(_)
             | Command::Plum(_)
             | Command::QuantileRegression(_)
+            | Command::Pls(_)
             | Command::Correspondence(_)
             | Command::MultipleCorrespondence(_)
             | Command::Catpca(_)
@@ -1592,6 +1594,7 @@ impl Engine {
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),
             Command::QuantileRegression(command) => self.quantile_regression(command),
+            Command::Pls(command) => self.pls(command),
             Command::Correspondence(command) => self.correspondence(command),
             Command::MultipleCorrespondence(command) => self.multiple_correspondence(command),
             Command::Catpca(command) => self.catpca(command),

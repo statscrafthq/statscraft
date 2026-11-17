@@ -259,7 +259,7 @@ impl Engine {
         }
     }
 
-    fn store_dataset(&mut self, name: String, data: Option<Dataset>) {
+    pub(crate) fn store_dataset(&mut self, name: String, data: Option<Dataset>) {
         let datasets = &mut self.session.datasets;
         datasets.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
         datasets.push((name, data));

@@ -70,6 +70,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Anova(_)
         | Command::QuickCluster(_)
         | Command::Twostep(_)
+        | Command::Pls(_)
         | Command::Detectanomaly(_)
         | Command::OptimalBinning(_)
         | Command::Tree(_)

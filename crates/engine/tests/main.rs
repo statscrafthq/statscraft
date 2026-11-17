@@ -67,6 +67,7 @@ mod output_file_checks;
 mod output_modify;
 mod pdf;
 mod plots;
+mod pls;
 mod plugin;
 mod plum;
 mod portable;

@@ -68,6 +68,7 @@ mod output;
 mod output_docs;
 mod output_modify;
 mod parser;
+mod pls;
 mod plum;
 mod portable;
 mod power;
@@ -149,6 +150,8 @@ mod tests_nptests;
 mod tests_optimal_binning;
 #[cfg(test)]
 mod tests_output;
+#[cfg(test)]
+mod tests_pls;
 #[cfg(test)]
 mod tests_power;
 #[cfg(test)]
@@ -304,6 +307,7 @@ pub use output_modify::{
     Indexing, Instance, ItemKind, LabelTest, ModifyBlock, ModifyTarget, OutputModify, SortColumn,
     TableCells, letters, roman,
 };
+pub use pls::{Pls, PlsDependent, PlsLevel, PlsReference};
 pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
 pub use power::{PairwiseAdjust, Power, PowerKind, PowerPlot, ProportionTest, RankVariance};
 pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};

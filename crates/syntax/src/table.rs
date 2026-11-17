@@ -49,6 +49,7 @@ use crate::output;
 use crate::output_docs;
 use crate::output_modify;
 use crate::parser::{PResult, Parser};
+use crate::pls;
 use crate::plum;
 use crate::portable;
 use crate::power;
@@ -3167,6 +3168,34 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  covariances) to a JSON file of Statscraft's own, one per quantile. EXTERNAL changes nothing.",
         example: "QUANTILE REGRESSION rent BY district WITH floor_area /CRITERIA QUANTILE=0.25 0.5 0.75 IID=FALSE /PRINT PARAMETER COVB /SAVE PRED(fit) RESID.",
         parse: quantile_regression::quantile_regression,
+        name: "PLS",
+        summary: "Partial least squares regression of one or more dependent variables on many, possibly collinear, predictors.",
+        syntax: "PLS dependent [MLEVEL=N | O | S] [REFERENCE=FIRST | LAST | value] [dependent ...]\n\
+                 \x20  [BY factors] [WITH covariates]\n\
+                 \x20  [/ID VARIABLE=var] [/MODEL effects]\n\
+                 \x20  [/OUTDATASET [CASES=dataset] [LATENTFACTORS=dataset] [PREDICTORS=dataset]]\n\
+                 \x20  [/CRITERIA LATENTFACTORS=5].\n\
+                 Each subcommand and keyword at most once, written in full, with its equals sign. A\n\
+                 dependent is scale or categorical: MLEVEL after it, else its measurement level, else scale\n\
+                 for a number and categorical for a string (N and O both mean categorical). ALL\n\
+                 MLEVEL=... or ALL REFERENCE=... sets every dependent that has no setting of its own. A categorical\n\
+                 dependent becomes one 0/1 column per category except the reference one (REFERENCE: FIRST,\n\
+                 LAST by default, or a value that occurs). Factors follow BY, covariates WITH; a factor\n\
+                 gives a 0/1 column for every level, an interaction one column per combination of levels\n\
+                 that occurs (times the covariates in it). MODEL lists main effects and interactions (a*b\n\
+                 or a BY b), the main effects of all predictors by default; nested terms are not taken.\n\
+                 Every column is centered and divided by its standard deviation. Cases missing on any\n\
+                 variable (user-missing too) are left out; the weight is rounded and a case below 1 is left\n\
+                 out. NIPALS extracts up to LATENTFACTORS factors, no more than the predictor columns or the\n\
+                 cases less one. Tables: Proportion of Variance Explained (X and Y, cumulative, R-square\n\
+                 and adjusted R-square), Parameters (constant and coefficient of every predictor column\n\
+                 in the original units), Variable Importance in the Projection (cumulative by factor),\n\
+                 Weights and Loadings. OUTDATASET writes named datasets: CASES (ID or case number,\n\
+                 predicted values and residuals, the distance to the X model, the X and Y scores) for every\n\
+                 case with valid predictors, LATENTFACTORS (loadings and weights of each variable) and\n\
+                 PREDICTORS (coefficients and VIP of each predictor column). No plots.",
+        example: "PLS yield MLEVEL=S quality MLEVEL=N REFERENCE=FIRST BY plot WITH rain sun soil_ph /CRITERIA LATENTFACTORS=3 /OUTDATASET CASES=plsCases.",
+        parse: pls::pls,
     },
     CommandSpec {
         name: "CORRESPONDENCE",

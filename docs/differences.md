@@ -626,6 +626,20 @@ Where the documentation is silent or reads two ways:
 - SAVE without a name uses PRED, RESID, CIPREDL and CIPREDU; with several quantiles the name gets _ and the quantile's decimal digits, at least two (0.5 gives _50, 0.05 gives _05, 1 gives _100). An existing variable of that name is an error. Predictions go to every case with valid predictors and factor levels seen in the fit, also cases left out by their weights or a missing dependent. The interval bounds use the normal quantile of CILEVEL, as the manual says.
 - OUTFILE COVB and CORB: with several quantiles and FILE_SEPARATE=FALSE one file holds them all with a Quantile column; with TRUE each quantile gets its own file or dataset with the quantile's digits added to its name (before the extension). Redundant parameters have an estimate of 0 and nothing else. MODEL and PARAMETER write Statscraft's own JSON instead of PMML, one file per quantile (digits added to the name when there are several).
 - EXTERNAL is accepted and changes nothing; the data are always held in memory.
+### PLS
+
+Where the documentation is silent:
+
+- PLS is a built-in command here; no extension module or EXTENSION command is needed.
+- A factor predictor gets a 0/1 column for every level that occurs, none left out (the design of a model without an intercept with no redundant columns removed); an interaction gets one column per level combination that occurs. A predictor column that does not vary is kept with all zeros, so its weights, coefficient and VIP are 0.
+- Standard deviations divide by the weighted number of cases minus 1.
+- For several dependents, each latent factor comes from the dominant eigenvector of Y'XX'Y followed by one NIPALS pass, as the Algorithms manual allows; the result equals NIPALS iterated to convergence. The sign of a factor is chosen so that its Y weights (c) add up to a positive number.
+- The Y weights shown are c = Y't / t't, before scaling to length 1 (the ones B = W(P'W)^-1 C' uses). The Y loadings are q = Y'u / u'u, so with one dependent they are 1 for every factor.
+- Adjusted R-square is 1 - (1 - R-square)(N - 1)/(N - k - 1) with N the weighted number of cases and k the number of factors so far; it is empty when N - k - 1 is not positive.
+- Fewer factors than LATENTFACTORS (no more than the predictor columns, the cases less one, or until X or the covariance of X and Y is used up) give a warning.
+- ALL followed by MLEVEL or REFERENCE in the dependent list sets them for every dependent that has no setting of its own; ALL alone is the list of all variables.
+- OUTDATASET CASES holds every case with valid predictors whose factor levels occurred in the fit, also one with a missing dependent or a weight below 1 (its residuals and Y scores are missing). Its variables are the ID variable (or CaseNumber), Predicted_r and Residual_r for each dependent column r (labels say which), DModX (the distance to the X model, sqrt(N/(N - d - 1) e'e) in standardized units), XScore_k and YScore_k. LATENTFACTORS holds Variable, Loading_k and Weight_k per predictor column and dependent column; PREDICTORS holds Variable, Coefficient_r and VIP_k per predictor column, with a (Constant) row first.
+- No plots are drawn. OUTDATASET cannot name the active dataset, and with SPLIT FILE it is not supported yet.
 
 ### GENLIN
 

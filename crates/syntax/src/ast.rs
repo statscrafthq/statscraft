@@ -86,6 +86,7 @@ pub enum Command {
     MultipleImputation(Box<crate::multiple_imputation::MultipleImputation>),
     Plum(Box<crate::plum::Plum>),
     QuantileRegression(Box<crate::quantile_regression::QuantileRegression>),
+    Pls(Box<crate::pls::Pls>),
     Correspondence(Box<crate::correspondence::Correspondence>),
     Genlin(Box<crate::genlin::Genlin>),
     Pplot(Box<crate::pplot::Pplot>),
