@@ -58,6 +58,7 @@ mod npar;
 mod nptests;
 mod office;
 mod olap_cubes;
+mod optimal_binning;
 mod output;
 mod output_docs;
 mod output_file;

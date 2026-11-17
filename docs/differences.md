@@ -981,6 +981,19 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - Saved values go to the analyzed cases; other cases get missing values. ReasonValue and ReasonNorm are numbers unless a categorical variable is a string, then text. A name given on SAVE that already exists is an error; a default name in use gets the first free suffix _1, _2 and so on. Reason variables with NUMREASONS=0 are skipped with a warning.
 - **The OUTFILE file** is a small JSON file of Statscraft's own (`"format": "statscraft-anomaly-model"`), not the XML the documentation describes: MLWEIGHT, whether HANDLEMISSING APPLY was on, each variable with its kind (scale, categorical or the missing proportion), a scale one with the mean that stands in for its missing values and its variance, a categorical one with its categories and whether missing values form a category of their own, and each peer group with its number, its mean group deviation and its summary (count, means, sums of squared deviations, category counts).
 
+### OPTIMAL BINNING
+
+- MDLP follows the published criterion with log2(3^k - 2), k, k1 and k2 counting the guide values present in each set. The worked rejection example in the algorithms chapter prints a threshold that matches log2(3^k) instead; the decision there is the same either way.
+- End points are data values that reproduce the bins of the cases: with LOWERLIMIT=INCLUSIVE the lowest value of the upper bin, with EXCLUSIVE the highest value of the lower bin. An equal frequency percentile that falls between two values therefore shows as the next value up (or down).
+- With LOWEREND or UPPEREND=OBSERVED the minimum and the maximum belong to their outer bins whatever LOWERLIMIT says; values outside them get no bin.
+- Of equally good MDLP cuts the lowest wins. FORCEMERGE compares the class information entropy of the two possible joins; on a tie (always without a guide) the bin joins its smaller neighbour, and the lower one when both are equal. After a join with the upper neighbour the pass goes on after the joined bin.
+- Equal frequency percentiles use the rounded weights. PREPROCESS and the equal frequency method give one bin per distinct value when a variable has no more distinct values than BINS.
+- SAVE bins every case with a valid value of the variable, also cases left out of the analysis by a missing guide, LISTWISE or a weight of 0. A name given on INTO that already exists is an error; a default name in use gets the first free suffix _1, _2 and so on. The saved variable is ordinal, F8.0, labelled "var (binned)", with a value label for each interval.
+- LISTWISE counts the guide only when MDLP uses it. A variable with no valid case is skipped with a warning.
+- PRINT DESCRIPTIVES counts weighted cases: N is the analyzed cases, Missing the other cases of positive weight. The guide's class distribution is one table with a row per binned variable. ENTROPY gives one model entropy per variable.
+- **The RULES file** holds, per variable, COMPUTE to system-missing, one IF per bin guarded by NOT MISSING, VARIABLE LABELS, VALUE LABELS, FORMATS and VARIABLE LEVEL, with the end points written as the shortest decimal that reads back as the same number.
+- SPLIT FILE is not used, with a warning, so that one rules file fits all cases.
+
 ### PROXIMITIES
 
 - The standard deviation of Z and SD has n - 1 in its denominator. MAX divides by the largest value, not the largest absolute value.

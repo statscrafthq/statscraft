@@ -43,6 +43,7 @@ use crate::nomreg;
 use crate::npar;
 use crate::nptests;
 use crate::olap_cubes;
+use crate::optimal_binning;
 use crate::output;
 use crate::output_docs;
 use crate::output_modify;
@@ -2239,6 +2240,37 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "DETECTANOMALY /VARIABLES SCALE=amount days CATEGORICAL=channel ID=order_no\n\
                   \x20 /CRITERIA NUMREASONS=2 PCTANOMALOUSCASES=2 /SAVE ANOMALY PEERID REASONVAR /PRINT CPS ANOMALYLIST NORMS.",
         parse: twostep::detectanomaly,
+    },
+    CommandSpec {
+        name: "OPTIMAL BINNING",
+        summary: "Bins of scale variables: cuts chosen by MDLP against a guide variable, or by equal frequency.",
+        syntax: "OPTIMAL BINNING /VARIABLES [GUIDE=var] BIN=varlist [SAVE=NO | YES [(INTO=new varlist)]]\n\
+                 \x20               [/CRITERIA [PREPROCESS=EQUALFREQ[(BINS=1000)] | NONE] [METHOD=MDLP | EQUALFREQ[(BINS=10)]]\n\
+                 \x20                          [LOWEREND=UNBOUNDED | OBSERVED] [UPPEREND=UNBOUNDED | OBSERVED]\n\
+                 \x20                          [LOWERLIMIT=INCLUSIVE | EXCLUSIVE] [FORCEMERGE=0]]\n\
+                 \x20               [/MISSING SCOPE=PAIRWISE | LISTWISE] [/OUTFILE RULES='file']\n\
+                 \x20               [/PRINT [ENDPOINTS] [DESCRIPTIVES] [ENTROPY] [NONE]].\n\
+                 Every word is written in full and each subcommand given once. MDLP, the default when GUIDE\n\
+                 names a numeric or string variable (at most 256 values), splits a range of values in two at\n\
+                 the point that best separates the guide's values, keeps the split when its information gain\n\
+                 beats the minimum description length cost, and goes on in both halves. PREPROCESS first groups\n\
+                 a variable with more distinct values than BINS into that many equal frequency groups, and MDLP\n\
+                 splits only between groups. EQUALFREQ, the default without GUIDE, cuts at the 1/n, 2/n and\n\
+                 further percentiles (empirical distribution with averaging); a variable with at most n distinct\n\
+                 values gets a bin for each. FORCEMERGE r joins an inner bin smaller than r times its smaller\n\
+                 neighbour to the neighbour that leaves the lower class entropy, in one pass. End points are\n\
+                 data values: with LOWERLIMIT=INCLUSIVE a bin runs from its lower end point up to but not\n\
+                 including its upper one, with EXCLUSIVE from above its lower one up to and including its upper\n\
+                 one; the outer ends are unbounded, or the observed minimum and maximum with OBSERVED.\n\
+                 PAIRWISE uses each variable's valid cases (with a valid guide for MDLP), LISTWISE the cases\n\
+                 valid on all of them; user-missing values are missing. Weights are rounded to whole numbers.\n\
+                 Tables: End Points with the cases of each bin (ENDPOINTS, the default), Descriptive Statistics\n\
+                 and Guide Variable Distribution (DESCRIPTIVES), Model Entropy (ENTROPY, MDLP only). SAVE adds\n\
+                 the bin numbers of every case with a valid value as guide_var_bin (var_bin without a guide)\n\
+                 or the INTO names. RULES writes syntax with the same bins for other data. SPLIT FILE is not used.",
+        example: "OPTIMAL BINNING /VARIABLES GUIDE=churned BIN=tenure spend SAVE=YES\n\
+                  \x20 /CRITERIA FORCEMERGE=0.05 /OUTFILE RULES='bins.sps' /PRINT ENDPOINTS ENTROPY.",
+        parse: optimal_binning::optimal_binning,
     },
     CommandSpec {
         name: "CLUSTER",

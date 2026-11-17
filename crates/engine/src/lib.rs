@@ -77,6 +77,7 @@ mod nptests;
 pub mod office;
 mod olap_cubes;
 mod oneway;
+mod optimal_binning;
 mod optimal_scaling;
 mod output;
 mod output_docs;
@@ -1296,6 +1297,14 @@ impl Engine {
                 }
                 return self.procedure(command);
             }
+            Command::OptimalBinning(_) => {
+                if self.active()?.split_file().is_some() {
+                    self.warn(
+                        "OPTIMAL BINNING does not use SPLIT FILE: it bins all cases together",
+                    );
+                }
+                return self.procedure(command);
+            }
             Command::Csselect(c) => {
                 self.csselect_names(c)?;
                 return self.procedure(command);
@@ -1556,6 +1565,7 @@ impl Engine {
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Twostep(command) => self.twostep(command),
             Command::Detectanomaly(command) => self.detectanomaly(command),
+            Command::OptimalBinning(command) => self.optimal_binning(command),
             Command::Logistic(command) => self.logistic(command),
             Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),

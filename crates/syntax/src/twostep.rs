@@ -62,7 +62,7 @@ pub struct Twostep {
 }
 
 /// Names until a word followed by `=` (the next keyword) or the end of the subcommand.
-fn names_before_keyword(p: &mut Parser) -> PResult<Vec<VarItem>> {
+pub(crate) fn names_before_keyword(p: &mut Parser) -> PResult<Vec<VarItem>> {
     let mut items = Vec::new();
     while let Some(TokenKind::Word(_)) = p.peek() {
         if matches!(p.peek_at(1), Some(TokenKind::Punct(Punct::Eq))) {
@@ -94,7 +94,7 @@ fn paren_whole(p: &mut Parser, what: &str, low: usize) -> PResult<usize> {
     Ok(n)
 }
 
-fn whole(p: &mut Parser, what: &str, low: usize) -> PResult<usize> {
+pub(crate) fn whole(p: &mut Parser, what: &str, low: usize) -> PResult<usize> {
     let start = p.pos;
     match p.number() {
         Some(n) if n.fract() == 0.0 && n >= low as f64 && n < 1e9 => Ok(n as usize),
@@ -106,7 +106,7 @@ fn whole(p: &mut Parser, what: &str, low: usize) -> PResult<usize> {
     }
 }
 
-fn number_from(p: &mut Parser, what: &str, low: f64, high: f64) -> PResult<f64> {
+pub(crate) fn number_from(p: &mut Parser, what: &str, low: f64, high: f64) -> PResult<f64> {
     let start = p.pos;
     match p.number() {
         Some(n) if (low..=high).contains(&n) => Ok(n),
@@ -379,7 +379,7 @@ pub struct Detectanomaly {
 }
 
 /// `KEYWORD=` written in full, once within its subcommand.
-fn keyword(
+pub(crate) fn keyword(
     p: &mut Parser,
     seen: &mut Vec<&'static str>,
     names: &[&'static str],

@@ -73,6 +73,7 @@ pub enum Command {
     QuickCluster(Box<crate::factor::QuickCluster>),
     Twostep(Box<crate::twostep::Twostep>),
     Detectanomaly(Box<crate::twostep::Detectanomaly>),
+    OptimalBinning(Box<crate::optimal_binning::OptimalBinning>),
     Logistic(Box<crate::logistic::Logistic>),
     Coxreg(Box<crate::coxreg::Coxreg>),
     Nomreg(Box<crate::nomreg::Nomreg>),

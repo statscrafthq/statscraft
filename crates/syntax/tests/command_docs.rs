@@ -155,6 +155,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "TWOSTEP CLUSTER",
             "DMCLUSTER",
             "DETECTANOMALY",
+            "OPTIMAL BINNING",
             "PROXIMITIES",
             "PROXSCAL",
             "ALSCAL",

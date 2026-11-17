@@ -240,13 +240,14 @@ impl Engine {
     pub(crate) fn procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.begin_pass()?;
         let before = self.dataset.clone();
-        // TREE, DETECTANOMALY, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples procedures ignore SPLIT FILE, as
+        // TREE, DETECTANOMALY, OPTIMAL BINNING, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples procedures ignore SPLIT FILE, as
         // the manual says
         let use_split = !matches!(
             command,
             Command::Aggregate(_)
                 | Command::Tree(_)
                 | Command::Detectanomaly(_)
+                | Command::OptimalBinning(_)
                 | Command::MultipleCorrespondence(_)
                 | Command::Catpca(_)
                 | Command::Csdescriptives(_)
