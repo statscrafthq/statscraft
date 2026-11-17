@@ -267,4 +267,17 @@ fn data_list_reads_dates_with_times_and_durations() {
     );
     let list = tables.last().unwrap();
     assert_eq!(row(list, 0), ["1", "1", "1", "1", "1"]);
+    // a minus sign makes the whole duration negative
+    let tables = run(
+        "DATA LIST FIXED /dur 1-8 (TIME) d 10-20 (DTIME) mt 22-26 (MTIME).\n\
+         BEGIN DATA\n\
+         -1:30:00 -1 12:00:00 -5:30\n\
+         END DATA.\n\
+         COMPUTE ok1 = dur = -TIME.HMS(1, 30, 0).\n\
+         COMPUTE ok2 = d = -TIME.HMS(36, 0, 0).\n\
+         COMPUTE ok3 = mt = -(5 * 60 + 30).\n\
+         FORMATS ok1 TO ok3 (F1).\n\
+         LIST ok1 TO ok3.",
+    );
+    assert_eq!(row(tables.last().unwrap(), 0), ["1", "1", "1"]);
 }

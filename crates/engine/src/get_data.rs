@@ -102,6 +102,10 @@ pub fn delimited(
 
 /// Seconds of a time of day h:m[:s].
 fn time_of_day(text: &str) -> Option<f64> {
+    // a leading minus sign makes the whole time negative
+    if let Some(rest) = text.trim().strip_prefix('-') {
+        return time_of_day(rest).map(|t| -t);
+    }
     let parts: Vec<&str> = text.split(':').collect();
     if !(2..=3).contains(&parts.len()) {
         return None;
@@ -166,9 +170,13 @@ pub(crate) fn number(
         FormatType::Time => time_of_day(text).map(Some).ok_or("is not a time"),
         // MTIME is minutes and seconds
         FormatType::Mtime => {
+            let (sign, text) = match text.strip_prefix('-') {
+                Some(rest) => (-1.0, rest.trim()),
+                None => (1.0, text),
+            };
             let (minutes, seconds) = text.split_once(':').unwrap_or((text, "0"));
             match (minutes.trim().parse::<f64>(), seconds.trim().parse::<f64>()) {
-                (Ok(m), Ok(s)) => Ok(Some(m * 60.0 + s)),
+                (Ok(m), Ok(s)) => Ok(Some(sign * (m * 60.0 + s))),
                 _ => Err("is not a time in minutes and seconds"),
             }
         }

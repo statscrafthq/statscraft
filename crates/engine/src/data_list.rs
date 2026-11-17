@@ -378,6 +378,10 @@ pub(crate) fn read(
         // days, a blank, then a time of day
         FormatType::Dtime => {
             let text = text.trim();
+            let (sign, text) = match text.strip_prefix('-') {
+                Some(rest) => (-1.0, rest.trim()),
+                None => (1.0, text),
+            };
             let (days, time) = text.split_once(' ').unwrap_or(("0", text));
             let time_format = Format {
                 kind: FormatType::Time,
@@ -387,7 +391,7 @@ pub(crate) fn read(
                 days.trim().parse::<f64>(),
                 crate::get_data::number(time, time_format, false, None),
             ) {
-                (Ok(d), Ok(Some(t))) => Ok(Some(d * 86_400.0 + t)),
+                (Ok(d), Ok(Some(t))) => Ok(Some(sign * (d * 86_400.0 + t))),
                 _ => Err("is not a duration in days and hours"),
             }
         }
