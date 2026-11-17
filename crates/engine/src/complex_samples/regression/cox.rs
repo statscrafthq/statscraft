@@ -766,19 +766,25 @@ impl Engine {
             .map(|k| design.rows.iter().map(|&r| k[r].clone()).collect());
         let starts: Vec<Option<f64>> = match (&start_var, &subject) {
             (Some(v), _) => at(numbers(v)?),
-            // with ID and one time, a record starts where the subject's previous record ended
+            // with ID and one time, a record starts where the subject's previous record ended:
+            // previous in time, so the file need not be sorted (ties keep the file order)
             (None, Some(subject)) => {
+                let mut order: Vec<usize> = (0..n).filter(|&i| ends[i].is_some()).collect();
+                order.sort_by(|&a, &b| ends[a].unwrap().total_cmp(&ends[b].unwrap()));
                 let mut last: HashMap<String, f64> = HashMap::new();
-                (0..n)
-                    .map(|i| {
-                        let key = key_part(subject[i].as_ref()?);
-                        let start = last.get(&key).copied().unwrap_or(f64::NEG_INFINITY);
-                        if let Some(e) = ends[i] {
-                            last.insert(key, e);
-                        }
-                        Some(start)
-                    })
-                    .collect()
+                let mut starts = vec![None; n];
+                for i in (0..n).filter(|&i| ends[i].is_none()) {
+                    starts[i] = subject[i].as_ref().map(|_| f64::NEG_INFINITY);
+                }
+                for i in order {
+                    let Some(k) = subject[i].as_ref() else {
+                        continue;
+                    };
+                    let key = key_part(k);
+                    starts[i] = Some(last.get(&key).copied().unwrap_or(f64::NEG_INFINITY));
+                    last.insert(key, ends[i].unwrap());
+                }
+                starts
             }
             (None, None) => vec![Some(f64::NEG_INFINITY); n],
         };

@@ -800,10 +800,18 @@ const SUBJECTS: &str = "
 
 /// The subjects' data and a plan with strata and no clusters, then `commands`.
 fn subjects(folder: &str, commands: &str) -> String {
+    subjects_in_order(folder, commands, false)
+}
+
+/// As `subjects`, the records in reverse file order when `reversed`.
+fn subjects_in_order(folder: &str, commands: &str, reversed: bool) -> String {
     let dir =
         std::env::temp_dir().join(format!("statscraft-cscox-{folder}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let records: Vec<&str> = SUBJECTS.split_whitespace().collect();
+    let mut records: Vec<&str> = SUBJECTS.split_whitespace().collect();
+    if reversed {
+        records.reverse();
+    }
     format!(
         "DATA LIST LIST(\",\") /id str w t0 t st grp x.\n\
          BEGIN DATA\n{}\nEND DATA.\nCD '{}'.\n\
@@ -828,14 +836,16 @@ fn subjects_as_units_with_one_or_two_times_and_aggregated_residuals() {
     let b = [3.42032366801177, 2.03439957958917, 0.129124170743974];
     let se = [0.774089524097684, 0.579964861346988, 0.182697420224556];
     let deff = [0.936653780523957, 0.919169743144461, 1.29353604341029];
-    // the one-time form takes each start from the subject's previous record
-    for times in ["t0 t", "t"] {
-        let (_, tables) = run(&subjects(
+    // the one-time form takes each start from the subject's previous record in time, so the
+    // records in reverse file order give the same model
+    for (times, reversed) in [("t0 t", false), ("t", false), ("t", true)] {
+        let (_, tables) = run(&subjects_in_order(
             "ids",
             &format!(
                 "CSCOXREG {times} BY grp WITH x /VARIABLES STATUS=st(1) ID=id /PLAN FILE='s.json'\n\
                  \x20 /STATISTICS PARAMETER SE DEFF."
             ),
+            reversed,
         ));
         let estimates = find(&tables, "Parameter Estimates");
         for (k, name) in ["[grp=1]", "[grp=2]", "x"].iter().enumerate() {

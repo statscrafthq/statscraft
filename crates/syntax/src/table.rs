@@ -3850,7 +3850,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  ID names the subject of each record. The records of a subject are summed before the\n\
                  design variance, and where the plan's last stage has no clusters the subjects are its\n\
                  units. With ID and one time variable, a subject's first record starts at the\n\
-                 beginning and each later one where the previous record (in file order) ended.\n\
+                 beginning and each later one where the previous record (in time) ended.\n\
                  Factors and covariates may come from a TIME PROGRAM: each record is then split at the\n\
                  event times of its baseline stratum and the program runs on every piece with T_ set to\n\
                  the piece's event time. With such covariates there are no baseline functions, plots,\n\
