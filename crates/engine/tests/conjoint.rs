@@ -485,3 +485,19 @@ fn a_generated_plan_recovers_exact_utilities() {
     ];
     u.iter().zip(want).for_each(|(g, w)| close(*g, w));
 }
+
+/// IDEAL on a two-level factor cannot be fitted (its square repeats it), so the run stops with
+/// that reason rather than failing later without one.
+#[test]
+fn ideal_needs_three_levels() {
+    let mut engine = Engine::default();
+    run_on(&mut engine, &format!("{PLAN}{}", rank_data()));
+    let (commands, errors) =
+        parse("CONJOINT PLAN=plan /FACTORS=organic (IDEAL) /SUBJECT=id /RANK=r1 TO r12.");
+    assert!(errors.is_empty(), "{errors:?}");
+    let error = engine
+        .execute(&commands[0].command)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("need at least three"), "{error}");
+}

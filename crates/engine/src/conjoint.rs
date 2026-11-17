@@ -516,11 +516,13 @@ impl Engine {
             if matches!(f.model, ConjointModel::Ideal | ConjointModel::Antiideal)
                 && f.levels.len() < 3
             {
-                self.warn(format!(
+                // a squared term cannot be fitted to two values: stop with the reason here
+                // rather than with a fit that fails later for no stated reason
+                return Err(Error(format!(
                     "CONJOINT: {} has {} levels; IDEAL and ANTIIDEAL need at least three",
                     f.name,
                     f.levels.len()
-                ));
+                )));
             }
         }
         let (kind, items) = &c.responses;

@@ -51,6 +51,10 @@ pub(super) struct Glmm {
 
 /// The messages of MIXED in the words of GENLINMIXED.
 pub(super) fn renamed(message: &str) -> String {
+    // messages of GENLINMIXED's own name go through here too; leave them as they are
+    if message.contains("GENLINMIXED") {
+        return message.to_string();
+    }
     message
         .replace("MIXED", "GENLINMIXED")
         .replace("MXITER", "MAX_ITERATIONS")
@@ -500,5 +504,18 @@ impl Engine {
                 .map_err(|e| Error(renamed(&e.0)))?,
         );
         Ok(tables)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn renamed_once() {
+        assert_eq!(
+            super::renamed("MIXED reached MXITER"),
+            "GENLINMIXED reached MAX_ITERATIONS"
+        );
+        let own = "GENLINMIXED reached MAX_ITERATIONS (50)";
+        assert_eq!(super::renamed(own), own);
     }
 }

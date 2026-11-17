@@ -375,6 +375,14 @@ fn pls_errors() {
     assert!(err("PLS cy MLEVEL=N REFERENCE=7 WITH x1.").contains("REFERENCE value"));
     let string = "STRING s (A3).\nCOMPUTE s = 'a'.\nPLS s MLEVEL=S WITH x1.";
     assert!(err(string).contains("string dependent"));
+    // a constant scale dependent after a categorical one: its own column is checked, not a
+    // dummy of the categorical one
+    let constant = "COMPUTE k = 5.\nPLS cy MLEVEL=N k WITH x1 x2.";
+    assert!(
+        err(constant).contains("the dependent k has the same value"),
+        "{}",
+        err(constant)
+    );
     assert!(err("PLS y1 WITH x1 /MODEL x2.").contains("neither a factor nor a covariate"));
 }
 const A: Expected = Expected {

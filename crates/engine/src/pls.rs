@@ -507,9 +507,17 @@ impl Engine {
             .collect();
         let (mx, sx) = moments(&x_raw, &d.f, n);
         let (my, sy) = moments(&y_raw, &d.f, m);
-        for (r, dep) in dependents.iter().enumerate() {
-            let column = y_raw.iter().map(|row| row[r]);
-            if dep.levels.is_none() && column.clone().all(|v| v == y_raw[0][r]) {
+        // a categorical dependent takes one column per category but its reference
+        let mut r = 0;
+        for dep in &dependents {
+            let width = dep
+                .levels
+                .as_ref()
+                .map_or(1, |(levels, _)| levels.len() - 1);
+            let at = r;
+            r += width;
+            let column = y_raw.iter().map(|row| row[at]);
+            if dep.levels.is_none() && column.clone().all(|v| v == y_raw[0][at]) {
                 return Err(Error(format!(
                     "PLS: the dependent {} has the same value in every case used",
                     dep.variable.name()
@@ -535,6 +543,12 @@ impl Engine {
         let y0 = scaled(&y_raw, &my, &sy);
         let trace_x: f64 = x0.iter().flatten().map(|v| v * v).sum();
         let trace_y: f64 = y0.iter().flatten().map(|v| v * v).sum();
+        // the factors are bounded by the distinct cases, whatever their weights
+        if rows.len() < 2 {
+            return Err(Error(
+                "PLS needs at least two different cases with valid values".to_string(),
+            ));
+        }
         let most = command.latent_factors.min(n).min(rows.len() - 1);
         let fit = nipals(x0, y0, n, m, most);
         let factors = fit.w.len();
