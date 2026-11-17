@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CROSSTABS: gamma, the Kendall taus and Somers' d count concordant pairs with cumulative sums, so a large table (an ID by a measurement) takes well under a second instead of minutes.
 - CROSSTABS integer mode: /VARIABLES with value ranges. Every value of a row or column range is shown, values outside it count as missing, and TO and ALL on TABLES follow the order of VARIABLES.
 - CROSSTABS /MISSING=REPORT in integer mode: user-missing values are shown in the table, marked, with their counts, and left out of totals, percentages and statistics.
 - AGGREGATE: the percentage, fraction and count functions PGT, PLT, PIN, POUT, FGT, FLT, FIN, FOUT, CGT, CLT, CIN and COUT.

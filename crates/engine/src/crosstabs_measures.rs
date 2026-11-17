@@ -500,20 +500,24 @@ impl Counts<'_> {
     /// The concordance of every cell with the others.
     fn pairs(&self, rows: &[f64], columns: &[f64], w: f64) -> Pairs {
         let (r, c) = self.dims();
+        // s[a][b]: the sum of the cells above row a and left of column b, so each quadrant
+        // around a cell is a few lookups and large tables stay fast
+        let mut s = vec![vec![0.0; c + 1]; r + 1];
+        for i in 0..r {
+            for j in 0..c {
+                s[i + 1][j + 1] = self.f[i][j] + s[i][j + 1] + s[i + 1][j] - s[i][j];
+            }
+        }
         let mut concordant = vec![vec![0.0; c]; r];
         let mut discordant = vec![vec![0.0; c]; r];
         for i in 0..r {
             for j in 0..c {
-                for h in 0..r {
-                    for k in 0..c {
-                        let f = self.f[h][k];
-                        if (h < i && k < j) || (h > i && k > j) {
-                            concordant[i][j] += f;
-                        } else if (h < i && k > j) || (h > i && k < j) {
-                            discordant[i][j] += f;
-                        }
-                    }
-                }
+                let above_left = s[i][j];
+                let above_right = s[i][c] - s[i][j + 1];
+                let below_left = s[r][j] - s[i + 1][j];
+                let below_right = s[r][c] - s[i + 1][c] - s[r][j + 1] + s[i + 1][j + 1];
+                concordant[i][j] = above_left + below_right;
+                discordant[i][j] = above_right + below_left;
             }
         }
         let mut p = 0.0;
