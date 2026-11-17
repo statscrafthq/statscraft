@@ -1,5 +1,6 @@
 //! The command table: the single source for command name matching, parsing and help.
 
+use crate::adp;
 use crate::agreement;
 use crate::aim;
 use crate::alscal;
@@ -2355,6 +2356,51 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "DETECTANOMALY /VARIABLES SCALE=amount days CATEGORICAL=channel ID=order_no\n\
                   \x20 /CRITERIA NUMREASONS=2 PCTANOMALOUSCASES=2 /SAVE ANOMALY PEERID REASONVAR /PRINT CPS ANOMALYLIST NORMS.",
         parse: twostep::detectanomaly,
+    },
+    CommandSpec {
+        name: "ADP",
+        summary: "Prepares a target and its inputs for modelling and writes the preparation as syntax.",
+        syntax: "ADP /FIELDS [TARGET=var] INPUT=varlist [ANALYSISWEIGHT=var]\n\
+                 \x20   [/PREPDATETIME [DATEDURATION=YES[(REFERENCE=CURRENT | YMD('y-m-d') UNIT=AUTO | YEARS | MONTHS | DAYS[(SUFFIX='s')])] | NO]\n\
+                 \x20                  [TIMEDURATION=YES[(REFERENCE=CURRENT | HMS('h:m:s') UNIT=AUTO | HOURS | MINUTES | SECONDS[(SUFFIX='s')])] | NO]\n\
+                 \x20                  [EXTRACTYEAR | EXTRACTMONTH | EXTRACTDAY | EXTRACTHOUR | EXTRACTMINUTE | EXTRACTSECOND=NO | YES[(SUFFIX='s')]]]\n\
+                 \x20   [/SCREENING [PCTMISSING=YES[(MAXPCT=50)] | NO] [UNIQUECAT=YES[(MAXCAT=100)] | NO] [SINGLECAT=NO | YES[(MAXPCT=95)]]]\n\
+                 \x20   [/ADJUSTLEVEL [INPUT=YES | NO] [TARGET=YES | NO] [MAXVALORDINAL=10] [MINVALCONTINUOUS=5]]\n\
+                 \x20   [/OUTLIERHANDLING [INPUT=YES | NO] [TARGET=YES | NO] [CUTOFF=SD(3)] [REPLACEWITH=CUTOFFVALUE | MISSING]]\n\
+                 \x20   [/REPLACEMISSING [INPUT=YES[(EXCLUDE([CONTINUOUS] [NOMINAL] [ORDINAL]))] | NO] [TARGET=NO | YES[(EXCLUDE(...))]]]\n\
+                 \x20   [/REORDERNOMINAL [INPUT=NO | YES] [TARGET=NO | YES]]\n\
+                 \x20   [/RESCALE [INPUT=ZSCORE[(MEAN=0 SD=1)] | MINMAX[(MIN=0 MAX=100)] | NONE] [TARGET=BOXCOX[(MEAN=0 SD=1)] | NONE]]\n\
+                 \x20   [/TRANSFORM [MERGESUPERVISED=YES[(PVALUE=0.05)] | NO] [MERGEUNSUPERVISED=NO | YES[([ORDINAL] [NOMINAL] [MINPCT=10])]]\n\
+                 \x20               [BINNING=SUPERVISED[(PVALUE=0.05)] | NONE] [SELECTION=YES[(PVALUE=0.05)] | NO] [CONSTRUCTION=NO]]\n\
+                 \x20   [/CRITERIA SUFFIX([TARGET='_transformed'] [INPUT='_transformed'])]\n\
+                 \x20   /OUTFILE PREPXML='file'.\n\
+                 Every word is written in full and each subcommand given once. ADP looks at the data and\n\
+                 writes syntax (RECODE, COMPUTE, IF and VARIABLE LEVEL) that makes a prepared copy of each\n\
+                 field it changes, named with the suffix; run that file to add the fields. The data are not\n\
+                 changed by ADP itself, and the file holds syntax rather than XML. The steps, in order: date\n\
+                 inputs become the time since the reference date (AUTO: days below 31 days, months of 30.4375\n\
+                 days below 366, else years of 365.25 days) and time inputs the time since the reference time\n\
+                 (seconds below 60, minutes below 3600, else hours), with the parts asked for as ordinal\n\
+                 fields; the date or time field itself is dropped. Screening drops fields with too many\n\
+                 missing values, a single value, one dominant category or too many nominal categories. Levels:\n\
+                 continuous fields with few values become ordinal, ordinal fields with many continuous.\n\
+                 Outliers of continuous fields lie more than CUTOFF robust SDs (found after setting aside thin\n\
+                 tails of at most 5% of the cases) from the robust mean. Missing values take the mean, median\n\
+                 or mode by level. A nominal\n\
+                 target can be renumbered by count; a continuous target goes through Box-Cox (lambda -3 to 3\n\
+                 by 0.5) and then to MEAN and SD. Continuous inputs get z scores or min-max. With a target,\n\
+                 categories of an input whose relation to the target does not differ at PVALUE are merged\n\
+                 (F test, chi-square or the row effects test by the target's level) and an input not related\n\
+                 to the target is dropped; continuous inputs are binned at the Scheffe subsets of the\n\
+                 target classes' means for a categorical target, or dropped when their correlation with a\n\
+                 continuous target is not significant. Without a target, MERGEUNSUPERVISED joins small\n\
+                 neighbouring categories until each holds MINPCT of the cases. CONSTRUCTION=YES is not\n\
+                 supported yet. Frequency weights are rounded; analysis weights weigh means and spreads.\n\
+                 SPLIT FILE is not used. The table lists each field, its prepared field and the actions.",
+        example: "ADP /FIELDS TARGET=churned INPUT=tenure plan region signup\n\
+                  \x20 /PREPDATETIME DATEDURATION=YES(REFERENCE=YMD('2025-01-01') UNIT=MONTHS)\n\
+                  \x20 /OUTFILE PREPXML='prepare.sps'.",
+        parse: adp::adp,
     },
     CommandSpec {
         name: "OPTIMAL BINNING",

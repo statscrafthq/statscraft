@@ -83,6 +83,7 @@ pub enum Command {
     /// BEGIN EXPR /OUTFILE PREPXML='file': the commands up to END EXPR define a model.
     BeginExpr(String),
     EndExpr,
+    Adp(Box<crate::adp::Adp>),
     Logistic(Box<crate::logistic::Logistic>),
     Coxreg(Box<crate::coxreg::Coxreg>),
     Nomreg(Box<crate::nomreg::Nomreg>),

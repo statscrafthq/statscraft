@@ -1,5 +1,6 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
+mod adp;
 mod aggregate;
 mod agreement;
 mod aim;
@@ -1360,6 +1361,12 @@ impl Engine {
                 }
                 return self.procedure(command);
             }
+            Command::Adp(_) => {
+                if self.active()?.split_file().is_some() {
+                    self.warn("ADP does not use SPLIT FILE: it prepares all cases together");
+                }
+                return self.procedure(command);
+            }
             Command::OptimalBinning(_) => {
                 if self.active()?.split_file().is_some() {
                     self.warn(
@@ -1668,6 +1675,7 @@ impl Engine {
             Command::Aim(command) => self.aim(command),
             Command::Selectpred(command) => self.selectpred(command),
             Command::Simplan(command) => self.simplan(command),
+            Command::Adp(command) => self.adp(command),
             Command::Logistic(command) => self.logistic(command),
             Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),

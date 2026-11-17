@@ -259,6 +259,7 @@ impl Engine {
                 | Command::Prefscal(_)
                 | Command::Selectpred(_)
                 | Command::Simplan(_)
+                | Command::Adp(_)
                 | Command::MultipleCorrespondence(_)
                 | Command::Catpca(_)
                 | Command::Catreg(_)

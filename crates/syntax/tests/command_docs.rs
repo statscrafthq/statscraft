@@ -164,6 +164,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "NAIVEBAYES",
             "AIM",
             "SELECTPRED",
+            "ADP",
             "PROXIMITIES",
             "PROXSCAL",
             "PREFSCAL",

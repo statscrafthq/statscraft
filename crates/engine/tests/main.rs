@@ -1,6 +1,7 @@
 //! The engine's integration tests, built as one test binary: a binary per file cost minutes of
 //! linking after every engine edit and gigabytes of disk. A new test file needs a line here.
 
+mod adp;
 mod agreement;
 mod aim_selectpred;
 mod alscal;
