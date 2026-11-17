@@ -32,7 +32,7 @@ mod regression;
 mod sampling;
 pub use regression::*;
 pub(crate) use sampling::csselect;
-pub use sampling::{CsMethod, CsSampling, CsStageVars, Csselect};
+pub use sampling::{CsMethod, CsMos, CsSampling, CsStageVars, Csselect};
 use sampling::{analysis_side, check_sample, new_sampling, stage_subcommand};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,6 +144,8 @@ pub struct CsRatio {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Csdescriptives {
     pub plan: String,
+    /// JOINTPROB FILE; None for the file CSSELECT names after the plan.
+    pub jointprob: Option<String>,
     pub summary: Vec<VarItem>,
     /// MEAN given, with its TTEST values (an empty list without TTEST).
     pub mean: Option<Vec<f64>>,
@@ -176,6 +178,7 @@ pub struct CsTests {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cstabulate {
     pub plan: String,
+    pub jointprob: Option<String>,
     pub variables: Vec<VarItem>,
     pub by: Option<String>,
     pub cells: CsCells,
@@ -229,6 +232,12 @@ fn names(p: &mut Parser) -> PResult<Vec<String>> {
 fn plan_file(p: &mut Parser) -> PResult<String> {
     require_assignment(p, "FILE")?;
     p.file("a plan file name")
+}
+
+/// `FILE = name` of JOINTPROB in the analysis commands: a data file or a dataset.
+fn joint_file(p: &mut Parser) -> PResult<String> {
+    require_assignment(p, "FILE")?;
+    p.file("a file or dataset name")
 }
 
 /// Marks a subcommand as seen; a second one is an error.
@@ -474,8 +483,12 @@ fn check_plan(p: &Parser, plan: &mut Csplan, estimators: &[bool]) -> PResult<()>
                 CsRate::Value(_) => {}
             }
         }
-        // the variables CSSELECT writes need names of their own too
-        for name in sample.iter().flat_map(|s| s.vars.names()) {
+        // so do the measure of size and the variables CSSELECT writes
+        let mos = sample.and_then(|s| s.mos.as_ref()?.variable.as_ref());
+        for name in mos
+            .into_iter()
+            .chain(sample.iter().flat_map(|s| s.vars.names()))
+        {
             let upper = name.to_uppercase();
             if roles.contains(&upper) {
                 return Err(error(
@@ -707,7 +720,6 @@ pub(crate) fn csplan(p: &mut Parser) -> PResult<Command> {
                 plan.stages.last_mut().expect("checked"),
                 number,
                 estimators.last_mut().expect("checked"),
-                &mut plan.ignored,
             )?;
         } else {
             return Err(p.subcommand_error("CSPLAN", &[]));
@@ -895,6 +907,7 @@ fn missing(p: &mut Parser, scope: &'static str) -> PResult<(bool, bool)> {
 pub(crate) fn csdescriptives(p: &mut Parser) -> PResult<Command> {
     let mut c = Csdescriptives {
         plan: String::new(),
+        jointprob: None,
         summary: Vec::new(),
         mean: None,
         sum: None,
@@ -910,6 +923,9 @@ pub(crate) fn csdescriptives(p: &mut Parser) -> PResult<Command> {
         if p.eat_keyword("PLAN") {
             once(p, start, &mut seen, "PLAN")?;
             c.plan = plan_file(p)?;
+        } else if p.eat_keyword("JOINTPROB") {
+            once(p, start, &mut seen, "JOINTPROB")?;
+            c.jointprob = Some(joint_file(p)?);
         } else if p.eat_word("SUM") {
             // before SUMMARY, which SUM would abbreviate
             once(p, start, &mut seen, "SUM")?;
@@ -952,7 +968,7 @@ pub(crate) fn csdescriptives(p: &mut Parser) -> PResult<Command> {
             once(p, start, &mut seen, "MISSING")?;
             (c.listwise, c.include) = missing(p, "ANALYSIS")?;
         } else {
-            return Err(p.subcommand_error("CSDESCRIPTIVES", &["JOINTPROB"]));
+            return Err(p.subcommand_error("CSDESCRIPTIVES", &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));
@@ -1001,6 +1017,7 @@ fn ratio_list(p: &mut Parser) -> PResult<Vec<VarItem>> {
 pub(crate) fn cstabulate(p: &mut Parser) -> PResult<Command> {
     let mut c = Cstabulate {
         plan: String::new(),
+        jointprob: None,
         variables: Vec::new(),
         by: None,
         cells: CsCells {
@@ -1021,6 +1038,9 @@ pub(crate) fn cstabulate(p: &mut Parser) -> PResult<Command> {
         if p.eat_keyword("PLAN") {
             once(p, start, &mut seen, "PLAN")?;
             c.plan = plan_file(p)?;
+        } else if p.eat_keyword("JOINTPROB") {
+            once(p, start, &mut seen, "JOINTPROB")?;
+            c.jointprob = Some(joint_file(p)?);
         } else if p.eat_keyword("TABLES") {
             once(p, start, &mut seen, "TABLES")?;
             require_assignment(p, "VARIABLES")?;
@@ -1090,7 +1110,7 @@ pub(crate) fn cstabulate(p: &mut Parser) -> PResult<Command> {
             once(p, start, &mut seen, "MISSING")?;
             (c.listwise, c.include) = missing(p, "TABLE")?;
         } else {
-            return Err(p.subcommand_error("CSTABULATE", &["JOINTPROB"]));
+            return Err(p.subcommand_error("CSTABULATE", &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

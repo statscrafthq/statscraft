@@ -14,7 +14,11 @@
 //!   EQUAL_WOR (f_h the inclusion probability, or n_h over the population size) and 1 under WR.
 //!   A stratum with one unit adds 0. mult is 1 in the first stage and, in a later stage, the
 //!   mult of the parent stratum times its f. A WR stage ends the variance: later stages add
-//!   nothing.
+//!   nothing. Under UNEQUAL_WOR (first stage only) a stratum adds instead, over the pairs of its
+//!   units a < b, (pi_a pi_b / pi_ab - 1) (z_a - z_b)^2 with z the unit totals (Yates and
+//!   Grundy), and a later stratum's mult is the inclusion probability pi of its parent unit;
+//!   pi and pi_ab come from the joint probabilities file CSSELECT writes. A negative variance
+//!   is undefined; in a covariance matrix its row and column become 0.
 //! - Linearized values: a mean u = (y - mean) / N, a ratio u = (y - R x) / X, a proportion
 //!   u = (d_cell - d_base P) / N_base. Domains (subpopulations, cases without valid analysis
 //!   values) keep the whole design and set u = 0 outside.
@@ -90,7 +94,7 @@ struct PlanStage {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct PlanSampling {
-    /// SIMPLE_WOR, SIMPLE_WR, SIMPLE_SYSTEMATIC or SIMPLE_CHROMY.
+    /// A METHOD keyword, such as SIMPLE_WOR or PPS_WOR.
     method: String,
     /// ESTIMATION=WR
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -103,7 +107,21 @@ struct PlanSampling {
     minsize: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     maxsize: Option<f64>,
+    /// The measure of size of a PPS stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mos: Option<PlanMos>,
     variables: PlanStageVars,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct PlanMos {
+    /// None: the number of cases in each cluster.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    variable: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max: Option<f64>,
 }
 
 /// The names of the variables CSSELECT writes for a stage.
@@ -216,6 +234,11 @@ fn plan_of(command: &Csplan) -> PlanFile {
                     rate: d.rate.as_ref().map(plan_rate),
                     minsize: d.minsize,
                     maxsize: d.maxsize,
+                    mos: d.mos.as_ref().map(|m| PlanMos {
+                        variable: m.variable.clone(),
+                        min: m.min,
+                        max: m.max,
+                    }),
                     variables: PlanStageVars {
                         inclprob: d.vars.inclprob.clone(),
                         cumweight: d.vars.cumweight.clone(),
@@ -255,6 +278,13 @@ fn method_text(method: &str) -> &'static str {
         "SIMPLE_WR" => "Simple random, with replacement",
         "SIMPLE_SYSTEMATIC" => "Systematic",
         "SIMPLE_CHROMY" => "Chromy sequential",
+        "PPS_WOR" => "Proportional to size, without replacement (Hanurav and Vijayan)",
+        "PPS_WR" => "Proportional to size, with replacement",
+        "PPS_SYSTEMATIC" => "Proportional to size, systematic",
+        "PPS_BREWER" => "Proportional to size, Brewer (two units)",
+        "PPS_MURTHY" => "Proportional to size, Murthy (two units)",
+        "PPS_SAMPFORD" => "Proportional to size, Sampford",
+        "PPS_CHROMY" => "Proportional to size, Chromy sequential",
         _ => "Unknown",
     }
 }
@@ -288,6 +318,18 @@ fn sample_table(plan: &PlanFile, file: &str) -> Table {
             text(none(&stage.clusters)),
         ]);
         rows.push(vec![text(""), text("Method"), text(method_text(&d.method))]);
+        if let Some(mos) = &d.mos {
+            let mut size = match &mos.variable {
+                Some(v) => format!("variable {v}"),
+                None => "cases per cluster".to_string(),
+            };
+            for (what, bound) in [("at least", mos.min), ("at most", mos.max)] {
+                if let Some(b) = bound {
+                    size.push_str(&format!(", {what} {b}"));
+                }
+            }
+            rows.push(vec![text(""), text("Measure of size"), text(size)]);
+        }
         if let Some(size) = &d.size {
             rows.push(vec![text(""), text("Sample size"), text(rate_text(size))]);
         }
@@ -445,11 +487,16 @@ struct StageIndex {
     unit: Vec<usize>,
     /// The stratum of every unit.
     unit_stratum: Vec<usize>,
-    /// Per stratum: units, fpc (1 - f, or 1 under WR), f and the multiplier from earlier stages.
+    /// Per stratum: units, fpc (1 - f, or 1 under WR) and the multiplier from earlier stages.
     n_units: Vec<usize>,
     fpc: Vec<f64>,
-    rate: Vec<f64>,
     mult: Vec<f64>,
+    /// The inclusion probability of every unit (0 under WR).
+    unit_rate: Vec<f64>,
+    /// UNEQUAL_WOR: the variance adds over the pairs (a, b) of units in a stratum
+    /// (pi_a pi_b / pi_ab - 1) times the squared difference of their totals.
+    unequal: bool,
+    yg: Vec<(usize, usize, f64)>,
 }
 
 /// The design of the cases that have valid design variables.
@@ -488,6 +535,113 @@ fn key_part(key: &Key) -> String {
         Key::Number(n) => format!("n{}", n.to_bits()),
         Key::Text(t) => format!("s{t}"),
     }
+}
+
+/// A pair of units of a stratum and its Yates-Grundy factor.
+type YgPair = (usize, usize, f64);
+
+/// From the joint probabilities file (variables by position: the first-stage strata, the
+/// clusters, the unit number in the stratum, then the joint probabilities of the units by their
+/// number): the inclusion probability of every first-stage unit and the Yates-Grundy factor
+/// pi_a pi_b / pi_ab - 1 of every pair of units a < b in a stratum. A unit is found by its
+/// strata and cluster values (`strata` and `clusters` over the dataset cases, `unit_case` a case
+/// of each unit).
+fn joint_pairs(
+    file: &Dataset,
+    strata: &[Vec<Option<Key>>],
+    clusters: &[Vec<Option<Key>>],
+    unit_case: &[usize],
+    unit_stratum: &[usize],
+) -> Result<(Vec<f64>, Vec<YgPair>), Error> {
+    let ids = strata.len() + clusters.len();
+    let width = file.variable_count();
+    if width < ids + 2 {
+        return Err(Error(format!(
+            "the joint probabilities file needs {} variables first: the first-stage strata and clusters, the unit number and the joint probabilities",
+            ids + 2
+        )));
+    }
+    let column = |k: usize| file.variable_at(k);
+    let file_keys: Vec<Vec<Option<Key>>> = (0..ids).map(|k| keys_of(&column(k), true)).collect();
+    let numbers_at = |k: usize| -> Result<Vec<Option<f64>>, Error> {
+        numbers(&column(k)).map_err(|_| {
+            Error(format!(
+                "the joint probabilities file has a string variable {} where numbers belong",
+                column(k).name()
+            ))
+        })
+    };
+    let unit_no = numbers_at(ids)?;
+    let probs = (ids + 1..width)
+        .map(numbers_at)
+        .collect::<Result<Vec<_>, _>>()?;
+    let key = |columns: &mut dyn Iterator<Item = &Option<Key>>| -> Option<String> {
+        let mut out = String::new();
+        for k in columns {
+            out.push('\u{1}');
+            out.push_str(&key_part(k.as_ref()?));
+        }
+        Some(out)
+    };
+    let mut row_of: HashMap<String, usize> = HashMap::new();
+    for row in 0..file.case_count() {
+        if let Some(k) = key(&mut file_keys.iter().map(|c| &c[row])) {
+            row_of.entry(k).or_insert(row);
+        }
+    }
+    // the file row and unit number of each unit
+    let mut found = Vec::with_capacity(unit_case.len());
+    for &case in unit_case {
+        let k = key(&mut strata.iter().chain(clusters).map(|c| &c[case])).expect("a design case");
+        let Some(&row) = row_of.get(&k) else {
+            let shown: Vec<String> = strata
+                .iter()
+                .chain(clusters)
+                .map(|c| match c[case].as_ref().expect("a design case") {
+                    Key::Number(n) => n.to_string(),
+                    Key::Text(t) => format!("'{t}'"),
+                })
+                .collect();
+            return Err(Error(format!(
+                "the joint probabilities file has no row for the first-stage unit {}",
+                shown.join(" ")
+            )));
+        };
+        let number = unit_no[row]
+            .filter(|n| *n >= 1.0 && n.fract() == 0.0 && (*n as usize) <= probs.len())
+            .ok_or_else(|| {
+                Error(format!(
+                    "row {} of the joint probabilities file has no valid unit number",
+                    row + 1
+                ))
+            })?;
+        found.push((row, number as usize - 1));
+    }
+    let prob = |row: usize, unit: usize| -> Result<f64, Error> {
+        probs[unit][row]
+            .filter(|p| *p > 0.0 && *p <= 1.0 + 1e-12)
+            .ok_or_else(|| {
+                Error(format!(
+                    "row {} of the joint probabilities file lacks a probability above 0 and at most 1 for unit {}",
+                    row + 1,
+                    unit + 1
+                ))
+            })
+    };
+    let rates = found
+        .iter()
+        .map(|&(row, unit)| prob(row, unit))
+        .collect::<Result<Vec<f64>, _>>()?;
+    let mut pairs = Vec::new();
+    for a in 0..unit_case.len() {
+        for b in a + 1..unit_case.len() {
+            if unit_stratum[a] == unit_stratum[b] {
+                let joint = prob(found[a].0, found[b].1)?;
+                pairs.push((a, b, rates[a] * rates[b] / joint - 1.0));
+            }
+        }
+    }
+    Ok((rates, pairs))
 }
 
 /// Valid numbers of every dataset case: None for system- and user-missing.
@@ -553,17 +707,18 @@ impl RateSource {
 }
 
 impl Design {
-    fn new(data: &Dataset, plan: &PlanFile, include: bool, deff: bool) -> Result<Design, Error> {
+    /// `joint` is the joint probabilities file, which a plan with UNEQUAL_WOR needs.
+    fn new(
+        data: &Dataset,
+        plan: &PlanFile,
+        include: bool,
+        deff: bool,
+        joint: Option<&Dataset>,
+    ) -> Result<Design, Error> {
         let weight_var = data.variable(&plan.weight)?;
         let weights = numbers(&weight_var)?;
         let mut used: Vec<&PlanStage> = Vec::new();
         for stage in &plan.stages {
-            if stage.estimator == "UNEQUAL_WOR" {
-                return Err(Error(
-                    "the UNEQUAL_WOR estimator needs joint inclusion probabilities and is not supported yet"
-                        .into(),
-                ));
-            }
             used.push(stage);
             if stage.estimator == "WR" {
                 break;
@@ -575,6 +730,7 @@ impl Design {
             strata: Vec<Vec<Option<Key>>>,
             clusters: Vec<Vec<Option<Key>>>,
             rate: Option<(RateSource, bool)>,
+            unequal: bool,
         }
         let mut stage_data = Vec::new();
         for stage in &plan.stages {
@@ -622,6 +778,7 @@ impl Design {
                 strata: keys(&stage.strata)?,
                 clusters: keys(&stage.clusters)?,
                 rate,
+                unequal: stage.estimator == "UNEQUAL_WOR",
             });
         }
         // the design cases
@@ -675,6 +832,7 @@ impl Design {
             let mut unit_ids: HashMap<String, usize> = HashMap::new();
             let mut unit = Vec::with_capacity(n);
             let mut unit_stratum = Vec::new();
+            let mut unit_case = Vec::new();
             let mut stratum_of_case = Vec::with_capacity(n);
             for (c, &case) in rows.iter().enumerate() {
                 let mut key = format!("{}", parent[c]);
@@ -700,6 +858,7 @@ impl Design {
                 let u = *unit_ids.entry(ukey).or_insert(next);
                 if u == unit_stratum.len() {
                     unit_stratum.push(h);
+                    unit_case.push(case);
                 }
                 unit.push(u);
                 stratum_of_case.push(h);
@@ -756,10 +915,7 @@ impl Design {
                 None => vec![1.0; strata],
                 Some(prev) => stratum_parent
                     .iter()
-                    .map(|&pu| {
-                        let g = prev.unit_stratum[pu];
-                        prev.mult[g] * prev.rate[g]
-                    })
+                    .map(|&pu| prev.mult[prev.unit_stratum[pu]] * prev.unit_rate[pu])
                     .collect(),
             };
             if s < last && sd.clusters.is_empty() {
@@ -768,14 +924,26 @@ impl Design {
                     s + 1
                 )));
             }
+            // the inclusion probability of each unit; under UNEQUAL_WOR from the joint file,
+            // with the Yates-Grundy factors of the pairs of units in a stratum
+            let (unit_rate, yg) = if sd.unequal {
+                let file = joint.ok_or_else(|| {
+                    Error("UNEQUAL_WOR needs the joint probabilities file".into())
+                })?;
+                joint_pairs(file, &sd.strata, &sd.clusters, &unit_case, &unit_stratum)?
+            } else {
+                (unit_stratum.iter().map(|&h| rate[h]).collect(), Vec::new())
+            };
             parent = unit.clone();
             stages.push(StageIndex {
                 unit,
                 unit_stratum,
                 n_units,
                 fpc,
-                rate,
                 mult,
+                unit_rate,
+                yg,
+                unequal: sd.unequal,
             });
         }
         let first = &stages[0];
@@ -803,8 +971,24 @@ impl Design {
         self.rows.len()
     }
 
-    /// The covariance matrix of the totals of w u for each u.
+    /// The covariance matrix of the totals of w u for each u. The Yates-Grundy part of
+    /// UNEQUAL_WOR can make a variance negative; its row and column are then set to 0.
     fn covariance(&self, us: &[Vec<f64>]) -> Matrix {
+        let mut v = self.raw_covariance(us);
+        if self.stages.iter().any(|s| s.unequal) {
+            for a in 0..v.len() {
+                if v[a][a] <= 0.0 {
+                    v[a].fill(0.0);
+                    for row in v.iter_mut() {
+                        row[a] = 0.0;
+                    }
+                }
+            }
+        }
+        v
+    }
+
+    fn raw_covariance(&self, us: &[Vec<f64>]) -> Matrix {
         let k = us.len();
         let mut v = vec![vec![0.0; k]; k];
         for stage in &self.stages {
@@ -815,6 +999,18 @@ impl Design {
                 for (j, values) in us.iter().enumerate() {
                     totals[u][j] += self.w[c] * values[c];
                 }
+            }
+            if stage.unequal {
+                for &(a, b, f) in &stage.yg {
+                    let factor = stage.mult[stage.unit_stratum[a]] * f;
+                    let d: Vec<f64> = (0..k).map(|j| totals[a][j] - totals[b][j]).collect();
+                    for x in 0..k {
+                        for y in 0..k {
+                            v[x][y] += factor * d[x] * d[y];
+                        }
+                    }
+                }
+                continue;
             }
             let mut sums = vec![vec![0.0; k]; strata];
             for (u, t) in totals.iter().enumerate() {
@@ -841,8 +1037,11 @@ impl Design {
         v
     }
 
+    /// The variance of the total of w u; NaN (undefined) when the Yates-Grundy part of
+    /// UNEQUAL_WOR makes it negative.
     fn variance(&self, u: &[f64]) -> f64 {
-        self.covariance(&[u.to_vec()])[0][0]
+        let v = self.raw_covariance(&[u.to_vec()])[0][0];
+        if v < 0.0 { f64::NAN } else { v }
     }
 
     /// The variance under simple random sampling of the same linearized values, if defined.
@@ -949,7 +1148,14 @@ fn stat_cells(
     let mut out = Vec::new();
     let factor = if scale == Scale::Percent { 100.0 } else { 1.0 };
     let value = e.map(|e| e.value);
-    let se = e.map(|e| e.variance.max(0.0).sqrt());
+    // an undefined (NaN) variance stays undefined; NaN.max(0.0) would be 0
+    let se = e.map(|e| {
+        if e.variance.is_nan() {
+            f64::NAN
+        } else {
+            e.variance.max(0.0).sqrt()
+        }
+    });
     out.push(number(value.map(|v| v * factor)));
     if s.se {
         out.push(number(se.map(|v| v * factor)));
@@ -1163,6 +1369,35 @@ impl Engine {
         Ok(plan)
     }
 
+    /// Where CSSELECT writes the joint probabilities, and the analysis looks for them, when
+    /// JOINTPROB names no file: the plan's path with the extension joint.sav.
+    fn default_joint_file(&self, plan: &str) -> String {
+        self.path(plan)
+            .with_extension("joint.sav")
+            .display()
+            .to_string()
+    }
+
+    /// The joint probabilities file that a plan with UNEQUAL_WOR needs (JOINTPROB FILE, or the
+    /// default one); None for other plans.
+    fn joint_file(
+        &self,
+        plan: &PlanFile,
+        plan_file: &str,
+        given: Option<&str>,
+    ) -> Result<Option<Dataset>, Error> {
+        if !plan.stages.iter().any(|s| s.estimator == "UNEQUAL_WOR") {
+            return Ok(None);
+        }
+        let name = given.map_or_else(|| self.default_joint_file(plan_file), String::from);
+        self.data_file(&name).map(Some).map_err(|e| {
+            Error(format!(
+                "UNEQUAL_WOR needs the joint inclusion probabilities that CSSELECT writes; cannot read {name}: {}",
+                e.0
+            ))
+        })
+    }
+
     pub(crate) fn csplan(&mut self, command: &Csplan) -> Result<Vec<Table>, Error> {
         let plan = match command.mode {
             CsplanMode::View => self.read_plan(&command.file)?,
@@ -1204,10 +1439,11 @@ impl Engine {
 
     pub(crate) fn csdescriptives(&mut self, c: &Csdescriptives) -> Result<Vec<Table>, Error> {
         let plan = self.read_plan(&c.plan)?;
+        let joint = self.joint_file(&plan, &c.plan, c.jointprob.as_deref())?;
         let data = self.active()?;
         let shown = self.shown();
         let deff = c.statistics.deff || c.statistics.deffsqrt;
-        let design = Design::new(data, &plan, c.include, deff)?;
+        let design = Design::new(data, &plan, c.include, deff, joint.as_ref())?;
         let summary = if c.mean.is_some() || c.sum.is_some() {
             self.expand(&c.summary)?
         } else {
@@ -1426,10 +1662,11 @@ impl Engine {
 
     pub(crate) fn cstabulate(&mut self, c: &Cstabulate) -> Result<Vec<Table>, Error> {
         let plan = self.read_plan(&c.plan)?;
+        let joint = self.joint_file(&plan, &c.plan, c.jointprob.as_deref())?;
         let data = self.active()?;
         let shown = self.shown();
         let deff = c.statistics.deff || c.statistics.deffsqrt;
-        let design = Design::new(data, &plan, c.include, deff)?;
+        let design = Design::new(data, &plan, c.include, deff, joint.as_ref())?;
         let rows_vars = self.expand(&c.variables)?;
         if let Some(by) = &c.by
             && rows_vars.iter().any(|r| r.eq_ignore_ascii_case(by))

@@ -6,13 +6,17 @@
 //!   SAMPLEWEIGHT, default SampleWeight_Final_) and a weight from an earlier selection to
 //!   multiply in (PREVIOUSWEIGHT). Each DESIGN block needs METHOD and one of SIZE or RATE.
 //! - Methods with equal chances: SIMPLE_WOR (analyzed as EQUAL_WOR), SIMPLE_WR, SIMPLE_SYSTEMATIC
-//!   and SIMPLE_CHROMY (all three analyzed as WR). Drawing with replacement is for the last stage
-//!   only. ESTIMATION=WR, first stage only, makes the analysis use WR. Method names are spelled in
-//!   full. The PPS methods are not supported yet.
+//!   and SIMPLE_CHROMY (all three analyzed as WR). Methods proportional to size, first stage
+//!   only: PPS_WOR, PPS_BREWER, PPS_MURTHY and PPS_SAMPFORD (analyzed as UNEQUAL_WOR, so they
+//!   need CLUSTER), PPS_WR, PPS_SYSTEMATIC and PPS_CHROMY (analyzed as WR). Drawing with
+//!   replacement is for the last stage only. ESTIMATION=WR, first stage only, makes the analysis
+//!   use WR. Method names are spelled in full.
 //! - SIZE is a count per stratum (positive whole numbers), RATE a fraction (above 0, at most 1
 //!   without replacement) with MINSIZE and MAXSIZE bounds; either one as VALUE=, VARIABLE= or
-//!   MATRIX= like POPSIZE of an analysis plan.
-//! - MOS belongs to the PPS methods, only in the first stage; with an equal-chance method it is
+//!   MATRIX= like POPSIZE of an analysis plan. Brewer and Murthy always draw two units, so SIZE
+//!   and RATE are ignored with a warning there.
+//! - MOS (first stage only) is VARIABLE=name or SOURCE=FROMDATA (the cases in each cluster), with
+//!   optional MIN and MAX bounds above 0. A PPS method needs it; with an equal-chance method it is
 //!   ignored with a warning.
 //! - STAGEVARS names the stage's output variables: INCLPROB and CUMWEIGHT always exist, INDEX
 //!   exists when the stage draws with replacement (asked for otherwise it is ignored), POPSIZE,
@@ -40,24 +44,37 @@ pub enum CsMethod {
     SimpleWr,
     SimpleSystematic,
     SimpleChromy,
+    PpsWor,
+    PpsWr,
+    PpsSystematic,
+    PpsBrewer,
+    PpsMurthy,
+    PpsSampford,
+    PpsChromy,
 }
 
-const METHODS: [(&str, CsMethod); 4] = [
+const METHODS: [(&str, CsMethod); 11] = [
     ("SIMPLE_WOR", CsMethod::SimpleWor),
     ("SIMPLE_WR", CsMethod::SimpleWr),
     ("SIMPLE_SYSTEMATIC", CsMethod::SimpleSystematic),
     ("SIMPLE_CHROMY", CsMethod::SimpleChromy),
+    ("PPS_WOR", CsMethod::PpsWor),
+    ("PPS_WR", CsMethod::PpsWr),
+    ("PPS_SYSTEMATIC", CsMethod::PpsSystematic),
+    ("PPS_BREWER", CsMethod::PpsBrewer),
+    ("PPS_MURTHY", CsMethod::PpsMurthy),
+    ("PPS_SAMPFORD", CsMethod::PpsSampford),
+    ("PPS_CHROMY", CsMethod::PpsChromy),
 ];
 
-const PPS_METHODS: [&str; 7] = [
-    "PPS_WOR",
-    "PPS_WR",
-    "PPS_SYSTEMATIC",
-    "PPS_BREWER",
-    "PPS_MURTHY",
-    "PPS_SAMPFORD",
-    "PPS_CHROMY",
-];
+/// The measure of size of a PPS stage: a variable, or None for the number of cases in each
+/// cluster (SOURCE=FROMDATA); MIN and MAX bound it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CsMos {
+    pub variable: Option<String>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
 
 impl CsMethod {
     pub fn keyword(self) -> &'static str {
@@ -72,13 +89,28 @@ impl CsMethod {
     }
 
     pub fn with_replacement(self) -> bool {
-        self == CsMethod::SimpleWr
+        matches!(self, CsMethod::SimpleWr | CsMethod::PpsWr)
     }
 
-    /// The estimator an analysis of the drawn sample uses by default.
+    /// Drawn with probability proportional to a measure of size.
+    pub fn pps(self) -> bool {
+        self.keyword().starts_with("PPS")
+    }
+
+    /// Brewer and Murthy always draw two units per stratum.
+    pub fn draws_two(self) -> bool {
+        matches!(self, CsMethod::PpsBrewer | CsMethod::PpsMurthy)
+    }
+
+    /// The estimator an analysis of the drawn sample uses by default. UNEQUAL_WOR also means
+    /// that the stage needs CLUSTER and that CSSELECT writes joint inclusion probabilities.
     pub fn estimator(self) -> CsEstimator {
         match self {
             CsMethod::SimpleWor => CsEstimator::EqualWor,
+            CsMethod::PpsWor
+            | CsMethod::PpsBrewer
+            | CsMethod::PpsMurthy
+            | CsMethod::PpsSampford => CsEstimator::UnequalWor,
             _ => CsEstimator::Wr,
         }
     }
@@ -125,6 +157,7 @@ pub struct CsSampling {
     pub rate: Option<CsRate>,
     pub minsize: Option<f64>,
     pub maxsize: Option<f64>,
+    pub mos: Option<CsMos>,
     pub vars: CsStageVars,
 }
 
@@ -141,6 +174,7 @@ pub(super) fn new_sampling(stage: usize) -> CsSampling {
         rate: None,
         minsize: None,
         maxsize: None,
+        mos: None,
         vars: CsStageVars {
             inclprob: default_name("InclusionProbability", stage),
             cumweight: default_name("SampleWeightCumulative", stage),
@@ -185,7 +219,6 @@ pub(super) fn stage_subcommand(
     stage: &mut CsStage,
     number: usize,
     got_method: &mut bool,
-    ignored: &mut Vec<String>,
 ) -> PResult<()> {
     let no_clusters = stage.clusters.is_empty();
     let sample = stage.sample.as_mut().expect("a sample stage");
@@ -193,19 +226,19 @@ pub(super) fn stage_subcommand(
         "METHOD" => {
             require_assignment(p, "TYPE")?;
             let type_start = p.pos;
-            if let Some(&(_, method)) = METHODS.iter().find(|(k, _)| p.eat_word(k)) {
+            if let Some(&(keyword, method)) = METHODS.iter().find(|(k, _)| p.eat_word(k)) {
+                if method.pps() && number > 1 {
+                    return Err(error(
+                        p,
+                        type_start,
+                        format!(
+                            "{keyword} is allowed only in the first stage, like every PPS method"
+                        ),
+                    ));
+                }
                 sample.method = method;
-            } else if let Some(pps) = PPS_METHODS.into_iter().find(|k| p.eat_word(k)) {
-                return Err(error(
-                    p,
-                    type_start,
-                    format!(
-                        "{pps} (drawing with probability proportional to size) is not supported yet; the SIMPLE_ methods are"
-                    ),
-                ));
             } else {
-                let mut expected: Vec<&str> = METHODS.iter().map(|(k, _)| *k).collect();
-                expected.extend(PPS_METHODS);
+                let expected: Vec<&str> = METHODS.iter().map(|(k, _)| *k).collect();
                 return Err(p.unexpected(&expected));
             }
             *got_method = true;
@@ -229,6 +262,11 @@ pub(super) fn stage_subcommand(
                 return Err(error(p, start, "MOS is allowed only in the first stage"));
             }
             let mut seen = Vec::new();
+            let mut mos = CsMos {
+                variable: None,
+                min: None,
+                max: None,
+            };
             if at_end(p) {
                 return Err(error(p, start, "MOS needs VARIABLE= or SOURCE=FROMDATA"));
             }
@@ -236,7 +274,7 @@ pub(super) fn stage_subcommand(
                 let at = p.pos;
                 if eat_assignment(p, "VARIABLE")? {
                     once(p, at, &mut seen, "VARIABLE")?;
-                    p.name("a variable name")?;
+                    mos.variable = Some(p.name("a variable name")?);
                 } else if eat_assignment(p, "SOURCE")? {
                     once(p, at, &mut seen, "SOURCE")?;
                     if !p.eat_keyword("FROMDATA") {
@@ -250,17 +288,32 @@ pub(super) fn stage_subcommand(
                     .find(|k| matches!(eat_assignment(p, k), Ok(true)))
                 {
                     once(p, at, &mut seen, key)?;
+                    let slot = if key == "MIN" {
+                        &mut mos.min
+                    } else {
+                        &mut mos.max
+                    };
                     match p.number() {
-                        Some(v) if v > 0.0 => {}
+                        Some(v) if v > 0.0 => *slot = Some(v),
                         _ => return Err(error(p, at, "MIN and MAX of MOS are above 0")),
                     }
                 } else {
                     return Err(p.unexpected(&["VARIABLE =", "SOURCE =", "MIN =", "MAX ="]));
                 }
             }
-            ignored.push(format!(
-                "MOS is ignored in stage {number}: only the methods proportional to size use it"
-            ));
+            if seen.contains(&"VARIABLE") == seen.contains(&"SOURCE") {
+                return Err(error(
+                    p,
+                    start,
+                    "MOS needs one of VARIABLE= and SOURCE=FROMDATA",
+                ));
+            }
+            if let (Some(min), Some(max)) = (mos.min, mos.max)
+                && min > max
+            {
+                return Err(error(p, start, "MIN of MOS is above its MAX"));
+            }
+            sample.mos = Some(mos);
         }
         "SIZE" | "RATE" => {
             if sample.size.is_some() || sample.rate.is_some() {
@@ -361,10 +414,43 @@ pub(super) fn check_sample(p: &Parser, plan: &mut Csplan, methods: &[bool]) -> P
                 format!("stage {number} needs a METHOD subcommand"),
             ));
         }
-        if sample.size.is_none() && sample.rate.is_none() {
+        let method = sample.method;
+        if method.draws_two() {
+            if sample.size.take().is_some() || sample.rate.take().is_some() {
+                plan.ignored.push(format!(
+                    "SIZE and RATE are ignored in stage {number}: {} draws two units per stratum",
+                    method.keyword()
+                ));
+            }
+        } else if sample.size.is_none() && sample.rate.is_none() {
             return Err(error(p, end, format!("stage {number} needs SIZE or RATE")));
         }
-        let wr = sample.method.with_replacement();
+        if !method.pps() && sample.mos.take().is_some() {
+            plan.ignored.push(format!(
+                "MOS is ignored in stage {number}: only the PPS methods use it"
+            ));
+        }
+        if method.pps() && sample.mos.is_none() {
+            return Err(error(
+                p,
+                end,
+                format!(
+                    "stage {number} draws with {}, which needs MOS",
+                    method.keyword()
+                ),
+            ));
+        }
+        if method.estimator() == CsEstimator::UnequalWor && stage.clusters.is_empty() {
+            return Err(error(
+                p,
+                end,
+                format!(
+                    "stage {number} draws with {}, which needs CLUSTER",
+                    method.keyword()
+                ),
+            ));
+        }
+        let wr = method.with_replacement();
         if wr && s < last {
             return Err(error(
                 p,

@@ -40,7 +40,7 @@
 //! - OUTFILE (all three): COVB= or CORB= a data file or a declared dataset, MODEL= or PARAMETER=
 //!   a file; each pair is either-or, and at least one keyword is needed.
 
-use super::{eat_assignment, error, once, plan_file, require_assignment};
+use super::{eat_assignment, error, joint_file, once, plan_file, require_assignment};
 use crate::ast::{Command, Value, VarItem};
 use crate::glm::{LRow, Term, fraction, list_until, term};
 use crate::lexer::{Punct, TokenKind};
@@ -246,6 +246,8 @@ pub struct CsModel {
     pub factors: Vec<VarItem>,
     pub covariates: Vec<VarItem>,
     pub plan: String,
+    /// JOINTPROB FILE; None for the file CSSELECT names after the plan.
+    pub jointprob: Option<String>,
     pub model: Option<Vec<Term>>,
     pub intercept: CsIntercept,
     pub show_intercept: bool,
@@ -987,6 +989,7 @@ fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
         factors: Vec::new(),
         covariates: Vec::new(),
         plan: String::new(),
+        jointprob: None,
         model: None,
         intercept: CsIntercept::Yes,
         // the intercept of CSORDINAL is a placeholder for its thresholds
@@ -1047,6 +1050,9 @@ fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
         if p.eat_keyword("PLAN") {
             once(p, start, &mut seen, "PLAN")?;
             c.plan = plan_file(p)?;
+        } else if p.eat_keyword("JOINTPROB") {
+            once(p, start, &mut seen, "JOINTPROB")?;
+            c.jointprob = Some(joint_file(p)?);
         } else if p.eat_keyword("MODEL") {
             once(p, start, &mut seen, "MODEL")?;
             let mut terms = Vec::new();
@@ -1210,10 +1216,8 @@ fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
         } else if p.eat_keyword("OUTFILE") {
             once(p, start, &mut seen, "OUTFILE")?;
             c.outfile = outfile(p)?;
-        } else if logistic && p.at_keyword("EMMEANS") {
-            return Err(p.subcommand_error(command, &[]));
         } else {
-            return Err(p.subcommand_error(command, &["JOINTPROB"]));
+            return Err(p.subcommand_error(command, &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

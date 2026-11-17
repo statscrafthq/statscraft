@@ -3648,9 +3648,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "CSPLAN SAMPLE /PLAN FILE='file' [/PLANVARS [SAMPLEWEIGHT=var] [PREVIOUSWEIGHT=var]]\n\
                  \x20  [/PRINT [PLAN] [MATRIX]]\n\
                  \x20  /DESIGN [STAGELABEL='label'] [STRATA=vars] [CLUSTER=vars]\n\
-                 \x20  /METHOD TYPE=SIMPLE_WOR | SIMPLE_WR | SIMPLE_SYSTEMATIC | SIMPLE_CHROMY [ESTIMATION=DEFAULT | WR]\n\
+                 \x20  /METHOD TYPE=SIMPLE_WOR | SIMPLE_WR | SIMPLE_SYSTEMATIC | SIMPLE_CHROMY | PPS_WOR | PPS_WR\n\
+                 \x20              | PPS_SYSTEMATIC | PPS_BREWER | PPS_MURTHY | PPS_SAMPFORD | PPS_CHROMY\n\
+                 \x20              [ESTIMATION=DEFAULT | WR]\n\
                  \x20  /SIZE VALUE=n | VARIABLE=var | MATRIX=vars; categories n; ...\n\
                  \x20  | /RATE VALUE=f | VARIABLE=var | MATRIX=vars; categories f; ... [MINSIZE=n] [MAXSIZE=n]\n\
+                 \x20  [/MOS VARIABLE=var | SOURCE=FROMDATA [MIN=m] [MAX=m]]\n\
                  \x20  [/STAGEVARS [INCLPROB[(var)]] [CUMWEIGHT[(var)]] [INDEX[(var)]] [POPSIZE[(var)]]\n\
                  \x20             [SAMPSIZE[(var)]] [RATE[(var)]] [WEIGHT[(var)]]]\n\
                  \x20  [/DESIGN ... /METHOD ... (a second and a third stage)].\n\
@@ -3668,7 +3671,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  SAMPLE plans are carried out by CSSELECT. Per stage, METHOD says how units are drawn inside\n\
                  each stratum: SIMPLE_WOR at random without replacement, SIMPLE_WR with replacement (last\n\
                  stage only), SIMPLE_SYSTEMATIC every N/n-th unit from a random start, SIMPLE_CHROMY\n\
-                 sequentially with Chromy's method. SIZE gives the number of units per stratum, RATE the\n\
+                 sequentially with Chromy's method. The PPS methods (first stage only) give each unit a chance\n\
+                 in proportion to its measure of size, MOS: a variable, or with SOURCE=FROMDATA the number of\n\
+                 cases in the cluster, held between MIN and MAX. PPS_WOR (Hanurav and Vijayan), PPS_SAMPFORD,\n\
+                 PPS_BREWER and PPS_MURTHY (these two draw two units) draw without replacement, need CLUSTER\n\
+                 and are analyzed as UNEQUAL_WOR; PPS_WR, PPS_SYSTEMATIC and PPS_CHROMY are analyzed as\n\
+                 WR. A unit too large for its share of the sample is taken for sure. SIZE gives the number of\n\
+                 units per stratum, RATE the\n\
                  share (n is the share times the population rounded, then raised to MINSIZE or lowered to\n\
                  MAXSIZE); either one as a value, a variable that holds it, or a matrix with a row per\n\
                  stratum. STAGEVARS renames the variables CSSELECT writes and asks for more: the inclusion\n\
@@ -3677,18 +3686,20 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  replacement, and on request the population size, sample size, rate and weight of the stage.\n\
                  The final weight (SAMPLEWEIGHT, default SampleWeight_Final_) multiplies the stage weights and\n\
                  PREVIOUSWEIGHT. A sample plan is an analysis plan too: SIMPLE_WOR stages are analyzed as\n\
-                 EQUAL_WOR with the inclusion probability variable, the others as WR (and every stage as WR\n\
-                 with ESTIMATION=WR, first stage only), so CSDESCRIPTIVES can read the plan of a drawn sample.\n\
+                 EQUAL_WOR with the inclusion probability variable, the PPS methods as said above, the\n\
+                 others as WR (and every stage as WR with ESTIMATION=WR, first stage only), so CSDESCRIPTIVES\n\
+                 can read the plan of a drawn sample.\n\
                  ANALYSIS plans describe a sample drawn elsewhere. WR treats the units of the stage as drawn\n\
                  with replacement and ends the design: later stages add nothing to the variance. EQUAL_WOR\n\
                  treats them as drawn without replacement with equal chances and needs either the population\n\
                  size of each stratum (POPSIZE, whole numbers) or the share of units drawn (INCLPROB, above 0\n\
-                 and at most 1); it brings the finite population correction. SRSESTIMATOR picks the simple\n\
+                 and at most 1); it brings the finite population correction. UNEQUAL_WOR (first stage, with\n\
+                 CLUSTER) treats the units as drawn without replacement with unequal chances: the analysis\n\
+                 reads their inclusion and joint inclusion probabilities from the file CSSELECT writes (see\n\
+                 JOINTPROB of CSDESCRIPTIVES). SRSESTIMATOR picks the simple\n\
                  random sampling variance that design effects compare with: WOR (the default) includes the\n\
                  finite population correction, WR does not.\n\
-                 PRINT PLAN (the default) shows the plan, MATRIX the matrix rows. Not supported yet: the\n\
-                 methods proportional to size (PPS_..., and so MOS, which is ignored with a warning) and the\n\
-                 UNEQUAL_WOR estimator in analysis.",
+                 PRINT PLAN (the default) shows the plan, MATRIX the matrix rows.",
         example: "CSPLAN SAMPLE /PLAN FILE='orchards_draw.json' /DESIGN STRATA=valley CLUSTER=orchard /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=3 /DESIGN /METHOD TYPE=SIMPLE_SYSTEMATIC /RATE VALUE=0.25 MINSIZE=2.",
         parse: complex_samples::csplan,
     },
@@ -3717,10 +3728,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  already exists is an error; with RENAMEVARS the existing variable is renamed to the first\n\
                  free name of the form name_1, name_2, ... with a warning.\n\
                  Stage inclusion probabilities are n/N (with replacement 1 - (1 - 1/N)^n) and stage weights\n\
-                 N/n per draw. PRINT SELECTION (the default) shows per stage and stratum the population size,\n\
-                 the sample size and the rate; CPS counts the cases. JOINTPROB is for the methods\n\
-                 proportional to size, not supported yet, and is ignored with a warning. Not supported yet:\n\
-                 SELECTRULE.",
+                 N/n per draw; with a PPS method n times the unit's share of the total size (PPS_WR:\n\
+                 1 - (1 - share)^n, weight one over n times the share; PPS_MURTHY its own formula), and a\n\
+                 measure of size must be the same in all cases of a unit. PRINT SELECTION (the default) shows\n\
+                 per stage and stratum the population size, the sample size and the rate; CPS counts the\n\
+                 cases. A first stage drawn by PPS_WOR, PPS_BREWER, PPS_MURTHY or PPS_SAMPFORD also writes\n\
+                 the joint inclusion probabilities of the selected units to a data file: JOINTPROB OUTFILE,\n\
+                 or else the plan's name with the extension .joint.sav. It holds the first-stage strata and\n\
+                 clusters, Unit_No_ (the unit's number in its stratum) and Joint_Prob_k_ for k = 1, 2 and\n\
+                 so on (the joint probability with unit k; the inclusion probability on the diagonal); with\n\
+                 other plans JOINTPROB is ignored with a warning. Not supported yet: SELECTRULE.",
         example: "CSSELECT /PLAN FILE='orchards_draw.json' /CRITERIA SEED=4711 /SAMPLEFILE OUTFILE='orchards_sample.sav' DROP=notes /PRINT SELECTION CPS.",
         parse: complex_samples::csselect,
     },
@@ -3732,7 +3749,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/RATIO NUMERATOR=vars DENOMINATOR=vars [TTEST=value | values]] ...\n\
                  \x20  [/STATISTICS [COUNT] [POPSIZE] [SE] [CV] [DEFF] [DEFFSQRT] [CIN[(95)]]]\n\
                  \x20  [/SUBPOP TABLE=var [BY var ...] [DISPLAY=LAYERED | SEPARATE]]\n\
-                 \x20  [/MISSING [SCOPE=ANALYSIS | LISTWISE] [CLASSMISSING=EXCLUDE | INCLUDE]].\n\
+                 \x20  [/MISSING [SCOPE=ANALYSIS | LISTWISE] [CLASSMISSING=EXCLUDE | INCLUDE]]\n\
+                 \x20  [/JOINTPROB FILE='file' | dataset].\n\
                  The design comes from a plan written by CSPLAN; WEIGHT and SPLIT FILE do not apply. A case\n\
                  with a missing or non-positive weight, or a missing stratum, cluster, population size or\n\
                  inclusion probability, leaves the design. Totals are weighted sums; a mean is the total over\n\
@@ -3746,7 +3764,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  estimates use the whole design, with cases outside counting as zero; a Total row follows\n\
                  them. Under SCOPE=ANALYSIS each statistic uses the cases valid on its own variables, under\n\
                  LISTWISE those valid on all of them; the others count as outside, so the design stays whole.\n\
-                 Without STATISTICS: the estimate and its standard error. Not supported yet: JOINTPROB.",
+                 Without STATISTICS: the estimate and its standard error. Under UNEQUAL_WOR a first-stage\n\
+                 stratum adds, over each pair of its units, (pi_a pi_b / pi_ab - 1) times the squared\n\
+                 difference of their totals (Yates and Grundy), with the inclusion and joint probabilities\n\
+                 read from JOINTPROB FILE, or by default the file CSSELECT wrote next to the plan; a later\n\
+                 stage counts times the unit's inclusion probability. A negative variance is left empty.",
         example: "CSDESCRIPTIVES /PLAN FILE='farms_plan.json' /SUMMARY VARIABLES=yield acres /MEAN /RATIO NUMERATOR=yield DENOMINATOR=acres /STATISTICS SE CIN DEFF /SUBPOP TABLE=organic.",
         parse: complex_samples::csdescriptives,
     },
@@ -3759,7 +3781,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20              [EXPECTED] [RESID] [ASRESID]]\n\
                  \x20  [/TEST [HOMOGENEITY] [INDEPENDENCE] [ODDSRATIO] [RELRISK] [RISKDIFF]]\n\
                  \x20  [/SUBPOP TABLE=var [BY var ...] [DISPLAY=LAYERED | SEPARATE]]\n\
-                 \x20  [/MISSING [SCOPE=TABLE | LISTWISE] [CLASSMISSING=EXCLUDE | INCLUDE]].\n\
+                 \x20  [/MISSING [SCOPE=TABLE | LISTWISE] [CLASSMISSING=EXCLUDE | INCLUDE]]\n\
+                 \x20  [/JOINTPROB FILE='file' | dataset].\n\
                  Each variable gets a one-way table, or with BY a two-way table against the BY variable, with\n\
                  estimated population sizes and percents for every cell and margin. The design comes from a\n\
                  CSPLAN plan, as in CSDESCRIPTIVES, and so do the standard errors, df and design effects.\n\
@@ -3773,7 +3796,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  effects (a second-order adjustment). ODDSRATIO, RELRISK and RISKDIFF give the 2 x 2\n\
                  measures with intervals (log scale for the first two). Tests are for the whole population,\n\
                  and also for each subpopulation when SUBPOP names only first-stage strata. Without CELLS:\n\
-                 population sizes; without STATISTICS: standard errors. Not supported yet: JOINTPROB.",
+                 population sizes; without STATISTICS: standard errors. JOINTPROB works as in\n\
+                 CSDESCRIPTIVES.",
         example: "CSTABULATE /PLAN FILE='farms_plan.json' /TABLES VARIABLES=irrigated BY organic /CELLS POPSIZE ROWPCT /STATISTICS SE CIN DEFF /TEST INDEPENDENCE ODDSRATIO.",
         parse: complex_samples::cstabulate,
     },
@@ -3797,7 +3821,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/SAVE keyword[(name)] ... | keyword[(root[:n])] ...]\n\
                  \x20  [/PLOT [SURVIVAL] [CUMHAZARD] [LML] [OMS] [CI=NO | YES]]\n\
                  \x20  [/PATTERN var(value) ... [BY factor]] [/PATTERN ...]\n\
-                 \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file'] [SURVIVAL='file']].\n\
+                 \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file'] [SURVIVAL='file']]\n\
+                 \x20  [/JOINTPROB FILE='file' | dataset].\n\
                  A record is at risk after its start time up to and including its end time; with one time\n\
                  variable it is at risk from the beginning. A status among the event values means the\n\
                  event happened at the end time; any other valid status is censored. A negative time, or a\n\
@@ -3831,9 +3856,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  taken default name gets a suffix. The AGG keywords need VARIABLES ID and are skipped\n\
                  with a warning. OUTFILE COVB or CORB writes the matrix file of CSGLM, MODEL a JSON file\n\
                  with the estimates, covariances, reference values and baseline functions, SURVIVAL a\n\
-                 data file of the curves of PLOT at every event time. Not supported yet: VARIABLES ID,\n\
-                 covariates from a TIME PROGRAM, piecewise PATTERN paths, JOINTPROB, TESTASSUMPTIONS,\n\
-                 PRINT GEF and the UNEQUAL_WOR estimator.",
+                 data file of the curves of PLOT at every event time. JOINTPROB works as in\n\
+                 CSDESCRIPTIVES. Not supported yet: VARIABLES ID, covariates from a TIME PROGRAM,\n\
+                 piecewise PATTERN paths, TESTASSUMPTIONS and PRINT GEF.",
         example: "CSCOXREG months BY clinic WITH dose /VARIABLES STATUS=relapse(1) /PLAN FILE='trial_plan.json' /STATISTICS PARAMETER EXP SE CINTERVAL /PRINT RISKINFO.",
         parse: complex_samples::cscoxreg,
     },
@@ -3876,7 +3901,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  labelled with its name): rows EST, SE, SIG (of the t test) and DF, then a COV row per\n\
                  parameter; CORB puts CORR rows of correlations there instead. MODEL writes the estimates\n\
                  and their covariance matrix to a JSON file of Statscraft's own, PARAMETER the estimates\n\
-                 alone. Not supported yet: JOINTPROB, PRINT GEF and the UNEQUAL_WOR estimator.",
+                 alone. JOINTPROB works as in CSDESCRIPTIVES. Not supported yet: PRINT GEF.",
         example: "CSGLM yield BY soil WITH rainfall /PLAN FILE='farms_plan.json' /STATISTICS PARAMETER SE CINTERVAL DEFF /EMMEANS TABLES=soil COMPARE=soil CONTRAST=REPEATED.",
         parse: complex_samples::csglm,
     },
@@ -3913,8 +3938,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  moved by each change, with the other variables at CONTROL (factors at their highest level,\n\
                  covariates at their weighted means by default). CLASSTABLE puts each case in its most\n\
                  probable category and sums the weights. Without STATISTICS no parameter table is shown.\n\
-                 OUTFILE works as in CSGLM, the parameters of every logit in turn. Not supported yet:\n\
-                 JOINTPROB, PRINT GEF and the UNEQUAL_WOR estimator.",
+                 OUTFILE works as in CSGLM, the parameters of every logit in turn. JOINTPROB works as in\n\
+                 CSDESCRIPTIVES. Not supported yet: PRINT GEF.",
         example: "CSLOGISTIC irrigated (LOW) BY soil WITH rainfall /PLAN FILE='farms_plan.json' /STATISTICS PARAMETER EXP SE CINTERVAL /ODDSRATIOS FACTOR=[soil(LOW)] /PRINT SUMMARY CLASSTABLE.",
         parse: complex_samples::cslogistic,
     },
@@ -3969,8 +3994,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  dependent is missing still gets predictions when every predictor has a parameter. Default\n\
                  names: CumulativeProbability_k, PredictedProbability_k, PredictedValue,\n\
                  PredictedValueProbability, ObservedValueProbability, with a suffix when taken. OUTFILE\n\
-                 works as in CSGLM, thresholds first; the model file also names the link. Not supported\n\
-                 yet: JOINTPROB, PRINT GEF and the UNEQUAL_WOR estimator.",
+                 works as in CSGLM, thresholds first; the model file also names the link. JOINTPROB works\n\
+                 as in CSDESCRIPTIVES. Not supported yet: PRINT GEF.",
         example: "CSORDINAL rating BY region WITH age /PLAN FILE='poll_plan.json' /LINK FUNCTION=PROBIT /STATISTICS PARAMETER SE CINTERVAL TTEST /PRINT SUMMARY HISTORY.",
         parse: complex_samples::csordinal,
     },

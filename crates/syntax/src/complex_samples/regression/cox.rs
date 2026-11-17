@@ -22,7 +22,7 @@
 //!   empty.
 
 use super::{CsCriteria, CsCustom, CsModelStatistics, CsPadjust, CsTestType};
-use super::{checked, eat_assignment, error, once, plan_file, require_assignment};
+use super::{checked, eat_assignment, error, joint_file, once, plan_file, require_assignment};
 use super::{convergence, custom, flag, pick, statistics, whole};
 use crate::ast::{Command, MissingValue, Value, VarItem};
 use crate::glm::{Term, list_until, term};
@@ -163,6 +163,8 @@ pub struct CsCox {
     pub plot: Option<CsCoxPlot>,
     pub patterns: Vec<CsCoxPattern>,
     pub outfile: CsCoxOutfile,
+    /// JOINTPROB FILE; None for the file CSSELECT names after the plan.
+    pub jointprob: Option<String>,
 }
 
 const COMMAND: &str = "CSCOXREG";
@@ -586,6 +588,7 @@ pub(crate) fn cscoxreg(p: &mut Parser) -> PResult<Command> {
         plot: None,
         patterns: Vec::new(),
         outfile: CsCoxOutfile::default(),
+        jointprob: None,
     };
     let not_by_with = |p: &Parser| {
         matches!(p.peek(), Some(TokenKind::Word(w))
@@ -676,8 +679,11 @@ pub(crate) fn cscoxreg(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("OUTFILE") {
             once(p, start, &mut seen, "OUTFILE")?;
             c.outfile = outfile(p)?;
+        } else if p.eat_keyword("JOINTPROB") {
+            once(p, start, &mut seen, "JOINTPROB")?;
+            c.jointprob = Some(joint_file(p)?);
         } else {
-            return Err(p.subcommand_error(COMMAND, &["JOINTPROB", "TESTASSUMPTIONS"]));
+            return Err(p.subcommand_error(COMMAND, &["TESTASSUMPTIONS"]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));
@@ -765,6 +771,11 @@ mod tests {
         assert!(c.print.riskinfo && c.print.covb && !c.print.sampleinfo);
         assert_eq!((c.test, c.padjust), (CsTestType::AdjF, CsPadjust::Sidak));
         assert!(c.statistics.is_some_and(|s| s.exp && s.se && !s.ttest));
+        assert_eq!(c.jointprob, None);
+        let c = cox(
+            "CSCOXREG t WITH x /VARIABLES STATUS=s(1) /PLAN FILE='p.json' /JOINTPROB FILE='j.sav'.",
+        );
+        assert_eq!(c.jointprob.as_deref(), Some("j.sav"));
     }
 
     #[test]
@@ -777,7 +788,6 @@ mod tests {
                 .contains("one or two time variables")
         );
         for (sub, what) in [
-            ("JOINTPROB FILE='j.sav'", "subcommand JOINTPROB"),
             (
                 "TESTASSUMPTIONS PROPHAZARD=KM",
                 "subcommand TESTASSUMPTIONS",

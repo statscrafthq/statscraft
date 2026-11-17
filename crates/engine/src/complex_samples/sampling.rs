@@ -3,7 +3,8 @@
 //! Rules from the Command Syntax Reference and the Algorithms manual, in our words:
 //! - The frame is the active dataset. A case leaves it when a stratum or cluster variable of the
 //!   stages that nest the run is missing (user-missing counts as valid under CLASSMISSING=INCLUDE),
-//!   or a size, rate or starting weight is missing (user-missing always counts as missing).
+//!   or a size, rate, measure of size or starting weight is missing (user-missing always counts
+//!   as missing).
 //! - Stage by stage, a unit is a combination of the stage's cluster values (a case without
 //!   CLUSTER) inside a stratum, and a stratum is a combination of the stage's strata values inside
 //!   the unit of the stage before. Only units the earlier stage drew go on. Strata are drawn
@@ -14,13 +15,18 @@
 //!   already taken. SIMPLE_WR: n uniform picks among the N units, a unit counting every pick.
 //!   SIMPLE_SYSTEMATIC: units trunc((U + k) N / n) + 1 for k = 0 .. n - 1. SIMPLE_CHROMY: Chromy's
 //!   sequential method with equal sizes: a random unit starts the order, which wraps around, and
-//!   the running number of hits follows i n / N, its fractional part decided at random.
+//!   the running number of hits follows i n / N, its fractional part decided at random. The PPS
+//!   methods (first stage only) are in `pps`; Brewer and Murthy draw two units.
 //! - Inclusion probability n / N (with replacement 1 - (1 - 1/N)^n); stage weight N / n per draw;
 //!   the cumulative weight multiplies the stage weights and the starting weight (PREVIOUSWEIGHT,
 //!   or the cumulative weight of the stage before the first one run). The final weight is the
 //!   cumulative weight of the last stage run.
 //! - Output to the active dataset needs a plan without replacement; SAMPLEFILE writes the drawn
 //!   cases only, one row per draw, with the duplicate index.
+//! - A first stage drawn now by a method analyzed as UNEQUAL_WOR (without ESTIMATION=WR) writes
+//!   the joint probabilities file: the first-stage strata and clusters, Unit_No_ and
+//!   Joint_Prob_1_, Joint_Prob_2_, ..., one row per selected unit, the inclusion probabilities
+//!   on the diagonal.
 //!
 //! Choices where the manual is silent:
 //! - A case that the first stage drew but a later stage did not keeps the variables of the stages
@@ -29,6 +35,10 @@
 //! - A stratum with fewer units than the size asks for gives all its units, with a warning.
 //! - Without CRITERIA SEED, the seed comes from the session's generator after SET SEED, else
 //!   from the clock.
+//! - The measure of size must be the same in every case of a unit; MIN and MAX bound it after it
+//!   is read or counted, and it must then be above 0.
+//! - The joint probabilities file is named after the plan with the extension joint.sav unless
+//!   JOINTPROB names one.
 
 use super::{PlanFile, PlanRate, PlanSampling, RateSource, key_part, keys_of, numbers};
 use crate::crosstabs::Key;
@@ -37,9 +47,11 @@ use crate::random::{Random, time_seed};
 use crate::regression::table;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::Dataset;
-use statscraft_syntax::{CsMethod, Csselect};
+use statscraft_syntax::{CsEstimator, CsMethod, Csselect};
 use std::collections::HashMap;
 use std::ops::Range;
+
+mod pps;
 
 /// The variables CSSELECT writes for one stage.
 #[derive(Clone, Copy, PartialEq)]
@@ -122,12 +134,44 @@ fn rounded_size(f: f64, big_n: usize) -> usize {
     ((x * 1e9).round() / 1e9).round() as usize
 }
 
-/// The number of hits of each of `big_n` units in a draw of `n` (at most `big_n` without
-/// replacement).
+/// Chromy's sequential method: the hits of `big_n` units in the order that starts at unit
+/// `first` and wraps around; `expected(i)` is the whole and the fractional part of the running
+/// expected hits of the first i units in that order.
+fn chromy(
+    first: usize,
+    big_n: usize,
+    random: &mut Random,
+    expected: impl Fn(usize) -> (usize, f64),
+) -> Vec<u32> {
+    let mut hits = vec![0u32; big_n];
+    let (mut t_prev, mut i_prev, mut f_prev) = (0usize, 0usize, 0.0);
+    for i in 1..=big_n {
+        let (whole, frac) = expected(i);
+        let mut t = whole;
+        if t_prev == i_prev {
+            if frac > f_prev && random.uniform() < (frac - f_prev) / (1.0 - f_prev) {
+                t += 1;
+            }
+        } else if frac > f_prev || (f_prev > 0.0 && random.uniform() < frac / f_prev) {
+            // the fraction grew: the extra hit is sure; it shrank: it stays with chance
+            // F_i / F_(i-1)
+            t += 1;
+        }
+        hits[(first + i - 1) % big_n] = (t - t_prev) as u32;
+        (t_prev, i_prev, f_prev) = (t, whole, frac);
+    }
+    hits
+}
+
+/// The number of hits of each of `big_n` units in a draw of `n` by an equal-chance method; a
+/// method without replacement takes every unit when `n` is `big_n` or more.
 fn draw(method: CsMethod, big_n: usize, n: usize, random: &mut Random) -> Vec<u32> {
     let mut hits = vec![0u32; big_n];
     if n == 0 || big_n == 0 {
         return hits;
+    }
+    if !method.with_replacement() && n >= big_n {
+        return vec![1; big_n];
     }
     match method {
         CsMethod::SimpleWor => {
@@ -149,38 +193,20 @@ fn draw(method: CsMethod, big_n: usize, n: usize, random: &mut Random) -> Vec<u3
                 hits[k] += 1;
             }
         }
-        CsMethod::SimpleSystematic => {
+        CsMethod::SimpleChromy => {
+            let first = ((random.uniform() * big_n as f64) as usize).min(big_n - 1);
+            // the expected hits up to unit i are i n / N, the whole part found in whole
+            // numbers so that the last unit ends on n exactly
+            return chromy(first, big_n, random, |i| {
+                (i * n / big_n, (i * n % big_n) as f64 / big_n as f64)
+            });
+        }
+        // SIMPLE_SYSTEMATIC; a PPS method reaches here only when it takes every unit
+        _ => {
             let u = random.uniform();
             for k in 0..n {
                 let at = ((u + k as f64) * big_n as f64 / n as f64) as usize;
                 hits[at.min(big_n - 1)] = 1;
-            }
-        }
-        CsMethod::SimpleChromy => {
-            let first = ((random.uniform() * big_n as f64) as usize).min(big_n - 1);
-            // the expected hits up to unit i are i n / N: whole part i n div N, fraction
-            // (i n mod N) / N, kept in whole numbers so that the last unit ends on n exactly
-            let (mut t_prev, mut i_prev, mut f_prev) = (0usize, 0usize, 0usize);
-            for i in 1..=big_n {
-                let whole = i * n / big_n;
-                let frac = i * n % big_n;
-                let mut t = whole;
-                if t_prev == i_prev {
-                    if frac > f_prev {
-                        let p = (frac - f_prev) as f64 / (big_n - f_prev) as f64;
-                        if random.uniform() < p {
-                            t += 1;
-                        }
-                    }
-                } else if frac > f_prev
-                    || (f_prev > 0 && random.uniform() < frac as f64 / f_prev as f64)
-                {
-                    // the fraction grew: the extra hit is sure; it shrank: it stays with
-                    // chance F_i / F_(i-1)
-                    t += 1;
-                }
-                hits[(first + i - 1) % big_n] = (t - t_prev) as u32;
-                (t_prev, i_prev, f_prev) = (t, whole, frac);
             }
         }
     }
@@ -223,7 +249,14 @@ impl Engine {
                     d.method
                 )));
             }
-            if d.size.is_none() && d.rate.is_none() {
+            if method_of(d).pps() && d.mos.is_none() {
+                return Err(Error(format!(
+                    "stage {} of the plan draws with {}, but gives no measure of size",
+                    s + 1,
+                    d.method
+                )));
+            }
+            if d.size.is_none() && d.rate.is_none() && !method_of(d).draws_two() {
                 return Err(Error(format!(
                     "stage {} of the plan has neither a sample size nor a rate",
                     s + 1
@@ -280,9 +313,19 @@ impl Engine {
             ));
         }
         let mut notes = Vec::new();
-        if c.jointprob.is_some() {
+        // joint inclusion probabilities: first stage, drawn now, analyzed as UNEQUAL_WOR
+        let first = stage_sampling(range.start);
+        let joint_file = (range.start == 0
+            && method_of(first).estimator() == CsEstimator::UnequalWor
+            && !first.estimation_wr)
+            .then(|| {
+                c.jointprob
+                    .clone()
+                    .unwrap_or_else(|| self.default_joint_file(&c.plan))
+            });
+        if c.jointprob.is_some() && joint_file.is_none() {
             notes.push(
-                "CSSELECT ignores JOINTPROB: joint inclusion probabilities belong to the methods proportional to size, which this plan does not use"
+                "CSSELECT ignores JOINTPROB: joint inclusion probabilities belong to a first stage drawn now by PPS_WOR, PPS_BREWER, PPS_MURTHY or PPS_SAMPFORD without ESTIMATION=WR"
                     .to_string(),
             );
         }
@@ -340,9 +383,22 @@ impl Engine {
         }
         // the sizes and rates; a case without one leaves the frame
         let mut sources = Vec::new();
+        // the measure of size of a PPS first stage, when it comes from a variable
+        let mut mos: Option<Vec<Option<f64>>> = None;
+        if let Some(name) = first.mos.as_ref().and_then(|m| m.variable.as_ref())
+            && range.start == 0
+        {
+            let values = numbers(&data.variable(name)?)?;
+            for (case, alive) in alive.iter_mut().enumerate() {
+                *alive &= values[case].is_some();
+            }
+            mos = Some(values);
+        }
         for s in range.clone() {
             let d = stage_sampling(s);
             let (rate, is_size) = match (&d.size, &d.rate) {
+                // Brewer and Murthy draw two units, as if SIZE VALUE=2
+                _ if method_of(d).draws_two() => (&PlanRate::Value(2.0), true),
                 (Some(r), _) => (r, true),
                 (None, Some(r)) => (r, false),
                 (None, None) => unreachable!("checked by sample_plan"),
@@ -376,6 +432,9 @@ impl Engine {
                 }
             }
         }
+        // per selected first-stage unit: a case of it, its number in the stratum, its joint
+        // probabilities with the selected units of the stratum
+        let mut joint_rows: Vec<(usize, usize, Vec<f64>)> = Vec::new();
         let mut columns: Vec<(String, Vec<Option<f64>>, &'static str)> = Vec::new();
         let mut tables = Vec::new();
         let mut hits_last = vec![1u32; cases];
@@ -486,31 +545,82 @@ impl Engine {
                     n = big_n;
                     capped += 1;
                 }
-                let hits = draw(method, big_n, n, &mut random);
                 let (nf, bn) = (n as f64, big_n as f64);
-                let inclprob = if wr {
-                    1.0 - (1.0 - 1.0 / bn).powi(n as i32)
+                let joint_wanted = s == 0 && joint_file.is_some();
+                let (hits, prob, weight) = if method.pps() && (wr || n < big_n) {
+                    let m = d.mos.as_ref().expect("checked by sample_plan");
+                    let mut sizes = Vec::with_capacity(big_n);
+                    for &u in units {
+                        let cases_u = &unit_cases[u];
+                        let mut size = match &mos {
+                            Some(values) => {
+                                let v = values[cases_u[0]].expect("in the frame");
+                                if let Some(w) =
+                                    cases_u.iter().find_map(|&c| values[c].filter(|w| *w != v))
+                                {
+                                    return Err(Error(format!(
+                                        "the measure of size differs within a unit ({v} and {w})"
+                                    )));
+                                }
+                                v
+                            }
+                            None => cases_u.len() as f64,
+                        };
+                        if let Some(min) = m.min {
+                            size = size.max(min);
+                        }
+                        if let Some(max) = m.max {
+                            size = size.min(max);
+                        }
+                        if size.is_nan() || size <= 0.0 {
+                            return Err(Error(format!(
+                                "a measure of size must be above 0, got {size}"
+                            )));
+                        }
+                        sizes.push(size);
+                    }
+                    let drawn = pps::draw(method, &sizes, n, &mut random)?;
+                    if joint_wanted {
+                        let chosen: Vec<usize> =
+                            (0..big_n).filter(|&k| drawn.hits[k] > 0).collect();
+                        let matrix = pps::joint(method, &sizes, n, &chosen);
+                        for (no, (&k, row)) in chosen.iter().zip(matrix).enumerate() {
+                            joint_rows.push((unit_cases[units[k]][0], no + 1, row));
+                        }
+                    }
+                    (drawn.hits, drawn.prob, drawn.weight)
                 } else {
-                    nf / bn
+                    let hits = draw(method, big_n, n, &mut random);
+                    let inclprob = if wr {
+                        1.0 - (1.0 - 1.0 / bn).powi(n as i32)
+                    } else {
+                        nf / bn
+                    };
+                    if joint_wanted {
+                        // every unit is taken: all joint probabilities are 1
+                        for (no, &u) in units.iter().enumerate() {
+                            joint_rows.push((unit_cases[u][0], no + 1, vec![1.0; big_n]));
+                        }
+                    }
+                    (hits, vec![inclprob; big_n], vec![bn / nf; big_n])
                 };
-                let weight = bn / nf;
-                for (&u, &h) in units.iter().zip(&hits) {
+                for (k, (&u, &h)) in units.iter().zip(&hits).enumerate() {
                     for &case in &unit_cases[u] {
                         if h == 0 {
                             alive[case] = false;
                             continue;
                         }
                         hits_case[case] = h;
-                        cumw[case] *= weight;
-                        for (k, value) in [
-                            (Kind::Inclprob, inclprob),
+                        cumw[case] *= weight[k];
+                        for (kind, value) in [
+                            (Kind::Inclprob, prob[k]),
                             (Kind::Cumweight, cumw[case]),
                             (Kind::Popsize, bn),
                             (Kind::Sampsize, nf),
                             (Kind::Rate, nf / bn),
-                            (Kind::Weight, weight),
+                            (Kind::Weight, weight[k]),
                         ] {
-                            values[k as usize][case] = Some(value);
+                            values[kind as usize][case] = Some(value);
                         }
                     }
                 }
@@ -578,6 +688,40 @@ impl Engine {
             .map(|case| alive[case].then_some(cumw[case]))
             .collect();
         columns.push((plan.weight.clone(), final_weight, Kind::Weight.format()));
+        // the joint probabilities file: the first-stage strata and clusters, Unit_No_ and
+        // Joint_Prob_1_, Joint_Prob_2_, ..., one row per selected unit
+        let joint_out = match &joint_file {
+            Some(file) => {
+                let mut out = data.clone();
+                out.set_filter_variable(None)?;
+                out.set_split_file(None)?;
+                out.set_weight_variable(None)?;
+                let rows: Vec<Option<usize>> = joint_rows.iter().map(|r| Some(r.0)).collect();
+                out.take_cases(&rows)?;
+                let stage = &plan.stages[0];
+                let ids = stage
+                    .strata
+                    .iter()
+                    .chain(&stage.clusters)
+                    .map(|n| Ok(data.variable(n)?.name().to_string()))
+                    .collect::<Result<Vec<String>, Error>>()?;
+                out.keep_variables(&ids.iter().map(String::as_str).collect::<Vec<_>>())?;
+                let numbers = joint_rows.iter().map(|r| Some(r.1 as f64)).collect();
+                out.set_numeric_values("Unit_No_", numbers)?;
+                out.set_format("Unit_No_", "F8.0")?;
+                let width = joint_rows.iter().map(|r| r.2.len()).max().unwrap_or(0);
+                for k in 0..width {
+                    let name = format!("Joint_Prob_{}_", k + 1);
+                    out.set_numeric_values(
+                        &name,
+                        joint_rows.iter().map(|r| r.2.get(k).copied()).collect(),
+                    )?;
+                    out.set_format(&name, "F10.6")?;
+                }
+                Some((file.clone(), out))
+            }
+            None => None,
+        };
         let selected = alive.iter().filter(|a| **a).count();
         let mut written = selected;
         match &c.samplefile {
@@ -664,6 +808,9 @@ impl Engine {
                 out.keep_variables(&order)?;
                 self.write_data_file(file, out)?;
             }
+        }
+        if let Some((file, out)) = joint_out {
+            self.write_data_file(&file, out)?;
         }
         if c.print_cps {
             let mut rows = vec![

@@ -689,9 +689,10 @@ impl Engine {
     ) -> Result<(Vec<Table>, Vec<Saved>, usize, Files), Error> {
         let name = c.name();
         let plan = self.read_plan(&c.plan)?;
+        let joint = self.joint_file(&plan, &c.plan, c.jointprob.as_deref())?;
         let data = self.active()?;
         let shown = self.shown();
-        let design = Design::new(data, &plan, c.include, false)?;
+        let design = Design::new(data, &plan, c.include, false, joint.as_ref())?;
         let factor_names = self.expand(&c.factors)?;
         let covariate_names = self.expand(&c.covariates)?;
         let dep_var = data.variable(&c.dependent)?;

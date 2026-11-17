@@ -186,6 +186,85 @@ fn csplan_sample_notes_and_estimation_wr() {
 }
 
 #[test]
+fn csplan_sample_pps_methods_mos_and_their_estimators() {
+    let p = sample(
+        "CSPLAN SAMPLE /PLAN FILE='a' /DESIGN STRATA=r CLUSTER=c /METHOD TYPE=PPS_WOR
+           /SIZE VALUE=3 /MOS VARIABLE=acres MIN=2 MAX=40 /DESIGN /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=2.",
+    );
+    let first = p.stages[0].sample.as_ref().unwrap();
+    assert_eq!(first.method, CsMethod::PpsWor);
+    assert_eq!(
+        first.mos,
+        Some(CsMos {
+            variable: Some("acres".into()),
+            min: Some(2.0),
+            max: Some(40.0),
+        })
+    );
+    assert_eq!(p.stages[0].estimator, CsEstimator::UnequalWor);
+    assert_eq!(p.stages[0].inclprob, None);
+    let p = sample(
+        "CSPLAN SAMPLE /PLAN FILE='a' /DESIGN CLUSTER=c /METHOD TYPE=PPS_MURTHY
+           /RATE VALUE=0.5 /MOS SOURCE=FROMDATA.",
+    );
+    let first = p.stages[0].sample.as_ref().unwrap();
+    assert_eq!((first.size.as_ref(), first.rate.as_ref()), (None, None));
+    assert_eq!(first.mos.as_ref().unwrap().variable, None);
+    assert!(p.ignored[0].contains("two units"), "{:?}", p.ignored);
+    for (method, estimator) in [
+        ("PPS_WR", CsEstimator::Wr),
+        ("PPS_SYSTEMATIC", CsEstimator::Wr),
+        ("PPS_CHROMY", CsEstimator::Wr),
+        ("PPS_SAMPFORD", CsEstimator::UnequalWor),
+        ("PPS_BREWER", CsEstimator::UnequalWor),
+    ] {
+        let p = sample(&format!(
+            "CSPLAN SAMPLE /PLAN FILE='a' /DESIGN CLUSTER=c /METHOD TYPE={method} /SIZE VALUE=2 /MOS VARIABLE=m."
+        ));
+        assert_eq!(p.stages[0].estimator, estimator, "{method}");
+    }
+    let p = sample(
+        "CSPLAN SAMPLE /PLAN FILE='a' /DESIGN CLUSTER=c /METHOD TYPE=PPS_WOR ESTIMATION=WR
+           /SIZE VALUE=2 /MOS VARIABLE=m.",
+    );
+    assert_eq!(p.stages[0].estimator, CsEstimator::Wr);
+    let base = "CSPLAN SAMPLE /PLAN FILE='a'";
+    for (rest, expected) in [
+        (
+            "/DESIGN CLUSTER=c /METHOD TYPE=PPS_WOR /SIZE VALUE=2",
+            "needs MOS",
+        ),
+        (
+            "/DESIGN /METHOD TYPE=PPS_SAMPFORD /SIZE VALUE=2 /MOS VARIABLE=m",
+            "needs CLUSTER",
+        ),
+        (
+            "/DESIGN CLUSTER=c /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=2 /DESIGN /METHOD TYPE=PPS_WR /SIZE VALUE=1",
+            "only in the first stage",
+        ),
+        (
+            "/DESIGN CLUSTER=c /METHOD TYPE=PPS_WOR /SIZE VALUE=2 /MOS MIN=3",
+            "one of VARIABLE",
+        ),
+        (
+            "/DESIGN CLUSTER=c /METHOD TYPE=PPS_WOR /SIZE VALUE=2 /MOS VARIABLE=m MIN=5 MAX=2",
+            "above its MAX",
+        ),
+        (
+            "/DESIGN /METHOD TYPE=PPS_WR /SIZE VALUE=2 /MOS SOURCE=FROMDATA",
+            "needs CLUSTER",
+        ),
+        (
+            "/DESIGN CLUSTER=c /METHOD TYPE=PPS_WOR /SIZE VALUE=2 /MOS VARIABLE=c",
+            "more than one role",
+        ),
+    ] {
+        let message = err(&format!("{base} {rest}."));
+        assert!(message.contains(expected), "{rest}: {message}");
+    }
+}
+
+#[test]
 fn csplan_sample_rules_give_errors() {
     let base = "CSPLAN SAMPLE /PLAN FILE='a'";
     let cases = [
@@ -361,8 +440,8 @@ fn csdescriptives_rules_give_errors() {
             .contains("unexpected")
     );
     assert!(
-        err("CSDESCRIPTIVES /PLAN FILE='p' /JOINTPROB FILE='j' /RATIO NUMERATOR=x DENOMINATOR=y.")
-            .contains("not supported yet")
+        err("CSDESCRIPTIVES /PLAN FILE='p' /JOINTPROB FILE='j' /JOINTPROB FILE='k' /SUM.")
+            .contains("only once")
     );
     assert!(
         err("CSDESCRIPTIVES /PLAN FILE='p' /SUMMARY VARIABLES=x /MEAN /SUBPOP TABLE=a BY a.")
@@ -560,10 +639,6 @@ fn model_syntax_errors() {
             "only once",
         ),
         (
-            "CSGLM y BY a /PLAN FILE='p' /JOINTPROB FILE='j'.",
-            "not supported yet",
-        ),
-        (
             "CSGLM y BY a /PLAN FILE='p' /ODDSRATIOS FACTOR=[a].",
             "unknown subcommand",
         ),
@@ -664,11 +739,8 @@ fn csordinal_subcommands_and_defaults() {
 #[test]
 fn csordinal_syntax_errors() {
     let base = "CSORDINAL y BY a WITH x /PLAN FILE='p'";
-    let message = err(&format!("{base} /JOINTPROB FILE='j'."));
-    assert!(
-        message.contains("subcommand JOINTPROB of CSORDINAL is not supported yet"),
-        "{message}"
-    );
+    let m = model(&format!("{base} /JOINTPROB FILE='j.sav'."));
+    assert_eq!(m.jointprob.as_deref(), Some("j.sav"));
     for command in ["CSGLM", "CSLOGISTIC", "CSORDINAL"] {
         let m = model(&format!(
             "{command} y BY a /PLAN FILE='p' /OUTFILE MODEL='m.json' CORB=est."
