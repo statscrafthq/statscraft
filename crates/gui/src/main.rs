@@ -49,6 +49,8 @@ mod mds_dialog;
 mod mds_dialog_view;
 mod model_dialogs;
 mod model_dialogs_view;
+mod model_more_dialog;
+mod model_more_dialog_view;
 mod mva_dialog;
 mod mva_dialog_view;
 mod nptests_dialog;

@@ -37,6 +37,7 @@ use crate::model_dialogs::{
     Categorical, ClusterMeasure, Discriminant, FactorAnalysis, FactorContrast, Hierarchical,
     KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
 };
+use crate::model_more_dialog::{OptimalBinning, QuantileRegression, VarianceComponents};
 use crate::mva_dialog::{Estimation, MissingValueAnalysis};
 use crate::proximities_dialog::Distances;
 use crate::reports_dialog::{Codebook, Summarize};
@@ -495,6 +496,20 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         }),
     ))));
+    list.push(Dialog::QuantileRegression(QuantileRegression {
+        dependent: s("monthly_spend"),
+        covariates: v(&["age"]),
+        ..Default::default()
+    }));
+    list.push(Dialog::VarianceComponents(VarianceComponents {
+        dependent: s("monthly_spend"),
+        random: v(&["region"]),
+        ..Default::default()
+    }));
+    list.push(Dialog::OptimalBinning(OptimalBinning {
+        variables: v(&["age"]),
+        ..Default::default()
+    }));
     list.push(Dialog::RocCurve(RocCurve {
         tests: v(&["age"]),
         state: s("q5_1"),
@@ -2008,6 +2023,69 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             save_residuals: true,
         }),
     ))));
+    list.push(Dialog::QuantileRegression(QuantileRegression {
+        dependent: s("monthly_spend"),
+        factors: v(&["region"]),
+        covariates: v(&["age"]),
+        quantiles: s("0.25 0.5 0.75"),
+        intercept: true,
+        iid: false,
+        bandwidth: 1,
+        level: s("90"),
+        method: 1,
+        include: true,
+        print: [true, true, true],
+        saves: [
+            (true, s("qfit")),
+            (true, String::new()),
+            (true, s("qlo")),
+            (true, s("qhi")),
+        ],
+    }));
+    for method in [1, 2, 3, 4, 5] {
+        list.push(Dialog::VarianceComponents(VarianceComponents {
+            dependent: s("monthly_spend"),
+            fixed: v(&["gender"]),
+            random: v(&["region"]),
+            covariates: v(&["age"]),
+            weight: s("q1_satisfaction"),
+            method,
+            intercept: method != 3,
+            include: true,
+            converge: s("0.000001"),
+            eps: s("0.000001"),
+            iterate: s("30"),
+            sums: true,
+            expected: true,
+            history: true,
+            every: s("2"),
+        }));
+    }
+    list.push(Dialog::OptimalBinning(OptimalBinning {
+        variables: v(&["age", "monthly_spend"]),
+        guide: s("plan"),
+        equal: false,
+        bins: s("5"),
+        preprocess: true,
+        classes: s("50"),
+        merge: s("0.05"),
+        lower_observed: true,
+        upper_observed: true,
+        lower_exclusive: true,
+        listwise: true,
+        save: true,
+        into: s("age_cut spend_cut"),
+        rules: out.join("max_bins.sps").to_string_lossy().into_owned(),
+        print: [true, true, true],
+    }));
+    list.push(Dialog::OptimalBinning(OptimalBinning {
+        variables: v(&["age"]),
+        guide: s("plan"),
+        equal: true,
+        bins: s("4"),
+        print: [true, true, true],
+        ..Default::default()
+    }));
     list.push(Dialog::RocCurve(RocCurve {
         tests: v(&["age", "monthly_spend"]),
         state: s("plan"),

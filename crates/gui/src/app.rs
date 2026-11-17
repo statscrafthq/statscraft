@@ -32,6 +32,8 @@ use crate::model_dialogs::{
     Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures, Univariate,
 };
 use crate::model_dialogs_view;
+use crate::model_more_dialog::{OptimalBinning, QuantileRegression, VarianceComponents};
+use crate::model_more_dialog_view;
 use crate::nptests_dialog::{NpKind, Nptests};
 use crate::output;
 use crate::output_view;
@@ -251,6 +253,9 @@ pub(crate) enum Dialog {
     ChartBuilder(ChartBuilder),
     ProbabilityPlot(ProbabilityPlot),
     RocCurve(RocCurve),
+    QuantileRegression(QuantileRegression),
+    VarianceComponents(VarianceComponents),
+    OptimalBinning(OptimalBinning),
 }
 
 impl Dialog {
@@ -301,6 +306,9 @@ impl Dialog {
             Dialog::ChartBuilder(_) => "Chart Builder",
             Dialog::ProbabilityPlot(d) => d.title(),
             Dialog::RocCurve(_) => "ROC Curve",
+            Dialog::QuantileRegression(_) => "Quantile Regression",
+            Dialog::VarianceComponents(_) => "Variance Components",
+            Dialog::OptimalBinning(_) => "Optimal Binning",
         }
     }
 
@@ -363,6 +371,9 @@ impl Dialog {
             Dialog::ChartBuilder(_) => Dialog::ChartBuilder(Default::default()),
             Dialog::ProbabilityPlot(d) => Dialog::ProbabilityPlot(ProbabilityPlot::new(d.pp)),
             Dialog::RocCurve(_) => Dialog::RocCurve(Default::default()),
+            Dialog::QuantileRegression(_) => Dialog::QuantileRegression(Default::default()),
+            Dialog::VarianceComponents(_) => Dialog::VarianceComponents(Default::default()),
+            Dialog::OptimalBinning(_) => Dialog::OptimalBinning(Default::default()),
         }
     }
 
@@ -494,6 +505,17 @@ impl Dialog {
             // category, group and panel variables may be strings
             Dialog::ChartBuilder(d) => numeric(data, d.measured()).and_then(|()| d.syntax()),
             Dialog::ProbabilityPlot(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
+            // factors may be strings
+            Dialog::QuantileRegression(d) => {
+                numeric(data, std::iter::once(&d.dependent).chain(&d.covariates))
+                    .and_then(|()| d.syntax())
+            }
+            Dialog::VarianceComponents(d) => {
+                numeric(data, std::iter::once(&d.dependent).chain(&d.covariates))
+                    .and_then(|()| d.syntax())
+            }
+            // the guide variable may be a string
+            Dialog::OptimalBinning(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
             // the state variable may be a string
             Dialog::RocCurve(d) => {
                 numeric(data, &d.tests).and_then(|()| d.syntax(is_string(data, &d.state)))
@@ -1756,6 +1778,9 @@ impl App {
                         if ui.button("Multivariate...").clicked() {
                             self.open_dialog(Dialog::Univariate(Univariate::multivariate()));
                         }
+                        if ui.button("Variance Components...").clicked() {
+                            self.open_dialog(Dialog::VarianceComponents(Default::default()));
+                        }
                         if ui.button("Repeated Measures...").clicked() {
                             self.open_dialog(Dialog::RepeatedMeasures(Default::default()));
                         }
@@ -1791,6 +1816,9 @@ impl App {
                         }
                         if ui.button("Curve Estimation...").clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Curve(Default::default())));
+                        }
+                        if ui.button("Quantile...").clicked() {
+                            self.open_dialog(Dialog::QuantileRegression(Default::default()));
                         }
                         if ui.button("Binary Logistic...").clicked() {
                             self.open_dialog(Dialog::Logistic(Default::default()));
@@ -2060,6 +2088,10 @@ impl App {
                 ui.separator();
                 for (label, dialog) in [
                     ("Rank Cases...", Dialog::Rank(Default::default())),
+                    (
+                        "Optimal Binning...",
+                        Dialog::OptimalBinning(Default::default()),
+                    ),
                     (
                         "Automatic Recode...",
                         Dialog::Autorecode(Default::default()),
@@ -6263,6 +6295,9 @@ fn dialog_body(
         Dialog::ChartBuilder(d) => graph_dialogs_view::chart_builder(ui, d, picked),
         Dialog::ProbabilityPlot(d) => graph_dialogs_view::probability_plot(ui, d, picked),
         Dialog::RocCurve(d) => graph_dialogs_view::roc(ui, d, picked),
+        Dialog::QuantileRegression(d) => model_more_dialog_view::quantile_regression(ui, d, picked),
+        Dialog::VarianceComponents(d) => model_more_dialog_view::variance_components(ui, d, picked),
+        Dialog::OptimalBinning(d) => model_more_dialog_view::optimal_binning(ui, d, picked),
         Dialog::Advanced(d) => advanced_dialogs_view::body(ui, data, d, picked, folder),
         Dialog::Restructure(d) => {
             ui.radio_value(
