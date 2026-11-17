@@ -42,6 +42,7 @@ use crate::mva;
 use crate::nomreg;
 use crate::npar;
 use crate::nptests;
+use crate::olap_cubes;
 use crate::output;
 use crate::output_docs;
 use crate::output_modify;
@@ -1274,6 +1275,29 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "SUMMARIZE TABLES=income spend BY region /FORMAT=LIST LIMIT=20 NOCASENUM\n\
                   \x20 /CELLS=COUNT MEAN MAX /TITLE='Spending by region'.",
         parse: summarize::summarize,
+    },
+    CommandSpec {
+        name: "OLAP CUBES",
+        summary: "Statistics of scale variables in nested groups, with differences between groups or variables.",
+        syntax: "OLAP CUBES summaryvars BY groupvars [BY groupvars ...] [/CELLS=cell ... | NONE]\n\
+                 \x20          [/CREATE ['label' | DEFAULT ...] GAC | GPC | GAC GPC (groupvar (value value) ...)]\n\
+                 \x20          [/CREATE ['label' | DEFAULT ...] VAC | VPC | VAC VPC (var var) ...]\n\
+                 \x20          [/TITLE='text'] [/FOOTNOTE='text'] [/HIDESMALLCOUNTS [COUNT=5]].\n\
+                 cell: as on MEANS; DEFAULT (SUM COUNT MEAN STDDEV SPCT NPCT) when CELLS is left out, ALL for\n\
+                 every cell. The summary variables must be numeric. A Case Processing Summary has a row per\n\
+                 summary variable and group combination; one OLAP Cubes table per combination of grouping\n\
+                 variables (one from each BY) nests the categories of the first one outermost, each level with a\n\
+                 Total, and gives a row per summary variable. GAC adds a row per pair of categories of one\n\
+                 grouping variable with every statistic of the second minus that of the first; GPC the same\n\
+                 change as a percentage of the first. VAC and VPC do the same between two summary variables in\n\
+                 every group. Labels name the differences in order (each pair gives its types in the order\n\
+                 written); DEFAULT keeps the generated name. A case counts for a summary variable when it is\n\
+                 valid on it and on the grouping variables of the table. HIDESMALLCOUNTS shows counts below n\n\
+                 (from 2, default 5) as <n. TITLE and FOOTNOTE: one line per quoted string, \\n breaks a line.\n\
+                 A subcommand given twice: the last one counts. Weighted when a weight variable is set.",
+        example: "OLAP CUBES revenue cost BY year BY store /CELLS=SUM MEAN COUNT\n\
+                  \x20 /CREATE 'Growth' DEFAULT GAC GPC (year (2024 2025)) /TITLE='Store results'.",
+        parse: olap_cubes::olap_cubes,
     },
     CommandSpec {
         name: "T-TEST",

@@ -57,6 +57,7 @@ mod nomreg;
 mod npar;
 mod nptests;
 mod office;
+mod olap_cubes;
 mod output;
 mod output_docs;
 mod output_file;

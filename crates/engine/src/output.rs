@@ -113,6 +113,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::MatrixData(_)
         | Command::Report(_)
         | Command::Summarize(_)
+        | Command::OlapCubes(_)
         | Command::Codebook(_)
         | Command::CompareDatasets(_)
         | Command::Validatedata(_)

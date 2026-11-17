@@ -112,6 +112,7 @@ One page per supported command, generated from the same table that the parser an
 | [MULT RESPONSE](mult-response.md) | Frequency tables and crosstabulations of multiple response groups and variables. |
 | [MEANS](means.md) | Statistics of dependent variables within groups of control variables. |
 | [SUMMARIZE](summarize.md) | Statistics of dependents within groups of control variables, optionally listing the cases. |
+| [OLAP CUBES](olap-cubes.md) | Statistics of scale variables in nested groups, with differences between groups or variables. |
 | [CODEBOOK](codebook.md) | Dictionary entries and summary statistics of variables and multiple response sets. |
 | [VALIDATEDATA](validatedata.md) | Find suspicious variables, incomplete or duplicate IDs, empty cases and rule violations. |
 | [T-TEST](t-test.md) | One-sample, independent-samples and paired-samples t tests with effect sizes. |

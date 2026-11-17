@@ -75,6 +75,7 @@ mod npar_groups;
 mod npar_tests;
 mod nptests;
 pub mod office;
+mod olap_cubes;
 mod oneway;
 mod optimal_scaling;
 mod output;
@@ -1277,6 +1278,7 @@ impl Engine {
             | Command::Graph(_)
             | Command::Report(_)
             | Command::Summarize(_)
+            | Command::OlapCubes(_)
             | Command::Validatedata(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
@@ -1591,6 +1593,7 @@ impl Engine {
             Command::Graph(command) => self.graph(command),
             Command::Report(command) => self.report(command),
             Command::Summarize(command) => self.summarize(command),
+            Command::OlapCubes(command) => self.olap_cubes(command),
             Command::Validatedata(command) => self.validatedata(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),

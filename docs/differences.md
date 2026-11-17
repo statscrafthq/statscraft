@@ -413,6 +413,17 @@ This page lists, by topic and command:
 - Strings given one after another in TITLE or FOOTNOTE are joined without a space.
 - A variable named twice among the dependents or among the controls of one BY counts once.
 
+### OLAP CUBES
+
+- The layers of the report become rows: one OLAP Cubes table per combination of grouping variables, the categories of the first one outermost and each level ending in a Total, a row per summary variable inside each group and the statistics in columns. Combinations without cases are left out.
+- The default cells come in the order sum, N, mean, standard deviation, percent of total sum, percent of total N; cells named on CELLS come in the order written.
+- A case counts for a summary variable when it is valid on that variable and on the grouping variables of the table; user-missing values are missing (the command has no MISSING subcommand). A summary variable without cases in a group that another summary variable has shows N 0 and empty statistics.
+- Category differences (GAC, GPC) come after the Total of their grouping variable and are shown where both categories have cases; a value with no cases gives a warning. GPC and VPC are shown as percentages, 100 * (second - first) / first, empty where the first is 0. Differences are taken of every cell, counts and percentages included.
+- A difference without a label is named "second - first", with " (%)" for GPC and VPC, from value or variable labels as shown elsewhere.
+- More labels than differences is an error.
+- Under HIDESMALLCOUNTS a difference of counts is empty when either count is hidden.
+- Quoted strings given one after another in TITLE or FOOTNOTE are separate lines.
+
 ### CODEBOOK
 
 - Counts, percents and statistics are weighted; a case with a missing, zero or negative weight is left out of them.

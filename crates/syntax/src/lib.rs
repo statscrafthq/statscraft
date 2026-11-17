@@ -60,6 +60,7 @@ mod mva;
 mod nomreg;
 mod npar;
 mod nptests;
+mod olap_cubes;
 mod optimal_scaling;
 mod output;
 mod output_docs;
@@ -268,6 +269,7 @@ pub use nptests::{
     NpBinomial, NpCompare, NpCut, NpIndependent, NpKs, NpOneSample, NpParameters, NpRelated,
     NpRuns, Nptests,
 };
+pub use olap_cubes::{OlapCubes, OlapDifference, OlapPair};
 pub use optimal_scaling::{Discretize, Impute, McaMissing, McaNormalization, ScalingCommon};
 pub use output::{
     DateSpec, DateUnit, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,

@@ -119,6 +119,15 @@ const MEANS_CELLS: [(&str, &[M]); 23] = [
 
 /// The keywords of MEANS /CELLS; `NPCT(var)` and `SPCT(var)` add the variable to `within`.
 pub(crate) fn means_cells(p: &mut Parser, within: &mut Vec<String>) -> PResult<Vec<M>> {
+    means_cells_with(p, within, &MEANS_DEFAULT)
+}
+
+/// The same with `default` as what DEFAULT stands for.
+pub(crate) fn means_cells_with(
+    p: &mut Parser,
+    within: &mut Vec<String>,
+    default: &[M],
+) -> PResult<Vec<M>> {
     let mut out = Vec::new();
     while !at_end(p) {
         let found = MEANS_CELLS.iter().find(|(name, _)| p.at_keyword(name));
@@ -141,6 +150,8 @@ pub(crate) fn means_cells(p: &mut Parser, within: &mut Vec<String>) -> PResult<V
             } else {
                 M::SpctIn(index)
             });
+        } else if *name == "DEFAULT" {
+            out.extend_from_slice(default);
         } else {
             out.extend_from_slice(cells);
         }

@@ -194,6 +194,7 @@ pub enum Command {
     Matrix(Box<crate::matrix::MatrixProgram>),
     Report(Box<crate::report::Report>),
     Summarize(Box<crate::summarize::Summarize>),
+    OlapCubes(Box<crate::olap_cubes::OlapCubes>),
     Codebook(Box<crate::codebook::Codebook>),
     CompareDatasets(Box<crate::datacheck::CompareDatasets>),
     Validatedata(Box<crate::datacheck::Validatedata>),

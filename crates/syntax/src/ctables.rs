@@ -727,7 +727,7 @@ fn pproperties(p: &mut Parser) -> PResult<Pproperties> {
 
 /// `/HIDESMALLCOUNTS [COUNT=n]`, with the keyword already matched: a whole number from 2 on,
 /// 5 when left out.
-fn hide_small_counts(p: &mut Parser) -> PResult<u32> {
+pub(crate) fn hide_small_counts(p: &mut Parser) -> PResult<u32> {
     if !p.eat_keyword("COUNT") {
         return Ok(5);
     }

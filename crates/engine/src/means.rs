@@ -244,7 +244,7 @@ pub(crate) fn groups(keys: &[Vec<Option<Key>>], included: &[usize]) -> Vec<Group
 
 /// The categories of one control among the cases, ascending: what sorting all of them and
 /// dropping the repeats gives, without sorting every case.
-fn distinct<'k>(level: &'k [Option<Key>], included: &[usize]) -> Vec<&'k Key> {
+pub(crate) fn distinct<'k>(level: &'k [Option<Key>], included: &[usize]) -> Vec<&'k Key> {
     struct Ordered<'k>(&'k Key);
     impl PartialEq for Ordered<'_> {
         fn eq(&self, other: &Self) -> bool {
