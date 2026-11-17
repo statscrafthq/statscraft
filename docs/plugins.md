@@ -216,6 +216,8 @@ The plugin writes one answer to its standard output and exits with status 0:
 - `caption`: the look of the caption under the table in the exports (such as the filter
   note), with the style keys of a cell and no `row`, `col` or `comment`, as in
   `"caption": {"text": "#094e56", "italic": true}`. Without it the caption is plain italic.
+- `title`: the look of the table's title above it in the exports, the same way as `caption`.
+  Without it the title is bold.
 - `plain`, `row_labels`, `column_widths`, `freeze_columns`, `header_heights` and
   `rows_above`: the layout of the exports, see below.
 

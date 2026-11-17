@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Plugins may give the table title a look of their own in the Excel export (`title`, like `caption`); without one it stays bold.
 - CSORDINAL: CUSTOM (with threshold coefficients), ODDSRATIOS (cumulative odds ratios, logit link), NONPARALLEL (the test of parallel lines and the general model's estimates and covariances) and SAVE (cumulative and category probabilities, the predicted category and its probability, the probability of the observed category). Checked against R's survey package. JOINTPROB and OUTFILE still give a "not supported yet" error.
 - CSGLM, CSLOGISTIC, CSORDINAL: the contrast coefficients of the model effects (PRINT LMATRIX) show 0 and 1 instead of rounding residue such as -0.00.
 

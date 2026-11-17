@@ -288,6 +288,13 @@ pub type CellLook<'a> = (
 );
 
 impl Decoration {
+    /// A cleaned style for a caption or a title: no place and no comment.
+    fn placeless(mut self) -> Decoration {
+        self.clean();
+        (self.row, self.col, self.comment) = (0, 0, None);
+        self
+    }
+
     pub fn look(&self) -> CellLook<'_> {
         let (fill, text) = (self.fill.as_deref(), self.text.as_deref());
         let align = self.align.as_deref();
@@ -369,6 +376,9 @@ pub struct TableStyle {
     /// The look of the caption below the table in the exports; its place and comment unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<Decoration>,
+    /// The look of the title above the table in the exports; its place and comment unused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<Decoration>,
 }
 
 /// The width of a column in Excel, in characters.
@@ -477,11 +487,8 @@ impl Table {
                 .filter(|&n| usize::from(n) <= columns - usize::from(stacked)),
             header_heights,
             rows_above: style.rows_above.map(|n| n.min(10)).filter(|&n| n > 0),
-            caption: style.caption.map(|mut d| {
-                d.clean();
-                (d.row, d.col, d.comment) = (0, 0, None);
-                d
-            }),
+            caption: style.caption.map(Decoration::placeless),
+            title: style.title.map(Decoration::placeless),
         };
     }
 

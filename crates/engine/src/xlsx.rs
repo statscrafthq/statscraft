@@ -268,7 +268,11 @@ pub(crate) fn put_table(
 
     if !table.title.is_empty() {
         let at = top + table.style.rows_above.unwrap_or(0);
-        sheet.write_string_with_format(at, left, &table.title, &font(Format::new().set_bold()))?;
+        let format = match &table.style.title {
+            Some(look) => paint(font(Format::new()), look),
+            None => font(Format::new().set_bold()),
+        };
+        sheet.write_string_with_format(at, left, &table.title, &format)?;
     }
     let mut row = top + title_rows(table);
     let mut spans = Vec::new();

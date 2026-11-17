@@ -177,6 +177,12 @@ fn statistics_and_decorations_survive_the_output_file() {
             comment: Some("no comment on a caption".into()),
             ..Decoration::default()
         }),
+        title: Some(Decoration {
+            col: 3,
+            bold: true,
+            comment: Some("no comment on a title".into()),
+            ..Decoration::default()
+        }),
     };
     table.set_decorations(cells, style);
     assert_eq!(table.decorations.len(), 2);
@@ -198,6 +204,8 @@ fn statistics_and_decorations_survive_the_output_file() {
         (caption.row, caption.italic, &caption.comment),
         (0, true, &None)
     );
+    let title = table.style.title.as_ref().unwrap();
+    assert_eq!((title.col, title.bold, &title.comment), (0, true, &None));
     // a font name that could break out of a style, and a size beyond Excel's, are dropped
     let mut odd = table.clone();
     let quoted = TableStyle {

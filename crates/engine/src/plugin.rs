@@ -150,6 +150,15 @@ struct ResponseTable {
     rows_above: Option<u32>,
     /// The caption's look: a cell style without its row and column.
     caption: Option<Map<String, Value>>,
+    /// The title's look, the same way.
+    title: Option<Map<String, Value>>,
+}
+
+/// A cell style without its row and column, as a decoration at 0, 0; None when it is not one.
+fn placeless(mut look: Map<String, Value>) -> Option<Decoration> {
+    look.insert("row".into(), 0.into());
+    look.insert("col".into(), 0.into());
+    serde_json::from_value(Value::Object(look)).ok()
 }
 
 /// Runs `program --describe`.
@@ -229,11 +238,8 @@ fn answers(out: &[u8]) -> Result<Vec<(u64, Answer)>, String> {
                 freeze_columns: t.freeze_columns,
                 header_heights: t.header_heights,
                 rows_above: t.rows_above,
-                caption: t.caption.and_then(|mut look| {
-                    look.insert("row".into(), 0.into());
-                    look.insert("col".into(), 0.into());
-                    serde_json::from_value(Value::Object(look)).ok()
-                }),
+                caption: t.caption.and_then(placeless),
+                title: t.title.and_then(placeless),
             };
             (t.id, (t.cells, style))
         })
@@ -380,6 +386,7 @@ mod tests {
             "plain": true, "row_labels": "stacked", "column_widths": [{"col": 2, "width": 3}],
             "header_heights": [30, 500, 12, 9], "rows_above": 1,
             "caption": {"text": "#094e56", "italic": true, "fill": "nope"},
+            "title": {"text": "#1f4e5a", "bold": true, "size": 10},
             "cells": [
               {"row": 0, "col": 1, "bold": true, "italic": true, "text": "#1f4e5a",
                "align": "center", "font": "Verdana", "size": 7.5,
@@ -425,6 +432,11 @@ mod tests {
             (Some("#094e56"), true)
         );
         assert_eq!(caption.fill, None);
+        let title = table.style.title.as_ref().unwrap();
+        assert_eq!(
+            (title.text.as_deref(), title.bold, title.size),
+            (Some("#1f4e5a"), true, Some(10.0))
+        );
         assert!(table.style.plain);
         assert_eq!(table.style.row_labels.as_deref(), Some("stacked"));
         assert_eq!(table.style.column_widths[0].width, 3.0);

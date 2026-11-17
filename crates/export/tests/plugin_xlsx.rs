@@ -147,6 +147,11 @@ fn one_sheet_freezes_columns_and_captions_take_their_look() {
     let style = |n| TableStyle {
         freeze_columns: Some(n),
         caption: Some(caption.clone()),
+        title: Some(Decoration {
+            text: Some("#1f4e5a".into()),
+            italic: true,
+            ..Decoration::default()
+        }),
         ..TableStyle::default()
     };
     let mut other = table.clone();
@@ -166,13 +171,13 @@ fn one_sheet_freezes_columns_and_captions_take_their_look() {
     assert!(!parts_loose["xl/worksheets/sheet1.xml"].contains("xSplit"));
     // title, header, two body rows, then the caption
     assert_eq!(value(&parts, "A5").as_deref(), Some("Filter: all"));
-    let a5 = xf(&parts, "A5");
-    let id = a5.split("fontId=\"").nth(1).unwrap();
-    let id: usize = id[..id.find('"').unwrap()].parse().unwrap();
-    let font = parts["xl/styles.xml"].split("<font>").nth(id + 1).unwrap();
-    let font = &font[..font.find("</font>").unwrap()];
+    let font = font_of(&parts, "A5");
     assert!(font.contains("<b/>") && !font.contains("<i/>"), "{font}");
     assert!(font.contains("FF094E56"), "{font}");
+    // the title in its look: italic, not bold
+    let font = font_of(&parts, "A1");
+    assert!(font.contains("<i/>") && !font.contains("<b/>"), "{font}");
+    assert!(font.contains("FF1F4E5A"), "{font}");
 }
 
 /// 100 000 comments: about 2.5 s in a release build (some 20 s in a debug one), most of it the
@@ -347,6 +352,15 @@ fn value(parts: &Parts, place: &str) -> Option<String> {
     let si = strings.split("<si>").nth(v.parse::<usize>().unwrap() + 1);
     let t = si.unwrap().split('>').nth(1).unwrap();
     Some(t[..t.find('<').unwrap()].to_string())
+}
+
+/// The font element of the cell at `place`.
+fn font_of(parts: &Parts, place: &str) -> String {
+    let xf = xf(parts, place);
+    let id = xf.split("fontId=\"").nth(1).unwrap();
+    let id: usize = id[..id.find('"').unwrap()].parse().unwrap();
+    let font = parts["xl/styles.xml"].split("<font>").nth(id + 1).unwrap();
+    font[..font.find("</font>").unwrap()].to_string()
 }
 
 /// The cell format (its xf element) of a cell of the first sheet.
