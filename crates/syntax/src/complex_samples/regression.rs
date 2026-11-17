@@ -50,10 +50,10 @@ use crate::procedures::at_end;
 
 mod cox;
 pub(crate) use cox::cscoxreg;
-pub use cox::{CsCoxAssumptions, CsCoxTimeFunction};
 pub use cox::{
     CsCox, CsCoxBaseline, CsCoxCi, CsCoxOutfile, CsCoxPattern, CsCoxPlot, CsCoxPrint, CsCoxSave,
 };
+pub use cox::{CsCoxAssumptions, CsCoxTimeFunction};
 
 /// A reference category: the lowest, the highest or a given value.
 #[derive(Debug, Clone, PartialEq)]

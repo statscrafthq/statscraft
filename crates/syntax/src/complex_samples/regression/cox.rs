@@ -495,7 +495,9 @@ fn pattern(p: &mut Parser, end: &str) -> PResult<CsCoxPattern> {
                     return Err(error(
                         p,
                         at,
-                        format!("PATTERN: the end times of {name} must be ascending numbers above 0"),
+                        format!(
+                            "PATTERN: the end times of {name} must be ascending numbers above 0"
+                        ),
                     ));
                 }
             }
@@ -895,7 +897,7 @@ mod tests {
         );
         for (sub, what) in [
             ("TESTASSUMPTIONS", "needs PROPHAZARD"),
-            ("TESTASSUMPTIONS PROPHAZARD=SQRT", "KM"),
+            ("TESTASSUMPTIONS PROPHAZARD=SQRT", "SQRT"),
             ("PATTERN x(1 2)", "end time t with a list"),
             ("PATTERN t(5 2) x(1 2)", "ascending"),
             ("PATTERN t(1 2 3) x(1 2)", "3 end times"),
@@ -939,7 +941,10 @@ mod tests {
         let plot = c.plot.unwrap();
         assert!(plot.survival && plot.cumhazard && plot.ci && !plot.lml);
         assert_eq!(c.patterns.len(), 2);
-        assert_eq!(c.patterns[0].values[1], ("g".into(), vec![Value::Number(1.0)]));
+        assert_eq!(
+            c.patterns[0].values[1],
+            ("g".into(), vec![Value::Number(1.0)])
+        );
         assert_eq!(c.patterns[1].by.as_deref(), Some("g"));
         assert_eq!(c.outfile.matrix, Some(("c.sav".into(), true)));
         assert_eq!(c.outfile.model.as_deref(), Some("m.json"));
@@ -956,7 +961,10 @@ mod tests {
         assert!(c.print.gef && !c.print.sampleinfo);
         let pattern = &c.patterns[0];
         assert_eq!(pattern.path, Some(vec![4.0, 9.5]));
-        assert_eq!(pattern.values[0].1, [Value::Number(1.0), Value::Number(2.0)]);
+        assert_eq!(
+            pattern.values[0].1,
+            [Value::Number(1.0), Value::Number(2.0)]
+        );
         assert_eq!(pattern.values[1].1, [Value::Number(3.0)]);
         assert_eq!(pattern.by.as_deref(), Some("g"));
         let a = c.assumptions.unwrap();

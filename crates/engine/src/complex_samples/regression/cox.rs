@@ -383,7 +383,10 @@ fn covariances(
             }
         }
         let big_n: f64 = subjects.weight.iter().sum();
-        let mean: Vec<f64> = agg.iter().map(|u| dot(u, &subjects.weight) / big_n).collect();
+        let mean: Vec<f64> = agg
+            .iter()
+            .map(|u| dot(u, &subjects.weight) / big_n)
+            .collect();
         let m: Matrix = (0..q)
             .map(|a| {
                 (0..q)
@@ -853,7 +856,13 @@ impl Engine {
         };
         let strata_levels: Vec<Key> = strata_keys
             .as_ref()
-            .map(|k| sorted_levels(rows.iter().map(|&i| k[i].as_ref().expect("valid")).collect()))
+            .map(|k| {
+                sorted_levels(
+                    rows.iter()
+                        .map(|&i| k[i].as_ref().expect("valid"))
+                        .collect(),
+                )
+            })
             .unwrap_or_default();
         let stratum: Vec<usize> = rows
             .iter()
@@ -889,7 +898,10 @@ impl Engine {
             let mut pieces = Vec::new();
             for &(r, case, start, stop) in &layout {
                 let mut from = start;
-                for &t in times_of[stratum[r]].iter().filter(|&&t| t > start && t <= stop) {
+                for &t in times_of[stratum[r]]
+                    .iter()
+                    .filter(|&&t| t > start && t <= stop)
+                {
                     pieces.push((r, case, from, t));
                     from = t;
                 }
@@ -909,8 +921,12 @@ impl Engine {
                 .chain(&covariate_names)
                 .cloned()
                 .collect();
-            let (source, mut ran) =
-                self.run_time_program(program, &take, pieces.iter().map(|p| Some(p.3)).collect(), &keep)?;
+            let (source, mut ran) = self.run_time_program(
+                program,
+                &take,
+                pieces.iter().map(|p| Some(p.3)).collect(),
+                &keep,
+            )?;
             warnings.append(&mut ran);
             let mut changes = false;
             for name in &keep {
@@ -1803,10 +1819,8 @@ impl Engine {
         for (k, pattern) in c.patterns.iter().enumerate().filter(|_| !time_dependent) {
             // the factor levels and covariate values of each step of the path
             let ends: Vec<f64> = pattern.path.clone().unwrap_or(vec![f64::INFINITY]);
-            let mut steps: Vec<(Vec<usize>, Vec<f64>)> = vec![
-                (levels.iter().map(|l| l.len() - 1).collect(), means.clone());
-                ends.len()
-            ];
+            let mut steps: Vec<(Vec<usize>, Vec<f64>)> =
+                vec![(levels.iter().map(|l| l.len() - 1).collect(), means.clone()); ends.len()];
             for (name, values) in &pattern.values {
                 for (s, (lv, cv)) in steps.iter_mut().enumerate() {
                     let value = &values[s.min(values.len() - 1)];
@@ -2098,8 +2112,8 @@ impl Engine {
         // the sum over each subject's records, on its last record and missing on the others
         let aggregate = |values: &dyn Fn(usize) -> f64| -> Vec<f64> {
             let mut sums: HashMap<usize, (f64, usize)> = HashMap::new();
-            for r in 0..rows.len() {
-                let sum = sums.entry(subjects.of[rows[r]]).or_insert((0.0, r));
+            for (r, &i) in rows.iter().enumerate() {
+                let sum = sums.entry(subjects.of[i]).or_insert((0.0, r));
                 *sum = (sum.0 + values(r), r);
             }
             (0..rows.len())
@@ -2178,8 +2192,7 @@ impl Engine {
                 }
                 CsCoxSave::Dfbeta => saved.extend(per_parameter("Resid_DFBETA", "DFBETA", &dfbeta)),
                 CsCoxSave::AggScore => {
-                    let sums: Vec<Vec<f64>> =
-                        (0..q).map(|k| aggregate(&|r| score(r, k))).collect();
+                    let sums: Vec<Vec<f64>> = (0..q).map(|k| aggregate(&|r| score(r, k))).collect();
                     saved.extend(per_parameter(
                         "AggResid_Score",
                         "Aggregated score residual",
@@ -2636,7 +2649,11 @@ fn prophazard_tables(
         logits: 1,
     };
     let l: Matrix = (0..q)
-        .map(|k| (0..2 * q).map(|j| f64::from(u8::from(j == q + k))).collect())
+        .map(|k| {
+            (0..2 * q)
+                .map(|j| f64::from(u8::from(j == q + k)))
+                .collect()
+        })
         .collect();
     let w = wald(&est, &l, &vec![0.0; q]);
     let cap = format!(

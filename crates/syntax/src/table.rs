@@ -3812,7 +3812,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "CSCOXREG",
         summary: "Cox proportional hazards regression on a complex sample, with design-based standard errors and tests.",
         syntax: "CSCOXREG [start] end [BY factors] [WITH covariates]\n\
-                 \x20  /VARIABLES STATUS=var(values) [BASELINESTRATA=var] /PLAN FILE='file'\n\
+                 \x20  /VARIABLES STATUS=var(values) [ID=var] [BASELINESTRATA=var] /PLAN FILE='file'\n\
                  \x20  [/MODEL effects]\n\
                  \x20  [/CUSTOM [LABEL='text'] LMATRIX=effect coefficients ... [; ...] [KMATRIX=k [; k ...]]]\n\
                  \x20  [/CRITERIA [CILEVEL=95] [DF=n] [LCONVERGE=[0 RELATIVE | ABSOLUTE]] [MXITER=100]\n\
@@ -3821,13 +3821,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/STATISTICS [PARAMETER] [EXP] [SE] [TTEST] [CINTERVAL] [DEFF] [DEFFSQRT]]\n\
                  \x20  [/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
                  \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
+                 \x20  [/TESTASSUMPTIONS [PROPHAZARD=KM | IDENTITY | LOG | RANK] [PARAMETER] [COVB]]\n\
                  \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/PRINT [SAMPLEINFO] [EVENTINFO] [RISKINFO] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]\n\
-                 \x20          [BASELINE] [NONE]]\n\
+                 \x20  [/PRINT [SAMPLEINFO] [EVENTINFO] [RISKINFO] [HISTORY[(n)]] [GEF] [LMATRIX] [COVB]\n\
+                 \x20          [CORB] [BASELINE] [NONE]]\n\
                  \x20  [/SURVIVALMETHOD [BASELINE=EFRON | BRESLOW | PRODUCTLIMIT] [CI=ORIGINAL | LOG | LML]]\n\
                  \x20  [/SAVE keyword[(name)] ... | keyword[(root[:n])] ...]\n\
                  \x20  [/PLOT [SURVIVAL] [CUMHAZARD] [LML] [OMS] [CI=NO | YES]]\n\
-                 \x20  [/PATTERN var(value) ... [BY factor]] [/PATTERN ...]\n\
+                 \x20  [/PATTERN [end(times)] var(value or values) ... [BY factor]] [/PATTERN ...]\n\
                  \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file'] [SURVIVAL='file']]\n\
                  \x20  [/JOINTPROB FILE='file' | dataset].\n\
                  A record is at risk after its start time up to and including its end time; with one time\n\
@@ -3844,7 +3845,21 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  default output is the sample design information with the event and censored counts, the\n\
                  events and censored records of each baseline stratum, the -2 log pseudo likelihood and\n\
                  the Tests of Model Effects; the parameter table needs STATISTICS. RISKINFO lists, per\n\
-                 event time, the events and the records at risk.\n\
+                 event time, the events and the records at risk. PRINT GEF shows the general\n\
+                 estimable function: one column per nonredundant parameter.\n\
+                 ID names the subject of each record. The records of a subject are summed before the\n\
+                 design variance, and where the plan's last stage has no clusters the subjects are its\n\
+                 units. With ID and one time variable, a subject's first record starts at the\n\
+                 beginning and each later one where the previous record (in file order) ended.\n\
+                 Factors and covariates may come from a TIME PROGRAM: each record is then split at the\n\
+                 event times of its baseline stratum and the program runs on every piece with T_ set to\n\
+                 the piece's event time. With such covariates there are no baseline functions, plots,\n\
+                 PATTERN or SURVIVAL file, and SAVE writes only SCHOENFELD, SCORE, DFBETA, their\n\
+                 aggregated forms and XBETA. TESTASSUMPTIONS fits a larger model in which every\n\
+                 predictor also enters multiplied by g(t), one minus the weighted Kaplan-Meier survival\n\
+                 of all records (KM, the default), t, ln(t) or the rank of the event time plus one, and\n\
+                 gives the Wald test (as TEST says) that those extra coefficients are 0; PARAMETER and\n\
+                 COVB show the larger model's estimates, standard errors and covariances.\n\
                  Baseline functions are computed per baseline stratum at the reference values (each\n\
                  factor at its last level, each covariate at its weighted mean): the cumulative hazard\n\
                  by Efron's or Breslow's sum (as TIES unless SURVIVALMETHOD says otherwise) or minus the\n\
@@ -3860,12 +3875,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  CUMHAZARD and their LCL_ and UCL_ limits at each record's own end time and values.\n\
                  Default names: Resid_Schoenfeld, Resid_Score, Resid_DFBETA, Resid_Martingale,\n\
                  Resid_Deviance, Resid_CoxSnell, XBETA, Survival, CumHazard, LCL_Survival and so on; a\n\
-                 taken default name gets a suffix. The AGG keywords need VARIABLES ID and are skipped\n\
-                 with a warning. OUTFILE COVB or CORB writes the matrix file of CSGLM, MODEL a JSON file\n\
-                 with the estimates, covariances, reference values and baseline functions, SURVIVAL a\n\
-                 data file of the curves of PLOT at every event time. JOINTPROB works as in\n\
-                 CSDESCRIPTIVES. Not supported yet: VARIABLES ID, covariates from a TIME PROGRAM,\n\
-                 piecewise PATTERN paths, TESTASSUMPTIONS and PRINT GEF.",
+                 taken default name gets a suffix. AGGMARTINGALE, AGGDEVIANCE, AGGCOXSNELL, AGGSCORE\n\
+                 and AGGDFBETA (default names AggResid_...) total a subject's records and are written on\n\
+                 its last record; the deviance comes from the summed martingale residual and events.\n\
+                 Without ID they are skipped with a warning. A PATTERN that gives the end time a list\n\
+                 of ascending times is a path: each other variable takes one value, or one per time,\n\
+                 held up to that time, and the curve stops at the last time. OUTFILE COVB or CORB writes\n\
+                 the matrix file of CSGLM, MODEL a JSON file with the estimates, covariances, reference\n\
+                 values and baseline functions, SURVIVAL a data file of the curves of PLOT at every event\n\
+                 time. JOINTPROB works as in CSDESCRIPTIVES.",
         example: "CSCOXREG months BY clinic WITH dose /VARIABLES STATUS=relapse(1) /PLAN FILE='trial_plan.json' /STATISTICS PARAMETER EXP SE CINTERVAL /PRINT RISKINFO.",
         parse: complex_samples::cscoxreg,
     },

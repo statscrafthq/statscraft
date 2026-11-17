@@ -876,7 +876,8 @@ fn subjects_as_units_with_one_or_two_times_and_aggregated_residuals() {
         ],
     );
     // (case, martingale, deviance, Cox-Snell, score, DFBETA) of a subject's last record
-    let rows: [(usize, f64, f64, f64, [f64; 3], [f64; 3]); 3] = [
+    type Aggregated = (usize, f64, f64, f64, [f64; 3], [f64; 3]);
+    let rows: [Aggregated; 3] = [
         (
             2,
             0.662202211433602,
@@ -993,11 +994,21 @@ fn covariates_from_a_time_program() {
     let scores = [
         (
             2,
-            [6.20691056698835, -11.44381784231467, 16.284265965516, 52.6863324883265],
+            [
+                6.20691056698835,
+                -11.44381784231467,
+                16.284265965516,
+                52.6863324883265,
+            ],
         ),
         (
             10,
-            [-4.95577668129684, 7.08506022302379, -10.1329187560551, -56.22706937242],
+            [
+                -4.95577668129684,
+                7.08506022302379,
+                -10.1329187560551,
+                -56.22706937242,
+            ],
         ),
     ];
     for (case, values) in scores {
@@ -1078,7 +1089,10 @@ fn proportional_hazards_tests_and_estimable_functions() {
     for k in 0..6 {
         checks(
             estimates,
-            &[(names[k], "Estimate", b[k]), (names[k], "Std. Error", se[k])],
+            &[
+                (names[k], "Estimate", b[k]),
+                (names[k], "Std. Error", se[k]),
+            ],
         );
     }
     let covb = find(&tables, "Covariances of the Alternative Model Parameters");
@@ -1145,21 +1159,42 @@ fn piecewise_pattern_path() {
         .collect();
     let times = column(&engine, "Time");
     let expected = [
-        (1.0, 0.0574120958938587, 0.944204886225069, 0.020975555236835),
+        (
+            1.0,
+            0.0574120958938587,
+            0.944204886225069,
+            0.020975555236835,
+        ),
         (4.0, 0.18214268367276, 0.833482407599954, 0.0482446125826713),
-        (5.0, 0.209135273881993, 0.811285482483591, 0.0589406558992799),
-        (6.0, 0.279883798108209, 0.755871570059094, 0.0853516608310496),
+        (
+            5.0,
+            0.209135273881993,
+            0.811285482483591,
+            0.0589406558992799,
+        ),
+        (
+            6.0,
+            0.279883798108209,
+            0.755871570059094,
+            0.0853516608310496,
+        ),
     ];
     for (time, h, s, se) in expected {
         let row = (0..patterns.len())
             .find(|&r| patterns[r] == "Pattern 1" && times[r] == Some(time))
             .unwrap();
         near(column(&engine, "CumHazard")[row].unwrap(), h, "path hazard");
-        near(column(&engine, "Survival")[row].unwrap(), s, "path survival");
-        near(column(&engine, "SE_Survival")[row].unwrap(), s * se, "path error");
+        near(
+            column(&engine, "Survival")[row].unwrap(),
+            s,
+            "path survival",
+        );
+        near(
+            column(&engine, "SE_Survival")[row].unwrap(),
+            s * se,
+            "path error",
+        );
     }
     // the path ends at its last end time
-    assert!(
-        (0..patterns.len()).all(|r| patterns[r] != "Pattern 1" || times[r] <= Some(40.0))
-    );
+    assert!((0..patterns.len()).all(|r| patterns[r] != "Pattern 1" || times[r] <= Some(40.0)));
 }
