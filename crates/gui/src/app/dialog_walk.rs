@@ -21,6 +21,7 @@ use crate::data_dialogs::{
     Restructure, RestructureKind, SelectCases, SelectMode, SortCases, SortVariables, SplitFile,
     SplitMode, WeightCases,
 };
+use crate::data_tools_dialog::{DataValidation, DatasetComparison, DictionaryCopy};
 use crate::dialogs::testing::{fixture, open, v};
 use crate::dialogs::{
     Adjust, Autorecode, Categories, Compute, Count, Crosstabs, CustomTables, Descriptives,
@@ -167,6 +168,18 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             path: fixture("survey_basic.sav"),
             ..Default::default()
         }),
+        Dialog::Advanced(Advanced::Validate(Box::new(DataValidation {
+            variables: v(&["age"]),
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Compare(Box::new(DatasetComparison {
+            file: fixture("survey_basic.sav"),
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::CopyDictionary(Box::new(DictionaryCopy {
+            file: fixture("survey_basic.sav"),
+            ..Default::default()
+        }))),
         Dialog::MultResponse(MultResponse {
             groups: vec![MrGroup {
                 name: s("q5"),
@@ -765,6 +778,62 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             table: true,
             by: v(&["resp_id"]),
         }),
+        Dialog::Advanced(Advanced::Validate(Box::new(DataValidation {
+            variables: v(&["age", "monthly_spend", "gender"]),
+            ids: v(&["resp_id"]),
+            rules: s("ALL"),
+            pct_missing: s("40"),
+            pct_equal: s("80"),
+            pct_unequal: s("50"),
+            cv: s("0.01"),
+            std_dev: s("0.5"),
+            incomplete_ids: false,
+            report_empty: false,
+            all_variables: true,
+            by_variable: true,
+            by_rule: true,
+            min_violations: s("2"),
+            case_limit: s("20"),
+            save: [true; 4],
+            save_names: [s("emptyflag"), s("incflag"), s("dupgroup"), s("nviol")],
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Compare(Box::new(DatasetComparison {
+            file: fixture("survey_basic.sav"),
+            variables: v(&["age", "monthly_spend"]),
+            ids: v(&["resp_id"]),
+            flag_name: s("changed"),
+            matches: 1,
+            match_file: out.join("matched.sav").to_string_lossy().into_owned(),
+            mismatches: 2,
+            mismatch_dataset: s("review"),
+            properties: [true; 9],
+            table_limit: s("50"),
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Compare(Box::new(DatasetComparison {
+            file: fixture("survey_basic.sav"),
+            flag: false,
+            case_table: false,
+            properties: [true; 9],
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::CopyDictionary(Box::new(DictionaryCopy {
+            file: fixture("survey_basic.sav"),
+            varinfo: [true; 9],
+            file_info: [true; 6],
+            var_merge: [true; 9],
+            file_merge: [true; 6],
+            new_variables: true,
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::CopyDictionary(Box::new(DictionaryCopy {
+            file: fixture("survey_basic.sav"),
+            varinfo: [true, true, false, false, false, false, false, false, false],
+            source_variable: s("age"),
+            targets: v(&["monthly_spend"]),
+            ..Default::default()
+        }))),
         Dialog::MultResponse(MultResponse {
             crosstabs: true,
             groups: vec![

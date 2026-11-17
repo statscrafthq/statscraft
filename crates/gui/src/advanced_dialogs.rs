@@ -19,6 +19,7 @@ use crate::correspondence_dialog::Correspondence;
 use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::SampleModel;
 use crate::cs_sample_dialog::{SampleSelection, SamplingPlan};
+use crate::data_tools_dialog::{DataValidation, DatasetComparison, DictionaryCopy};
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
 use crate::imputation_dialog::Imputation;
@@ -91,6 +92,10 @@ pub enum Advanced {
     Bayes(Box<Bayesian>),
     // boxed: the time series dialogs (in `timeseries_dialog`)
     TimeSeries(Box<TimeSeries>),
+    // the data utility dialogs (in `data_tools_dialog`)
+    Validate(Box<DataValidation>),
+    Compare(Box<DatasetComparison>),
+    CopyDictionary(Box<DictionaryCopy>),
 }
 
 impl Advanced {
@@ -137,6 +142,9 @@ impl Advanced {
             Advanced::Nptests(d) => d.title(),
             Advanced::Bayes(d) => d.title(),
             Advanced::TimeSeries(d) => d.title(),
+            Advanced::Validate(_) => "Validate Data",
+            Advanced::Compare(_) => "Compare Datasets",
+            Advanced::CopyDictionary(_) => "Apply Data Dictionary",
         }
     }
 
@@ -189,6 +197,9 @@ impl Advanced {
             Advanced::Nptests(d) => Advanced::Nptests(Box::new(Nptests::new(d.kind))),
             Advanced::Bayes(d) => Advanced::Bayes(Box::new(Bayesian::new(d.kind))),
             Advanced::TimeSeries(d) => Advanced::TimeSeries(Box::new(d.reset())),
+            Advanced::Validate(_) => Advanced::Validate(Default::default()),
+            Advanced::Compare(_) => Advanced::Compare(Default::default()),
+            Advanced::CopyDictionary(_) => Advanced::CopyDictionary(Default::default()),
         }
     }
 
@@ -242,6 +253,9 @@ impl Advanced {
             Advanced::Nptests(d) => d.syntax(data),
             Advanced::Bayes(d) => d.syntax(data),
             Advanced::TimeSeries(d) => d.syntax(data),
+            Advanced::Validate(d) => d.syntax(),
+            Advanced::Compare(d) => d.syntax(),
+            Advanced::CopyDictionary(d) => d.syntax(data),
         }
     }
 }

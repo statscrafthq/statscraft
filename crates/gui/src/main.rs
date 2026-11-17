@@ -24,6 +24,8 @@ mod cs_model_dialog_view;
 mod cs_sample_dialog;
 mod cs_sample_dialog_view;
 mod data_dialogs;
+mod data_tools_dialog;
+mod data_tools_dialog_view;
 mod dialogs;
 mod editor;
 mod edits;

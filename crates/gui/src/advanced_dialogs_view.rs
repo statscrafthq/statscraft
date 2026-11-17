@@ -66,6 +66,11 @@ pub fn body(
         Advanced::Nptests(d) => crate::nptests_dialog_view::nptests(ui, d, picked),
         Advanced::Bayes(d) => crate::bayes_dialog_view::bayes(ui, d, picked),
         Advanced::TimeSeries(d) => crate::timeseries_dialog_view::body(ui, data, d, picked),
+        Advanced::Validate(d) => crate::data_tools_dialog_view::validate(ui, d, picked),
+        Advanced::Compare(d) => crate::data_tools_dialog_view::compare(ui, d, picked, folder),
+        Advanced::CopyDictionary(d) => {
+            crate::data_tools_dialog_view::apply_dictionary(ui, d, picked, folder)
+        }
     }
 }
 

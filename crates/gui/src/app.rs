@@ -1467,6 +1467,14 @@ impl App {
                 {
                     self.open_dialog(Dialog::ExportData(Default::default()));
                 }
+                if ui
+                    .add_enabled(has_data, egui::Button::new("Apply Data Dictionary..."))
+                    .clicked()
+                {
+                    self.open_dialog(Dialog::Advanced(Advanced::CopyDictionary(
+                        Default::default(),
+                    )));
+                }
                 ui.separator();
                 ui.menu_button("New", |ui| {
                     if ui.button("Syntax").clicked() {
@@ -1642,6 +1650,16 @@ impl App {
                     }
                 }
                 ui.add_enabled_ui(has_data, |ui| {
+                    ui.menu_button("Validation", |ui| {
+                        if ui.button("Validate Data...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Validate(
+                                Default::default(),
+                            )));
+                        }
+                    });
+                    if ui.button("Compare Datasets...").clicked() {
+                        self.open_dialog(Dialog::Advanced(Advanced::Compare(Default::default())));
+                    }
                     ui.menu_button("Merge Files", |ui| {
                         for (label, add_variables) in
                             [("Add Cases...", false), ("Add Variables...", true)]
