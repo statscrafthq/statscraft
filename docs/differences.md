@@ -1294,6 +1294,19 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - In the office files a difference area chart, and range bars with more than one pair, go in as pictures; drop-line and high-low charts are line charts of points with high-low lines, error bar charts line charts of points with custom error bars, side by side only in the picture and in Vega-Lite.
 - Not supported yet, each with an error: TEMPLATE, HILO with more than three series (GROUPED), and INTERVAL around counts, percentages and functions other than MEAN and MEDIAN.
 
+### GGRAPH
+
+- GGRAPH reads its chart program from the BEGIN GPL block (one per GRAPHSPEC) and makes the same chart data as GRAPH: simple, clustered and stacked bars, lines, areas, points by category, scatterplots, pies and histograms. A command that comes before the block arrives drops the waiting GGRAPH with a warning.
+- Weights count in every function of VARIABLES and in the summaries of the chart program; cases with a weight of zero or less are left out of the graph dataset, as in GRAPH. The functions shared with GRAPH compute as there (MEDIAN and PTILE with (W + 1) p, MODE the smallest of tied values).
+- A case missing on a variable that is not a function argument has no category and is left out under VARIABLEWISE too, unless REPORTMISSING=YES makes its user-missing value a category. Categories ascend by value, valid ones first; the user-missing ones follow.
+- A column of a graph dataset without summary functions keeps missing values, as the manual says; an element leaves out the rows missing on the variables it draws.
+- In the chart program, interval with color and without cluster puts the series side by side, as interval.dodge does, instead of drawing the bars over each other. A bar or point that several rows reach without a summary function shows their sum, with a warning. An empty cell shows no bar without a summary function and 0 with summary.count.
+- Without text.title the chart is named after what it shows ("Mean of rain by field"), so the output has a name for it; a scatterplot "y by x" and a histogram after its variable. An axis without a GUIDE label is titled by its variable or function.
+- In clustered bars the axis of dim(1) is the axis along the bottom, which shows the categories of the cluster dimension.
+- missing.wings is accepted, but a line still breaks at an empty category. bin.rect settings are not applied: the bins are chosen as FREQUENCIES chooses them, with a warning.
+- Statements, functions and settings not applied give a warning naming the statement and its line and are skipped; the chart is drawn without them. Among them: TRANS, PAGE, form.line, notIn, labels on elements, other scales than linear and cat, and the GRAPHSPEC keywords EDITABLE, DEFAULTTEMPLATE, TEMPLATE, VIZSTYLESHEET and VIZMAP and the COLORCYCLE, FRAME, GRIDLINES and FITLINES subcommands. A chart without an element that can be drawn is an error.
+- Not supported yet, each with an error: SOURCE other than INLINE, DATASET with a name, DATAFILTER, multiple response sets, RESPONSES, GPTILE and the error interval functions (COUNTCI, MEDIANCI, MEANCI, MEANSD, MEANSE), panels (a third dimension without cluster) and a source other than userSource.
+
 ### PPLOT
 
 - The plots come as chart data and pictures, one per variable and kind: Q-Q (observed value against the expected quantile, both in data units) or P-P (observed against expected cumulative proportion), each with the line y = x, and their detrended forms with the line y = 0. The points are listed by observed value.

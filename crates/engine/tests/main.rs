@@ -39,6 +39,7 @@ mod frequencies;
 mod genlin;
 mod genlinmixed;
 mod get_data;
+mod ggraph;
 mod glm;
 mod glm_multivariate;
 mod graph;

@@ -82,6 +82,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::CsModel(_)
         | Command::CsCox(_)
         | Command::Graph(_)
+        | Command::Ggraph(_)
         | Command::Pplot(_)
         | Command::Roc(_)
         | Command::RocAnalysis(_)
@@ -158,6 +159,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Insert { .. }
         | Command::BeginProgram
         | Command::BeginChart(_)
+        | Command::BeginGpl(_)
         | Command::Cache
         | Command::Display(_)
         | Command::Csplan(_)

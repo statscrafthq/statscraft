@@ -44,6 +44,7 @@ mod frequencies;
 mod genlin;
 mod genlinmixed;
 mod get_data;
+mod ggraph;
 mod glm;
 mod graph;
 mod input_program;
@@ -127,6 +128,7 @@ mod tests_factor;
 mod tests_genlin;
 #[cfg(test)]
 mod tests_genlinmixed;
+mod tests_ggraph;
 #[cfg(test)]
 mod tests_glm;
 #[cfg(test)]
@@ -266,6 +268,10 @@ pub use genlin::{
     GenlinTolerance, GenlinTrials, default_link, distribution_keyword, link_allowed, link_keyword,
 };
 pub use genlinmixed::{GenLinMixed, GlmmRandom};
+pub use ggraph::{
+    Ggraph, GplExpr, GplProgram, GplStatement, GraphDataset, GraphItem, GraphSpec, GraphStat,
+    read_gpl,
+};
 pub use glm::{
     Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix,
     LRow, MColumn, Profile, RefCat, Term, WsFactor,
@@ -574,6 +580,11 @@ fn parse_raw(raw: &RawCommand) -> Result<Command, SyntaxError> {
             "END CHART without BEGIN CHART",
         )
         .hint("a chart starts with a line that holds only BEGIN CHART")),
+        Resolution::Unsupported("END GPL", used) => Err(SyntaxError::new(
+            name_span(used),
+            "END GPL without BEGIN GPL",
+        )
+        .hint("a chart program starts with a line that holds only BEGIN GPL")),
         Resolution::Unsupported("END MATRIX", used) => Err(SyntaxError::new(
             name_span(used),
             "END MATRIX without MATRIX",

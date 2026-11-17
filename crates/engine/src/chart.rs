@@ -301,6 +301,8 @@ impl Chart {
             (ChartKind::Bar, Some(Grouping::Percent)) => format!("100% stacked {bars}"),
             (ChartKind::Bar, _) if self.series.len() > 1 => format!("Clustered {bars}"),
             (ChartKind::Bar, _) => format!("Simple {bars}"),
+            // points by category without bars, as a chart program draws them
+            (ChartKind::ErrorBar, _) if self.error_bars.is_none() => "Dot plot".into(),
             (ChartKind::ErrorBar, _) if self.series.len() > 1 => "Clustered error bar chart".into(),
             (ChartKind::ErrorBar, _) => "Simple error bar chart".into(),
             (ChartKind::RangeBar, _) => "Range bar chart".into(),

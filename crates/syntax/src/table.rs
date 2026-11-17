@@ -27,6 +27,7 @@ use crate::frequencies;
 use crate::genlin;
 use crate::genlinmixed;
 use crate::get_data;
+use crate::ggraph;
 use crate::glm;
 use crate::graph;
 use crate::input_program;
@@ -4232,6 +4233,65 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: graph::graph,
     },
     CommandSpec {
+        name: "GGRAPH",
+        summary: "A chart from a graph dataset and a chart program in BEGIN GPL: bars (clustered, stacked), lines, areas, points, a pie or a histogram.",
+        syntax: "GGRAPH /GRAPHDATASET NAME=\"name\" VARIABLES=item ... [TRANSFORM=NO | VARSTOCASES(SUMMARY=\"n\" INDEX=\"n\")]\n\
+                 \x20             [MISSING=LISTWISE | VARIABLEWISE] [REPORTMISSING=NO | YES] [CASELIMIT=n]\n\
+                 \x20      /GRAPHSPEC SOURCE=INLINE [LABEL=\"text\"].\n\
+                 BEGIN GPL\n\
+                 chart program\n\
+                 END GPL.\n\
+                 item: a variable (ALL and TO allowed) with an optional [NAME=\"new\" LEVEL=SCALE | NOMINAL | ORDINAL],\n\
+                 or a function with an optional [NAME=\"new\"]: COUNT(), MINIMUM MAXIMUM VALIDN SUM MEAN STDDEV\n\
+                 VARIANCE MEDIAN GMEDIAN MODE (var), PTILE PLT PGT NLT NGT NLE PLE NEQ PEQ NGE PGE (var, x), PIN NIN\n\
+                 (var, low, high), CASEVALUE(var). Keywords are written in full. A function makes one row per\n\
+                 combination of the other variables' values; its column is called by its name and arguments joined\n\
+                 with underscores (MEAN_price, PTILE_price_90) unless NAME renames it. Without a function every\n\
+                 case with a positive weight is a row, and $CASENUM numbers them. Weights count in every function.\n\
+                 LISTWISE drops a case missing on any listed variable; VARIABLEWISE drops it only from the functions\n\
+                 of the variable it misses. REPORTMISSING=YES turns user-missing values of variables that are not at\n\
+                 the scale level into categories of their own. VARSTOCASES makes a row of each function, numbered in\n\
+                 the INDEX column with the value in the SUMMARY column. CASELIMIT keeps the first n rows.\n\
+                 Each GRAPHSPEC takes the next BEGIN GPL block; both stand right after the command. In the chart\n\
+                 program: SOURCE: s=userSource(id(\"name\")); DATA: x=col(source(s), name(\"column\")\n\
+                 [, unit.category()]); GUIDE: axis(dim(1 | 2), label(\"text\") | null()), legend(aesthetic(...),\n\
+                 label(\"text\")), text.title, text.subtitle, text.footnote(label(\"text\")); SCALE: linear(dim(2),\n\
+                 include(0), max(n)), cat(dim(n) | aesthetic(...), include(\"value\", ...)), which adds categories;\n\
+                 COORD: rect(dim(1,2), cluster(3)) clusters, transpose() lays bars across, polar.theta() makes a pie;\n\
+                 ELEMENT: interval, interval.dodge, interval.stack, line, area, area.stack or point with position(x*y)\n\
+                 or position(x*y*z) with cluster, and color(variable) for a series per category or color(\"name\") to\n\
+                 name the series. Several rows on one point need summary.count, mean, sum, median, mode, min, max or\n\
+                 percent around the position; position(summary.count(bin.rect(x))) is a histogram and\n\
+                 line(position(density.normal(x))) adds its normal curve. point over two scale variables is a\n\
+                 scatterplot. Other statements and settings give a warning and are skipped.",
+        example: "GGRAPH /GRAPHDATASET NAME=\"sales\" VARIABLES=store daypart MEAN(basket)\n\
+                 \x20 /GRAPHSPEC SOURCE=INLINE.\n\
+                 BEGIN GPL\n\
+                 SOURCE: s=userSource(id(\"sales\"))\n\
+                 DATA: store=col(source(s), name(\"store\"), unit.category())\n\
+                 DATA: daypart=col(source(s), name(\"daypart\"), unit.category())\n\
+                 DATA: basket=col(source(s), name(\"MEAN_basket\"))\n\
+                 GUIDE: axis(dim(2), label(\"Average basket\"))\n\
+                 ELEMENT: interval.stack(position(store*basket), color(daypart))\n\
+                 END GPL.",
+        parse: ggraph::ggraph,
+    },
+    CommandSpec {
+        name: "BEGIN GPL",
+        summary: "The chart program of the GGRAPH command right before it, up to END GPL.",
+        syntax: "BEGIN GPL\n\
+                 chart program\n\
+                 END GPL.\n\
+                 BEGIN GPL and END GPL each stand alone on their line. The block belongs to the GGRAPH before it\n\
+                 (one block for each GRAPHSPEC with SOURCE=INLINE); see GGRAPH for the statements it reads.",
+        example: "BEGIN GPL\n\
+                 SOURCE: s=userSource(id(\"sales\"))\n\
+                 DATA: price=col(source(s), name(\"price\"))\n\
+                 ELEMENT: interval(position(summary.count(bin.rect(price))))\n\
+                 END GPL.",
+        parse: ggraph::begin_gpl,
+    },
+    CommandSpec {
         name: "PPLOT",
         summary: "Probability plots: Q-Q or P-P plots of variables against a test distribution.",
         syntax: PPLOT_SYNTAX,
@@ -6048,7 +6108,13 @@ static UNSUPPORTED: &[&str] = &[];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.
-static STRAY: &[&str] = &["END DATA", "END CHART", "END MATRIX", "END REPEAT"];
+static STRAY: &[&str] = &[
+    "END DATA",
+    "END CHART",
+    "END GPL",
+    "END MATRIX",
+    "END REPEAT",
+];
 
 fn names() -> impl Iterator<Item = (&'static str, Option<&'static CommandSpec>)> {
     let supported = COMMANDS.iter().map(|spec| (spec.name, Some(spec)));
@@ -6250,6 +6316,7 @@ pub fn help(command: Option<&str>) -> Option<String> {
         Resolution::Unsupported(name, used) if used == words.len() => Some(match name {
             "END DATA" => "END DATA ends the inline data that BEGIN DATA starts.\n".into(),
             "END CHART" => "END CHART ends the chart that BEGIN CHART starts.\n".into(),
+            "END GPL" => "END GPL ends the chart program that BEGIN GPL starts.\n".into(),
             "END REPEAT" => "END REPEAT ends the commands that DO REPEAT repeats.\n".into(),
             "END MATRIX" => "END MATRIX ends the program that MATRIX starts.\n".into(),
             _ => format!("{name} is a command of the language, but it is not supported yet.\n"),

@@ -280,11 +280,11 @@ pub(crate) fn is_line_command(line: &str, name: [&str; 2]) -> bool {
         && words.next().is_none()
 }
 
-/// The blocks whose lines are taken as they are: inline data, and a chart as JSON (a Statscraft
-/// extension).
-const BLOCKS: [&str; 2] = ["DATA", "CHART"];
+/// The blocks whose lines are taken as they are: inline data, a chart as JSON (a Statscraft
+/// extension) and the chart program of GGRAPH.
+const BLOCKS: [&str; 3] = ["DATA", "CHART", "GPL"];
 
-/// The block that starts on `line`, by its second word: BEGIN DATA or BEGIN CHART.
+/// The block that starts on `line`, by its second word: BEGIN DATA, BEGIN CHART or BEGIN GPL.
 pub(crate) fn block_start(line: &str) -> Option<&'static str> {
     BLOCKS
         .into_iter()

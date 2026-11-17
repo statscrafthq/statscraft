@@ -47,6 +47,7 @@ mod genlin;
 mod genlog;
 mod get_data;
 mod get_translate;
+mod ggraph;
 mod glm;
 mod graph;
 mod hiloglinear;
@@ -764,6 +765,8 @@ pub struct Engine {
     /// commands that came in between, to run after the data.
     pending_data: Option<data_list::Pending>,
     queued: Vec<Command>,
+    /// A GGRAPH waiting for the BEGIN GPL blocks of its chart programs.
+    ggraph: Option<statscraft_syntax::Ggraph>,
     /// An INPUT PROGRAM or FILE TYPE whose commands are being collected.
     collecting_input: Option<input::Program>,
     /// Set in the engine that builds the cases of an input program.
@@ -997,6 +1000,11 @@ impl Engine {
         self.warnings.clear();
         self.charts.clear();
         self.error_at = None;
+        match self.gpl_step(command)? {
+            ggraph::GplStep::Pass => {}
+            ggraph::GplStep::Wait => return Ok(Vec::new()),
+            ggraph::GplStep::Run(joined) => return self.execute_inner(&joined),
+        }
         if let Some(result) = self.collect_input(command) {
             let tables = result?;
             let mut out = std::mem::take(&mut self.flushed);
@@ -1310,6 +1318,7 @@ impl Engine {
             | Command::Anova(_)
             | Command::Tree(_)
             | Command::Graph(_)
+            | Command::Ggraph(_)
             | Command::Report(_)
             | Command::Summarize(_)
             | Command::OlapCubes(_)
@@ -1324,6 +1333,8 @@ impl Engine {
                 }
                 return self.procedure(command);
             }
+            // gpl_step joins the block to its GGRAPH before this
+            Command::BeginGpl(_) => {}
             Command::Detectanomaly(_) => {
                 if self.active()?.split_file().is_some() {
                     self.warn(
@@ -1679,6 +1690,7 @@ impl Engine {
             Command::Anova(command) => self.anova(command),
             Command::Tree(command) => self.tree(command),
             Command::Graph(command) => self.graph(command),
+            Command::Ggraph(command) => self.ggraph(command),
             Command::Report(command) => self.report(command),
             Command::Summarize(command) => self.summarize(command),
             Command::OlapCubes(command) => self.olap_cubes(command),

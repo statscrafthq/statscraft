@@ -197,6 +197,8 @@ One page per supported command, generated from the same table that the parser an
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
 | [GRAPH](graph.md) | One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram, a scatterplot or a scatterplot matrix. |
+| [GGRAPH](ggraph.md) | A chart from a graph dataset and a chart program in BEGIN GPL: bars (clustered, stacked), lines, areas, points, a pie or a histogram. |
+| [BEGIN GPL](begin-gpl.md) | The chart program of the GGRAPH command right before it, up to END GPL. |
 | [PPLOT](pplot.md) | Probability plots: Q-Q or P-P plots of variables against a test distribution. |
 | [NPPLOT](npplot.md) | Another name for PPLOT. |
 | [ROC](roc.md) | ROC curve of test variables against a state, with the area under the curve. |

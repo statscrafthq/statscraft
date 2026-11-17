@@ -120,6 +120,9 @@ pub enum Command {
     Anova(Box<crate::anova::Anova>),
     Tree(Box<Tree>),
     Graph(Box<crate::graph::Graph>),
+    Ggraph(Box<crate::ggraph::Ggraph>),
+    /// The chart program between BEGIN GPL and END GPL, which belongs to the GGRAPH before it.
+    BeginGpl(Box<crate::ggraph::GplProgram>),
     Rank(Rank),
     AddFiles(Merge),
     MatchFiles(Merge),

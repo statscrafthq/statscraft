@@ -65,12 +65,12 @@ pub(crate) const MOST_CATEGORIES: usize = 3000;
 
 /// The category of a case: its value (None when system-missing) and whether it is missing.
 #[derive(Clone, PartialEq)]
-struct Class {
-    key: Option<Key>,
-    missing: bool,
+pub(crate) struct Class {
+    pub(crate) key: Option<Key>,
+    pub(crate) missing: bool,
 }
 
-fn class_of(variable: &Variable, case: usize, include: bool) -> Class {
+pub(crate) fn class_of(variable: &Variable, case: usize, include: bool) -> Class {
     match variable.values() {
         Values::Numeric(values) => match values.get(case) {
             Some(x) => Class {
@@ -93,7 +93,7 @@ fn class_of(variable: &Variable, case: usize, include: bool) -> Class {
 }
 
 /// Valid categories first, then missing ones, each ascending; system-missing last.
-fn order(a: &Class, b: &Class) -> Ordering {
+pub(crate) fn order(a: &Class, b: &Class) -> Ordering {
     a.missing
         .cmp(&b.missing)
         .then_with(|| match (&a.key, &b.key) {
@@ -116,7 +116,7 @@ fn distinct<'a>(classes: impl Iterator<Item = &'a Class>) -> Vec<Class> {
     out
 }
 
-fn category(variable: &Variable, class: &Class, shown: &Shown) -> Category {
+pub(crate) fn category(variable: &Variable, class: &Class, shown: &Shown) -> Category {
     let (label, value) = match &class.key {
         Some(key) => (
             shown.value(variable, key),
@@ -158,7 +158,7 @@ fn plain(x: f64) -> String {
 }
 
 /// What a function computes, with its variable when it has one.
-fn function_name(function: F, variable: Option<&str>) -> String {
+pub(crate) fn function_name(function: F, variable: Option<&str>) -> String {
     let of = variable.map_or(String::new(), |v| format!(" of {v}"));
     match function {
         F::Count => "Count".into(),
@@ -187,7 +187,7 @@ fn function_name(function: F, variable: Option<&str>) -> String {
 }
 
 /// What the numbers of a function are.
-fn statistic_of(function: F) -> Statistic {
+pub(crate) fn statistic_of(function: F) -> Statistic {
     match function {
         F::Count | F::Cufreq | F::N | F::Nlt(_) | F::Ngt(_) | F::Nin(..) => Statistic::Count,
         F::Pct | F::Cupct | F::Plt(_) | F::Pgt(_) | F::Pin(..) => Statistic::Percent,
@@ -218,7 +218,7 @@ fn mode(pairs: &[(f64, f64)]) -> Option<f64> {
 
 /// A function of the (value, weight) pairs of one cell; NaN where it is undefined. The count
 /// functions give the summed weight here; percentages and accumulation come after.
-fn compute(function: F, pairs: &[(f64, f64)]) -> f64 {
+pub(crate) fn compute(function: F, pairs: &[(f64, f64)]) -> f64 {
     let n: f64 = pairs.iter().map(|p| p.1).sum();
     let count = |keep: &dyn Fn(f64) -> bool| -> f64 {
         pairs.iter().filter(|p| keep(p.0)).map(|p| p.1).sum()
@@ -414,9 +414,9 @@ fn pareto(chart: &mut Chart, cumulative: bool) {
 }
 
 /// One function over one variable (none for a count function).
-struct Item<'a> {
-    function: F,
-    variable: Option<Variable<'a>>,
+pub(crate) struct Item<'a> {
+    pub(crate) function: F,
+    pub(crate) variable: Option<Variable<'a>>,
 }
 
 impl Item<'_> {
@@ -426,7 +426,7 @@ impl Item<'_> {
     }
 
     /// The display format of the item's numbers.
-    fn format(&self, values: &[f64]) -> String {
+    pub(crate) fn format(&self, values: &[f64]) -> String {
         match statistic_of(self.function) {
             Statistic::Count => {
                 chart::count_format(values.iter().copied().filter(|v| v.is_finite()))
