@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Analyze > Dimension Reduction > Older Optimal Scaling Commands: HOMALS, PRINCALS, OVERALS and ANACOR dialogs (variables with their largest category, levels and sets, dimensions, tables, charts and saved object scores). NOBSERVATIONS, ANALYSIS for HOMALS and MATRIX OUT are left to the syntax.
 - Window: Analyze > Classify > ROC Analysis (ROC ANALYSIS: paired or two-group comparison of areas, precision-recall curves, classifier measures), Analyze > Quality Control > Control Charts (SPCHART: X-bar, individuals, p, np, c, u and process capability charts) and Analyze > Regression > Optimal Scaling (CATREG: scaling level, recoding and missing values per variable, penalties, resampling) dialogs.
 - Window: Analyze > Reports > OLAP Cubes (OLAP CUBES: summary and nested grouping variables, cell statistics, differences between two categories or two summary variables, title, footnote, small counts) and Analyze > Compare Means > Proportions (PROPORTIONS: one sample, related and independent samples with every test, interval, success and group choice, confidence level and missing-value option) dialogs.
 - Window: Analyze > Regression > Quantile (QUANTILE REGRESSION), Analyze > General Linear Model > Variance Components (VARCOMP) and Transform > Optimal Binning (OPTIMAL BINNING) dialogs.

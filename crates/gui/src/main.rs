@@ -43,6 +43,8 @@ mod grid_menu;
 mod highlight;
 mod imputation_dialog;
 mod imputation_dialog_view;
+mod legacy_scaling_dialog;
+mod legacy_scaling_dialog_view;
 mod loglinear_dialog;
 mod loglinear_dialog_view;
 mod mca_dialog;

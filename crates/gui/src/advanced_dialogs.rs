@@ -23,6 +23,7 @@ use crate::data_tools_dialog::{DataValidation, DatasetComparison, DictionaryCopy
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
 use crate::imputation_dialog::Imputation;
+use crate::legacy_scaling_dialog::{Anacor, LegacyScaling};
 use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::mca_dialog::Mca;
 use crate::mds_dialog::{Alscal, Proxscal};
@@ -61,6 +62,11 @@ pub enum Advanced {
     Mca(Box<Mca>),
     // boxed: a large dialog
     Catpca(Box<Catpca>),
+    // the older optimal scaling commands (in `legacy_scaling_dialog`)
+    Homals(Box<LegacyScaling>),
+    Princals(Box<LegacyScaling>),
+    Overals(Box<LegacyScaling>),
+    Anacor(Box<Anacor>),
     Km(KaplanMeier),
     LifeTables(LifeTables),
     Distances(Distances),
@@ -127,6 +133,8 @@ impl Advanced {
             Advanced::Correspondence(_) => "Correspondence Analysis",
             Advanced::Mca(_) => "Multiple Correspondence Analysis",
             Advanced::Catpca(_) => "Categorical Principal Components",
+            Advanced::Homals(d) | Advanced::Princals(d) | Advanced::Overals(d) => d.spec().title,
+            Advanced::Anacor(_) => "Correspondence Analysis (ANACOR, older command)",
             Advanced::Km(_) => "Kaplan-Meier",
             Advanced::LifeTables(_) => "Life Tables",
             Advanced::Distances(_) => "Distances",
@@ -187,6 +195,10 @@ impl Advanced {
             Advanced::Correspondence(_) => Advanced::Correspondence(Default::default()),
             Advanced::Mca(_) => Advanced::Mca(Default::default()),
             Advanced::Catpca(_) => Advanced::Catpca(Default::default()),
+            Advanced::Homals(d) => Advanced::Homals(Box::new(d.reset())),
+            Advanced::Princals(d) => Advanced::Princals(Box::new(d.reset())),
+            Advanced::Overals(d) => Advanced::Overals(Box::new(d.reset())),
+            Advanced::Anacor(_) => Advanced::Anacor(Default::default()),
             Advanced::Km(_) => Advanced::Km(Default::default()),
             Advanced::LifeTables(_) => Advanced::LifeTables(Default::default()),
             Advanced::Distances(_) => Advanced::Distances(Default::default()),
@@ -250,6 +262,8 @@ impl Advanced {
             Advanced::Correspondence(d) => d.syntax(data),
             Advanced::Mca(d) => d.syntax(data),
             Advanced::Catpca(d) => d.syntax(data),
+            Advanced::Homals(d) | Advanced::Princals(d) | Advanced::Overals(d) => d.syntax(data),
+            Advanced::Anacor(d) => d.syntax(data),
             Advanced::Km(d) => d.syntax(data),
             Advanced::LifeTables(d) => d.syntax(data),
             Advanced::Distances(d) => d.syntax(data),

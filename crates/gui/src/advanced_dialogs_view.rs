@@ -42,6 +42,10 @@ pub fn body(
         }
         Advanced::Mca(d) => crate::mca_dialog_view::mca(ui, d, picked, folder),
         Advanced::Catpca(d) => crate::catpca_dialog_view::catpca(ui, d, picked, folder),
+        Advanced::Homals(d) | Advanced::Princals(d) | Advanced::Overals(d) => {
+            crate::legacy_scaling_dialog_view::legacy_scaling(ui, data, d, picked)
+        }
+        Advanced::Anacor(d) => crate::legacy_scaling_dialog_view::anacor(ui, data, d, picked),
         Advanced::Km(d) => crate::survival_dialog_view::kaplan_meier(ui, d, picked),
         Advanced::LifeTables(d) => crate::survival_dialog_view::life_tables(ui, data, d, picked),
         Advanced::Distances(d) => crate::proximities_dialog_view::distances(ui, d, picked, folder),

@@ -32,6 +32,7 @@ use crate::forecast_more_dialog::{Areg, Spectra, TwoSls};
 use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::imputation_dialog::{Imputation, Limits};
+use crate::legacy_scaling_dialog::{Anacor, LegacyScaling, LegacyVariable, ScalingKind};
 use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::mca_dialog::{Mca, McaVariable};
 use crate::model_dialogs::{
@@ -69,6 +70,36 @@ fn table_variable(name: &str, min: &str, max: &str, roles: &[(i64, Role)]) -> Ta
 }
 
 /// Each dialog with the fewest choices that make its syntax.
+/// The least a HOMALS, PRINCALS or OVERALS dialog needs: two variables, a set each for OVERALS.
+fn legacy_scaling(kind: ScalingKind) -> LegacyScaling {
+    let mut second = LegacyVariable::new("region", "5");
+    second.set = 2;
+    LegacyScaling {
+        variables: v(&["gender", "region"]),
+        settings: vec![LegacyVariable::new("gender", "2"), second],
+        ..LegacyScaling::new(kind)
+    }
+}
+
+/// Four variables at mixed levels, two in each of two sets, for the walk with every option on.
+fn legacy_four(kind: ScalingKind) -> LegacyScaling {
+    let setting = |name: &str, max: &str, level: usize, set: usize| LegacyVariable {
+        level,
+        set,
+        ..LegacyVariable::new(name, max)
+    };
+    LegacyScaling {
+        variables: v(&["gender", "region", "q6_mention1", "q6_mention2"]),
+        settings: vec![
+            setting("gender", "2", 3, 1),
+            setting("region", "5", 1, 2),
+            setting("q6_mention1", "6", 2, 1),
+            setting("q6_mention2", "6", 0, 2),
+        ],
+        ..LegacyScaling::new(kind)
+    }
+}
+
 fn minimal(out: &Path) -> Vec<Dialog> {
     let plan = out.join("min_plan.json").to_string_lossy().into_owned();
     let mut list = vec![
@@ -297,6 +328,20 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         }))),
         Dialog::Advanced(Advanced::Catpca(Box::new(Catpca {
             variables: v(&["gender", "region"]),
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Homals(Box::new(legacy_scaling(
+            ScalingKind::Homals,
+        )))),
+        Dialog::Advanced(Advanced::Princals(Box::new(legacy_scaling(
+            ScalingKind::Princals,
+        )))),
+        Dialog::Advanced(Advanced::Overals(Box::new(legacy_scaling(
+            ScalingKind::Overals,
+        )))),
+        Dialog::Advanced(Advanced::Anacor(Box::new(Anacor {
+            row: table_variable("region", "1", "5", &[]),
+            column: table_variable("q6_mention1", "1", "6", &[]),
             ..Default::default()
         }))),
         Dialog::Advanced(Advanced::Distances(Distances {
@@ -1415,6 +1460,62 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ndim_first: s("1"),
             ndim_last: s("3"),
         })),
+        Dialog::Advanced(Advanced::Homals(Box::new(LegacyScaling {
+            dimensions: s("3"),
+            max_iterations: s("50"),
+            convergence: s("0.0001"),
+            print: vec![true; 5],
+            plots: vec![true; 3],
+            plot_variables: vec![v(&["region"]), v(&["gender", "region"]), Vec::new()],
+            label_length: s("8"),
+            ndim: true,
+            ndim_last: s("3"),
+            save: true,
+            save_root: s("hs"),
+            save_dims: s("2"),
+            ..legacy_four(ScalingKind::Homals)
+        }))),
+        Dialog::Advanced(Advanced::Princals(Box::new(LegacyScaling {
+            dimensions: s("3"),
+            print: vec![true; 6],
+            plots: vec![true; 3],
+            plot_variables: vec![v(&["q6_mention1"]), v(&["region"]), Vec::new()],
+            label_length: s("5"),
+            save: true,
+            save_dims: s("3"),
+            ..legacy_four(ScalingKind::Princals)
+        }))),
+        Dialog::Advanced(Advanced::Overals(Box::new(LegacyScaling {
+            random_start: true,
+            print: vec![true; 7],
+            plots: vec![true; 5],
+            plot_variables: vec![
+                v(&["region"]),
+                v(&["region"]),
+                v(&["region"]),
+                v(&["region"]),
+                v(&["region"]),
+            ],
+            label_length: s("5"),
+            save: true,
+            save_root: s("ov"),
+            ..legacy_four(ScalingKind::Overals)
+        }))),
+        Dialog::Advanced(Advanced::Anacor(Box::new(Anacor {
+            row: table_variable("region", "1", "5", &[]),
+            column: table_variable("q6_mention1", "1", "6", &[]),
+            dimensions: s("3"),
+            normalization: 4,
+            q: s("0.5"),
+            row_variances: true,
+            column_variances: true,
+            print: [true; 5],
+            plots: [true; 5],
+            label_length: s("6"),
+            ndim: true,
+            ndim_first: s("1"),
+            ndim_last: s("3"),
+        }))),
         // between variables, standardized within each case, every change of the results
         Dialog::Advanced(Advanced::Distances(Distances {
             variables: v(&["age", "monthly_spend", "q2_recommend"]),

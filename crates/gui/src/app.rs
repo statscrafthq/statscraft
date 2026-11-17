@@ -28,6 +28,7 @@ use crate::edits::{self, Field};
 use crate::graph_dialogs::{ChartBuilder, ProbabilityPlot, RocCurve};
 use crate::graph_dialogs_view;
 use crate::imputation_dialog::Imputation;
+use crate::legacy_scaling_dialog::{LegacyScaling, ScalingKind};
 use crate::loglinear_dialog::GeneralLoglinear;
 use crate::model_dialogs::{
     Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures, Univariate,
@@ -1938,6 +1939,34 @@ impl App {
                                 Advanced::Catpca(Default::default()),
                             ));
                         }
+                        ui.menu_button("Older Optimal Scaling Commands", |ui| {
+                            for (label, dialog) in [
+                                (
+                                    "Homogeneity Analysis (HOMALS)...",
+                                    Advanced::Homals(Default::default()),
+                                ),
+                                (
+                                    "Nonlinear Principal Components (PRINCALS)...",
+                                    Advanced::Princals(Box::new(LegacyScaling::new(
+                                        ScalingKind::Princals,
+                                    ))),
+                                ),
+                                (
+                                    "Nonlinear Canonical Correlation (OVERALS)...",
+                                    Advanced::Overals(Box::new(LegacyScaling::new(
+                                        ScalingKind::Overals,
+                                    ))),
+                                ),
+                                (
+                                    "Correspondence Analysis (ANACOR, older command)...",
+                                    Advanced::Anacor(Default::default()),
+                                ),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    self.open_dialog(Dialog::Advanced(dialog));
+                                }
+                            }
+                        });
                     });
                     ui.menu_button("Scale", |ui| {
                         if ui.button("Reliability Analysis...").clicked() {
