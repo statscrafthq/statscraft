@@ -268,6 +268,8 @@ impl Dist {
                 }
                 *cats.last().expect("categories")
             }
+            // one value: every quantile is that value (q.len() - 2 would underflow)
+            Dist::Empirical(q) if q.len() == 1 => q[0],
             Dist::Empirical(q) => {
                 let at = u * (q.len() - 1) as f64;
                 let i = (at.floor() as usize).min(q.len() - 2);
@@ -740,6 +742,13 @@ mod tests {
         assert!((digamma(1.0) + euler).abs() < 1e-12);
         assert!((digamma(0.5) + euler + 2.0 * 2f64.ln()).abs() < 1e-12);
         assert!((trigamma(1.0) - std::f64::consts::PI.powi(2) / 6.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn an_empirical_distribution_of_one_value() {
+        let one = Dist::Empirical(vec![4.5]);
+        assert_eq!(one.quantile(0.0), 4.5);
+        assert_eq!(one.quantile(0.9), 4.5);
     }
 
     #[test]

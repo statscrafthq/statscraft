@@ -517,7 +517,8 @@ impl Sample {
         all.truncate(size);
         if test.is_empty() {
             let cut = (0.7 * all.len() as f64).round() as usize;
-            let cut = cut.clamp(1, all.len());
+            // clamp(1, 0) would panic on an empty sample
+            let cut = cut.clamp(all.len().min(1), all.len());
             return Sample {
                 train: all[..cut].iter().map(|c| c.0).collect(),
                 test: all[cut..].iter().map(|c| c.0).collect(),
@@ -718,6 +719,13 @@ pub(crate) fn choose_units(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_sample_draws_nothing() {
+        let mut u = || 0.5;
+        let s = Sample::draw(&[], &[], 10, &mut u);
+        assert!(s.train.is_empty() && s.test.is_empty());
+    }
 
     fn tiny() -> (Net, Vec<f64>, Vec<Row>) {
         // 1 input, 1 tanh hidden unit, 1 identity output
