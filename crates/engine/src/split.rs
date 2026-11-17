@@ -253,6 +253,7 @@ impl Engine {
                 | Command::Csselect(_)
                 | Command::Cstabulate(_)
                 | Command::CsModel(_)
+                | Command::CsCox(_)
         );
         let result = self.in_view(command, use_split);
         // also after an early error inside a group

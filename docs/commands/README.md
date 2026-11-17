@@ -226,6 +226,7 @@ One page per supported command, generated from the same table that the parser an
 | [CSGLM](csglm.md) | Linear regression, ANOVA and ANCOVA on a complex sample, with design-based standard errors and tests. |
 | [CSLOGISTIC](cslogistic.md) | Binary and multinomial logistic regression on a complex sample, with design-based standard errors and tests. |
 | [CSORDINAL](csordinal.md) | Ordinal regression (cumulative link model) on a complex sample, with design-based standard errors and tests. |
+| [CSCOXREG](cscoxreg.md) | Cox proportional hazards regression on a complex sample, with design-based standard errors and tests. |
 
 ## Macros, files and session
 

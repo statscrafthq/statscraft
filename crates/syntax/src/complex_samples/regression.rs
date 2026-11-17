@@ -48,6 +48,10 @@ use crate::parser::{PResult, Parser};
 use crate::plum::PlumLink;
 use crate::procedures::at_end;
 
+mod cox;
+pub(crate) use cox::cscoxreg;
+pub use cox::{CsCox, CsCoxPrint};
+
 /// A reference category: the lowest, the highest or a given value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CsReference {

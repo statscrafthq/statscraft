@@ -904,6 +904,11 @@ impl Engine {
         // the next command that reads the data uses a time program up (begin_pass drops it);
         // only COXREG runs it
         if !matches!(command, Command::Coxreg(_)) && output::stage(command) == output::Stage::Pass {
+            if matches!(command, Command::CsCox(_)) && self.time_program.take().is_some() {
+                return Err(Error(
+                    "CSCOXREG does not support covariates from a TIME PROGRAM yet".into(),
+                ));
+            }
             self.time_program = None;
         }
         self.track_clean(command);
@@ -1171,6 +1176,7 @@ impl Engine {
             | Command::Csdescriptives(_)
             | Command::Cstabulate(_)
             | Command::CsModel(_)
+            | Command::CsCox(_)
             | Command::Cluster(_)
             | Command::Proxscal(_)
             | Command::Alscal(_)
@@ -1483,6 +1489,7 @@ impl Engine {
             Command::Csselect(command) => self.csselect(command),
             Command::Cstabulate(command) => self.cstabulate(command),
             Command::CsModel(command) => self.cs_model(command),
+            Command::CsCox(command) => self.cs_cox(command),
             Command::Cluster(command) => self.cluster(command),
             Command::Proximities(command) => self.proximities(command),
             Command::Proxscal(command) => self.proxscal(command),

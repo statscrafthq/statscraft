@@ -98,6 +98,7 @@ pub enum Command {
     Cstabulate(Box<crate::complex_samples::Cstabulate>),
     /// CSGLM and CSLOGISTIC.
     CsModel(Box<crate::complex_samples::CsModel>),
+    CsCox(Box<crate::complex_samples::CsCox>),
     Cluster(Box<crate::cluster::Cluster>),
     Proximities(Box<crate::proximities::Proximities>),
     Proxscal(Box<crate::proxscal::Proxscal>),

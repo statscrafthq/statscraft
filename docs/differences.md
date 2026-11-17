@@ -1231,6 +1231,13 @@ Not supported yet: pooled results of the other procedures (GENLIN and the other 
 - **OUTFILE** works as in CSGLM and CSLOGISTIC; the thresholds come first, as in the tables, and the model file also names the link and the categories in their order.
 - Not supported yet: JOINTPROB and the UNEQUAL_WOR estimator and PRINT GEF; each stops with an error naming it.
 
+### Complex samples Cox regression: CSCOXREG
+
+- **References.** R's survival package (`coxph` with the weights, Efron or Breslow ties) gave the estimates, and the standard errors are the manual's sandwich computed in R: the inverse weighted information on both sides of `svytotal`'s design covariance of the total of the records' score residuals (0 outside the analysis). `svycoxph` from the survey package gives the same estimates and standard errors to about 1e-12, with and without baseline strata, start times, a domain and clinics drawn without replacement. Degrees of freedom, the Wald F, design effects and the cases left out work as in CSGLM and CSLOGISTIC.
+- **Choices where the manual is silent.** A record whose start time is not below its end time is left out with the invalid records, as is a negative time. CLASSMISSING applies to the status variable as it does to the dependent of the other models; a valid status outside the event values is censored. The columns are centered at the reference pattern (factors at their last level, covariates at their weighted means) only for numerical safety; no estimate depends on it. The Model Summary gives -2 log pseudo likelihood at b = 0 and at the estimates and is always shown, as the manual lists model summary statistics in the default output without a PRINT keyword for them; the Tests of Model Effects have a (Model) row that tests all coefficients together. SAMPLEINFO adds the event and censored counts (unweighted and population size); EVENTINFO shows them per baseline stratum with a total; RISKINFO lists, per event time, the events and the records at risk, weighted and unweighted. There is no variable information table, as PRINT has no keyword for one. The check for possibly infinite estimates uses the design-based standard error. exp(B) gets its interval by exponentiating the limits of B.
+- **Beyond the documentation:** keywords may be shortened as elsewhere in Statscraft, although the manual asks for them in full. Time variables with a date or time format are used as numbers without the manual's warning.
+- Not supported yet: VARIABLES ID (several records per subject), covariates from a TIME PROGRAM, JOINTPROB and the UNEQUAL_WOR estimator, TESTASSUMPTIONS, SURVIVALMETHOD, SAVE, PLOT, PATTERN, OUTFILE, PRINT GEF and PRINT BASELINE; each stops with an error naming it.
+
 ## Custom tables and multiple response
 
 ### CTABLES
@@ -1401,7 +1408,7 @@ Where the documentation is silent:
   - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - LOGLINEAR, the older loglinear command with contrasts, is not supported; GENLOG and HILOGLINEAR cover its models.
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
-  - CSPLAN SAMPLE and CSSELECT have no PPS methods (MOS is ignored) and no SELECTRULE; CSDESCRIPTIVES, CSTABULATE, CSGLM, CSLOGISTIC and CSORDINAL have no JOINTPROB and no UNEQUAL_WOR estimator; CSGLM, CSLOGISTIC and CSORDINAL have no PRINT GEF.
+  - CSPLAN SAMPLE and CSSELECT have no PPS methods (MOS is ignored) and no SELECTRULE; CSDESCRIPTIVES, CSTABULATE, CSGLM, CSLOGISTIC and CSORDINAL have no JOINTPROB and no UNEQUAL_WOR estimator; CSGLM, CSLOGISTIC and CSORDINAL have no PRINT GEF; CSCOXREG has no ID (several records per subject), time program covariates, SURVIVALMETHOD, PRINT BASELINE, SAVE, PLOT, PATTERN, OUTFILE or TESTASSUMPTIONS.
   - UNIANOVA and GLM have no RANDOM, TEST, ROBUST, OUTFILE, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF and TEST(LMATRIX) or the heteroskedasticity tests, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).

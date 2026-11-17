@@ -3778,6 +3778,42 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: complex_samples::cstabulate,
     },
     CommandSpec {
+        name: "CSCOXREG",
+        summary: "Cox proportional hazards regression on a complex sample, with design-based standard errors and tests.",
+        syntax: "CSCOXREG [start] end [BY factors] [WITH covariates]\n\
+                 \x20  /VARIABLES STATUS=var(values) [BASELINESTRATA=var] /PLAN FILE='file'\n\
+                 \x20  [/MODEL effects]\n\
+                 \x20  [/CUSTOM [LABEL='text'] LMATRIX=effect coefficients ... [; ...] [KMATRIX=k [; k ...]]]\n\
+                 \x20  [/CRITERIA [CILEVEL=95] [DF=n] [LCONVERGE=[0 RELATIVE | ABSOLUTE]] [MXITER=100]\n\
+                 \x20             [MXSTEP=5] [PCONVERGE=[1E-6 RELATIVE | ABSOLUTE]] [SINGULAR=1E-12]\n\
+                 \x20             [TIES=EFRON | BRESLOW]]\n\
+                 \x20  [/STATISTICS [PARAMETER] [EXP] [SE] [TTEST] [CINTERVAL] [DEFF] [DEFFSQRT]]\n\
+                 \x20  [/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
+                 \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
+                 \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/PRINT [SAMPLEINFO] [EVENTINFO] [RISKINFO] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]\n\
+                 \x20          [NONE]].\n\
+                 A record is at risk after its start time up to and including its end time; with one time\n\
+                 variable it is at risk from the beginning. A status among the event values means the\n\
+                 event happened at the end time; any other valid status is censored. A negative time, or a\n\
+                 start time not below the end time, leaves the record out. The hazard is h0(t) exp(x'b)\n\
+                 without an intercept, which the baseline hazard h0 absorbs, so the last level of each\n\
+                 factor is the reference. BASELINESTRATA gives each of its values its own baseline hazard\n\
+                 while the coefficients are shared. The estimates maximize the weighted partial\n\
+                 likelihood, tied event times treated by Efron's method (TIES=BRESLOW: Breslow's), by\n\
+                 Newton-Raphson with step-halving from b = 0. The covariance is a sandwich: the inverse\n\
+                 information on both sides of the design covariance of the total of the records' score\n\
+                 residuals. Design, df, domains, TEST, CUSTOM and design effects work as in CSGLM. The\n\
+                 default output is the sample design information with the event and censored counts, the\n\
+                 events and censored records of each baseline stratum, the -2 log pseudo likelihood and\n\
+                 the Tests of Model Effects; the parameter table needs STATISTICS. RISKINFO lists, per\n\
+                 event time, the events and the records at risk. Not supported yet: VARIABLES ID,\n\
+                 covariates from a TIME PROGRAM, JOINTPROB, TESTASSUMPTIONS, SURVIVALMETHOD, SAVE, PLOT,\n\
+                 PATTERN, OUTFILE, PRINT GEF and BASELINE, and the UNEQUAL_WOR estimator.",
+        example: "CSCOXREG months BY clinic WITH dose /VARIABLES STATUS=relapse(1) /PLAN FILE='trial_plan.json' /STATISTICS PARAMETER EXP SE CINTERVAL /PRINT RISKINFO.",
+        parse: complex_samples::cscoxreg,
+    },
+    CommandSpec {
         name: "CSGLM",
         summary: "Linear regression, ANOVA and ANCOVA on a complex sample, with design-based standard errors and tests.",
         syntax: "CSGLM dependent [BY factors] [WITH covariates] /PLAN FILE='file'\n\

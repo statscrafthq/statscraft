@@ -76,6 +76,7 @@ use statscraft_syntax::{
     CsPadjust, CsReference, CsTestType, LRow, PlumLink, Term, Value,
 };
 
+mod cox;
 mod ordinal;
 
 /// The parameters of the model with their covariances; with several logits, logit by logit.

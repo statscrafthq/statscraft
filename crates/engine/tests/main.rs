@@ -16,6 +16,7 @@ mod cluster;
 mod complex_samples;
 mod correspondence;
 mod coxreg;
+mod cs_cox;
 mod cs_regression;
 mod cs_sampling;
 mod ctables;

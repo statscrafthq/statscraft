@@ -75,6 +75,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Csselect(_)
         | Command::Cstabulate(_)
         | Command::CsModel(_)
+        | Command::CsCox(_)
         | Command::Graph(_)
         | Command::Pplot(_)
         | Command::Roc(_)
