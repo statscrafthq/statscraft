@@ -1,12 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.17.0 (2026-11-17)
 
 - Plugins may give the table title a look of their own in the Excel export (`title`, like `caption`); without one it stays bold.
 - Plugin Settings: design templates. Save the plugin's settings under a name (one look per client, say), switch between them, and the last one chosen stays active for every data file; settings a plugin marks `"per_file": true` (such as the population size) stay with each data file.
 - CSORDINAL: CUSTOM (with threshold coefficients), ODDSRATIOS (cumulative odds ratios, logit link), NONPARALLEL (the test of parallel lines and the general model's estimates and covariances) and SAVE (cumulative and category probabilities, the predicted category and its probability, the probability of the observed category). Checked against R's survey package. JOINTPROB and OUTFILE still give a "not supported yet" error.
 - CSGLM, CSLOGISTIC, CSORDINAL: the contrast coefficients of the model effects (PRINT LMATRIX) show 0 and 1 instead of rounding residue such as -0.00.
-
 - CROSSTABS: gamma, the Kendall taus and Somers' d count concordant pairs with cumulative sums, so a large table (an ID by a measurement) takes well under a second instead of minutes.
 - CSORDINAL: ordinal regression on a complex sample. All five link functions, DESCENDING order, MODEL, CRITERIA (with METHOD=FISHER(n)), STATISTICS, TEST, DOMAIN, MISSING and PRINT (pseudo R squares, iteration history, covariances, classification); thresholds, coefficients and design-based standard errors checked against R's survey package.
 - CROSSTABS integer mode: /VARIABLES with value ranges. Every value of a row or column range is shown, values outside it count as missing, and TO and ALL on TABLES follow the order of VARIABLES.
