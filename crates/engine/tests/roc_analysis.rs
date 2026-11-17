@@ -30,7 +30,10 @@ BEGIN DATA
 END DATA.
 ";
 
-fn run(source: &str) -> Result<(Vec<Table>, Vec<Chart>, Vec<String>), String> {
+/// The tables and charts of the last command, and the warnings.
+type Output = (Vec<Table>, Vec<Chart>, Vec<String>);
+
+fn run(source: &str) -> Result<Output, String> {
     let (commands, errors) = parse(&format!("{SCREEN}{source}\n"));
     assert!(errors.is_empty(), "{errors:?}");
     let mut engine = Engine::default();
@@ -42,7 +45,7 @@ fn run(source: &str) -> Result<(Vec<Table>, Vec<Chart>, Vec<String>), String> {
     Ok((tables, charts, engine.warnings().to_vec()))
 }
 
-fn ok(source: &str) -> (Vec<Table>, Vec<Chart>, Vec<String>) {
+fn ok(source: &str) -> Output {
     run(source).unwrap_or_else(|e| panic!("{source}: {e}"))
 }
 

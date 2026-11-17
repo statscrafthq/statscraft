@@ -817,15 +817,6 @@ impl Engine {
             (true, false) => "Positive if Less Than or Equal To",
             (true, true) => "Positive if Less Than",
         };
-        let cutoff_note = |unit_interval: bool| {
-            if unit_interval {
-                "The test values all lie between 0 and 1, so the outer cutoffs are 0 and 1; the \
-                 others lie halfway between neighboring test values."
-            } else {
-                "The cutoffs run from 1 below the smallest test value to 1 above the largest; \
-                 the others lie halfway between neighboring test values."
-            }
-        };
         let coordinate_table = |title: &str, measures: [&str; 2], pr: bool| -> Table {
             let mut rows = Vec::new();
             let mut unit_interval = Vec::new();
@@ -833,13 +824,10 @@ impl Engine {
                 for (u, points) in test_coords.iter().enumerate() {
                     let curve = &curves[t][u];
                     let (n_pos, n_neg) = (curve.n_pos(), curve.n_neg());
-                    unit_interval.push(
-                        curve
-                            .pos
-                            .iter()
-                            .chain(&curve.neg)
-                            .all(|&v| v > 0.0 && v < 1.0),
-                    );
+                    let inside = (curve.pos.iter().chain(&curve.neg)).all(|&v| v > 0.0 && v < 1.0);
+                    if inside && !unit_interval.contains(&labels[t]) {
+                        unit_interval.push(labels[t].clone());
+                    }
                     for (k, &(cut, tp, fp)) in points.iter().enumerate() {
                         let mut row = if k == 0 {
                             row_start(t, u)
@@ -856,11 +844,16 @@ impl Engine {
                 }
             }
             let mut notes: Vec<String> = tie_note.iter().cloned().collect();
-            if unit_interval.iter().any(|&u| u) {
-                notes.push(cutoff_note(true).into());
-            }
-            if unit_interval.iter().any(|&u| !u) {
-                notes.push(cutoff_note(false).into());
+            notes.push(
+                "The cutoffs lie halfway between neighboring test values, plus one cutoff 1 below \
+                 the smallest value and one 1 above the largest."
+                    .into(),
+            );
+            if !unit_interval.is_empty() {
+                notes.push(format!(
+                    "{}: every test value lies between 0 and 1, so the outer cutoffs are 0 and 1.",
+                    unit_interval.join(", ")
+                ));
             }
             if pr {
                 notes.push("Precision is empty where no case tests positive.".into());
