@@ -33,6 +33,7 @@ use crate::dialogs::{
 };
 use crate::forecast_more_dialog::{Areg, Spectra, TwoSls};
 use crate::genlin_dialog::GeneralizedLinear;
+use crate::glmm_dialog::{GenlinMixed, RandomBlock};
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::imputation_dialog::{Imputation, Limits};
 use crate::legacy_scaling_dialog::{Anacor, LegacyScaling, LegacyVariable, ScalingKind};
@@ -384,6 +385,16 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         })),
         Dialog::Advanced(Advanced::Genlin(Box::new(GeneralizedLinear {
             dependent: s("monthly_spend"),
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Glmm(Box::new(GenlinMixed {
+            subjects: v(&["region"]),
+            target: s("monthly_spend"),
+            inputs: v(&["age"]),
+            random: vec![RandomBlock {
+                subjects: v(&["region"]),
+                ..Default::default()
+            }],
             ..Default::default()
         }))),
         Dialog::Advanced(Advanced::Correspondence(Correspondence {
@@ -2514,6 +2525,53 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         }
         list.push(Dialog::NparTests(d));
     }
+    list.push(Dialog::Advanced(Advanced::Glmm(Box::new(GenlinMixed {
+        subjects: v(&["region", "gender"]),
+        target: s("q2_recommend"),
+        distribution: 5,
+        link: 2,
+        trials_form: 0,
+        weight: s("q1_satisfaction"),
+        offset_form: 1,
+        offset: s("0.1"),
+        inputs: v(&["age", "monthly_spend"]),
+        custom_fixed: true,
+        fixed: terms(&[&["age"], &["monthly_spend"]]),
+        intercept: true,
+        random: vec![
+            RandomBlock {
+                intercept: true,
+                terms: terms(&[&["age"]]),
+                subjects: v(&["region"]),
+                covariance: 3,
+                solution: true,
+            },
+            RandomBlock {
+                subjects: v(&["region", "gender"]),
+                covariance: 0,
+                ..Default::default()
+            },
+        ],
+        order: 1,
+        iterations: s("50"),
+        ci_level: s("90"),
+        df_method: 1,
+        pconverge: s("0.00001"),
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Glmm(Box::new(GenlinMixed {
+        subjects: v(&["region"]),
+        target: s("q5_2"),
+        distribution: 2,
+        link: 4,
+        reference: s("0"),
+        inputs: v(&["age"]),
+        random: vec![RandomBlock {
+            subjects: v(&["region"]),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }))));
     list.push(Dialog::Advanced(Advanced::Manova(Box::new(Manova {
         dependents: v(&["monthly_spend", "q1_satisfaction"]),
         factors: v(&["region", "gender"]),
@@ -5922,7 +5980,8 @@ fn family(dialog: &Dialog) -> usize {
             Advanced::Ordinal(_)
             | Advanced::Multinomial(_)
             | Advanced::Mixed(_)
-            | Advanced::Genlin(_),
+            | Advanced::Genlin(_)
+            | Advanced::Glmm(_),
         ) => 4,
         _ => 5,
     }

@@ -31,6 +31,7 @@ pub fn body(
         Advanced::Multinomial(d) => multinomial(ui, d, picked),
         Advanced::Mixed(d) => mixed(ui, d, picked),
         Advanced::Genlin(d) => crate::genlin_dialog_view::genlin(ui, d, picked),
+        Advanced::Glmm(d) => crate::glmm_dialog_view::glmm(ui, d, picked),
         Advanced::Plan(d) => plan(ui, d, picked, folder),
         Advanced::Sampling(d) => crate::cs_sample_dialog_view::sampling_plan(ui, d, picked, folder),
         Advanced::Selection(d) => crate::cs_sample_dialog_view::select_sample(ui, d, folder),

@@ -1840,6 +1840,9 @@ impl App {
                         if ui.button("Linear...").clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Mixed(Default::default())));
                         }
+                        if ui.button("Generalized Linear...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Glmm(Default::default())));
+                        }
                     });
                     ui.menu_button("Correlate", |ui| {
                         if ui.button("Bivariate...").clicked() {

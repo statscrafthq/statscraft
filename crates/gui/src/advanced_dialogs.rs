@@ -23,6 +23,7 @@ use crate::cs_sample_dialog::{SampleSelection, SamplingPlan};
 use crate::data_tools_dialog::{DataValidation, DatasetComparison, DictionaryCopy};
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
+use crate::glmm_dialog::GenlinMixed;
 use crate::imputation_dialog::Imputation;
 use crate::legacy_scaling_dialog::{Anacor, LegacyScaling};
 use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
@@ -51,6 +52,7 @@ pub enum Advanced {
     Mixed(LinearMixed),
     // boxed: the largest dialog by far
     Genlin(Box<GeneralizedLinear>),
+    Glmm(Box<GenlinMixed>),
     Plan(SamplePlan),
     Sampling(SamplingPlan),
     Selection(SampleSelection),
@@ -123,6 +125,7 @@ impl Advanced {
             Advanced::Multinomial(_) => "Multinomial Logistic Regression",
             Advanced::Mixed(_) => "Linear Mixed Models",
             Advanced::Genlin(_) => "Generalized Linear Models",
+            Advanced::Glmm(_) => "Generalized Linear Mixed Models",
             Advanced::Plan(_) => "Complex Samples Analysis Plan",
             Advanced::Sampling(_) => "Complex Samples Sampling Plan",
             Advanced::Selection(_) => "Complex Samples Select a Sample",
@@ -181,6 +184,7 @@ impl Advanced {
             Advanced::Multinomial(_) => Advanced::Multinomial(Default::default()),
             Advanced::Mixed(_) => Advanced::Mixed(Default::default()),
             Advanced::Genlin(_) => Advanced::Genlin(Default::default()),
+            Advanced::Glmm(_) => Advanced::Glmm(Default::default()),
             Advanced::Plan(_) => Advanced::Plan(Default::default()),
             Advanced::Sampling(_) => Advanced::Sampling(Default::default()),
             Advanced::Selection(_) => Advanced::Selection(Default::default()),
@@ -254,6 +258,7 @@ impl Advanced {
             Advanced::Mixed(d) => numeric(data, std::iter::once(&d.dependent).chain(&d.covariates))
                 .and_then(|()| d.syntax()),
             Advanced::Genlin(d) => data_checks(d, data).and_then(|string| d.syntax(string)),
+            Advanced::Glmm(d) => d.syntax(data),
             Advanced::Plan(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
             Advanced::Sampling(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
             Advanced::Selection(d) => d.syntax(),

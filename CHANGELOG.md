@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Analyze > Mixed Models > Generalized Linear (GENLINMIXED: target with distribution and link, trials, offset and analysis weight, fixed effects as main effects or custom terms, any number of random blocks with subjects, covariance type and predicted effects, and the estimation options).
 - Window: Data > Orthogonal Design > Generate... and Display... (ORTHOPLAN and PLANCARDS) and Analyze > Conjoint... (CONJOINT): factors with levels and labels, fewest profiles, holdouts, seed and where the plan goes; the cards layout, title and footer; the plan and the responses from the active data or a file, how they are recorded, the model of each factor and the print, chart and utility file options.
 - Window: Analyze > Dimension Reduction > Older Optimal Scaling Commands: HOMALS, PRINCALS, OVERALS and ANACOR dialogs (variables with their largest category, levels and sets, dimensions, tables, charts and saved object scores). NOBSERVATIONS, ANALYSIS for HOMALS and MATRIX OUT are left to the syntax.
 - Window: Analyze > Classify > ROC Analysis (ROC ANALYSIS: paired or two-group comparison of areas, precision-recall curves, classifier measures), Analyze > Quality Control > Control Charts (SPCHART: X-bar, individuals, p, np, c, u and process capability charts) and Analyze > Regression > Optimal Scaling (CATREG: scaling level, recoding and missing values per variable, penalties, resampling) dialogs.
