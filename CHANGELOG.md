@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Analyze > Classify > ROC Analysis (ROC ANALYSIS: paired or two-group comparison of areas, precision-recall curves, classifier measures), Analyze > Quality Control > Control Charts (SPCHART: X-bar, individuals, p, np, c, u and process capability charts) and Analyze > Regression > Optimal Scaling (CATREG: scaling level, recoding and missing values per variable, penalties, resampling) dialogs.
 - Window: Analyze > Reports > OLAP Cubes (OLAP CUBES: summary and nested grouping variables, cell statistics, differences between two categories or two summary variables, title, footnote, small counts) and Analyze > Compare Means > Proportions (PROPORTIONS: one sample, related and independent samples with every test, interval, success and group choice, confidence level and missing-value option) dialogs.
 - Window: Analyze > Regression > Quantile (QUANTILE REGRESSION), Analyze > General Linear Model > Variance Components (VARCOMP) and Transform > Optimal Binning (OPTIMAL BINNING) dialogs.
 - Plugins: several at once. Edit > Settings > Plugins lists them in the order they run, each with a box to turn it on and off, its path, Up, Down, Remove and Settings... for its own settings and design templates (which now belong to one plugin); the Edit > Plugin Settings menu entry is gone. Their answers merge per cell and per table, the later plugin winning key by key, and one that fails does not stop the others. `statscraft run --plugin` may be given more than once.

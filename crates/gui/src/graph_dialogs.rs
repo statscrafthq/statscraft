@@ -246,7 +246,7 @@ fn one(slot: &str, what: &str) -> Result<String, String> {
 }
 
 /// A quoted line of TITLE, SUBTITLE or FOOTNOTE, None when empty.
-fn line(text: &str, what: &str) -> Result<Option<String>, String> {
+pub(crate) fn line(text: &str, what: &str) -> Result<Option<String>, String> {
     let text = text.trim();
     if text.chars().count() > 72 {
         return Err(format!("the {what} has at most 72 characters"));

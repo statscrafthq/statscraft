@@ -9,6 +9,7 @@ use crate::analyze_dialogs::{
     TTestKind, Tree,
 };
 use crate::bayes_dialog::{BAYES_MENU, Bayesian};
+use crate::catreg_dialog::CategoricalRegression;
 use crate::connect_window::Connect;
 use crate::cs_model_dialog::SampleModel;
 use crate::data_dialogs::{
@@ -38,8 +39,10 @@ use crate::nptests_dialog::{NpKind, Nptests};
 use crate::output;
 use crate::output_view;
 use crate::power_dialog::{POWER_MENU, PowerAnalysis};
+use crate::roc_analysis_dialog::RocAnalysis;
 use crate::settings::{Settings, usable_position, usable_size};
 use crate::settings_window::{self, Section};
+use crate::spchart_dialog::ControlCharts;
 use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliability, numeric};
 use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
@@ -256,6 +259,10 @@ pub(crate) enum Dialog {
     QuantileRegression(QuantileRegression),
     VarianceComponents(VarianceComponents),
     OptimalBinning(OptimalBinning),
+    // boxed: large dialogs
+    RocAnalysis(Box<RocAnalysis>),
+    ControlCharts(Box<ControlCharts>),
+    Catreg(Box<CategoricalRegression>),
 }
 
 impl Dialog {
@@ -309,6 +316,9 @@ impl Dialog {
             Dialog::QuantileRegression(_) => "Quantile Regression",
             Dialog::VarianceComponents(_) => "Variance Components",
             Dialog::OptimalBinning(_) => "Optimal Binning",
+            Dialog::RocAnalysis(_) => "ROC Analysis",
+            Dialog::ControlCharts(_) => "Control Charts",
+            Dialog::Catreg(_) => "Categorical Regression",
         }
     }
 
@@ -374,6 +384,9 @@ impl Dialog {
             Dialog::QuantileRegression(_) => Dialog::QuantileRegression(Default::default()),
             Dialog::VarianceComponents(_) => Dialog::VarianceComponents(Default::default()),
             Dialog::OptimalBinning(_) => Dialog::OptimalBinning(Default::default()),
+            Dialog::RocAnalysis(_) => Dialog::RocAnalysis(Default::default()),
+            Dialog::ControlCharts(_) => Dialog::ControlCharts(Default::default()),
+            Dialog::Catreg(_) => Dialog::Catreg(Default::default()),
         }
     }
 
@@ -520,6 +533,9 @@ impl Dialog {
             Dialog::RocCurve(d) => {
                 numeric(data, &d.tests).and_then(|()| d.syntax(is_string(data, &d.state)))
             }
+            Dialog::RocAnalysis(d) => d.syntax(data),
+            Dialog::ControlCharts(d) => d.syntax(data),
+            Dialog::Catreg(d) => d.syntax(),
         }
     }
 }
@@ -1828,6 +1844,9 @@ impl App {
                         if ui.button("Binary Logistic...").clicked() {
                             self.open_dialog(Dialog::Logistic(Default::default()));
                         }
+                        if ui.button("Optimal Scaling (CATREG)...").clicked() {
+                            self.open_dialog(Dialog::Catreg(Default::default()));
+                        }
                         if ui.button("2-Stage Least Squares...").clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::TimeSeries(Box::new(
                                 TimeSeries::TwoSls(Default::default()),
@@ -1885,6 +1904,9 @@ impl App {
                         }
                         if ui.button("Tree...").clicked() {
                             self.open_dialog(Dialog::Tree(Default::default()));
+                        }
+                        if ui.button("ROC Analysis...").clicked() {
+                            self.open_dialog(Dialog::RocAnalysis(Default::default()));
                         }
                     });
                     ui.menu_button("Dimension Reduction", |ui| {
@@ -1970,6 +1992,11 @@ impl App {
                                     dialog,
                                 ))));
                             }
+                        }
+                    });
+                    ui.menu_button("Quality Control", |ui| {
+                        if ui.button("Control Charts...").clicked() {
+                            self.open_dialog(Dialog::ControlCharts(Default::default()));
                         }
                     });
                     ui.menu_button("Multiple Response", |ui| {
@@ -6303,6 +6330,9 @@ fn dialog_body(
         Dialog::QuantileRegression(d) => model_more_dialog_view::quantile_regression(ui, d, picked),
         Dialog::VarianceComponents(d) => model_more_dialog_view::variance_components(ui, d, picked),
         Dialog::OptimalBinning(d) => model_more_dialog_view::optimal_binning(ui, d, picked),
+        Dialog::RocAnalysis(d) => crate::roc_analysis_dialog_view::roc_analysis(ui, d, picked),
+        Dialog::ControlCharts(d) => crate::spchart_dialog_view::control_charts(ui, d, picked),
+        Dialog::Catreg(d) => crate::catreg_dialog_view::catreg(ui, d, picked),
         Dialog::Advanced(d) => advanced_dialogs_view::body(ui, data, d, picked, folder),
         Dialog::Restructure(d) => {
             ui.radio_value(

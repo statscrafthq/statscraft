@@ -12,6 +12,7 @@ use crate::analyze_dialogs::{
     Tree,
 };
 use crate::catpca_dialog::{Catpca, CatpcaVariable};
+use crate::catreg_dialog::{CategoricalRegression, CatregVariable};
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
 use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::{CsCox, CsOrdinal, Held, OddsRatio, SampleModel};
@@ -42,6 +43,9 @@ use crate::mva_dialog::{Estimation, MissingValueAnalysis};
 use crate::proportions_dialog::{Proportions, ProportionsKind};
 use crate::proximities_dialog::Distances;
 use crate::reports_dialog::{Codebook, OlapCubes, OlapDifference, Summarize};
+use crate::reports_dialog::{Codebook, Summarize};
+use crate::roc_analysis_dialog::RocAnalysis;
+use crate::spchart_dialog::{CAPABILITY, ControlCharts};
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::timeseries_dialog::{
@@ -526,6 +530,22 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         value: s("1"),
         ..Default::default()
     }));
+    list.push(Dialog::RocAnalysis(Box::new(RocAnalysis {
+        tests: v(&["age"]),
+        state: s("q5_1"),
+        value: s("1"),
+        ..Default::default()
+    })));
+    list.push(Dialog::ControlCharts(Box::new(ControlCharts {
+        process: s("age"),
+        group: s("region"),
+        ..Default::default()
+    })));
+    list.push(Dialog::Catreg(Box::new(CategoricalRegression {
+        dependent: s("q1_satisfaction"),
+        independents: v(&["age", "q2_recommend"]),
+        ..Default::default()
+    })));
     for kind in NparKind::ALL {
         let mut d = NparTests::new(kind);
         d.variables = v(&["q1_satisfaction", "q2_recommend"]);
@@ -2165,6 +2185,101 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         level: s("90"),
         include: true,
     }));
+    for (pair, group) in [(true, ""), (false, "gender")] {
+        list.push(Dialog::RocAnalysis(Box::new(RocAnalysis {
+            tests: v(&["age", "monthly_spend"]),
+            state: s("plan"),
+            value: s("BASIC"),
+            pair,
+            group: s(group),
+            first: s("1"),
+            second: s("2"),
+            curve: 2,
+            reference: true,
+            pr_reference: true,
+            interpolate_fp: true,
+            model_quality: true,
+            se: true,
+            classifier: true,
+            coordinates_roc: true,
+            coordinates_pr: true,
+            small_positive: true,
+            exclude_cutoff: true,
+            negexpo: true,
+            level: s("90"),
+            include: true,
+            ..Default::default()
+        })));
+    }
+    list.push(Dialog::ControlCharts(Box::new(ControlCharts {
+        process: s("age"),
+        group: s("region"),
+        xbar_only: true,
+        sigmas: s("2.5"),
+        minsample: s("3"),
+        rules: [true; 11],
+        id: s("resp_id"),
+        statistics: {
+            let mut on = [false; 17];
+            [0, 3, 6, 9, 12, 13, 14, 15, 16]
+                .iter()
+                .for_each(|i| on[*i] = true);
+            on
+        },
+        capsigma: 4,
+        lsl: s("10"),
+        usl: s("90"),
+        target: s("50"),
+        report: true,
+        include: true,
+        title: s("Ages"),
+        subtitle: s("By region"),
+        footnote: s("Invented survey"),
+        ..Default::default()
+    })));
+    list.push(Dialog::Catreg(Box::new(CategoricalRegression {
+        dependent: s("q1_satisfaction"),
+        independents: v(&["age", "q2_recommend", "region"]),
+        settings: {
+            let setting = |name: &str, change: &dyn Fn(&mut CatregVariable)| {
+                let mut x = CatregVariable::new(name);
+                change(&mut x);
+                x
+            };
+            vec![
+                setting("q1_satisfaction", &|x| x.level.level = 2),
+                setting("age", &|x| {
+                    x.level.level = 1;
+                    x.level.degree = s("3");
+                    x.level.knots = s("1");
+                    x.discretize = 1;
+                    x.groups = s("5");
+                    x.uniform = true;
+                }),
+                setting("q2_recommend", &|x| {
+                    x.level.level = 4;
+                    x.level.missing = 1;
+                }),
+                setting("region", &|x| x.level.level = 3),
+            ]
+        },
+        max_iterations: s("50"),
+        convergence: s("0.001"),
+        initial: 1,
+        penalty: 3,
+        resample: 1,
+        resample_count: s("4"),
+        print: [true; 9],
+        quant: v(&["region"]),
+        plot_trans: true,
+        plot_trans_variables: v(&["region"]),
+        plot_resid: true,
+        plot_regu: true,
+        label_length: s("8"),
+        save: [true; 3],
+        save_roots: [s("tr"), s("pr"), s("re")],
+        ..Default::default()
+    })));
     for kind in NparKind::ALL {
         let mut d = NparTests::new(kind);
         d.variables = v(&["q1_satisfaction", "q2_recommend", "age"]);
@@ -5339,7 +5454,11 @@ fn family(dialog: &Dialog) -> usize {
         | Dialog::SortVariables(_)
         | Dialog::ImportData(_)
         | Dialog::ExportData(_) => 1,
-        Dialog::ChartBuilder(_) | Dialog::ProbabilityPlot(_) | Dialog::RocCurve(_) => 2,
+        Dialog::ChartBuilder(_)
+        | Dialog::ProbabilityPlot(_)
+        | Dialog::RocCurve(_)
+        | Dialog::RocAnalysis(_)
+        | Dialog::ControlCharts(_) => 2,
         Dialog::Regression(_)
         | Dialog::Reliability(_)
         | Dialog::PartialCorr(_)
@@ -5350,7 +5469,8 @@ fn family(dialog: &Dialog) -> usize {
         | Dialog::Anomaly(_)
         | Dialog::Discriminant(_)
         | Dialog::Logistic(_)
-        | Dialog::Tree(_) => 3,
+        | Dialog::Tree(_)
+        | Dialog::Catreg(_) => 3,
         Dialog::Univariate(_)
         | Dialog::RepeatedMeasures(_)
         | Dialog::Advanced(
@@ -5428,4 +5548,181 @@ fn categories_labelled_by_the_counted_value_need_a_label_each() {
         set(&["q5_1", "age"]).unwrap_err(),
         "age has no value label for the counted value"
     );
+}
+
+/// Sixty invented fill measurements in twelve batches of five, one case per measurement, each
+/// case also a subgroup of five values with a count of rejects out of fifty.
+fn filling_line() -> String {
+    let mut program = String::from(
+        "DATA LIST LIST /resp batch fill status defects x1 x2 x3 x4 x5 bad size.\nBEGIN DATA\n",
+    );
+    for i in 0..60usize {
+        let fill = 500 + (i * 7) % 11;
+        let status = usize::from(i % 7 == 0);
+        let defects = (i * 3) % 5;
+        let x: Vec<usize> = (0..5).map(|j| 498 + (i * (j + 3)) % 9).collect();
+        program.push_str(&format!(
+            "{} {} {fill} {status} {defects} {} {} {} {} {} {} 50\n",
+            i + 1,
+            i / 5 + 1,
+            x[0],
+            x[1],
+            x[2],
+            x[3],
+            x[4],
+            (i * 5) % 6
+        ));
+    }
+    program.push_str("END DATA.\n");
+    program
+}
+
+/// The control chart dialog on the invented filling line: every chart and data layout writes
+/// the expected syntax, which parses and runs without a warning.
+#[test]
+fn the_control_chart_dialog_writes_syntax_that_runs() {
+    use crate::spchart_dialog::{C, I, IR, NP, P, U, XS};
+    let base = ControlCharts::default;
+    let limits = |d: ControlCharts| ControlCharts {
+        lsl: s("490"),
+        usl: s("515"),
+        ..d
+    };
+    let on = |picked: &[usize]| {
+        let mut flags = [false; 17];
+        picked.iter().for_each(|i| flags[*i] = true);
+        flags
+    };
+    let wide = || v(&["x1", "x2", "x3", "x4", "x5"]);
+    let cases: Vec<(ControlCharts, &str)> = vec![
+        (
+            ControlCharts {
+                process: s("fill"),
+                group: s("batch"),
+                rules: [true; 11],
+                id: s("resp"),
+                statistics: on(&[0, 3, 6, 9]),
+                ..limits(base())
+            },
+            "SPCHART /XR=fill BY batch\n  /RULES=ALL\n  /ID=resp\n  /LSL=490\n  /USL=515\n  \
+             /STATISTICS=CP CPK PP PPK.",
+        ),
+        (
+            ControlCharts {
+                chart: XS,
+                layout: 1,
+                variables: wide(),
+                label: s("resp"),
+                xbar_only: true,
+                ..base()
+            },
+            "SPCHART /XS=x1 x2 x3 x4 x5 BY resp (XBARONLY).",
+        ),
+        (
+            ControlCharts {
+                chart: IR,
+                process: s("fill"),
+                span: s("3"),
+                capsigma: 3,
+                ..base()
+            },
+            "SPCHART /IR=fill\n  /SPAN=3\n  /CAPSIGMA=MRBAR.",
+        ),
+        (
+            ControlCharts {
+                chart: I,
+                process: s("fill"),
+                label: s("resp"),
+                ..base()
+            },
+            "SPCHART /I=fill BY resp.",
+        ),
+        (
+            ControlCharts {
+                chart: P,
+                process: s("status"),
+                group: s("batch"),
+                status_value: s("1"),
+                ..base()
+            },
+            "SPCHART /P=status BY batch\n  /NONCONFORM=1.",
+        ),
+        (
+            ControlCharts {
+                chart: NP,
+                layout: 1,
+                count: s("bad"),
+                size_name: s("size"),
+                label: s("resp"),
+                ..base()
+            },
+            "SPCHART /NP=COUNT(bad) N(size) BY resp.",
+        ),
+        (
+            ControlCharts {
+                chart: C,
+                process: s("defects"),
+                group: s("batch"),
+                ..base()
+            },
+            "SPCHART /C=defects BY batch.",
+        ),
+        (
+            ControlCharts {
+                chart: U,
+                layout: 1,
+                count: s("bad"),
+                size_variable: false,
+                size: s("50"),
+                ..base()
+            },
+            "SPCHART /U=COUNT(bad) N(50).",
+        ),
+        (
+            ControlCharts {
+                chart: CAPABILITY,
+                layout: 1,
+                variables: wide(),
+                normal: 2,
+                reference: 1,
+                statistics: on(&[0, 3, 13]),
+                ..limits(base())
+            },
+            "SPCHART /CPCHART=x1 x2 x3 x4 x5\n  /LSL=490\n  /USL=515\n  \
+             /STATISTICS=CP CPK MEAN\n  /NORMAL=BOTH\n  /REFERENCE=SL SIGMAS.",
+        ),
+        (
+            ControlCharts {
+                chart: CAPABILITY,
+                layout: 2,
+                process: s("fill"),
+                ..limits(base())
+            },
+            "SPCHART /CPCHART=fill\n  /LSL=490\n  /USL=515.",
+        ),
+    ];
+    let program = filling_line();
+    for (dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::ControlCharts(Box::new(dialog))
+            .syntax(&data)
+            .unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session
+            .run(&syntax, None)
+            .unwrap_or_else(|e| panic!("{syntax}\n{e:?}"));
+        assert!(
+            result
+                .commands
+                .iter()
+                .any(|c| !c.tables.is_empty() || !c.charts.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
 }

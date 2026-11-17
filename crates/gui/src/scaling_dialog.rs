@@ -94,7 +94,7 @@ impl<L> ScalingVariable<L> {
     }
 
     /// The recoding in parentheses; None for the command's own coding.
-    fn discretization(&self) -> Result<Option<String>, String> {
+    pub(crate) fn discretization(&self) -> Result<Option<String>, String> {
         let name = &self.name;
         Ok(match self.discretize {
             0 => None,
