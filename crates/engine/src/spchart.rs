@@ -754,9 +754,12 @@ impl Engine {
             (K::I | K::Ir, _) | (K::Capability, SpchartData::Individuals { .. }) => CapSigma::Mrbar,
             _ => CapSigma::Rbar,
         };
+        // MRBAR needs individual values, the others subgroups; the capability chart takes either
+        let individual_data = matches!(c.data, SpchartData::Individuals { .. });
         let fits = |s: CapSigma| match c.kind {
             K::Xr | K::Xs => s != CapSigma::Mrbar,
             K::I | K::Ir => s == CapSigma::Mrbar,
+            K::Capability => (s == CapSigma::Mrbar) == individual_data,
             _ => true,
         };
         let method = match c.capsigma {
