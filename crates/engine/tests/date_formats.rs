@@ -280,4 +280,15 @@ fn data_list_reads_dates_with_times_and_durations() {
          LIST ok1 TO ok3.",
     );
     assert_eq!(row(tables.last().unwrap(), 0), ["1", "1", "1"]);
+    // a second sign is not a duration
+    let tables = run(
+        "DATA LIST FIXED /dur 1-9 (TIME) d 11-20 (DTIME) mt 22-27 (MTIME).\n\
+         BEGIN DATA\n\
+         --1:30:00 1 -10:00 -5:-30\n\
+         END DATA.\n\
+         COMPUTE n = NMISS(dur, d, mt).\n\
+         FORMATS n (F1).\n\
+         LIST n.",
+    );
+    assert_eq!(row(tables.last().unwrap(), 0), ["3"]);
 }

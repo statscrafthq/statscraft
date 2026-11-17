@@ -102,9 +102,14 @@ pub fn delimited(
 
 /// Seconds of a time of day h:m[:s].
 fn time_of_day(text: &str) -> Option<f64> {
-    // a leading minus sign makes the whole time negative
-    if let Some(rest) = text.trim().strip_prefix('-') {
-        return time_of_day(rest).map(|t| -t);
+    // one leading minus sign makes the whole time negative; no other sign is allowed
+    let text = text.trim();
+    let (sign, text) = match text.strip_prefix('-') {
+        Some(rest) => (-1.0, rest),
+        None => (1.0, text),
+    };
+    if text.contains(['-', '+']) {
+        return None;
     }
     let parts: Vec<&str> = text.split(':').collect();
     if !(2..=3).contains(&parts.len()) {
@@ -116,7 +121,7 @@ fn time_of_day(text: &str) -> Option<f64> {
         Some(s) => number(s)?,
         None => 0.0,
     };
-    Some(h * 3600.0 + m * 60.0 + s)
+    Some(sign * (h * 3600.0 + m * 60.0 + s))
 }
 
 /// A date in any of the usual orders: year first, day first with a month name or number,
@@ -174,6 +179,9 @@ pub(crate) fn number(
                 Some(rest) => (-1.0, rest.trim()),
                 None => (1.0, text),
             };
+            if text.contains(['-', '+']) {
+                return Err("is not a time in minutes and seconds");
+            }
             let (minutes, seconds) = text.split_once(':').unwrap_or((text, "0"));
             match (minutes.trim().parse::<f64>(), seconds.trim().parse::<f64>()) {
                 (Ok(m), Ok(s)) => Ok(Some(sign * (m * 60.0 + s))),

@@ -387,11 +387,15 @@ pub(crate) fn read(
                 kind: FormatType::Time,
                 ..format
             };
-            match (
-                days.trim().parse::<f64>(),
-                crate::get_data::number(time, time_format, false, None),
-            ) {
-                (Ok(d), Ok(Some(t))) => Ok(Some(sign * (d * 86_400.0 + t))),
+            // the sign goes before the days only
+            let parts = (!text.contains(['-', '+'])).then(|| {
+                (
+                    days.trim().parse::<f64>(),
+                    crate::get_data::number(time, time_format, false, None),
+                )
+            });
+            match parts {
+                Some((Ok(d), Ok(Some(t)))) => Ok(Some(sign * (d * 86_400.0 + t))),
                 _ => Err("is not a duration in days and hours"),
             }
         }
