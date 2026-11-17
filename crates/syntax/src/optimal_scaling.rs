@@ -82,6 +82,8 @@ pub struct ScalingCommon {
     pub normalization: McaNormalization,
     pub max_iterations: usize,
     pub criterion: f64,
+    /// The data rules of HOMALS and PRINCALS, which run through these engines.
+    pub legacy: Option<crate::legacy_scaling::LegacyCoding>,
 }
 
 impl Default for ScalingCommon {
@@ -97,6 +99,7 @@ impl Default for ScalingCommon {
             normalization: McaNormalization::Q(-1.0),
             max_iterations: 100,
             criterion: 0.00001,
+            legacy: None,
         }
     }
 }

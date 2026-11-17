@@ -51,6 +51,7 @@ mod hiloglinear;
 mod html;
 mod input;
 mod km;
+mod legacy_scaling;
 mod life_table;
 pub mod live;
 mod locale;
@@ -85,6 +86,7 @@ mod output;
 mod output_docs;
 pub mod output_file;
 pub mod output_modify;
+mod overals;
 mod partial_corr;
 mod pass;
 pub mod pdf;
@@ -812,6 +814,9 @@ pub struct Engine {
     split_group: Option<Vec<(String, Option<crosstabs::Key>)>>,
     /// PROXIMITIES /MATRIX=OUT: the split variables and the matrix of every split group.
     proximity_out: (Option<statscraft_data::SplitFile>, Vec<Dataset>),
+    /// MATRIX=OUT(*) of the older optimal scaling commands: the matrix that replaces the
+    /// active dataset when the procedure is done.
+    replacement: Option<Dataset>,
     /// MULTIPLE IMPUTATION: per split group, the stacked imputations (original data first)
     /// and the FCS iteration history.
     imputed: Vec<(Vec<Dataset>, Option<Dataset>)>,
@@ -1342,6 +1347,16 @@ impl Engine {
                 self.write_imputations(imputation, split)?;
                 return Ok(tables);
             }
+            Command::Homals(_)
+            | Command::Princals(_)
+            | Command::Overals(_)
+            | Command::Anacor(_) => {
+                let tables = self.procedure(command);
+                if let Some(out) = self.replacement.take() {
+                    self.dataset = Some(out);
+                }
+                return tables;
+            }
             Command::Proximities(proximities) => {
                 let split = self.active()?.split_file().cloned();
                 self.proximity_out = (split, Vec::new());
@@ -1602,6 +1617,10 @@ impl Engine {
             Command::MultipleCorrespondence(command) => self.multiple_correspondence(command),
             Command::Catpca(command) => self.catpca(command),
             Command::Catreg(command) => self.catreg(command),
+            Command::Homals(command) => self.homals(command),
+            Command::Princals(command) => self.princals(command),
+            Command::Anacor(command) => self.anacor(command),
+            Command::Overals(command) => self.overals(command),
             Command::Genlin(command) => self.genlin(command),
             Command::Pplot(command) => self.pplot(command),
             Command::Roc(command) => self.roc(command),

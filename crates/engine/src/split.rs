@@ -243,6 +243,9 @@ impl Engine {
         // TREE, DETECTANOMALY, OPTIMAL BINNING, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples procedures ignore SPLIT FILE, as
         // TREE, DETECTANOMALY, MULTIPLE CORRESPONDENCE, CATPCA, CATREG and the complex samples procedures ignore SPLIT FILE, as
         // the manual says
+        // TREE, DETECTANOMALY, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples
+        // procedures ignore SPLIT FILE, as the manual says; HOMALS, PRINCALS and OVERALS do as
+        // the engines they share
         let use_split = !matches!(
             command,
             Command::Aggregate(_)
@@ -252,6 +255,9 @@ impl Engine {
                 | Command::MultipleCorrespondence(_)
                 | Command::Catpca(_)
                 | Command::Catreg(_)
+                | Command::Homals(_)
+                | Command::Princals(_)
+                | Command::Overals(_)
                 | Command::Csdescriptives(_)
                 | Command::Csselect(_)
                 | Command::Cstabulate(_)

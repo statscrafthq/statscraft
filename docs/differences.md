@@ -1152,6 +1152,29 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - PRINT REGU or PLOT REGU without REGULARIZATION gives a warning. A subcommand written twice keeps the last one, with a warning.
 - SAVE names TRDATA rootK_S, PRED root_S and RES root_S with the first free set number S for each keyword; OUTFILE TRDATA names its variables TRAK. SAVE with no keyword saves TRDATA.
 - SPLIT FILE is ignored: one analysis runs on all cases.
+### HOMALS, PRINCALS and ANACOR
+
+- These run through the engines of MULTIPLE CORRESPONDENCE, CATPCA and CORRESPONDENCE, which fit the same models, so their tables are the newer ones: the Case Processing Summary, Iteration History and Model Summary always show (also with PRINT=NONE), FREQ gives the per-variable frequency tables with the mode, EIGEN is the Model Summary. Messages and the labels of saved variables name the older command.
+- PRINCALS: the Model Summary eigenvalue is the sum of the squared loadings over the variables; the older eigenvalue is that sum divided by the number of variables (the variance accounted for in percent shows it too).
+- Categories from 1 to the stated largest value that no case has are left out of the tables, the charts and the matrix file instead of being shown with zeros.
+- PRINCALS without PRINT shows FREQ, EIGEN and LOADINGS, as the syntax chart marks them; PRINT=DEFAULT adds QUANT, as the keyword list says.
+- PLOT: HOMALS QUANT is one joint chart of all categories; PRINCALS QUANT is a chart per variable with the centroid and vector coordinates of its categories. The label length is 12 unless given. NDIM(ALL, n) draws every pair of dimensions as a scatterplot matrix whatever n is. Objects whose labelling value is missing or out of range are grouped as missing in object charts.
+- SAVE names are always rootD_S (dimension, then the first free set number), also when a root is given; the root is cut to 6 characters. The prefix swap to DIM, OBJ or OBSAVE is not done, since the set number keeps names unique.
+- MATRIX=OUT: LEVEL holds the value label, or the value without one. The quantification of a single variable is written in DIM1 and the other DIM columns are 0.
+- HOMALS, PRINCALS and OVERALS ignore SPLIT FILE, as the newer engines they share do; ANACOR follows it, as CORRESPONDENCE does.
+- CONVERGENCE takes any positive value.
+- ANACOR: labels are cut to 3 characters by default, as the manual says, and to 20 on TRROWS and TRCOLUMNS. VARIANCES SINGULAR changes nothing because the Summary always shows the spread of the singular values. PERMUTATION permutes the table for every dimension.
+
+### OVERALS
+
+- VARIABLES, ANALYSIS and SETS may come in any order.
+- Case weights count as replications in every sum (the manual does not say).
+- INITIAL=NUMERICAL starts the first, all-numerical cycle from a fixed pseudo-random configuration, so runs repeat; that cycle has one solution whatever its start. RANDOM draws the start from the session's random number generator (SET SEED). The second cycle runs only when some variable is SNOM or ORDI. Iteration History shows the last cycle.
+- The fit stops when the sum of the eigenvalues (the fit) changes by less than CONVERGENCE between iterations.
+- The weights of a single variable are the least squares weights for its current quantification; the quantification is restricted, then scaled to a weighted sum of squares of n without centering, as the manual writes. With missing values in a set it need not have mean 0.
+- Loss per set is the weighted sum of squares of the object scores minus the set's sum, over n (the weighted number of cases that take part), counting only the cases in that set; the eigenvalue is 1 minus the mean over sets. Loadings are the inner products of the quantified variable (0 for cases outside its set) with the object scores, over n.
+- The maximum number of dimensions: with two sets the smaller of their ranks, with more sets the sum of their ranks (the DIMENSION description; the Algorithms manual writes the largest rank, which would allow only one dimension with one single variable per set), never above n - 1; a rank counts the categories with data. DIMENSION above it is lowered with a warning.
+- In every dimension the case with the largest absolute score is positive.
 
 ### TREE
 

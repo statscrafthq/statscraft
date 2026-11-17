@@ -1120,14 +1120,21 @@ impl Engine {
         }
 
         // the codes of every variable on VARIABLES
+        let largest = match &common.legacy {
+            Some(legacy) => crate::legacy_scaling::largest_categories(who, data, &legacy.ranges)?,
+            None => BTreeMap::new(),
+        };
         let mut coded: Vec<Coded> = Vec::new();
         for name in &variables {
             let var = data.variable(name)?;
-            coded.push(code_variable(
-                &var,
-                discretization.get(&name.to_uppercase()).copied(),
-                &shown,
-            )?);
+            coded.push(match largest.get(&name.to_uppercase()) {
+                Some(&max) => crate::legacy_scaling::code_in_range(who, &var, max, &shown)?,
+                None => code_variable(
+                    &var,
+                    discretization.get(&name.to_uppercase()).copied(),
+                    &shown,
+                )?,
+            });
         }
 
         // cases: weights, supplementary objects, imputation, listwise deletion
@@ -1141,7 +1148,10 @@ impl Engine {
             }
             sup_object[a - 1..b].iter_mut().for_each(|s| *s = true);
         }
-        let mut excluded: Vec<bool> = weights.iter().map(|w| *w <= 0.0).collect();
+        let first_cases = common.legacy.as_ref().and_then(|l| l.first_cases);
+        let mut excluded: Vec<bool> = (weights.iter().enumerate())
+            .map(|(c, w)| *w <= 0.0 || first_cases.is_some_and(|n| c >= n))
+            .collect();
         let mut avars: Vec<AVar> = Vec::new();
         for (name, weight, list) in &analysis {
             let c = coded_index(&coded, name);

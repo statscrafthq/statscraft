@@ -28,6 +28,7 @@ use crate::get_data;
 use crate::glm;
 use crate::graph;
 use crate::input_program;
+use crate::legacy_scaling;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
 use crate::loglinear;
@@ -3512,6 +3513,138 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  (TRDATA, also a file with no keyword) and the coded variables under their names (DISCRDATA).",
         example: "CATREG VARIABLES=rating taste price area /ANALYSIS=rating(LEVEL=ORDI) WITH taste price(LEVEL=NUME) area(LEVEL=NOMI) /MISSING=price(MODEIMPU) /PRINT=R COEFF ANOVA QUANT(area) /PLOT=TRANS(area) /SAVE=PRED RES.",
         parse: catreg::catreg,
+        name: "HOMALS",
+        summary: "Homogeneity analysis in the older syntax: MULTIPLE CORRESPONDENCE with variables read as categories 1 to a stated largest value.",
+        syntax: "HOMALS [/VARIABLES=] varlist(max) [varlist(max) ...]\n\
+                 \x20  [/ANALYSIS=varlist] [/NOBSERVATIONS=n] [/DIMENSION=2 | n]\n\
+                 \x20  [/MAXITER=100 | n] [/CONVERGENCE=.00001 | value]\n\
+                 \x20  [/PRINT=[FREQ] [EIGEN] [DISCRIM] [QUANT] [OBJECT] [HISTORY] [DEFAULT] [ALL] [NONE]]\n\
+                 \x20  [/PLOT=[NDIM(first | ALL, last | MAX)] [QUANT[(varlist)][(len)]] [OBJECT[(varlist)][(len)]]\n\
+                 \x20        [DISCRIM[(len)]] [DEFAULT[(len)]] [ALL[(len)]] [NONE]]\n\
+                 \x20  [/SAVE=[root][(n)]] [/MATRIX=OUT(* | 'file' | dataset)]\n\
+                 The number after a list is the largest category of its variables: every whole value from 1 up to\n\
+                 it is a category, a fraction is cut to its whole part, user-missing codes count as values, and\n\
+                 anything else (system-missing, 0, negatives, above the largest) is missing and left out of the fit\n\
+                 for that variable. String variables are refused. ANALYSIS picks the variables of the fit (all of\n\
+                 VARIABLES by default; named twice it is an error); the others can still label object plots.\n\
+                 NOBSERVATIONS uses only the first n cases. Every other subcommand counts once, the last one.\n\
+                 The model, the fit and the numbers are those of MULTIPLE CORRESPONDENCE with variable principal\n\
+                 normalization, run on these categories; messages name HOMALS. Tables: Case Processing Summary,\n\
+                 Iteration History and Model Summary (eigenvalue and inertia per dimension; the inertia is the\n\
+                 mean discrimination measure) always; FREQ the frequencies of each variable; DISCRIM the\n\
+                 discrimination measures; QUANT the category quantifications; OBJECT the object scores; HISTORY\n\
+                 every iteration. Without PRINT, or with DEFAULT: FREQ EIGEN DISCRIM QUANT; ALL adds OBJECT and\n\
+                 HISTORY. Charts (QUANT and OBJECT by default, none for one dimension): QUANT all categories\n\
+                 together, OBJECT the objects labelled by each named variable, DISCRIM the discrimination\n\
+                 measures. The label length lies from 1 to 20 (12 by default). NDIM(a, b) draws dimension a\n\
+                 against a+1 to b, MAX the last dimension, ALL every pair; without it dimension 1 against 2.\n\
+                 SAVE adds the object scores rootD_S (HOM by default, the root cut to 6 characters, D the\n\
+                 dimension, S the first free set number) for the first n dimensions (all by default). MATRIX=OUT\n\
+                 writes ROWTYPE_ (QUANT), LEVEL, VARNAME_ and DIM1 to DIMn, one case per category; an asterisk\n\
+                 replaces the active dataset. SPLIT FILE does not apply.",
+        example: "HOMALS VARIABLES=brand(3) shop(4) payment(2) /PRINT=FREQ DISCRIM QUANT /PLOT=QUANT(5) /SAVE=hs(2).",
+        parse: legacy_scaling::homals,
+    },
+    CommandSpec {
+        name: "PRINCALS",
+        summary: "Nonlinear principal components in the older syntax: CATPCA with variables read as categories 1 to a stated largest value.",
+        syntax: "PRINCALS [/VARIABLES=] varlist(max) [varlist(max) ...]\n\
+                 \x20  [/ANALYSIS=varlist [(ORDI | SNOM | MNOM | NUME)] [varlist [(...)] ...]]\n\
+                 \x20  [/NOBSERVATIONS=n] [/DIMENSION=2 | n] [/MAXITER=100 | n] [/CONVERGENCE=.00001 | value]\n\
+                 \x20  [/PRINT=[FREQ] [EIGEN] [LOADINGS] [QUANT] [HISTORY] [CORRELATION] [OBJECT] [DEFAULT] [ALL] [NONE]]\n\
+                 \x20  [/PLOT=[NDIM(first | ALL, last | MAX)] [QUANT[(varlist)][(len)]] [OBJECT[(varlist)][(len)]]\n\
+                 \x20        [LOADINGS[(len)]] [DEFAULT[(len)]] [ALL[(len)]] [NONE]]\n\
+                 \x20  [/SAVE=[root][(n)]] [/MATRIX=OUT(* | 'file' | dataset)]\n\
+                 Variables are read as for HOMALS: whole values 1 to the stated largest are the categories, all\n\
+                 else is missing. The level after a list on ANALYSIS covers the variables since the previous\n\
+                 parenthesis: ORDI (the default) keeps the order of the categories, SNOM any values, NUME equal\n\
+                 steps, MNOM a free point per category and dimension. The fit is that of CATPCA with these\n\
+                 levels and variable principal normalization; messages name PRINCALS. Tables: Case Processing\n\
+                 Summary, Iteration History and Model Summary always (the eigenvalue there is the sum over the\n\
+                 variables; divided by their number it is the mean that older output showed); FREQ the\n\
+                 frequencies; LOADINGS the component loadings; QUANT the quantifications with centroid and\n\
+                 vector coordinates; CORRELATION the correlations of the quantified variables; OBJECT the\n\
+                 object scores; HISTORY every iteration. Without PRINT: FREQ EIGEN LOADINGS; DEFAULT adds QUANT;\n\
+                 ALL gives every one. Charts (QUANT and OBJECT by default, none for one dimension): QUANT the\n\
+                 categories of each variable, OBJECT the objects labelled by each named variable, LOADINGS the\n\
+                 loadings; label lengths and NDIM as for HOMALS. SAVE adds rootD_S (PRI by default). MATRIX=OUT\n\
+                 writes ROWTYPE_ (QUANT, SCOOR_ for single and MCOOR_ for multiple coordinates, LOADING_),\n\
+                 LEVEL, VARNAME_, VARTYPE_ (MULTIPLE, SINGLE N, ORDINAL or NUMERICAL) and DIM1 to DIMn; the\n\
+                 quantification of a single variable is in DIM1, the other columns 0. SPLIT FILE does not apply.",
+        example: "PRINCALS VARIABLES=taste smell(5) price(4) /ANALYSIS=taste smell(SNOM) price(NUME) /PRINT=QUANT LOADINGS /PLOT=LOADINGS.",
+        parse: legacy_scaling::princals,
+    },
+    CommandSpec {
+        name: "OVERALS",
+        summary: "Nonlinear canonical correlation analysis: what two or more sets of variables, each quantified at its own level, have in common.",
+        syntax: "OVERALS [/VARIABLES=] varlist(max) [varlist(max) ...]\n\
+                 \x20  /ANALYSIS=varlist [(ORDI | SNOM | MNOM | NUME)] [varlist [(...)] ...]\n\
+                 \x20  /SETS=n(count, count, ...)\n\
+                 \x20  [/NOBSERVATIONS=n] [/DIMENSION=2 | n] [/INITIAL=NUMERICAL | RANDOM]\n\
+                 \x20  [/MAXITER=100 | n] [/CONVERGENCE=.00001 | value]\n\
+                 \x20  [/PRINT=[FREQ] [QUANT] [CENTROID] [HISTORY] [WEIGHTS] [OBJECT] [FIT] [DEFAULT] [NONE]]\n\
+                 \x20  [/PLOT=[NDIM(first | ALL, last | MAX)] [OBJECT[(varlist)][(len)]] [QUANT[(varlist)][(len)]]\n\
+                 \x20        [LOADINGS[(len)]] [TRANS[(varlist)]] [CENTROID[(varlist)][(len)]] [DEFAULT[(len)]] [NONE]]\n\
+                 \x20  [/SAVE=[root][(n)]] [/MATRIX=OUT(* | 'file' | dataset)]\n\
+                 Variables are read as for HOMALS and quantified at the level ANALYSIS gives (ORDI by default):\n\
+                 MNOM a free point per category and dimension; SNOM, ORDI and NUME one value per category (free,\n\
+                 in the order of the codes, or in equal steps) times a weight per dimension. SETS splits the\n\
+                 ANALYSIS variables, in order, into at least two sets. A case missing on any variable of a set\n\
+                 leaves that set out; a case in no set takes no part; each set needs three cases. The object\n\
+                 scores and quantifications make the sum of each set's quantified variables as close as possible\n\
+                 to the object scores, summed over the sets; scores are centered and uncorrelated with sum of\n\
+                 squares K times n in the metric of the number of sets each case is in. WEIGHT cases count as\n\
+                 replications. NUMERICAL (the default) first fits every single variable as numerical and then\n\
+                 continues at the stated levels; RANDOM starts from random scores of the session's generator. The\n\
+                 fit stops after MAXITER iterations or when it gains less than CONVERGENCE, and is turned to its\n\
+                 principal axes; in each dimension the case with the largest absolute score is positive.\n\
+                 DIMENSION is lowered with a warning to what the sets allow. One variable per set gives the\n\
+                 solution of HOMALS (all MNOM) or PRINCALS (all single); two sets of numerical variables give\n\
+                 eigenvalues (1 + r)/2 for the canonical correlations r.\n\
+                 Tables: Variables by Set and Summary of Analysis (loss of each set per dimension over n, the\n\
+                 mean, and the eigenvalue 1 minus the mean; the fit is their sum) always; FREQ the frequencies\n\
+                 with the cases missing from the set; HISTORY the fit per iteration; WEIGHTS the weights and\n\
+                 component loadings of the single variables; FIT multiple fit, single fit (squared weights) and\n\
+                 single loss; CENTROID per variable the quantification, projected centroids and centroids;\n\
+                 QUANT the quantification, single and multiple coordinates; OBJECT the object scores. Without\n\
+                 PRINT, or with DEFAULT: FREQ CENTROID WEIGHTS; NONE leaves the summary. Charts (OBJECT and\n\
+                 LOADINGS by default): object scores, labelled by each named variable; loadings; TRANS the\n\
+                 quantification against the category (one chart per dimension for MNOM); QUANT the category\n\
+                 coordinates; CENTROID the centroids. Label lengths and NDIM as for HOMALS. SAVE adds the object\n\
+                 scores rootD_S (OVE by default). MATRIX=OUT writes ROWTYPE_ (QUANT, SCOOR_, MCOOR_, CENTRO_,\n\
+                 PCENTRO_, WEIGHT_, LOADING_), LEVEL, VARNAME_, VARTYPE_, SET_ and DIM1 to DIMn; values that do\n\
+                 not apply are 0. SPLIT FILE does not apply.",
+        example: "OVERALS VARIABLES=habit1 habit2(4) score1 score2(10) /ANALYSIS=habit1 habit2(SNOM) score1 score2(NUME) /SETS=2(2,2) /PRINT=FIT QUANT /PLOT=OBJECT CENTROID(habit1).",
+        parse: legacy_scaling::overals,
+    },
+    CommandSpec {
+        name: "ANACOR",
+        summary: "Correspondence analysis in the older syntax: CORRESPONDENCE with its own normalization names and defaults.",
+        syntax: "ANACOR TABLE=rowvar(min,max) BY colvar(min,max) | ALL(rows,columns)\n\
+                 \x20  [/DIMENSION=2 | n]\n\
+                 \x20  [/NORMALIZATION=CANONICAL | PRINCIPAL | RPRINCIPAL | CPRINCIPAL | q]\n\
+                 \x20  [/VARIANCES=[SINGULAR] [ROWS] [COLUMNS]]\n\
+                 \x20  [/PRINT=[TABLE] [PROFILES] [SCORES] [CONTRIBUTIONS] [PERMUTATION] [DEFAULT] [NONE]]\n\
+                 \x20  [/PLOT=[NDIM(first | ALL, last | MAX)] [ROWS[(len)]] [COLUMNS[(len)]] [JOINT[(len)]]\n\
+                 \x20        [TRROWS] [TRCOLUMNS] [DEFAULT[(len)]] [NONE]]\n\
+                 \x20  [/MATRIX OUT=[SCORE(* | 'file' | dataset)] [VARIANCE(* | 'file' | dataset)]]\n\
+                 The table is read and analyzed as CORRESPONDENCE reads it with MEASURE=CHISQ; messages name\n\
+                 ANACOR. NORMALIZATION q gives the row scores the power (1 + q)/2 of each singular value and the\n\
+                 column scores (1 - q)/2, q from -2 to 2: CANONICAL (or DEFAULT, the default) is 0, RPRINCIPAL 1,\n\
+                 CPRINCIPAL -1; PRINCIPAL gives both the full value. The Summary always shows the singular values\n\
+                 with their spread and correlations, so VARIANCES SINGULAR changes nothing; ROWS and COLUMNS add\n\
+                 the spread and correlations of the row and column scores. PRINT: TABLE the table with its\n\
+                 margins, PROFILES the row and column profiles, SCORES and CONTRIBUTIONS the overview of row and\n\
+                 column points (mass, scores, inertia and both kinds of contributions), PERMUTATION the table\n\
+                 sorted by the scores of each dimension; DEFAULT (and no PRINT) TABLE SCORES CONTRIBUTIONS.\n\
+                 PLOT: ROWS and COLUMNS (the default) each side alone, JOINT both together (not with\n\
+                 PRINCIPAL), TRROWS and TRCOLUMNS the scores per category; labels are cut to 3 characters unless\n\
+                 a length is given (20 for the transformation plots). NDIM(a, b) draws dimension a against a+1\n\
+                 to b, ALL every pair, MAX the last dimension; without it dimension 1 against 2. MATRIX OUT\n\
+                 writes the scores and the variances as OUTFILE of CORRESPONDENCE does; an asterisk replaces\n\
+                 the active dataset.",
+        example: "ANACOR TABLE=region(1,4) BY channel(1,3) /NORMALIZATION=RPRINCIPAL /PRINT=SCORES PROFILES /PLOT=JOINT(6).",
+        parse: legacy_scaling::anacor,
     },
     CommandSpec {
         name: "GENLIN",

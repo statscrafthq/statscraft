@@ -1042,6 +1042,28 @@ impl Engine {
         for (file, out) in files {
             self.write_data_file(&file, out)?;
         }
+        // HOMALS MATRIX=OUT: the quantification of every category
+        if let Some(target) = command
+            .common
+            .legacy
+            .as_ref()
+            .and_then(|l| l.matrix_out.as_ref())
+        {
+            let mut rows = Vec::new();
+            for (j, v) in avars.iter().enumerate() {
+                for &code in &v.cats {
+                    rows.push(crate::legacy_scaling::MatrixRow {
+                        rowtype: "QUANT",
+                        level: coded[v.coded].label(code, None),
+                        varname: coded[v.coded].name.clone(),
+                        vartype: None,
+                        set: None,
+                        dims: quantification(j, code as f64).unwrap_or_default(),
+                    });
+                }
+            }
+            self.write_matrix(target, &rows, p)?;
+        }
         for warning in warnings {
             self.warn(warning);
         }

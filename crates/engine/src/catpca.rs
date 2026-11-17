@@ -1944,6 +1944,51 @@ impl Engine {
         for (file, out) in files {
             self.write_data_file(&file, out)?;
         }
+        // PRINCALS MATRIX=OUT: quantifications, coordinates and loadings
+        if let Some(target) = command
+            .common
+            .legacy
+            .as_ref()
+            .and_then(|l| l.matrix_out.as_ref())
+        {
+            use crate::legacy_scaling::{MatrixRow, vartype};
+            let mut rows = Vec::new();
+            for (j, v) in avars.iter().enumerate() {
+                let c = &coded[v.coded];
+                let kind = quants[j].kind;
+                let row = |rowtype, level: String, dims| MatrixRow {
+                    rowtype,
+                    level,
+                    varname: c.name.clone(),
+                    vartype: Some(vartype(
+                        kind == Kind::Multiple,
+                        kind == Kind::Nominal,
+                        kind == Kind::Ordinal,
+                    )),
+                    set: None,
+                    dims,
+                };
+                for (r, &code) in v.cats.iter().enumerate() {
+                    let centroid = centroid_of(j, code).unwrap_or_default();
+                    let mut quant = vec![0.0; p];
+                    quant[0] = quants[j].y[r];
+                    match single(j) {
+                        true => {
+                            rows.push(row("QUANT", c.label(code, None), quant));
+                            rows.push(row("SCOOR_", c.label(code, None), vector_of(j, r)));
+                        }
+                        false => {
+                            rows.push(row("QUANT", c.label(code, None), centroid.clone()));
+                            rows.push(row("MCOOR_", c.label(code, None), centroid));
+                        }
+                    }
+                }
+                if single(j) {
+                    rows.push(row("LOADING_", String::new(), normalized_a[j].clone()));
+                }
+            }
+            self.write_matrix(target, &rows, p)?;
+        }
         for warning in warnings {
             self.warn(warning);
         }

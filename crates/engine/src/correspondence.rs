@@ -1544,7 +1544,7 @@ impl Engine {
                         .collect();
                     out.set_numeric_values(&format!("DIM{}", t + 1), values)?;
                 }
-                self.write_data_file(file, out)?;
+                self.write_out(file, out)?;
             }
             if let Some(file) = &command.outfile_variance {
                 // (variable, level, dimension, covariances with every dimension)
@@ -1602,7 +1602,7 @@ impl Engine {
                         .collect();
                     out.set_numeric_values(&format!("DIM{}", t + 1), values)?;
                 }
-                self.write_data_file(file, out)?;
+                self.write_out(file, out)?;
             }
         }
         self.charts.extend(charts);

@@ -187,7 +187,7 @@ fn range(p: &mut Parser) -> PResult<(f64, f64)> {
     Ok((min, max))
 }
 
-fn table(p: &mut Parser) -> PResult<CorrespondenceTable> {
+pub(crate) fn table(p: &mut Parser) -> PResult<CorrespondenceTable> {
     p.eat(Punct::Eq);
     if p.eat_word("ALL") {
         p.expect(Punct::LParen)?;

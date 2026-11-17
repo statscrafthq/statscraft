@@ -212,6 +212,11 @@ pub enum Command {
     MultipleCorrespondence(Box<crate::multiple_correspondence::MultipleCorrespondence>),
     Catpca(Box<crate::catpca::Catpca>),
     Catreg(Box<crate::catreg::Catreg>),
+    /// HOMALS, PRINCALS and ANACOR run through the newer engines with their own defaults.
+    Homals(Box<crate::multiple_correspondence::MultipleCorrespondence>),
+    Princals(Box<crate::catpca::Catpca>),
+    Anacor(Box<crate::correspondence::Correspondence>),
+    Overals(Box<crate::legacy_scaling::Overals>),
     Power(Box<crate::power::Power>),
     Bayes(Box<crate::bayes::Bayes>),
     /// FINISH: the commands after it are not read.
