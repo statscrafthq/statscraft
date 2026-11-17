@@ -4020,6 +4020,10 @@ impl App {
         if let Some(syntax) = set {
             self.run(&syntax, None, After::Show);
         }
+        if self.settings.plugin != chosen.0 {
+            // another plugin: the licence answer was about the old one
+            self.plugins.licence = Default::default();
+        }
         if (self.settings.plugin.clone(), self.settings.plugin_off) != chosen {
             self.plugins.changed();
         }
