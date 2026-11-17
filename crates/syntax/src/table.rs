@@ -3792,7 +3792,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
                  \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/PRINT [SAMPLEINFO] [EVENTINFO] [RISKINFO] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]\n\
-                 \x20          [NONE]].\n\
+                 \x20          [BASELINE] [NONE]]\n\
+                 \x20  [/SURVIVALMETHOD [BASELINE=EFRON | BRESLOW | PRODUCTLIMIT] [CI=ORIGINAL | LOG | LML]]\n\
+                 \x20  [/SAVE keyword[(name)] ... | keyword[(root[:n])] ...]\n\
+                 \x20  [/PLOT [SURVIVAL] [CUMHAZARD] [LML] [OMS] [CI=NO | YES]]\n\
+                 \x20  [/PATTERN var(value) ... [BY factor]] [/PATTERN ...]\n\
+                 \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file'] [SURVIVAL='file']].\n\
                  A record is at risk after its start time up to and including its end time; with one time\n\
                  variable it is at risk from the beginning. A status among the event values means the\n\
                  event happened at the end time; any other valid status is censored. A negative time, or a\n\
@@ -3807,9 +3812,28 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  default output is the sample design information with the event and censored counts, the\n\
                  events and censored records of each baseline stratum, the -2 log pseudo likelihood and\n\
                  the Tests of Model Effects; the parameter table needs STATISTICS. RISKINFO lists, per\n\
-                 event time, the events and the records at risk. Not supported yet: VARIABLES ID,\n\
-                 covariates from a TIME PROGRAM, JOINTPROB, TESTASSUMPTIONS, SURVIVALMETHOD, SAVE, PLOT,\n\
-                 PATTERN, OUTFILE, PRINT GEF and BASELINE, and the UNEQUAL_WOR estimator.",
+                 event time, the events and the records at risk.\n\
+                 Baseline functions are computed per baseline stratum at the reference values (each\n\
+                 factor at its last level, each covariate at its weighted mean): the cumulative hazard\n\
+                 by Efron's or Breslow's sum (as TIES unless SURVIVALMETHOD says otherwise) or minus the\n\
+                 log of the product-limit survival. Their standard errors are design-based, from the\n\
+                 design variance of the total of each record's influence on the cumulative hazard, the\n\
+                 same for all three estimates. The survival interval uses the normal quantile on the\n\
+                 scale CI names: the survival itself, its log (default) or the log of minus its log,\n\
+                 cut to 0 and 1. PRINT BASELINE tabulates them; PLOT draws the step functions for the\n\
+                 reference values and for each PATTERN line (BY gives one line per factor level;\n\
+                 variables a PATTERN leaves out stay at the reference). SAVE writes, for the records\n\
+                 analyzed: SCHOENFELD, SCORE and DFBETA (one variable per parameter, root_1, root_2 ...,\n\
+                 25 at most unless :n says), MARTINGALE, DEVIANCE, COXSNELL, XBETA, and SURVIVAL,\n\
+                 CUMHAZARD and their LCL_ and UCL_ limits at each record's own end time and values.\n\
+                 Default names: Resid_Schoenfeld, Resid_Score, Resid_DFBETA, Resid_Martingale,\n\
+                 Resid_Deviance, Resid_CoxSnell, XBETA, Survival, CumHazard, LCL_Survival and so on; a\n\
+                 taken default name gets a suffix. The AGG keywords need VARIABLES ID and are skipped\n\
+                 with a warning. OUTFILE COVB or CORB writes the matrix file of CSGLM, MODEL a JSON file\n\
+                 with the estimates, covariances, reference values and baseline functions, SURVIVAL a\n\
+                 data file of the curves of PLOT at every event time. Not supported yet: VARIABLES ID,\n\
+                 covariates from a TIME PROGRAM, piecewise PATTERN paths, JOINTPROB, TESTASSUMPTIONS,\n\
+                 PRINT GEF and the UNEQUAL_WOR estimator.",
         example: "CSCOXREG months BY clinic WITH dose /VARIABLES STATUS=relapse(1) /PLAN FILE='trial_plan.json' /STATISTICS PARAMETER EXP SE CINTERVAL /PRINT RISKINFO.",
         parse: complex_samples::cscoxreg,
     },

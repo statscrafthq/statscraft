@@ -50,7 +50,9 @@ use crate::procedures::at_end;
 
 mod cox;
 pub(crate) use cox::cscoxreg;
-pub use cox::{CsCox, CsCoxPrint};
+pub use cox::{
+    CsCox, CsCoxBaseline, CsCoxCi, CsCoxOutfile, CsCoxPattern, CsCoxPlot, CsCoxPrint, CsCoxSave,
+};
 
 /// A reference category: the lowest, the highest or a given value.
 #[derive(Debug, Clone, PartialEq)]

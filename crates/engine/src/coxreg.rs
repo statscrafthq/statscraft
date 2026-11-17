@@ -485,7 +485,7 @@ impl Baseline {
 }
 
 /// The alpha of one event time: sum over the deaths of w e / (1 - alpha^e) = s0.
-fn alpha(deaths: &[(f64, f64)], s0: f64) -> f64 {
+pub(crate) fn alpha(deaths: &[(f64, f64)], s0: f64) -> f64 {
     let dying: f64 = deaths.iter().map(|(w, e)| w * e).sum();
     if dying >= s0 * (1.0 - 1e-12) {
         return 0.0;

@@ -11,7 +11,15 @@
 //!   SINGULAR and TIES=EFRON (default) | BRESLOW.
 //! - PRINT SAMPLEINFO EVENTINFO RISKINFO HISTORY[(n)] GEF LMATRIX COVB CORB BASELINE NONE; a
 //!   PRINT shows only what it names, and NONE gives way to any other keyword.
-//! - CUSTOM may repeat; every other subcommand comes at most once and none may be empty.
+//! - SURVIVALMETHOD BASELINE=EFRON | BRESLOW | PRODUCTLIMIT (default: as TIES) CI=ORIGINAL |
+//!   LOG (default) | LML.
+//! - SAVE keyword[(name)] for one variable, keyword[(root[:n])] for one per parameter (25 at
+//!   most by default); the AGG keywords need VARIABLES ID.
+//! - PLOT SURVIVAL CUMHAZARD (or HAZARD) LML OMS CI=NO | YES.
+//! - PATTERN var(value) ... [BY factor]; a value list for the end time is a piecewise path.
+//! - OUTFILE COVB | CORB = file, MODEL = file, SURVIVAL = file.
+//! - CUSTOM and PATTERN may repeat; every other subcommand comes at most once and none may be
+//!   empty.
 
 use super::{CsCriteria, CsCustom, CsModelStatistics, CsPadjust, CsTestType};
 use super::{checked, eat_assignment, error, once, plan_file, require_assignment};
@@ -32,6 +40,94 @@ pub struct CsCoxPrint {
     pub lmatrix: bool,
     pub covb: bool,
     pub corb: bool,
+    pub baseline: bool,
+}
+
+/// SURVIVALMETHOD BASELINE: how the baseline functions are estimated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CsCoxBaseline {
+    Efron,
+    Breslow,
+    ProductLimit,
+}
+
+/// SURVIVALMETHOD CI: the scale of the survival interval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CsCoxCi {
+    Original,
+    Log,
+    Lml,
+}
+
+/// A SAVE keyword of CSCOXREG.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CsCoxSave {
+    Schoenfeld,
+    Martingale,
+    Deviance,
+    CoxSnell,
+    Score,
+    Dfbeta,
+    AggMartingale,
+    AggDeviance,
+    AggCoxSnell,
+    AggScore,
+    AggDfbeta,
+    Survival,
+    LclSurvival,
+    UclSurvival,
+    CumHazard,
+    LclCumHazard,
+    UclCumHazard,
+    Xbeta,
+}
+
+/// The SAVE keywords, and whether each takes a root for one variable per parameter.
+const SAVES: [(&str, CsCoxSave, bool); 18] = [
+    ("SCHOENFELD", CsCoxSave::Schoenfeld, true),
+    ("MARTINGALE", CsCoxSave::Martingale, false),
+    ("DEVIANCE", CsCoxSave::Deviance, false),
+    ("COXSNELL", CsCoxSave::CoxSnell, false),
+    ("SCORE", CsCoxSave::Score, true),
+    ("DFBETA", CsCoxSave::Dfbeta, true),
+    ("AGGMARTINGALE", CsCoxSave::AggMartingale, false),
+    ("AGGDEVIANCE", CsCoxSave::AggDeviance, false),
+    ("AGGCOXSNELL", CsCoxSave::AggCoxSnell, false),
+    ("AGGSCORE", CsCoxSave::AggScore, true),
+    ("AGGDFBETA", CsCoxSave::AggDfbeta, true),
+    ("SURVIVAL", CsCoxSave::Survival, false),
+    ("LCL_SURVIVAL", CsCoxSave::LclSurvival, false),
+    ("UCL_SURVIVAL", CsCoxSave::UclSurvival, false),
+    ("CUMHAZARD", CsCoxSave::CumHazard, false),
+    ("LCL_CUMHAZARD", CsCoxSave::LclCumHazard, false),
+    ("UCL_CUMHAZARD", CsCoxSave::UclCumHazard, false),
+    ("XBETA", CsCoxSave::Xbeta, false),
+];
+
+/// PLOT: the functions to draw and whether with their intervals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CsCoxPlot {
+    pub survival: bool,
+    pub cumhazard: bool,
+    pub lml: bool,
+    pub oms: bool,
+    pub ci: bool,
+}
+
+/// PATTERN: values of model variables, and a factor whose every level gets a line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CsCoxPattern {
+    pub values: Vec<(String, Value)>,
+    pub by: Option<String>,
+}
+
+/// OUTFILE of CSCOXREG.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CsCoxOutfile {
+    /// COVB or CORB: the file and whether it holds correlations (CORB).
+    pub matrix: Option<(String, bool)>,
+    pub model: Option<String>,
+    pub survival: Option<String>,
 }
 
 /// CSCOXREG.
@@ -59,6 +155,14 @@ pub struct CsCox {
     /// CLASSMISSING=INCLUDE
     pub include: bool,
     pub print: CsCoxPrint,
+    /// SURVIVALMETHOD BASELINE; None: as TIES.
+    pub baseline: Option<CsCoxBaseline>,
+    pub ci: CsCoxCi,
+    /// (keyword, name or root, at most this many variables of a root)
+    pub save: Vec<(CsCoxSave, Option<String>, u32)>,
+    pub plot: Option<CsCoxPlot>,
+    pub patterns: Vec<CsCoxPattern>,
+    pub outfile: CsCoxOutfile,
 }
 
 const COMMAND: &str = "CSCOXREG";
@@ -167,6 +271,7 @@ fn print(p: &mut Parser) -> PResult<CsCoxPrint> {
         lmatrix: false,
         covb: false,
         corb: false,
+        baseline: false,
     };
     let mut seen = Vec::new();
     if at_end(p) {
@@ -196,8 +301,8 @@ fn print(p: &mut Parser) -> PResult<CsCoxPrint> {
             out.history = Some(every);
         } else if p.at_keyword("GEF") {
             return Err(not_yet(p, at, "PRINT GEF (the general estimable function)"));
-        } else if p.at_keyword("BASELINE") {
-            return Err(not_yet(p, at, "PRINT BASELINE (the baseline functions)"));
+        } else if flag(p, &mut seen, "BASELINE")? {
+            out.baseline = true;
         } else {
             return Err(p.unexpected(&[
                 "SAMPLEINFO",
@@ -213,6 +318,188 @@ fn print(p: &mut Parser) -> PResult<CsCoxPrint> {
             ]));
         }
         p.eat(Punct::Comma);
+    }
+    Ok(out)
+}
+
+fn survival_method(p: &mut Parser, c: &mut CsCox) -> PResult<()> {
+    let start = p.pos;
+    if at_end(p) {
+        return Err(error(p, start, "SURVIVALMETHOD needs BASELINE= or CI="));
+    }
+    let mut seen = Vec::new();
+    while !at_end(p) {
+        let at = p.pos;
+        if eat_assignment(p, "BASELINE")? {
+            once(p, at, &mut seen, "BASELINE")?;
+            const METHODS: [(&str, CsCoxBaseline); 3] = [
+                ("EFRON", CsCoxBaseline::Efron),
+                ("BRESLOW", CsCoxBaseline::Breslow),
+                ("PRODUCTLIMIT", CsCoxBaseline::ProductLimit),
+            ];
+            let Some(m) = pick(p, &METHODS)? else {
+                return Err(p.unexpected(&["EFRON", "BRESLOW", "PRODUCTLIMIT"]));
+            };
+            c.baseline = Some(m);
+        } else if eat_assignment(p, "CI")? {
+            once(p, at, &mut seen, "CI")?;
+            const SCALES: [(&str, CsCoxCi); 3] = [
+                ("ORIGINAL", CsCoxCi::Original),
+                ("LOG", CsCoxCi::Log),
+                ("LML", CsCoxCi::Lml),
+            ];
+            let Some(s) = pick(p, &SCALES)? else {
+                return Err(p.unexpected(&["ORIGINAL", "LOG", "LML"]));
+            };
+            c.ci = s;
+        } else {
+            return Err(p.unexpected(&["BASELINE =", "CI ="]));
+        }
+    }
+    Ok(())
+}
+
+fn save(p: &mut Parser) -> PResult<Vec<(CsCoxSave, Option<String>, u32)>> {
+    let start = p.pos;
+    if at_end(p) {
+        return Err(error(p, start, "SAVE needs at least one keyword"));
+    }
+    let table: Vec<(&str, usize)> = SAVES.iter().enumerate().map(|(k, s)| (s.0, k)).collect();
+    let mut out: Vec<(CsCoxSave, Option<String>, u32)> = Vec::new();
+    let mut seen = Vec::new();
+    while !at_end(p) {
+        let at = p.pos;
+        let Some(k) = pick(p, &table)? else {
+            let names: Vec<&str> = SAVES.iter().map(|s| s.0).collect();
+            return Err(p.unexpected(&names));
+        };
+        let (keyword, kind, rooted) = SAVES[k];
+        once(p, at, &mut seen, keyword)?;
+        let (mut name, mut count) = (None, 25);
+        if p.eat(Punct::LParen) {
+            if !(rooted && p.at(Punct::Colon)) {
+                name = Some(p.name(if rooted {
+                    "a root name"
+                } else {
+                    "a variable name"
+                })?);
+            }
+            if rooted && p.eat(Punct::Colon) {
+                count = whole(p, "the number of variables", 1.0)?;
+            }
+            p.expect(Punct::RParen)?;
+        }
+        out.push((kind, name, count));
+        p.eat(Punct::Comma);
+    }
+    let names: Vec<String> = out
+        .iter()
+        .filter_map(|(_, n, _)| n.as_ref().map(|n| n.to_uppercase()))
+        .collect();
+    if let Some(i) = (1..names.len()).find(|&i| names[..i].contains(&names[i])) {
+        return Err(error(p, start, format!("SAVE names {} twice", names[i])));
+    }
+    Ok(out)
+}
+
+fn plot(p: &mut Parser) -> PResult<CsCoxPlot> {
+    let start = p.pos;
+    if at_end(p) {
+        return Err(error(p, start, "PLOT needs at least one keyword"));
+    }
+    let mut out = CsCoxPlot::default();
+    let mut seen = Vec::new();
+    while !at_end(p) {
+        let at = p.pos;
+        if eat_assignment(p, "CI")? {
+            once(p, at, &mut seen, "CI")?;
+            let Some(yes) = pick(p, &[("YES", true), ("NO", false)])? else {
+                return Err(p.unexpected(&["YES", "NO"]));
+            };
+            out.ci = yes;
+        } else if flag(p, &mut seen, "SURVIVAL")? {
+            out.survival = true;
+        } else if flag(p, &mut seen, "CUMHAZARD")? || flag(p, &mut seen, "HAZARD")? {
+            out.cumhazard = true;
+        } else if flag(p, &mut seen, "LML")? {
+            out.lml = true;
+        } else if flag(p, &mut seen, "OMS")? {
+            out.oms = true;
+        } else {
+            return Err(p.unexpected(&["SURVIVAL", "CUMHAZARD", "LML", "OMS", "CI ="]));
+        }
+        p.eat(Punct::Comma);
+    }
+    Ok(out)
+}
+
+fn pattern(p: &mut Parser, end: &str) -> PResult<CsCoxPattern> {
+    let start = p.pos;
+    let mut out = CsCoxPattern {
+        values: Vec::new(),
+        by: None,
+    };
+    while !at_end(p) && !p.at_keyword("BY") {
+        let at = p.pos;
+        let name = p.name("a variable name")?;
+        p.expect(Punct::LParen)?;
+        let mut values = Vec::new();
+        while let Some(v) = p.value() {
+            values.push(v);
+            p.eat(Punct::Comma);
+        }
+        p.expect(Punct::RParen)?;
+        if name.eq_ignore_ascii_case(end) || values.len() > 1 {
+            return Err(not_yet(p, at, "PATTERN with a piecewise path"));
+        }
+        let Some(value) = values.pop() else {
+            return Err(error(p, at, format!("PATTERN needs a value for {name}")));
+        };
+        if out
+            .values
+            .iter()
+            .any(|(n, _)| n.eq_ignore_ascii_case(&name))
+        {
+            return Err(error(p, at, format!("PATTERN names {name} twice")));
+        }
+        out.values.push((name, value));
+    }
+    if p.eat_keyword("BY") {
+        out.by = Some(p.name("a factor")?);
+    }
+    if out.values.is_empty() && out.by.is_none() {
+        return Err(error(p, start, "PATTERN needs var(value) or BY factor"));
+    }
+    Ok(out)
+}
+
+fn outfile(p: &mut Parser) -> PResult<CsCoxOutfile> {
+    let mut out = CsCoxOutfile::default();
+    let expected = ["COVB =", "CORB =", "MODEL =", "SURVIVAL ="];
+    while !at_end(p) {
+        let at = p.pos;
+        let corb = p.at_keyword("CORB");
+        let (taken, what) = if eat_assignment(p, "COVB")? || eat_assignment(p, "CORB")? {
+            (out.matrix.is_some(), "one of COVB and CORB")
+        } else if eat_assignment(p, "MODEL")? {
+            (out.model.is_some(), "MODEL")
+        } else if eat_assignment(p, "SURVIVAL")? {
+            (out.survival.is_some(), "SURVIVAL")
+        } else {
+            return Err(p.unexpected(&expected));
+        };
+        if taken {
+            return Err(error(p, at, format!("OUTFILE takes {what} once")));
+        }
+        let file = p.file("a quoted file name")?;
+        match what {
+            "MODEL" => out.model = Some(file),
+            "SURVIVAL" => out.survival = Some(file),
+            _ => out.matrix = Some((file, corb)),
+        }
+    }
+    if out == CsCoxOutfile::default() {
+        return Err(p.unexpected(&expected));
     }
     Ok(out)
 }
@@ -291,7 +578,14 @@ pub(crate) fn cscoxreg(p: &mut Parser) -> PResult<Command> {
             lmatrix: false,
             covb: false,
             corb: false,
+            baseline: false,
         },
+        baseline: None,
+        ci: CsCoxCi::Log,
+        save: Vec::new(),
+        plot: None,
+        patterns: Vec::new(),
+        outfile: CsCoxOutfile::default(),
     };
     let not_by_with = |p: &Parser| {
         matches!(p.peek(), Some(TokenKind::Word(w))
@@ -367,19 +661,23 @@ pub(crate) fn cscoxreg(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("PRINT") {
             once(p, start, &mut seen, "PRINT")?;
             c.print = print(p)?;
+        } else if p.eat_keyword("SURVIVALMETHOD") {
+            once(p, start, &mut seen, "SURVIVALMETHOD")?;
+            survival_method(p, &mut c)?;
+        } else if p.eat_keyword("SAVE") {
+            once(p, start, &mut seen, "SAVE")?;
+            c.save = save(p)?;
+        } else if p.eat_keyword("PLOT") {
+            once(p, start, &mut seen, "PLOT")?;
+            c.plot = Some(plot(p)?);
+        } else if p.eat_keyword("PATTERN") {
+            let end = c.end.clone();
+            c.patterns.push(pattern(p, &end)?);
+        } else if p.eat_keyword("OUTFILE") {
+            once(p, start, &mut seen, "OUTFILE")?;
+            c.outfile = outfile(p)?;
         } else {
-            return Err(p.subcommand_error(
-                COMMAND,
-                &[
-                    "JOINTPROB",
-                    "TESTASSUMPTIONS",
-                    "SURVIVALMETHOD",
-                    "SAVE",
-                    "PLOT",
-                    "PATTERN",
-                    "OUTFILE",
-                ],
-            ));
+            return Err(p.subcommand_error(COMMAND, &["JOINTPROB", "TESTASSUMPTIONS"]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));
@@ -479,21 +777,13 @@ mod tests {
                 .contains("one or two time variables")
         );
         for (sub, what) in [
-            ("SAVE MARTINGALE", "subcommand SAVE"),
-            ("OUTFILE COVB='c.sav'", "subcommand OUTFILE"),
             ("JOINTPROB FILE='j.sav'", "subcommand JOINTPROB"),
-            ("PLOT SURVIVAL", "subcommand PLOT"),
-            ("PATTERN x(1)", "subcommand PATTERN"),
-            (
-                "SURVIVALMETHOD BASELINE=BRESLOW",
-                "subcommand SURVIVALMETHOD",
-            ),
             (
                 "TESTASSUMPTIONS PROPHAZARD=KM",
                 "subcommand TESTASSUMPTIONS",
             ),
-            ("PRINT BASELINE", "PRINT BASELINE"),
             ("PRINT GEF", "PRINT GEF"),
+            ("PATTERN t(1 2) x(1 2)", "piecewise path"),
         ] {
             let message = fails(&format!("{base} /{sub}."));
             assert!(
@@ -508,5 +798,40 @@ mod tests {
         assert!(fails(&format!("{base} /CUSTOM KMATRIX=1.")).contains("no intercept"));
         assert!(fails(&format!("{base} /CRITERIA CHKSEP=3.")).contains("CHKSEP"));
         assert!(fails(&format!("{base} /PLAN FILE='q.json'.")).contains("only once"));
+        assert!(fails(&format!("{base} /SAVE XBETA(a) MARTINGALE(a).")).contains("twice"));
+        assert!(fails(&format!("{base} /OUTFILE COVB='a' CORB='b'.")).contains("once"));
+        assert!(fails(&format!("{base} /PATTERN.")).contains("PATTERN needs"));
+    }
+
+    #[test]
+    fn survival_save_plot_pattern_and_outfile() {
+        let c = cox(
+            "CSCOXREG t BY g WITH x /VARIABLES STATUS=s(1) /PLAN FILE='p.json' \
+             /SURVIVALMETHOD BASELINE=PRODUCTLIMIT CI=LML /PRINT BASELINE \
+             /SAVE SCHOENFELD(sch:2) SCORE DFBETA(:3) XBETA(xb) SURVIVAL \
+             /PLOT SURVIVAL HAZARD CI=YES /PATTERN x(2.5) g(1) /PATTERN BY g \
+             /OUTFILE CORB='c.sav' MODEL='m.json' SURVIVAL='s.sav'.",
+        );
+        assert_eq!(c.baseline, Some(CsCoxBaseline::ProductLimit));
+        assert_eq!(c.ci, CsCoxCi::Lml);
+        assert!(c.print.baseline && !c.print.sampleinfo);
+        assert_eq!(
+            c.save,
+            [
+                (CsCoxSave::Schoenfeld, Some("sch".into()), 2),
+                (CsCoxSave::Score, None, 25),
+                (CsCoxSave::Dfbeta, None, 3),
+                (CsCoxSave::Xbeta, Some("xb".into()), 25),
+                (CsCoxSave::Survival, None, 25),
+            ]
+        );
+        let plot = c.plot.unwrap();
+        assert!(plot.survival && plot.cumhazard && plot.ci && !plot.lml);
+        assert_eq!(c.patterns.len(), 2);
+        assert_eq!(c.patterns[0].values[1], ("g".into(), Value::Number(1.0)));
+        assert_eq!(c.patterns[1].by.as_deref(), Some("g"));
+        assert_eq!(c.outfile.matrix, Some(("c.sav".into(), true)));
+        assert_eq!(c.outfile.model.as_deref(), Some("m.json"));
+        assert_eq!(c.outfile.survival.as_deref(), Some("s.sav"));
     }
 }

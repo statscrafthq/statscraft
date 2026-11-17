@@ -188,7 +188,7 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
             );
             lexer.colon = matches!(
                 spec.name,
-                "NOMREG" | "PLUM" | "GENLIN" | "CSLOGISTIC" | "CSORDINAL"
+                "NOMREG" | "PLUM" | "GENLIN" | "CSLOGISTIC" | "CSORDINAL" | "CSCOXREG"
             );
             // only a command with a parser has a body worth tokenising
             while lex_error.is_none() {

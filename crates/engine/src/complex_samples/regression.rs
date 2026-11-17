@@ -506,6 +506,76 @@ struct Saved {
 /// What OUTFILE writes: the matrix data and the model file.
 type Files = (Option<Dataset>, Option<serde_json::Value>);
 
+/// The OUTFILE COVB or CORB data of the parameters in `order`: rows EST, SE, SIG and DF, then one
+/// COV or CORR row per parameter; a redundant parameter has its estimate 0 and nothing else.
+fn matrix_file(
+    est: &Estimates,
+    order: &[usize],
+    df: f64,
+    corr: bool,
+    label: &dyn Fn(usize) -> String,
+) -> Result<Dataset, Error> {
+    let ok = |a: usize| !est.redundant[a];
+    let se = |a: usize| ok(a).then(|| est.v[a][a].max(0.0).sqrt());
+    let mut rows: Vec<(&str, String, Vec<Option<f64>>)> = vec![
+        (
+            "EST",
+            String::new(),
+            order.iter().map(|&a| Some(est.b[a])).collect(),
+        ),
+        ("SE", String::new(), order.iter().map(|&a| se(a)).collect()),
+        (
+            "SIG",
+            String::new(),
+            order
+                .iter()
+                .map(|&a| {
+                    se(a)
+                        .filter(|&s| s > 0.0 && df > 0.0)
+                        .map(|s| t_p(est.b[a] / s, df))
+                })
+                .collect(),
+        ),
+        (
+            "DF",
+            String::new(),
+            order.iter().map(|&a| ok(a).then_some(df)).collect(),
+        ),
+    ];
+    for (i, &a) in order.iter().enumerate() {
+        let values = order
+            .iter()
+            .map(|&b| {
+                let v = est.v[a][b];
+                let v = if corr {
+                    v / (est.v[a][a] * est.v[b][b]).sqrt()
+                } else {
+                    v
+                };
+                (ok(a) && ok(b) && v.is_finite()).then_some(v)
+            })
+            .collect();
+        rows.push((
+            if corr { "CORR" } else { "COV" },
+            format!("P{}", i + 1),
+            values,
+        ));
+    }
+    let mut out = Dataset::new(rows.len());
+    out.set_string_values(
+        "RowType_",
+        8,
+        rows.iter().map(|r| r.0.to_string()).collect(),
+    )?;
+    out.set_string_values("VarName_", 8, rows.iter().map(|r| r.1.clone()).collect())?;
+    for (i, &a) in order.iter().enumerate() {
+        let var = format!("P{}", i + 1);
+        out.set_numeric_values(&var, rows.iter().map(|r| r.2[i]).collect())?;
+        out.set_variable_label(&var, Some(&label(a)))?;
+    }
+    Ok(out)
+}
+
 /// The parameter names of every parameter, with the category of its logit.
 fn parameter_names(d: &Data, fit: &Fit) -> Vec<String> {
     let mut out = vec![String::new(); fit.p];
@@ -1632,66 +1702,11 @@ impl Engine {
         // redundant one has its estimate 0 and nothing else
         let files: Files = {
             let ok = |a: usize| !est.redundant[a];
-            let se = |a: usize| ok(a).then(|| est.v[a][a].max(0.0).sqrt());
-            let matrix = c.outfile.matrix.as_ref().map(|(_, corr)| {
-                let mut rows: Vec<(&str, String, Vec<Option<f64>>)> = vec![
-                    (
-                        "EST",
-                        String::new(),
-                        order.iter().map(|&a| Some(est.b[a])).collect(),
-                    ),
-                    ("SE", String::new(), order.iter().map(|&a| se(a)).collect()),
-                    (
-                        "SIG",
-                        String::new(),
-                        order
-                            .iter()
-                            .map(|&a| {
-                                se(a)
-                                    .filter(|&s| s > 0.0 && df > 0.0)
-                                    .map(|s| t_p(est.b[a] / s, df))
-                            })
-                            .collect(),
-                    ),
-                    (
-                        "DF",
-                        String::new(),
-                        order.iter().map(|&a| ok(a).then_some(df)).collect(),
-                    ),
-                ];
-                for (i, &a) in order.iter().enumerate() {
-                    let values = order
-                        .iter()
-                        .map(|&b| {
-                            let v = est.v[a][b];
-                            let v = if *corr {
-                                v / (est.v[a][a] * est.v[b][b]).sqrt()
-                            } else {
-                                v
-                            };
-                            (ok(a) && ok(b) && v.is_finite()).then_some(v)
-                        })
-                        .collect();
-                    rows.push((
-                        if *corr { "CORR" } else { "COV" },
-                        format!("P{}", i + 1),
-                        values,
-                    ));
-                }
-                let mut out = Dataset::new(rows.len());
-                out.set_string_values(
-                    "RowType_",
-                    8,
-                    rows.iter().map(|r| r.0.to_string()).collect(),
-                )?;
-                out.set_string_values("VarName_", 8, rows.iter().map(|r| r.1.clone()).collect())?;
-                for (i, &a) in order.iter().enumerate() {
-                    let var = format!("P{}", i + 1);
-                    out.set_numeric_values(&var, rows.iter().map(|r| r.2[i]).collect())?;
-                    out.set_variable_label(&var, Some(&param_label(a)))?;
-                }
-                Ok::<_, Error>(out)
-            });
+            let matrix = c
+                .outfile
+                .matrix
+                .as_ref()
+                .map(|(_, corr)| matrix_file(&est, &order, df, *corr, &param_label));
             let model = c.outfile.model.as_ref().map(|(_, with_covariance)| {
                 let parameters: Vec<_> = order
                     .iter()

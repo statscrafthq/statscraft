@@ -407,3 +407,371 @@ fn baseline_only_model_and_errors() {
     ));
     assert!(error.contains("cannot be the STATUS variable"), "{error}");
 }
+
+// The baseline functions, their design-based errors and the saved values below come from an R
+// script used as a black box: coxph with the weights for the estimates, survfit on it at the
+// reference values (grp = 3, x at its weighted mean) for the Efron, Breslow and product-limit
+// baselines (they agree to 1e-11), and the manual's influence terms of the cumulative hazard
+// (v_i less A' J^-1 U_i with coxph's score residuals) totalled by svytotal on the design for
+// the standard errors. Schoenfeld residuals are coxph's times the weight; Breslow martingale
+// residuals are coxph's.
+
+/// One numeric variable of the active dataset, None for system-missing.
+fn column(engine: &Engine, name: &str) -> Vec<Option<f64>> {
+    let data = engine.dataset().unwrap();
+    let values = data.variable(name).unwrap().numeric().unwrap();
+    (0..data.case_count()).map(|k| values.get(k)).collect()
+}
+
+fn near(actual: f64, expected: f64, what: &str) {
+    assert!(
+        (actual - expected).abs() <= 1e-7 * expected.abs().max(1e-3),
+        "{what}: {actual} != {expected}"
+    );
+}
+
+/// Saved values of 1-based data cases: (variable, case, expected).
+fn saved(engine: &Engine, cells: &[(&str, usize, f64)]) {
+    for (name, case, expected) in cells {
+        let actual = column(engine, name)[case - 1].unwrap_or(f64::NAN);
+        near(actual, *expected, &format!("{name} of case {case}"));
+    }
+}
+
+/// The numbers of the Baseline Functions row of a stratum (None: no strata) at `time`.
+fn baseline_row(table: &Table, stratum: Option<&str>, time: f64) -> Vec<f64> {
+    let mut current = String::new();
+    for row in &table.rows {
+        if let (Some(_), Cell::Text(t)) = (stratum, &row[0])
+            && !t.is_empty()
+        {
+            current = t.clone();
+        }
+        let cells = &row[table.row_headers..];
+        if cells[0] == Cell::Number(time) && stratum.is_none_or(|s| s == current) {
+            return cells
+                .iter()
+                .map(|c| match c {
+                    Cell::Number(n) => *n,
+                    other => panic!("{other:?}"),
+                })
+                .collect();
+        }
+    }
+    panic!("no baseline row at {time}");
+}
+
+/// Time, H, its error, S, its error and the interval in a Baseline Functions row.
+fn baseline_checks(table: &Table, stratum: Option<&str>, rows: &[[f64; 7]]) {
+    for expected in rows {
+        let actual = baseline_row(table, stratum, expected[0]);
+        for (k, (a, e)) in actual.iter().zip(expected).enumerate() {
+            near(
+                *a,
+                *e,
+                &format!("{stratum:?} at {} column {k}", expected[0]),
+            );
+        }
+    }
+}
+
+#[test]
+fn efron_baseline_pattern_plots_residuals_and_files() {
+    use statscraft_engine::plot::Plot;
+    let (mut engine, tables) = run(&program(
+        "survival",
+        "CSCOXREG t BY grp WITH x /VARIABLES STATUS=st(1) /PLAN FILE='wr.json'\n\
+         \x20 /PRINT BASELINE /PATTERN grp(1) x(6) /PLOT SURVIVAL CUMHAZARD CI=YES\n\
+         \x20 /SAVE MARTINGALE DEVIANCE COXSNELL SCORE DFBETA(df:2) SCHOENFELD XBETA SURVIVAL\n\
+         \x20   LCL_SURVIVAL UCL_SURVIVAL CUMHAZARD LCL_CUMHAZARD UCL_CUMHAZARD AGGSCORE\n\
+         \x20 /OUTFILE COVB='cox_covb.sav' MODEL='cox.json' SURVIVAL='cox_surv.sav'.",
+    ));
+    // time, cumulative hazard and its error, survival and its error, the 95% log interval
+    baseline_checks(
+        find(&tables, "Baseline Functions"),
+        None,
+        &[
+            [
+                1.0,
+                0.0584168189170628,
+                0.00937322378070325,
+                0.943256698250165,
+                0.00884135611534608,
+                0.926086163113281,
+                0.960745591752211,
+            ],
+            [
+                11.0,
+                0.883385222148048,
+                0.207697005808621,
+                0.413381153352643,
+                0.0858580278090583,
+                0.275143121954125,
+                0.621073050031223,
+            ],
+            [
+                28.0,
+                3.20857500169575,
+                1.05509459340199,
+                0.0404141623714552,
+                0.0426407642149925,
+                0.00511017103313112,
+                0.31961836689947,
+            ],
+        ],
+    );
+    saved(
+        &engine,
+        &[
+            ("Resid_Martingale", 1, 0.836377983260491),
+            ("Resid_Martingale", 5, -0.843372098012309),
+            ("Resid_Deviance", 1, 1.39557751770388),
+            ("Resid_Deviance", 5, -1.29874716401023),
+            ("Resid_CoxSnell", 2, 2.06834522285829),
+            ("Resid_Score_1", 1, 15.0699336818655),
+            ("Resid_Score_3", 1, -0.993274622549517),
+            ("Resid_Score_2", 2, -29.0311330741417),
+            ("df_1", 1, 0.0278748675657013),
+            ("df_2", 2, -0.0661265477123261),
+            ("Resid_Schoenfeld_1", 1, 17.6982444676509),
+            ("Resid_Schoenfeld_2", 1, -6.00620570737284),
+            ("Resid_Schoenfeld_3", 2, 30.6104042180642),
+            ("XBETA", 11, -1.01683773647407),
+            ("Survival", 1, 0.84906289279505),
+            ("LCL_Survival", 1, 0.776006842958098),
+            ("UCL_Survival", 5, 0.638259056105203),
+            ("CumHazard", 5, 0.843372098012309),
+            ("LCL_CumHazard", 1, 0.0736500928861903),
+            ("UCL_CumHazard", 5, 1.23773316202574),
+        ],
+    );
+    // a censored record has no Schoenfeld residual, a record left out nothing; DFBETA stops at 2
+    assert_eq!(column(&engine, "Resid_Schoenfeld_1")[4], None);
+    assert_eq!(column(&engine, "Survival")[5], None);
+    assert!(engine.dataset().unwrap().variable("df_3").is_err());
+    assert!(engine.warnings().iter().any(|w| w.contains("VARIABLES ID")));
+
+    let charts = engine.take_charts();
+    let titles: Vec<&str> = charts.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        [
+            "Survival Function at the reference values",
+            "Survival Function for Pattern 1",
+            "Hazard Function at the reference values",
+            "Hazard Function for Pattern 1",
+        ]
+    );
+    let Some(Plot::Points { groups, .. }) = &charts[1].plot else {
+        panic!("{:?}", charts[1].plot);
+    };
+    let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(names, ["Pattern 1", "Pattern 1 lower", "Pattern 1 upper"]);
+    // a step at the first event time: 1 before, the pattern's survival after
+    let at1: Vec<f64> = groups[0]
+        .points
+        .iter()
+        .filter(|p| p.x == 1.0)
+        .map(|p| p.y)
+        .collect();
+    assert_eq!(at1[0], 1.0);
+    near(at1[1], 0.939030679150369, "pattern survival at 1");
+    near(
+        groups[1].points[2].y,
+        0.895841754085925,
+        "pattern lower limit at 1",
+    );
+
+    let folder =
+        std::env::temp_dir().join(format!("statscraft-cscox-survival-{}", std::process::id()));
+    let model: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(folder.join("cox.json")).unwrap()).unwrap();
+    assert_eq!(model["format"], "statscraft-cs-model");
+    assert_eq!(model["command"], "CSCOXREG");
+    assert_eq!(model["parameters"][2]["redundant"], true);
+    near(
+        model["baseline"][0]["cumulative_hazard"][0]
+            .as_f64()
+            .unwrap(),
+        0.0584168189170628,
+        "model file hazard",
+    );
+    let get = |engine: &mut Engine, what: &str| {
+        let (commands, errors) = parse(what);
+        assert!(errors.is_empty(), "{errors:?}");
+        engine.execute(&commands[0].command).unwrap();
+    };
+    get(&mut engine, "GET FILE='cox_covb.sav'.");
+    near(
+        column(&engine, "P4")[0].unwrap(),
+        0.240733208722236,
+        "EST of x",
+    );
+    near(
+        column(&engine, "P4")[1].unwrap(),
+        0.0656135401176958,
+        "SE of x",
+    );
+    assert_eq!(column(&engine, "P3")[..2], [Some(0.0), None]);
+    get(&mut engine, "GET FILE='cox_surv.sav'.");
+    let data = engine.dataset().unwrap();
+    let patterns: Vec<String> = data
+        .variable("Pattern")
+        .unwrap()
+        .string()
+        .unwrap()
+        .iter()
+        .map(|s| s.trim_end().to_string())
+        .collect();
+    let times = column(&engine, "Time");
+    let row = (0..patterns.len())
+        .find(|&r| patterns[r] == "Pattern 1" && times[r] == Some(1.0))
+        .unwrap();
+    for (name, expected) in [
+        ("Survival", 0.939030679150369),
+        ("SE_Survival", 0.939030679150369 * 0.0240230777524759),
+        ("LCL_Survival", 0.895841754085925),
+        ("UCL_Survival", 0.984301761291902),
+        ("CumHazard", 0.0629071281559799),
+    ] {
+        near(column(&engine, name)[row].unwrap(), expected, name);
+    }
+}
+
+#[test]
+fn breslow_baseline_per_stratum_with_log_minus_log_intervals() {
+    let (engine, tables) = run(&program(
+        "lml",
+        "CSCOXREG t0 t BY grp WITH x /VARIABLES STATUS=st(1) BASELINESTRATA=bs\n\
+         \x20 /PLAN FILE='wr.json' /CRITERIA TIES=BRESLOW /SURVIVALMETHOD CI=LML\n\
+         \x20 /PRINT BASELINE /SAVE MARTINGALE SURVIVAL LCL_SURVIVAL UCL_SURVIVAL CUMHAZARD.",
+    ));
+    let table = find(&tables, "Baseline Functions");
+    baseline_checks(
+        table,
+        Some("1"),
+        &[[
+            8.0,
+            0.557222310489553,
+            0.124074700915722,
+            0.572797910914083,
+            0.0710697294818152,
+            0.422270302282582,
+            0.697565277885087,
+        ]],
+    );
+    baseline_checks(
+        table,
+        Some("2"),
+        &[
+            [
+                1.0,
+                0.0932065802383863,
+                0.05523250347341,
+                0.911005285167066,
+                0.0503171025772848,
+                0.742486344078014,
+                0.971244566695646,
+            ],
+            [
+                28.0,
+                4.39438127983927,
+                1.49133227967619,
+                0.0123465170016878,
+                0.0184127593461879,
+                0.000194285401046815,
+                0.104396713688238,
+            ],
+        ],
+    );
+    // case 2 enters at 15: its martingale residual counts the hazard from there, its survival
+    // and cumulative hazard are from time 0
+    saved(
+        &engine,
+        &[
+            ("Resid_Martingale", 1, 0.856568430757883),
+            ("Resid_Martingale", 2, -0.626789743369594),
+            ("Resid_Martingale", 5, -1.24769352901398),
+            ("Survival", 2, 0.0488272684234298),
+            ("LCL_Survival", 2, 0.0110487913615633),
+            ("UCL_Survival", 1, 0.962507308409967),
+            ("CumHazard", 2, 3.01946634301334),
+        ],
+    );
+}
+
+#[test]
+fn product_limit_baseline_in_a_domain_with_original_intervals() {
+    let (engine, tables) = run(&program(
+        "productlimit",
+        "CSCOXREG t BY grp WITH x /VARIABLES STATUS=st(1) /PLAN FILE='wor.json'\n\
+         \x20 /DOMAIN VARIABLE=dom(1) /SURVIVALMETHOD BASELINE=PRODUCTLIMIT CI=ORIGINAL\n\
+         \x20 /PRINT BASELINE /SAVE MARTINGALE(m) SURVIVAL(s) LCL_SURVIVAL(lo) UCL_SURVIVAL(hi).",
+    ));
+    baseline_checks(
+        find(&tables, "Baseline Functions"),
+        None,
+        &[
+            [
+                2.0,
+                0.105151651888848,
+                0.0209687306229343,
+                0.90018799702428,
+                0.0188757996196009,
+                0.863192109590468,
+                0.937183884458093,
+            ],
+            // the lower limit is cut at 0
+            [
+                28.0,
+                4.32221344559503,
+                0.861948109960577,
+                0.0132704775301124,
+                0.0114384630253547,
+                0.0,
+                0.0356894530983007,
+            ],
+        ],
+    );
+    saved(
+        &engine,
+        &[
+            ("m", 7, 0.435318314769816),
+            ("m", 15, -0.0858524245313088),
+            ("s", 7, 0.568541092984229),
+            ("lo", 7, 0.470870207441959),
+            ("hi", 2, 0.115819989046482),
+        ],
+    );
+    // case 8 is outside the domain
+    assert_eq!(column(&engine, "m")[7], None);
+}
+
+#[test]
+fn pattern_lines_and_errors() {
+    let base = "CSCOXREG t BY grp WITH x /VARIABLES STATUS=st(1) /PLAN FILE='wr.json' /PLOT OMS";
+    for (pattern, expected) in [
+        ("/PATTERN w(1)", "not a factor or covariate"),
+        ("/PATTERN grp(7)", "not a level of grp"),
+        ("/PATTERN BY x", "must be a factor"),
+        ("/PATTERN x('a')", "takes a number"),
+    ] {
+        let error = run_error(&program("patterns", &format!("{base} {pattern}.")));
+        assert!(error.contains(expected), "{error}");
+    }
+    let (mut engine, _) = run(&program("by", &format!("{base} LML /PATTERN x(5) BY grp.")));
+    let charts = engine.take_charts();
+    assert_eq!(charts.len(), 4);
+    let Some(statscraft_engine::plot::Plot::Points { groups, .. }) = &charts[3].plot else {
+        panic!("{:?}", charts[3].plot);
+    };
+    let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "Pattern 1, grp = 1",
+            "Pattern 1, grp = 2",
+            "Pattern 1, grp = 3"
+        ]
+    );
+}

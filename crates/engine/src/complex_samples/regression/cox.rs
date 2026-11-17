@@ -24,15 +24,27 @@
 //!   fpc N / (n - 1) sum w U U' as the other models do.
 //! - Intervals, t tests, Wald tests, CUSTOM, PADJUST and design effects as in CSGLM; exp(B) and
 //!   its interval exponentiate the estimate and its limits.
+//! - Baseline functions per stratum at the reference pattern (centered columns 0), with steps
+//!   at its event times: Breslow adds W / S0, Efron (W / d) sum over r of 1 / (S0 - f_r D0),
+//!   the product limit multiplies by the alpha of COXREG (H0 = -ln S0). At a pattern z,
+//!   H = H0 exp(z'b) and S = S0^exp(z'b).
+//! - The variance of H is the design variance of the total of each record's influence
+//!   r (v0 - g'W), r = exp(z'b), whatever the baseline method: v0 is the record's own event
+//!   over S0 at its time less exp(x'b) times the sum of W / S0^2 over the event times it is at
+//!   risk at, g the running sum of W S1 / S0^2 less z times that of W / S0, and W = J^-1 U.
+//!   S's interval uses the normal quantile on the scale of S, ln S or ln(-ln S), cut to [0, 1].
+//! - Residuals from H0 of the baseline method: martingale delta - (H0(end) - H0(start)) e,
+//!   deviance and Cox-Snell from it, Schoenfeld w (x - xbar) at the event, score w U, DFBETA
+//!   w J^-1 U.
 
 use super::super::{Design, keys_of, numbers};
 use super::{
-    Estimates, Wald, information_inverse, padjust, padjust_note, parameter_names, test_cells,
-    test_columns, test_values, wald,
+    Estimates, Saved, Wald, information_inverse, padjust, padjust_note, parameter_names,
+    test_cells, test_columns, test_values, wald,
 };
 use crate::crosstabs::Key;
 use crate::descriptives::number;
-use crate::dist::{t_p, t_quantile};
+use crate::dist::{normal_quantile, t_p, t_quantile};
 use crate::genlin::value_matches;
 use crate::glm::{Data, Fit, Part, effects_of, intercept_term, key_value_text, l_row};
 use crate::matrix::{Matrix, multiply};
@@ -40,8 +52,11 @@ use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::Variable;
-use statscraft_syntax::{CsCox, LRow, MissingValue, Term, Value};
+use serde_json::json;
+use statscraft_data::{Dataset, Variable};
+use statscraft_syntax::{
+    CsCox, CsCoxBaseline, CsCoxCi, CsCoxSave, LRow, MissingValue, Term, Value,
+};
 
 const NAME: &str = "CSCOXREG";
 
@@ -66,6 +81,13 @@ struct EventTime {
     b: Vec<f64>,
     fa: f64,
     fb: Vec<f64>,
+    /// The weighted risk-set sums of exp(x'b) and of x exp(x'b), that of exp(x'b) over the
+    /// events, their summed weight and the records with the event.
+    e0: f64,
+    e1: Vec<f64>,
+    d0: f64,
+    wd: f64,
+    deaths: Vec<usize>,
 }
 
 /// The log likelihood with its derivatives, and per stratum the event times.
@@ -157,6 +179,11 @@ fn pass(recs: &[Record], strata: usize, b: &[f64], breslow: bool, second: bool) 
                 b: vec![0.0; q],
                 fa: 0.0,
                 fb: vec![0.0; q],
+                e0: s0,
+                e1: s1.clone(),
+                d0,
+                wd,
+                deaths: Vec::new(),
             };
             for &(coef, f) in &parts {
                 let e0 = s0 - f * d0;
@@ -177,6 +204,7 @@ fn pass(recs: &[Record], strata: usize, b: &[f64], breslow: bool, second: bool) 
                 et.a += coef / e0;
                 et.fa += coef * f / e0;
             }
+            et.deaths = deaths;
             here.push(et);
         }
         here.reverse();
@@ -233,6 +261,8 @@ struct CoxFit {
     scores: Vec<Vec<f64>>,
     /// (iteration, -2 l, step-halvings, parameters)
     history: Vec<(usize, f64, usize, Vec<f64>)>,
+    /// Per stratum the event times at the estimates.
+    times: Vec<Vec<EventTime>>,
 }
 
 fn fit_cox(
@@ -310,21 +340,198 @@ fn fit_cox(
         info: at.info,
         scores,
         history,
+        times: at.times,
     }
+}
+
+/// The lines of a PATTERN: each name with its centered model columns.
+type Lines = Vec<(String, Vec<f64>)>;
+
+/// What CSCOXREG gives besides its tables: SAVE columns, OUTFILE data and charts.
+struct Outputs {
+    tables: Vec<Table>,
+    saved: Vec<Saved>,
+    matrix: Option<Dataset>,
+    survival: Option<Dataset>,
+    model: Option<serde_json::Value>,
+    charts: Vec<crate::Chart>,
+}
+
+/// The baseline functions of one stratum after each of its event times, with what their
+/// variance needs.
+struct Base {
+    times: Vec<f64>,
+    h: Vec<f64>,
+    s: Vec<f64>,
+    /// Running sums over the event times of wd E1 / E0^2 and of wd / E0 (Breslow's hazard).
+    a: Vec<Vec<f64>>,
+    b: Vec<f64>,
+    /// The design covariance of the totals of v0 and of each record's W = J^-1 U.
+    cov: Vec<Matrix>,
+}
+
+impl Base {
+    /// The cumulative hazard at the last event time at or before `t`, 0 before the first.
+    fn h0(&self, t: f64) -> f64 {
+        let k = self.times.partition_point(|&s| s <= t);
+        if k == 0 { 0.0 } else { self.h[k - 1] }
+    }
+
+    /// The cumulative hazard, the survival and the cumulative hazard's standard error at `t`
+    /// for the centered pattern `z`.
+    fn at(&self, t: f64, z: &[f64], b: &[f64]) -> (f64, f64, f64) {
+        let k = self.times.partition_point(|&s| s <= t);
+        if k == 0 {
+            return (0.0, 1.0, 0.0);
+        }
+        let j = k - 1;
+        let r = dot(z, b).exp();
+        // the influence of a record is r (v0 - g'W)
+        let g: Vec<f64> = (0..z.len())
+            .map(|m| self.a[j][m] - z[m] * self.b[j])
+            .collect();
+        let c = &self.cov[j];
+        let mut var = c[0][0];
+        for (m, gm) in g.iter().enumerate() {
+            var -= 2.0 * gm * c[0][m + 1];
+            for (l, gl) in g.iter().enumerate() {
+                var += gm * gl * c[m + 1][l + 1];
+            }
+        }
+        (self.h[j] * r, self.s[j].powf(r), r * var.max(0.0).sqrt())
+    }
+}
+
+/// The interval of the survival `s` with cumulative hazard `h` and its standard error `se` on
+/// the scale `ci`, kept within 0 and 1.
+fn limits(s: f64, h: f64, se: f64, zq: f64, ci: CsCoxCi) -> (f64, f64) {
+    if se <= 0.0 || h <= 0.0 {
+        return (s, s);
+    }
+    let (lo, hi) = match ci {
+        CsCoxCi::Original => (s - zq * s * se, s + zq * s * se),
+        CsCoxCi::Log => (s * (-zq * se).exp(), s * (zq * se).exp()),
+        CsCoxCi::Lml => (s.powf((zq * se / h).exp()), s.powf((-zq * se / h).exp())),
+    };
+    (lo.clamp(0.0, 1.0), hi.clamp(0.0, 1.0))
+}
+
+/// The baseline functions of every stratum at the estimates `b`. `place` gives each record's
+/// design case and `ws` the design cases' W = J^-1 U.
+fn baselines(
+    recs: &[Record],
+    times: &[Vec<EventTime>],
+    b: &[f64],
+    method: CsCoxBaseline,
+    place: &[usize],
+    ws: &[Vec<f64>],
+    design: &Design,
+) -> Vec<Base> {
+    let e: Vec<f64> = recs.iter().map(|r| dot(&r.z, b).exp()).collect();
+    let q = b.len();
+    times
+        .iter()
+        .enumerate()
+        .map(|(g, times)| {
+            let mine: Vec<usize> = (0..recs.len()).filter(|&r| recs[r].stratum == g).collect();
+            // per record the number of event times through its start and through its end
+            let span: Vec<(usize, usize)> = mine
+                .iter()
+                .map(|&r| {
+                    let upto = |x: f64| times.partition_point(|t| t.time <= x);
+                    (upto(recs[r].start), upto(recs[r].stop))
+                })
+                .collect();
+            let mut vecs = vec![vec![0.0; design.cases()]];
+            vecs.extend(ws.iter().cloned());
+            let mut base = Base {
+                times: Vec::new(),
+                h: Vec::new(),
+                s: Vec::new(),
+                a: Vec::new(),
+                b: Vec::new(),
+                cov: Vec::new(),
+            };
+            // c[k]: the sum of wd / E0^2 over the first k event times
+            let mut c = vec![0.0];
+            let (mut h, mut s, mut a, mut breslow) = (0.0, 1.0, vec![0.0; q], 0.0);
+            for (j, t) in times.iter().enumerate() {
+                let step = t.wd / t.e0;
+                match method {
+                    CsCoxBaseline::Breslow => h += step,
+                    CsCoxBaseline::Efron => {
+                        let d = t.deaths.len() as f64;
+                        h += (0..t.deaths.len())
+                            .map(|r| t.wd / d / (t.e0 - r as f64 / d * t.d0))
+                            .sum::<f64>();
+                    }
+                    CsCoxBaseline::ProductLimit => {
+                        let deaths: Vec<(f64, f64)> =
+                            t.deaths.iter().map(|&i| (recs[i].w, e[i])).collect();
+                        let alpha = crate::coxreg::alpha(&deaths, t.e0);
+                        s *= alpha;
+                        // where every record at risk fails, Breslow's step keeps the hazard finite
+                        h += if alpha > 0.0 { -alpha.ln() } else { step };
+                    }
+                }
+                if method != CsCoxBaseline::ProductLimit {
+                    s = (-h).exp();
+                }
+                breslow += step;
+                for (ak, e1) in a.iter_mut().zip(&t.e1) {
+                    *ak += t.wd * e1 / (t.e0 * t.e0);
+                }
+                c.push(c[j] + t.wd / (t.e0 * t.e0));
+                for (&r, &(lo, hi)) in mine.iter().zip(&span) {
+                    let upto = hi.min(j + 1);
+                    let own = if recs[r].event && hi <= j + 1 {
+                        1.0 / times[hi - 1].e0
+                    } else {
+                        0.0
+                    };
+                    let risk = if upto > lo { c[upto] - c[lo] } else { 0.0 };
+                    vecs[0][place[r]] = own - e[r] * risk;
+                }
+                base.times.push(t.time);
+                base.h.push(h);
+                base.s.push(s);
+                base.a.push(a.clone());
+                base.b.push(breslow);
+                base.cov.push(design.covariance(&vecs));
+            }
+            base
+        })
+        .collect()
 }
 
 impl Engine {
     pub(crate) fn cs_cox(&mut self, c: &CsCox) -> Result<Vec<Table>, Error> {
         let mut warnings = Vec::new();
-        let tables = self.cs_cox_tables(c, &mut warnings)?;
+        let out = self.cs_cox_tables(c, &mut warnings)?;
         self.warn_weight_and_split(NAME);
         for w in warnings {
             self.warn(w);
         }
-        Ok(tables)
+        if let (Some(data), Some((file, _))) = (out.matrix, &c.outfile.matrix) {
+            self.write_data_file(file, data)?;
+        }
+        if let (Some(data), Some(file)) = (out.survival, &c.outfile.survival) {
+            self.write_data_file(file, data)?;
+        }
+        if let (Some(model), Some(file)) = (out.model, &c.outfile.model)
+            && !self.dry_run
+        {
+            self.write_json(NAME, file, "model", &model)?;
+        }
+        self.charts.extend(out.charts);
+        if !out.saved.is_empty() {
+            let cases = self.active()?.case_count();
+            self.cs_save(NAME, out.saved, cases)?;
+        }
+        Ok(out.tables)
     }
 
-    fn cs_cox_tables(&self, c: &CsCox, warnings: &mut Vec<String>) -> Result<Vec<Table>, Error> {
+    fn cs_cox_tables(&self, c: &CsCox, warnings: &mut Vec<String>) -> Result<Outputs, Error> {
         let plan = self.read_plan(&c.plan)?;
         let data = self.active()?;
         let shown = self.shown();
@@ -1261,7 +1468,493 @@ impl Engine {
                 ));
             }
         }
-        Ok(tables)
+
+        // PATTERN: the centered model columns of each line, the reference values first
+        let centered = |lv: &[usize], cv: &[f64]| -> Vec<f64> {
+            let mut x = vec![0.0; p];
+            for e in fit.effects.iter().filter(|e| !e.is_intercept()) {
+                let mine: Vec<usize> = e.factors.iter().map(|&f| lv[f]).collect();
+                if let Some(at) = e.cells.iter().position(|c| *c == mine) {
+                    x[e.start + at] = e.covariates.iter().map(|&k| cv[k]).product();
+                }
+            }
+            cols.iter().map(|&j| x[j] - reference[j]).collect()
+        };
+        let same = |a: &String, b: &str| a.eq_ignore_ascii_case(b);
+        let mut sets: Vec<(String, Lines)> = vec![(
+            "at the reference values".into(),
+            vec![("Reference".into(), vec![0.0; q])],
+        )];
+        for (k, pattern) in c.patterns.iter().enumerate() {
+            let mut lv: Vec<usize> = levels.iter().map(|l| l.len() - 1).collect();
+            let mut cv = means.clone();
+            for (name, value) in &pattern.values {
+                if let Some(f) = factor_names.iter().position(|n| same(n, name)) {
+                    lv[f] =
+                        super::level_of(&factor_vars[f], &levels[f], value).ok_or_else(|| {
+                            Error(format!(
+                                "PATTERN: {} is not a level of {name} among the records analyzed",
+                                super::value_text(value)
+                            ))
+                        })?;
+                } else if let Some(v) = covariate_names.iter().position(|n| same(n, name)) {
+                    let Value::Number(x) = value else {
+                        return Err(Error(format!(
+                            "PATTERN: {name} is a covariate and takes a number"
+                        )));
+                    };
+                    cv[v] = *x;
+                } else {
+                    return Err(Error(format!(
+                        "PATTERN names {name}, which is not a factor or covariate of {NAME}"
+                    )));
+                }
+            }
+            let title = format!("Pattern {}", k + 1);
+            let lines = match &pattern.by {
+                None => vec![(title.clone(), centered(&lv, &cv))],
+                Some(by) => {
+                    let f = factor_names
+                        .iter()
+                        .position(|n| same(n, by))
+                        .filter(|_| !pattern.values.iter().any(|(n, _)| same(n, by)))
+                        .ok_or_else(|| {
+                            Error(format!(
+                                "PATTERN BY {by}: it must be a factor of {NAME} without a value on the PATTERN"
+                            ))
+                        })?;
+                    (0..levels[f].len())
+                        .map(|l| {
+                            lv[f] = l;
+                            let value = shown.value(&factor_vars[f], &levels[f][l]);
+                            (
+                                format!("{title}, {} = {value}", d.factor_texts[f]),
+                                centered(&lv, &cv),
+                            )
+                        })
+                        .collect()
+                }
+            };
+            sets.push((format!("for {title}"), lines));
+        }
+
+        // the baseline functions, when something needs them
+        let method = c.baseline.unwrap_or(if c.breslow {
+            CsCoxBaseline::Breslow
+        } else {
+            CsCoxBaseline::Efron
+        });
+        let needs_base = c.print.baseline
+            || c.plot.is_some()
+            || c.outfile.survival.is_some()
+            || c.outfile.model.is_some()
+            || !c.save.is_empty();
+        let bases = if needs_base {
+            let ws: Vec<Vec<f64>> = (0..q)
+                .map(|k| {
+                    (0..n)
+                        .map(|i| (0..q).map(|l| jinv[k][l] * us[l][i]).sum())
+                        .collect()
+                })
+                .collect();
+            baselines(&recs, &cox.times, &cox.b, method, &rows, &ws, &design)
+        } else {
+            Vec::new()
+        };
+        let zq = normal_quantile(0.5 + level / 200.0);
+        let method_text = match method {
+            CsCoxBaseline::Breslow => "Breslow",
+            CsCoxBaseline::Efron => "Efron",
+            CsCoxBaseline::ProductLimit => "product-limit",
+        };
+        // (stratum, time, h, s, se of h) of a line at each event time of each stratum
+        let curve = |z: &[f64]| -> Vec<(usize, f64, f64, f64, f64)> {
+            let mut out = Vec::new();
+            for (g, base) in bases.iter().enumerate() {
+                for &t in &base.times {
+                    let (h, s, se) = base.at(t, z, &cox.b);
+                    out.push((g, t, h, s, se));
+                }
+            }
+            out
+        };
+
+        // Baseline Functions
+        if c.print.baseline {
+            let mut out = Vec::new();
+            let mut last = None;
+            for (g, t, h, s, se) in curve(&vec![0.0; q]) {
+                let mut row = Vec::new();
+                if strata_var.is_some() {
+                    row.push(text(if last == Some(g) {
+                        String::new()
+                    } else {
+                        stratum_text(g)
+                    }));
+                }
+                last = Some(g);
+                let (lo, hi) = limits(s, h, se, zq, c.ci);
+                row.extend([t, h, se, s, s * se, lo, hi].map(Cell::Number));
+                out.push(row);
+            }
+            let mut columns = if strata_var.is_some() {
+                vec![(String::new(), first_column.clone())]
+            } else {
+                Vec::new()
+            };
+            columns.push((String::new(), "Time".into()));
+            for leaf in ["Estimate", "Std. Error"] {
+                columns.push(("Cumulative Hazard".into(), leaf.into()));
+            }
+            for leaf in ["Estimate", "Std. Error"] {
+                columns.push(("Survival".into(), leaf.into()));
+            }
+            let group = format!("{level}% Confidence Interval for Survival");
+            columns.push((group.clone(), "Lower".into()));
+            columns.push((group, "Upper".into()));
+            tables.push(table(
+                "Baseline Functions",
+                usize::from(strata_var.is_some()),
+                columns,
+                out,
+                Some(format!(
+                    "{caption} At the reference values: factors at their last level, covariates at their means. Baseline method: {method_text}."
+                )),
+            ));
+        }
+
+        // PLOT: each function for the reference values and for each PATTERN
+        let mut charts = Vec::new();
+        if let Some(plot) = c.plot {
+            use crate::chart::{Axis, ChartKind};
+            use crate::plot::{Plot, Point, PointGroup};
+            let kinds = [
+                (plot.survival, "Survival Function", "Cum Survival"),
+                (plot.cumhazard, "Hazard Function", "Cum Hazard"),
+                (plot.lml, "LML Function", "Log minus log"),
+                (plot.oms, "One Minus Survival Function", "1 - Cum Survival"),
+            ];
+            for (k, (_, title, ylabel)) in kinds.iter().enumerate().filter(|(_, k)| k.0) {
+                // the function of the survival and the cumulative hazard
+                let value = |s: f64, h: f64| [s, h, h.ln(), 1.0 - s][k];
+                for (part, lines) in &sets {
+                    let mut groups = Vec::new();
+                    for (name, z) in lines {
+                        let points = curve(z);
+                        for g in 0..bases.len() {
+                            let mine: Vec<_> = points.iter().filter(|p| p.0 == g).collect();
+                            // (name, (s, h) after each time): the function and its limits
+                            let mut drawn = vec![(String::new(), Vec::new())];
+                            if plot.ci {
+                                drawn.push((" lower".to_string(), Vec::new()));
+                                drawn.push((" upper".to_string(), Vec::new()));
+                            }
+                            for &&(_, _, h, s, se) in &mine {
+                                let (lo, hi) = limits(s, h, se, zq, c.ci);
+                                let ends = [(s, h), (lo, -lo.ln()), (hi, -hi.ln())];
+                                // the other functions fall as the survival rises: swap
+                                let ends = if k == 0 {
+                                    ends
+                                } else {
+                                    [ends[0], ends[2], ends[1]]
+                                };
+                                for (line, end) in drawn.iter_mut().zip(ends) {
+                                    line.1.push(end);
+                                }
+                            }
+                            for (suffix, values) in drawn {
+                                let mut out = Vec::new();
+                                let mut previous = (1.0, 0.0);
+                                if k != 2 {
+                                    out.push((0.0, value(1.0, 0.0)));
+                                }
+                                for (&&(_, t, ..), (s, h)) in mine.iter().zip(values) {
+                                    if k != 2 || previous.1 > 0.0 {
+                                        out.push((t, value(previous.0, previous.1)));
+                                    }
+                                    out.push((t, value(s, h)));
+                                    previous = (s, h);
+                                }
+                                let label = match &strata_var {
+                                    Some(_) => format!("{}, {name}{suffix}", stratum_text(g)),
+                                    None => format!("{name}{suffix}"),
+                                };
+                                groups.push(PointGroup {
+                                    name: label,
+                                    points: out
+                                        .into_iter()
+                                        .filter(|p| p.1.is_finite())
+                                        .map(|(x, y)| Point {
+                                            x,
+                                            y,
+                                            z: None,
+                                            label: None,
+                                        })
+                                        .collect(),
+                                });
+                            }
+                        }
+                    }
+                    charts.push(crate::Chart::plot(
+                        ChartKind::Line,
+                        format!("{title} {part}"),
+                        Axis::titled(shown.variable(&end_var)),
+                        Axis::titled(*ylabel),
+                        Plot::Points {
+                            groups,
+                            lines: Vec::new(),
+                            z_axis: None,
+                        },
+                    ));
+                }
+            }
+        }
+
+        // SAVE
+        let mut saved = Vec::new();
+        let cases = data.case_count();
+        let column = |values: Vec<f64>| -> Vec<Option<f64>> {
+            let mut out = vec![None; cases];
+            for (r, v) in values.into_iter().enumerate() {
+                out[d.case[r]] = v.is_finite().then_some(v);
+            }
+            out
+        };
+        // per record: h, s, se of h at its own end time and pattern, and its martingale residual
+        let own: Vec<(f64, f64, f64, f64)> = if c.save.is_empty() {
+            Vec::new()
+        } else {
+            recs.iter()
+                .map(|r| {
+                    let base = &bases[r.stratum];
+                    let (h, s, se) = base.at(r.stop, &r.z, &cox.b);
+                    let e = dot(&r.z, &cox.b).exp();
+                    let m = f64::from(u8::from(r.event)) - (base.h0(r.stop) - base.h0(r.start)) * e;
+                    (h, s, se, m)
+                })
+                .collect()
+        };
+        for (kind, given, count) in &c.save {
+            let one = |root: &str, label: &str, values: Vec<f64>| Saved {
+                name: given.clone(),
+                root: root.into(),
+                label: label.into(),
+                numbers: Some(column(values)),
+                texts: None,
+                category: None,
+            };
+            let per_parameter = |root: &str, label: &str, values: &dyn Fn(usize, usize) -> f64| {
+                let root = given.clone().unwrap_or_else(|| root.to_string());
+                (0..q.min(*count as usize))
+                    .map(|k| Saved {
+                        name: None,
+                        root: format!("{root}_{}", k + 1),
+                        label: format!("{label} for {}", names[cols[k]]),
+                        numbers: Some(column((0..recs.len()).map(|r| values(r, k)).collect())),
+                        texts: None,
+                        category: None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let limit = |r: usize| {
+                let (h, s, se, _) = own[r];
+                limits(s, h, se, zq, c.ci)
+            };
+            let all = |f: &dyn Fn(usize) -> f64| (0..recs.len()).map(f).collect::<Vec<f64>>();
+            match kind {
+                CsCoxSave::Schoenfeld => saved.extend(per_parameter(
+                    "Resid_Schoenfeld",
+                    "Schoenfeld residual",
+                    &|r, k| {
+                        let rec = &recs[r];
+                        if !rec.event {
+                            return f64::NAN;
+                        }
+                        let times = &cox.times[rec.stratum];
+                        let at = times.partition_point(|t| t.time <= rec.stop) - 1;
+                        rec.w * (rec.z[k] - times[at].xbar[k])
+                    },
+                )),
+                CsCoxSave::Score => {
+                    saved.extend(per_parameter("Resid_Score", "Score residual", &|r, k| {
+                        recs[r].w * cox.scores[r][k]
+                    }))
+                }
+                CsCoxSave::Dfbeta => {
+                    saved.extend(per_parameter("Resid_DFBETA", "DFBETA", &|r, k| {
+                        recs[r].w * dot(&jinv[k], &cox.scores[r])
+                    }))
+                }
+                CsCoxSave::Martingale => saved.push(one(
+                    "Resid_Martingale",
+                    "Martingale residual",
+                    all(&|r| own[r].3),
+                )),
+                CsCoxSave::Deviance => saved.push(one(
+                    "Resid_Deviance",
+                    "Deviance residual",
+                    all(&|r| {
+                        let m = own[r].3;
+                        let delta = f64::from(u8::from(recs[r].event));
+                        let log = if recs[r].event { (delta - m).ln() } else { 0.0 };
+                        m.signum() * (2.0 * (-m - delta * log)).max(0.0).sqrt()
+                    }),
+                )),
+                CsCoxSave::CoxSnell => saved.push(one(
+                    "Resid_CoxSnell",
+                    "Cox-Snell residual",
+                    all(&|r| f64::from(u8::from(recs[r].event)) - own[r].3),
+                )),
+                CsCoxSave::Xbeta => saved.push(one(
+                    "XBETA",
+                    "Linear predictor of the predictors centered at their reference values",
+                    all(&|r| dot(&recs[r].z, &cox.b)),
+                )),
+                CsCoxSave::Survival => {
+                    saved.push(one("Survival", "Survival function", all(&|r| own[r].1)))
+                }
+                CsCoxSave::LclSurvival => saved.push(one(
+                    "LCL_Survival",
+                    "Lower confidence limit of the survival function",
+                    all(&|r| limit(r).0),
+                )),
+                CsCoxSave::UclSurvival => saved.push(one(
+                    "UCL_Survival",
+                    "Upper confidence limit of the survival function",
+                    all(&|r| limit(r).1),
+                )),
+                CsCoxSave::CumHazard => saved.push(one(
+                    "CumHazard",
+                    "Cumulative hazard function",
+                    all(&|r| own[r].0),
+                )),
+                CsCoxSave::LclCumHazard => saved.push(one(
+                    "LCL_CumHazard",
+                    "Lower confidence limit of the cumulative hazard function",
+                    all(&|r| -limit(r).1.ln()),
+                )),
+                CsCoxSave::UclCumHazard => saved.push(one(
+                    "UCL_CumHazard",
+                    "Upper confidence limit of the cumulative hazard function",
+                    all(&|r| -limit(r).0.ln()),
+                )),
+                CsCoxSave::AggMartingale
+                | CsCoxSave::AggDeviance
+                | CsCoxSave::AggCoxSnell
+                | CsCoxSave::AggScore
+                | CsCoxSave::AggDfbeta => warnings.push(format!(
+                    "{NAME}: aggregated residuals need VARIABLES ID, so SAVE leaves them out"
+                )),
+            }
+        }
+
+        // OUTFILE
+        let parameters: Vec<usize> = (1..p).collect();
+        let matrix = c
+            .outfile
+            .matrix
+            .as_ref()
+            .map(|(_, corr)| {
+                super::matrix_file(&est, &parameters, df, *corr, &|j| names[j].clone())
+            })
+            .transpose()?;
+        let model = c.outfile.model.as_ref().map(|_| {
+            let baseline: Vec<_> = bases
+                .iter()
+                .enumerate()
+                .map(|(g, base)| {
+                    json!({
+                        "stratum": strata_var.as_ref().map(|_| stratum_text(g)),
+                        "time": base.times,
+                        "cumulative_hazard": base.h,
+                        "survival": base.s,
+                    })
+                })
+                .collect();
+            json!({
+                "format": "statscraft-cs-model",
+                "version": 1,
+                "command": NAME,
+                "plan": c.plan,
+                "factors": factor_names,
+                "covariates": covariate_names,
+                "model": model_text,
+                "df": df,
+                "ties": ties,
+                "baseline_method": method_text,
+                "parameters": parameters.iter().map(|&j| json!({
+                    "name": names[j],
+                    "estimate": est.b[j],
+                    "redundant": est.redundant[j],
+                    "reference": reference[j],
+                })).collect::<Vec<_>>(),
+                "covariance": parameters.iter().map(|&a| parameters.iter().map(|&b| {
+                    (!est.redundant[a] && !est.redundant[b]).then_some(est.v[a][b])
+                }).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                "baseline": baseline,
+            })
+        });
+        let survival = match &c.outfile.survival {
+            None => None,
+            Some(_) => {
+                // (line, stratum, time, s, se of s, lower, upper, h)
+                let mut rows_out: Vec<(String, String, [f64; 6])> = Vec::new();
+                for (_, lines) in &sets {
+                    for (name, z) in lines {
+                        for (g, t, h, s, se) in curve(z) {
+                            let (lo, hi) = limits(s, h, se, zq, c.ci);
+                            rows_out.push((
+                                name.clone(),
+                                stratum_text(g),
+                                [t, s, s * se, lo, hi, h],
+                            ));
+                        }
+                    }
+                }
+                let mut out = Dataset::new(rows_out.len());
+                let strings = |k: usize| -> Vec<String> {
+                    rows_out
+                        .iter()
+                        .map(|r| if k == 0 { r.0.clone() } else { r.1.clone() })
+                        .collect()
+                };
+                let width = |v: &[String]| v.iter().map(String::len).max().unwrap_or(1).max(1);
+                let patterns = strings(0);
+                out.set_string_values("Pattern", width(&patterns), patterns)?;
+                if strata_var.is_some() {
+                    let strata = strings(1);
+                    out.set_string_values("Stratum", width(&strata), strata)?;
+                }
+                for (k, name) in [
+                    "Time",
+                    "Survival",
+                    "SE_Survival",
+                    "LCL_Survival",
+                    "UCL_Survival",
+                    "CumHazard",
+                ]
+                .iter()
+                .enumerate()
+                {
+                    out.set_numeric_values(
+                        name,
+                        rows_out
+                            .iter()
+                            .map(|r| Some(r.2[k]).filter(|v| v.is_finite()))
+                            .collect(),
+                    )?;
+                }
+                Some(out)
+            }
+        };
+        Ok(Outputs {
+            tables,
+            saved,
+            matrix,
+            survival,
+            model,
+            charts,
+        })
     }
 }
 
