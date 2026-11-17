@@ -52,6 +52,8 @@ pub fn body(
         Advanced::Imputation(d) => crate::imputation_dialog_view::imputation(ui, d, picked, folder),
         Advanced::Summarize(d) => crate::reports_dialog_view::summarize(ui, d, picked),
         Advanced::Codebook(d) => crate::reports_dialog_view::codebook(ui, d, picked),
+        Advanced::Olap(d) => crate::reports_dialog_view::olap_cubes(ui, d, picked),
+        Advanced::Proportions(d) => crate::proportions_dialog_view::proportions(ui, d, picked),
         Advanced::Hiloglinear(d) => {
             crate::loglinear_dialog_view::model_selection(ui, data, d, picked)
         }

@@ -1694,6 +1694,7 @@ impl App {
                         for (label, dialog) in [
                             ("Codebook...", Advanced::Codebook(Default::default())),
                             ("Case Summaries...", Advanced::Summarize(Default::default())),
+                            ("OLAP Cubes...", Advanced::Olap(Default::default())),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));
@@ -1765,6 +1766,10 @@ impl App {
                                 Dialog::TTest(TTest::new(TTestKind::Paired)),
                             ),
                             ("One-Way ANOVA...", Dialog::Oneway(Default::default())),
+                            (
+                                "Proportions...",
+                                Dialog::Advanced(Advanced::Proportions(Default::default())),
+                            ),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(dialog);

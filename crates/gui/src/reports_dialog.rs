@@ -1,9 +1,9 @@
-//! The Reports dialogs: Case Summaries (SUMMARIZE) and Codebook (CODEBOOK). Options left as
+//! The Reports dialogs: Case Summaries (SUMMARIZE), Codebook (CODEBOOK) and OLAP Cubes. Options left as
 //! they are add nothing to the syntax, so the command runs with its own defaults.
 
-use crate::analyze_dialogs::{Means, keywords};
+use crate::analyze_dialogs::{MEANS_CELLS, Means, keywords};
 use crate::mds_dialog::count;
-use crate::syntax_text::quote;
+use crate::syntax_text::{names, quote};
 use statscraft_data::is_valid_name;
 
 /// SUMMARIZE: the variables, groups, cells and analysis of variance as the Means dialog has
@@ -98,6 +98,165 @@ impl Summarize {
         }
         text.push('.');
         Ok(text)
+    }
+}
+
+/// What OLAP CUBES shows without /CELLS (MEAN, COUNT, STDDEV, SUM, NPCT, SPCT), as indices of
+/// `MEANS_CELLS`.
+const OLAP_DEFAULT_CELLS: [usize; 6] = [0, 1, 2, 6, 17, 18];
+
+fn olap_default() -> [bool; 21] {
+    let mut cells = [false; 21];
+    for i in OLAP_DEFAULT_CELLS {
+        cells[i] = true;
+    }
+    cells
+}
+
+/// The differences CREATE adds.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum OlapDifference {
+    None,
+    /// Between two categories of one grouping variable (GAC, GPC).
+    Groups,
+    /// Between two summary variables (VAC, VPC).
+    Variables,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct OlapCubes {
+    pub summary: Vec<String>,
+    /// The grouping variables of every BY; each is nested in the one before.
+    pub layers: Vec<Vec<String>>,
+    /// The layer the dialog shows.
+    pub layer: usize,
+    /// One flag per entry of `MEANS_CELLS`; none checked writes NONE.
+    pub cells: [bool; 21],
+    pub difference: OlapDifference,
+    /// The grouping variable whose categories are compared.
+    pub group: String,
+    /// Pairs of category values or of summary variable names, as typed.
+    pub pairs: Vec<[String; 2]>,
+    pub absolute: bool,
+    pub percent: bool,
+    pub hide_small: bool,
+    pub hide_below: String,
+    pub title: String,
+    pub footnote: String,
+}
+
+impl Default for OlapCubes {
+    fn default() -> Self {
+        Self {
+            summary: Vec::new(),
+            layers: vec![Vec::new()],
+            layer: 0,
+            cells: olap_default(),
+            difference: OlapDifference::None,
+            group: String::new(),
+            pairs: vec![Default::default()],
+            absolute: true,
+            percent: false,
+            hide_small: false,
+            hide_below: "5".into(),
+            title: String::new(),
+            footnote: String::new(),
+        }
+    }
+}
+
+impl OlapCubes {
+    pub fn syntax(&self) -> Result<String, String> {
+        let mut text = format!("OLAP CUBES {}", names(&self.summary, "Summary variables")?);
+        let layers: Vec<&Vec<String>> = self.layers.iter().filter(|l| !l.is_empty()).collect();
+        if layers.is_empty() {
+            return Err("add at least one variable to Group by".into());
+        }
+        for layer in &layers {
+            text.push_str(&format!(" BY {}", layer.join(" ")));
+        }
+        if self.cells != olap_default() {
+            let words = keywords(&MEANS_CELLS, &self.cells);
+            if words.is_empty() {
+                text.push_str("\n  /CELLS=NONE");
+            } else {
+                text.push_str(&format!("\n  /CELLS={}", words.join(" ")));
+            }
+        }
+        if self.difference != OlapDifference::None {
+            let groups = self.difference == OlapDifference::Groups;
+            let types = match (self.absolute, self.percent, groups) {
+                (false, false, _) => {
+                    return Err("choose the change, the percent change or both".into());
+                }
+                (true, false, true) => "GAC",
+                (false, true, true) => "GPC",
+                (true, true, true) => "GAC GPC",
+                (true, false, false) => "VAC",
+                (false, true, false) => "VPC",
+                (true, true, false) => "VAC VPC",
+            };
+            let mut pairs = Vec::new();
+            for [a, b] in &self.pairs {
+                let (a, b) = (a.trim(), b.trim());
+                if a.is_empty() && b.is_empty() {
+                    continue;
+                }
+                if a.is_empty() || b.is_empty() {
+                    return Err("fill in both sides of each pair, or clear the pair".into());
+                }
+                if groups {
+                    pairs.push(format!("({} {})", loose_value(a), loose_value(b)));
+                } else {
+                    for name in [a, b] {
+                        if !self.summary.iter().any(|s| s == name) {
+                            return Err(format!("{name} is not one of the summary variables"));
+                        }
+                    }
+                    pairs.push(format!("({a} {b})"));
+                }
+            }
+            if pairs.is_empty() {
+                return Err("name at least one pair to compare".into());
+            }
+            if groups {
+                let group = self.group.trim();
+                if !layers.iter().any(|l| l.iter().any(|v| v == group)) {
+                    return Err("choose the grouping variable whose categories are compared".into());
+                }
+                text.push_str(&format!(
+                    "\n  /CREATE {types} ({group} {})",
+                    pairs.join(" ")
+                ));
+            } else {
+                text.push_str(&format!("\n  /CREATE {types} {}", pairs.join(" ")));
+            }
+        }
+        for (what, value, keyword) in [
+            ("the title", &self.title, "TITLE"),
+            ("the footnote", &self.footnote, "FOOTNOTE"),
+        ] {
+            if value.len() > 255 {
+                return Err(format!("{what} is longer than 255 bytes"));
+            }
+            if !value.is_empty() {
+                text.push_str(&format!("\n  /{keyword}={}", quote(value)));
+            }
+        }
+        if self.hide_small {
+            let below = count(&self.hide_below, 2, "the count shown as small", 5)?;
+            text.push_str(&format!("\n  /HIDESMALLCOUNTS COUNT={below}"));
+        }
+        text.push('.');
+        Ok(text)
+    }
+}
+
+/// A typed category value: a number as it is, anything else as a string.
+pub(crate) fn loose_value(text: &str) -> String {
+    match text.parse::<f64>() {
+        Ok(n) if n.is_finite() => text.to_string(),
+        _ => quote(text),
     }
 }
 
@@ -298,6 +457,53 @@ mod tests {
         assert_eq!(
             e(&|d| d.means.anova = true),
             "the analysis of variance needs a variable in Layer 1"
+        );
+    }
+
+    #[test]
+    fn olap_cubes_write_only_what_changed() {
+        let mut d = OlapCubes::default();
+        d.summary = v(&["monthly_spend", "age"]);
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least one variable to Group by"
+        );
+        d.layers = vec![v(&["region"]), v(&["gender"])];
+        assert_eq!(
+            d.syntax().unwrap(),
+            "OLAP CUBES monthly_spend age BY region BY gender."
+        );
+        d.cells = [false; 21];
+        d.cells[0] = true;
+        d.cells[1] = true;
+        d.difference = OlapDifference::Variables;
+        d.pairs = vec![["monthly_spend".into(), "age".into()]];
+        d.percent = true;
+        d.title = "Spend, it's grouped".into();
+        d.hide_small = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "OLAP CUBES monthly_spend age BY region BY gender\n  /CELLS=MEAN COUNT\n  \
+             /CREATE VAC VPC (monthly_spend age)\n  /TITLE='Spend, it''s grouped'\n  \
+             /HIDESMALLCOUNTS COUNT=5."
+        );
+        assert!(runs(&syntax) >= 2);
+        d.difference = OlapDifference::Groups;
+        d.pairs = vec![["1".into(), "2".into()]];
+        d.group = "gender".into();
+        d.absolute = false;
+        d.cells = [false; 21];
+        assert_eq!(
+            d.syntax().unwrap(),
+            "OLAP CUBES monthly_spend age BY region BY gender\n  /CELLS=NONE\n  \
+             /CREATE GPC (gender (1 2))\n  /TITLE='Spend, it''s grouped'\n  \
+             /HIDESMALLCOUNTS COUNT=5."
+        );
+        d.group = "plan".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "choose the grouping variable whose categories are compared"
         );
     }
 

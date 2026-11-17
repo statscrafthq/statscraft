@@ -39,8 +39,9 @@ use crate::model_dialogs::{
 };
 use crate::model_more_dialog::{OptimalBinning, QuantileRegression, VarianceComponents};
 use crate::mva_dialog::{Estimation, MissingValueAnalysis};
+use crate::proportions_dialog::{Proportions, ProportionsKind};
 use crate::proximities_dialog::Distances;
-use crate::reports_dialog::{Codebook, Summarize};
+use crate::reports_dialog::{Codebook, OlapCubes, OlapDifference, Summarize};
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::timeseries_dialog::{
@@ -338,6 +339,15 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         }))),
         Dialog::Advanced(Advanced::Codebook(Codebook::default())),
+        Dialog::Advanced(Advanced::Olap(Box::new(OlapCubes {
+            summary: v(&["monthly_spend"]),
+            layers: vec![v(&["gender"])],
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Proportions(Box::new(Proportions {
+            variables: v(&["gender"]),
+            ..Default::default()
+        }))),
         Dialog::Advanced(Advanced::WeightedKappa(WeightedKappa {
             raters: v(&["q5_1", "q5_2"]),
             ..Default::default()
@@ -1934,6 +1944,59 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         }),
     ];
+    list.push(Dialog::Advanced(Advanced::Olap(Box::new(OlapCubes {
+        summary: v(&["monthly_spend", "age"]),
+        layers: vec![v(&["region"]), v(&["gender"])],
+        cells: [true; 21],
+        difference: OlapDifference::Groups,
+        group: s("gender"),
+        pairs: vec![[s("1"), s("2")]],
+        percent: true,
+        hide_small: true,
+        hide_below: s("3"),
+        title: s("Spend by region"),
+        footnote: s("Invented survey"),
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Olap(Box::new(OlapCubes {
+        summary: v(&["monthly_spend", "age"]),
+        layers: vec![v(&["gender"])],
+        difference: OlapDifference::Variables,
+        pairs: vec![[s("monthly_spend"), s("age")]],
+        percent: true,
+        ..Default::default()
+    }))));
+    let mut one = Proportions::new(ProportionsKind::OneSample);
+    one.variables = v(&["gender", "q5_1"]);
+    one.test_value = s("0.4");
+    one.tests[0] = [true; 6];
+    one.intervals[0] = [true; 9];
+    one.success = 3;
+    one.level = s("90");
+    list.push(Dialog::Advanced(Advanced::Proportions(Box::new(one))));
+    let mut paired = Proportions::new(ProportionsKind::Paired);
+    paired.variables = v(&["q5_1", "q5_2"]);
+    paired.with = v(&["q5_2", "q5_3"]);
+    paired.in_order = true;
+    paired.tests[1] = [true; 6];
+    paired.intervals[1] = [true; 9];
+    paired.success = 2;
+    paired.success_values = s("1, 2");
+    paired.listwise = true;
+    paired.include_missing = true;
+    list.push(Dialog::Advanced(Advanced::Proportions(Box::new(paired))));
+    let mut independent = Proportions::new(ProportionsKind::Independent);
+    independent.variables = v(&["q2_recommend"]);
+    independent.group = v(&["age"]);
+    independent.groups = 3;
+    independent.cutpoint = s("40");
+    independent.tests[2] = [true; 6];
+    independent.intervals[2] = [true; 9];
+    independent.success = 4;
+    independent.success_cutpoint = s("4");
+    list.push(Dialog::Advanced(Advanced::Proportions(Box::new(
+        independent,
+    ))));
     for kind in [
         TTestKind::OneSample,
         TTestKind::Independent,

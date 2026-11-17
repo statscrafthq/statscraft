@@ -30,9 +30,10 @@ use crate::model_dialogs::{GLM_ADJUSTMENTS, by_with};
 use crate::mva_dialog::MissingValueAnalysis;
 use crate::nptests_dialog::Nptests;
 use crate::power_dialog::PowerAnalysis;
+use crate::proportions_dialog::Proportions;
 use crate::proximities_dialog::Distances;
 use crate::regression_more_dialog::{CurveEstimation, Probit, WeightEstimation};
-use crate::reports_dialog::{Codebook, Summarize};
+use crate::reports_dialog::{Codebook, OlapCubes, Summarize};
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::syntax_text::{names, number, quote, value};
@@ -73,6 +74,9 @@ pub enum Advanced {
     // boxed: a large dialog
     Summarize(Box<Summarize>),
     Codebook(Codebook),
+    // boxed: a large dialog
+    Olap(Box<OlapCubes>),
+    Proportions(Box<Proportions>),
     // boxed: a large dialog
     Hiloglinear(Box<ModelSelection>),
     // boxed: a large dialog
@@ -129,6 +133,8 @@ impl Advanced {
             Advanced::Imputation(_) => "Impute Missing Data Values",
             Advanced::Summarize(_) => "Case Summaries",
             Advanced::Codebook(_) => "Codebook",
+            Advanced::Olap(_) => "OLAP Cubes",
+            Advanced::Proportions(d) => d.title(),
             Advanced::Hiloglinear(_) => "Model Selection Loglinear Analysis",
             Advanced::Genlog(d) if d.logit => "Logit Loglinear Analysis",
             Advanced::Genlog(_) => "General Loglinear Analysis",
@@ -185,6 +191,8 @@ impl Advanced {
             }
             Advanced::Summarize(_) => Advanced::Summarize(Default::default()),
             Advanced::Codebook(_) => Advanced::Codebook(Default::default()),
+            Advanced::Olap(_) => Advanced::Olap(Default::default()),
+            Advanced::Proportions(d) => Advanced::Proportions(Box::new(Proportions::new(d.kind))),
             Advanced::Hiloglinear(_) => Advanced::Hiloglinear(Default::default()),
             Advanced::Genlog(d) => Advanced::Genlog(Box::new(GeneralLoglinear::new(d.logit))),
             Advanced::WeightedKappa(_) => Advanced::WeightedKappa(Default::default()),
@@ -241,6 +249,8 @@ impl Advanced {
             Advanced::Imputation(d) => d.syntax(data),
             Advanced::Summarize(d) => d.syntax(),
             Advanced::Codebook(d) => d.syntax(),
+            Advanced::Olap(d) => d.syntax(),
+            Advanced::Proportions(d) => d.syntax(),
             Advanced::Hiloglinear(d) => d.syntax(data),
             Advanced::Genlog(d) => d.syntax(data),
             Advanced::WeightedKappa(d) => d.syntax(),
