@@ -11,7 +11,7 @@ This page lists, by topic and command:
 
 ## Weights
 
-- **Fractional weights** are used as they are, not rounded, in counts, percentages and statistics. Only significance tests, confidence intervals, standard errors and T-TEST effect sizes round them, as documented (GNU PSPP differs).
+- **Fractional weights** are used as they are, not rounded, in counts, percentages and statistics. Only significance tests, confidence intervals, standard errors (the CTABLES SEMEAN among them, with the cell's weight rounded) and T-TEST effect sizes round them, as documented (GNU PSPP differs).
 - **Zero, negative and missing weights** leave the case out of FREQUENCIES, unweighted CTABLES counts and the MEANS minimum and maximum. CORRELATIONS counts a negative weight as 0 (GNU PSPP differs).
 - UNIANOVA and GLM round a frequency weight to a whole number, as documented; ANOVA uses weights as they are. See [UNIANOVA and GLM](#unianova-and-glm) and [ANOVA](#anova).
 
