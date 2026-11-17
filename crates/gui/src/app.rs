@@ -43,6 +43,8 @@ use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
 use crate::syntax_window;
 use crate::timeseries_dialog::{SeriesChart, TimeRange, TimeSeries, forecasting_menu};
+use crate::twostep_dialog::{Anomaly, TwoStep};
+use crate::twostep_dialog_view;
 use crate::updates::Updates;
 use crate::windows::{Closing, Kind, Registry, WindowId, same};
 use crate::{editor, grid, grid_menu, highlight, themes};
@@ -235,6 +237,8 @@ pub(crate) enum Dialog {
     FactorAnalysis(FactorAnalysis),
     KMeans(KMeans),
     Hierarchical(Hierarchical),
+    TwoStep(TwoStep),
+    Anomaly(Anomaly),
     Discriminant(Discriminant),
     Logistic(Logistic),
     Univariate(Univariate),
@@ -282,6 +286,8 @@ impl Dialog {
             Dialog::FactorAnalysis(_) => "Factor Analysis",
             Dialog::KMeans(_) => "K-Means Cluster Analysis",
             Dialog::Hierarchical(_) => "Hierarchical Cluster Analysis",
+            Dialog::TwoStep(_) => "TwoStep Cluster Analysis",
+            Dialog::Anomaly(_) => "Identify Unusual Cases",
             Dialog::Discriminant(_) => "Discriminant Analysis",
             Dialog::Logistic(_) => "Logistic Regression",
             Dialog::Univariate(d) if d.multivariate => "Multivariate",
@@ -340,6 +346,8 @@ impl Dialog {
             Dialog::FactorAnalysis(_) => Dialog::FactorAnalysis(Default::default()),
             Dialog::KMeans(_) => Dialog::KMeans(Default::default()),
             Dialog::Hierarchical(_) => Dialog::Hierarchical(Default::default()),
+            Dialog::TwoStep(_) => Dialog::TwoStep(Default::default()),
+            Dialog::Anomaly(_) => Dialog::Anomaly(Default::default()),
             Dialog::Discriminant(_) => Dialog::Discriminant(Default::default()),
             Dialog::Logistic(_) => Dialog::Logistic(Default::default()),
             Dialog::Univariate(d) if d.multivariate => {
@@ -462,6 +470,8 @@ impl Dialog {
             Dialog::KMeans(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
             // the label variable may be a string
             Dialog::Hierarchical(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
+            Dialog::TwoStep(d) => numeric(data, &d.continuous).and_then(|()| d.syntax()),
+            Dialog::Anomaly(d) => numeric(data, &d.scale).and_then(|()| d.syntax()),
             Dialog::Discriminant(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
             // a string covariate is categorical, a string dependent has its two values
             Dialog::Logistic(d) => d.syntax(),
@@ -1815,6 +1825,12 @@ impl App {
                         }
                         if ui.button("Hierarchical Cluster...").clicked() {
                             self.open_dialog(Dialog::Hierarchical(Default::default()));
+                        }
+                        if ui.button("TwoStep Cluster...").clicked() {
+                            self.open_dialog(Dialog::TwoStep(Default::default()));
+                        }
+                        if ui.button("Identify Unusual Cases...").clicked() {
+                            self.open_dialog(Dialog::Anomaly(Default::default()));
                         }
                         if ui.button("Discriminant...").clicked() {
                             self.open_dialog(Dialog::Discriminant(Default::default()));
@@ -6196,6 +6212,8 @@ fn dialog_body(
         Dialog::FactorAnalysis(d) => model_dialogs_view::factor(ui, d, picked),
         Dialog::KMeans(d) => model_dialogs_view::k_means(ui, d, picked),
         Dialog::Hierarchical(d) => model_dialogs_view::hierarchical(ui, d, picked),
+        Dialog::TwoStep(d) => twostep_dialog_view::two_step(ui, d, picked),
+        Dialog::Anomaly(d) => twostep_dialog_view::anomaly(ui, d, picked),
         Dialog::Discriminant(d) => model_dialogs_view::discriminant(ui, d, picked),
         Dialog::Logistic(d) => model_dialogs_view::logistic(ui, d, picked),
         Dialog::Univariate(d) => model_dialogs_view::univariate(ui, d, picked),

@@ -43,6 +43,7 @@ use crate::timeseries_dialog::{
     ArimaModel, Correlogram, CreateRow, CreateSeries, Dates, ExpSmoothing, IFFT, Parameter, Season,
     SeriesChart, SeriesOptions, TimeRange, TimeSeries,
 };
+use crate::twostep_dialog::{Anomaly, TwoStep};
 use std::path::Path;
 
 fn s(text: &str) -> String {
@@ -201,6 +202,14 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         }),
         Dialog::KMeans(KMeans {
             variables: v(&["age", "monthly_spend"]),
+            ..Default::default()
+        }),
+        Dialog::TwoStep(TwoStep {
+            continuous: v(&["age", "monthly_spend"]),
+            ..Default::default()
+        }),
+        Dialog::Anomaly(Anomaly {
+            scale: v(&["age", "monthly_spend"]),
             ..Default::default()
         }),
         Dialog::Hierarchical(Hierarchical {
@@ -842,6 +851,44 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             membership: true,
             label: s("resp_id"),
             pairwise: true,
+        }),
+        Dialog::TwoStep(TwoStep {
+            categorical: v(&["region", "gender"]),
+            continuous: v(&["age", "monthly_spend"]),
+            auto: true,
+            max: s("6"),
+            aic: true,
+            unstandardized: v(&["age"]),
+            noise: s("20"),
+            include: true,
+            print: [true; 3],
+            model_summary: false,
+            save: true,
+            save_name: s("segment"),
+            ..Default::default()
+        }),
+        Dialog::TwoStep(TwoStep {
+            continuous: v(&["age", "monthly_spend"]),
+            euclidean: true,
+            auto: false,
+            fixed: s("2"),
+            ..Default::default()
+        }),
+        Dialog::Anomaly(Anomaly {
+            categorical: v(&["region"]),
+            scale: v(&["age", "monthly_spend"]),
+            id: s("resp_id"),
+            by_number: true,
+            number: s("8"),
+            use_cutoff: false,
+            min_peers: s("2"),
+            max_peers: s("6"),
+            reasons: s("2"),
+            apply_missing: true,
+            missing_share: true,
+            save: [true; 8],
+            print: [true; 5],
+            ..Default::default()
         }),
         Dialog::Hierarchical(Hierarchical {
             variables: v(&["age", "monthly_spend"]),
@@ -4801,6 +4848,8 @@ fn family(dialog: &Dialog) -> usize {
         | Dialog::FactorAnalysis(_)
         | Dialog::KMeans(_)
         | Dialog::Hierarchical(_)
+        | Dialog::TwoStep(_)
+        | Dialog::Anomaly(_)
         | Dialog::Discriminant(_)
         | Dialog::Logistic(_)
         | Dialog::Tree(_) => 3,

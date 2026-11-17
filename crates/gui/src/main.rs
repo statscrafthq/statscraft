@@ -74,6 +74,8 @@ mod syntax_window;
 mod themes;
 mod timeseries_dialog;
 mod timeseries_dialog_view;
+mod twostep_dialog;
+mod twostep_dialog_view;
 mod updates;
 mod windows;
 

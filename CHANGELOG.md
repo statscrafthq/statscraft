@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Analyze > Classify: new dialogs TwoStep Cluster (TWOSTEP CLUSTER) and Identify Unusual Cases (DETECTANOMALY).
+
 ## 0.17.0 (2026-11-17)
 
 - Plugins may give the table title a look of their own in the Excel export (`title`, like `caption`); without one it stays bold.
