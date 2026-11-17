@@ -502,7 +502,8 @@ fn statistic(summary: &Summary, tally: &Tally, effective: bool) -> Option<f64> {
             let e = effective_base(total, q);
             (e > 1.0).then(|| (squares / (total - total / e) / e).sqrt())
         }
-        Statistic::Semean => variance().map(|v| (v / total).sqrt()),
+        // a standard error: the cell's weight rounded to a whole number, as MEAN.SE does
+        Statistic::Semean => variance().map(|v| (v / total.round()).sqrt()),
         // without effective base weights the E functions are the plain ones
         Statistic::Ecount if effective => Some(effective_base(tally.count, tally.squares)),
         Statistic::Evalidn if effective => Some(effective_base(tally.valid, tally.valid_squares)),
@@ -526,8 +527,9 @@ fn statistic(summary: &Summary, tally: &Tally, effective: bool) -> Option<f64> {
 }
 
 /// The case weights; a missing or negative weight counts as zero. Fractional survey weights are
-/// used as they are, as in FREQUENCIES and CROSSTABS. The reference program rounds every case
-/// weight to a whole number in this procedure only, which would drop cases weighted below 0.5.
+/// used as they are, as in FREQUENCIES and CROSSTABS; only standard errors, confidence limits
+/// and tests round the weight of a cell or category (Weights and Rounding). GNU PSPP rounds
+/// every case weight in this procedure, which would drop cases weighted below 0.5.
 /// The effective base weight of /WEIGHT takes the place of the WEIGHT command's variable.
 fn weights(data: &Dataset, command: &Ctables) -> Result<Option<Vec<f64>>, Error> {
     let Some(name) = command.weight.as_deref().or(data.weight_variable()) else {

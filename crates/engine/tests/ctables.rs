@@ -1585,3 +1585,27 @@ fn stacked_variables_count_every_pair_of_their_cases() {
         }
     }
 }
+
+// Weights and Rounding (Custom Tables manual): fractional weights are used as they are, but a
+// standard error rounds the weight of its cell. The values 4, 5, 6 weigh 1, 2 and 0.5: the mean
+// is 17 / 3.5 and the variance (1 (4 - m)^2 + 2 (5 - m)^2 + 0.5 (6 - m)^2) / 2.5, while the
+// standard error of the mean divides that variance by the rounded weight 4.
+#[test]
+fn the_standard_error_of_a_mean_rounds_the_cell_weight() {
+    let mut engine = Engine::default();
+    let tables = run_on(
+        &mut engine,
+        "DATA LIST FREE /x w.\nBEGIN DATA\n4 1\n5 2\n6 0.5\nEND DATA.\nWEIGHT BY w.\n\
+         CTABLES /TABLE x [S][MEAN, VARIANCE, SEMEAN, MEAN.SE].",
+    )
+    .unwrap();
+    let row = numbers(&tables[0], 0);
+    let mean: f64 = 17.0 / 3.5;
+    let variance =
+        ((4.0 - mean).powi(2) + 2.0 * (5.0 - mean).powi(2) + 0.5 * (6.0 - mean).powi(2)) / 2.5;
+    let error = (variance / 4.0).sqrt();
+    for (got, want) in row.iter().zip([mean, variance, error, error]) {
+        // numbers() keeps six decimals
+        assert!((got.unwrap() - want).abs() < 1e-6, "{row:?}");
+    }
+}
