@@ -106,7 +106,8 @@ impl Template {
         }
         let prefix = plugin.attribute("");
         let mine = |a: &str| a.to_ascii_lowercase().starts_with(&prefix);
-        self.values.iter().all(|(a, _)| mine(a))
+        // an older template without values names no plugin, so it belongs to none
+        !self.values.is_empty() && self.values.iter().all(|(a, _)| mine(a))
     }
 }
 
