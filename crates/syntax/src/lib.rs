@@ -47,8 +47,8 @@ mod get_data;
 mod glm;
 mod graph;
 mod input_program;
-mod legacy_scaling;
 mod knn;
+mod legacy_scaling;
 mod lexer;
 mod logistic;
 mod loglinear;
@@ -271,8 +271,8 @@ pub use glm::{
 pub use graph::{
     Graph, GraphChart, GraphData, GraphFunction, GraphInterval, GraphPanel, GraphSummary,
 };
-pub use legacy_scaling::{LegacyChart, LegacyCoding, LegacyLevel, Overals};
 pub use knn::{Knn, KnnFeatureCount, KnnFolds, KnnLevel, KnnNeighbors, KnnPartition, KnnSave};
+pub use legacy_scaling::{LegacyChart, LegacyCoding, LegacyLevel, Overals};
 pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
     Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,

@@ -30,8 +30,8 @@ use crate::get_data;
 use crate::glm;
 use crate::graph;
 use crate::input_program;
-use crate::legacy_scaling;
 use crate::knn;
+use crate::legacy_scaling;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
 use crate::loglinear;
@@ -2281,6 +2281,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "OPTIMAL BINNING /VARIABLES GUIDE=churned BIN=tenure spend SAVE=YES\n\
                   \x20 /CRITERIA FORCEMERGE=0.05 /OUTFILE RULES='bins.sps' /PRINT ENDPOINTS ENTROPY.",
         parse: optimal_binning::optimal_binning,
+    },
+    CommandSpec {
         name: "KNN",
         summary: "Nearest neighbor analysis: classify or predict a target from the k most similar training cases.",
         syntax: "KNN [target [(MLEVEL=S | O | N)]] [BY factors] [WITH covariates]\n\
@@ -3382,6 +3384,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  covariances) to a JSON file of Statscraft's own, one per quantile. EXTERNAL changes nothing.",
         example: "QUANTILE REGRESSION rent BY district WITH floor_area /CRITERIA QUANTILE=0.25 0.5 0.75 IID=FALSE /PRINT PARAMETER COVB /SAVE PRED(fit) RESID.",
         parse: quantile_regression::quantile_regression,
+    },
+    CommandSpec {
         name: "PLS",
         summary: "Partial least squares regression of one or more dependent variables on many, possibly collinear, predictors.",
         syntax: "PLS dependent [MLEVEL=N | O | S] [REFERENCE=FIRST | LAST | value] [dependent ...]\n\
@@ -3674,6 +3678,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  (TRDATA, also a file with no keyword) and the coded variables under their names (DISCRDATA).",
         example: "CATREG VARIABLES=rating taste price area /ANALYSIS=rating(LEVEL=ORDI) WITH taste price(LEVEL=NUME) area(LEVEL=NOMI) /MISSING=price(MODEIMPU) /PRINT=R COEFF ANOVA QUANT(area) /PLOT=TRANS(area) /SAVE=PRED RES.",
         parse: catreg::catreg,
+    },
+    CommandSpec {
         name: "HOMALS",
         summary: "Homogeneity analysis in the older syntax: MULTIPLE CORRESPONDENCE with variables read as categories 1 to a stated largest value.",
         syntax: "HOMALS [/VARIABLES=] varlist(max) [varlist(max) ...]\n\
@@ -4019,6 +4025,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  matrix (COVB or CORB, ML and REML only) in columns VC1, VC2, ...",
         example: "VARCOMP strength BY mixture batch operator /RANDOM=batch operator /METHOD=REML /PRINT=HISTORY.",
         parse: varcomp::varcomp,
+    },
+    CommandSpec {
         name: "GENLINMIXED",
         summary: "Generalized linear mixed model: a target with a normal, binomial, gamma, inverse Gaussian or Poisson distribution and a link, fixed effects and random effects of subjects.",
         syntax: "GENLINMIXED [/DATA_STRUCTURE SUBJECTS=field[*field...]]\n\
