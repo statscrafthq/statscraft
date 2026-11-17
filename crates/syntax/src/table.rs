@@ -1157,7 +1157,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]\n\
                  \x20         [/VARIABLES=varlist (min, max) [varlist (min, max) ...]  (before TABLES)]\n\
                  \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
-                 \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE]\n\
+                 \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE | REPORT]\n\
                  \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
                  \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].\n\
                  First a Case Processing Summary: per table the valid, missing and total cases (weighted).\n\
@@ -1189,7 +1189,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  VARIABLES switches to integer mode: a range follows each list (it covers the whole list) and\n\
                  values are cut to whole numbers. Rows and columns are every value of the range, with or\n\
                  without cases; a value outside it makes the case missing. The statistics use the values\n\
-                 that occur. TABLES then names only variables of VARIABLES, and TO and ALL follow their order there.",
+                 that occur. TABLES then names only variables of VARIABLES, and TO and ALL follow their order there.\n\
+                 MISSING=REPORT (integer mode only) shows the user-missing values of the rows and columns\n\
+                 marked (missing): their cells hold counts, nothing else, and stay out of totals, percentages\n\
+                 and statistics; the cases count as missing.",
         example: "CROSSTABS /TABLES=region BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.",
         parse: procedures::crosstabs,
     },

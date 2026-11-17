@@ -10,7 +10,7 @@ Contingency tables with percentages, residuals and chi-square tests.
 CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]
           [/VARIABLES=varlist (min, max) [varlist (min, max) ...]  (before TABLES)]
           [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]
-          [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE]
+          [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE | REPORT]
           [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]
           [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].
 ```
@@ -36,6 +36,8 @@ MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE ke
 BARCHART adds a clustered bar chart per table: a cluster per row category, a bar per column category, the counts of the table summed over its layers.
 
 VARIABLES switches to integer mode: a range follows each list (it covers the whole list) and values are cut to whole numbers. Rows and columns are every value of the range, with or without cases; a value outside it makes the case missing. The statistics use the values that occur. TABLES then names only variables of VARIABLES, and TO and ALL follow their order there.
+
+MISSING=REPORT (integer mode only) shows the user-missing values of the rows and columns marked (missing): their cells hold counts, nothing else, and stay out of totals, percentages and statistics; the cases count as missing.
 
 ## Example
 

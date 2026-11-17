@@ -95,6 +95,7 @@ fn crosstabs() {
             truncate: false,
             barchart: false,
             ranges: Vec::new(),
+            report: false,
         })
     );
     assert_eq!(
@@ -116,6 +117,7 @@ fn crosstabs() {
             truncate: false,
             barchart: false,
             ranges: Vec::new(),
+            report: false,
         })
     );
     // integer mode: a range after a list covers the whole list; fractions are cut off
@@ -131,6 +133,12 @@ fn crosstabs() {
             (vec![VarItem::Range("c".into(), "e".into())], -2.0, 4.0)
         ]
     );
+    let Command::Crosstabs(c) =
+        one("CROSSTABS VARIABLES=a b (1,2) /TABLES=a BY b /MISSING=INCLUDE REPORT.")
+    else {
+        panic!()
+    };
+    assert!(c.report && !c.include);
     for (source, message) in [
         (
             "CROSSTABS /TABLES=a BY b /VARIABLES=a b (1,2).",
@@ -141,6 +149,7 @@ fn crosstabs() {
             "the lowest value 3 is above the highest 1",
         ),
         ("CROSSTABS VARIABLES=a /TABLES=a BY a.", "'('"),
+        ("CROSSTABS a BY b /MISSING=REPORT.", "only in integer mode"),
     ] {
         let error = err(source).to_string();
         assert!(error.contains(message), "{error}");
@@ -204,11 +213,6 @@ fn crosstabs() {
     assert_eq!(c.measures.len(), 14);
     let e = err("CROSSTABS a BY b /STATISTICS=CHISQ SOMETHING.");
     assert_eq!(e.expected[0], "CHISQ");
-    assert!(
-        err("CROSSTABS a BY b /MISSING=REPORT.")
-            .message
-            .contains("REPORT in CROSSTABS /MISSING")
-    );
     assert!(
         err("CROSSTABS a BY b /CELLS=BPROP.")
             .message

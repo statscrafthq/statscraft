@@ -712,6 +712,52 @@ fn crosstabs_integer_mode() {
     );
 }
 
+/// MISSING=REPORT: the user-missing value 3 of r stays in the table, marked, with its counts
+/// [1, 1], but out of the totals, the percentages and the statistics; 4 is outside the range
+/// and only counts as missing. Cases (r, c): (1,1) (1,2) (2,1) (3,1) (3,2) (2,2) (2,2) (4,1).
+/// Valid: r 1 = [1, 1], r 2 = [1, 2], so the column totals are 2 and 3 of 5.
+#[test]
+fn crosstabs_missing_report() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        "DATA LIST FREE /r c.\nBEGIN DATA\n1 1 1 2 2 1 3 1 3 2 2 2 2 2 4 1\nEND DATA.\n\
+         MISSING VALUES r (3).\n\
+         CROSSTABS VARIABLES=r (1,3) c (1,2) /TABLES=r BY c /CELLS=COUNT ROW /STATISTICS=CHISQ\n\
+         /MISSING=REPORT.",
+    );
+    assert_row(
+        &tables[0].rows[0],
+        1,
+        &[
+            Some(5.0),
+            Some(62.5),
+            Some(3.0),
+            Some(37.5),
+            Some(8.0),
+            Some(100.0),
+        ],
+    );
+    let t = &tables[1];
+    let labels: Vec<String> = t
+        .rows
+        .iter()
+        .step_by(2)
+        .map(|r| texts(r)[0].clone())
+        .collect();
+    assert_eq!(labels, ["1", "2", "3 (missing)", "Total"]);
+    assert!(t.caption.as_deref().unwrap().contains("(missing)"));
+    assert_row(&t.rows[1], 2, &[Some(50.0), Some(50.0), Some(100.0)]);
+    assert_row(&t.rows[4], 2, &[Some(1.0), Some(1.0), Some(2.0)]);
+    assert_row(&t.rows[5], 2, &[None, None, None]);
+    assert_row(&t.rows[6], 2, &[Some(2.0), Some(3.0), Some(5.0)]);
+    assert_row(&t.rows[7], 2, &[Some(40.0), Some(60.0), Some(100.0)]);
+    let chi = &tables[2];
+    let last = chi.rows.last().unwrap();
+    assert_eq!(texts(last)[0], "N of Valid Cases");
+    assert_row(&last[1..2], 0, &[Some(5.0)]);
+}
+
 /// The measures of association of the weighted 2 x 2 table [[3, 12], [9, 4]] (W = 28).
 /// By hand: chi-square = 28 (12 - 108)^2 / (15 13 12 16) = 6.8923, phi = -root(6.8923 / 28)
 /// (negative like the correlation), V = |phi|, CC = root(6.8923 / 34.8923) = 4/9; doubled

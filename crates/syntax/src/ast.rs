@@ -944,6 +944,9 @@ pub struct Crosstabs {
     /// `/VARIABLES` (integer mode): each list with its lowest and highest whole value. Empty in
     /// general mode.
     pub ranges: Vec<(Vec<VarItem>, f64, f64)>,
+    /// `/MISSING=REPORT` (integer mode): user-missing values are shown in the tables, marked,
+    /// but left out of totals, percentages and statistics.
+    pub report: bool,
 }
 
 /// A measure of association of CROSSTABS /STATISTICS.

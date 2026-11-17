@@ -259,6 +259,7 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         truncate: false,
         barchart: false,
         ranges: Vec::new(),
+        report: false,
     };
     let mut cells: Option<Vec<CrosstabsCell>> = None;
     let mut no_tables = false;
@@ -414,11 +415,13 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
-            const CHOICES: [(&str, &[bool]); 2] = [("TABLE", &[false]), ("INCLUDE", &[true])];
+            const CHOICES: [(&str, &[u8]); 3] =
+                [("TABLE", &[0]), ("INCLUDE", &[1]), ("REPORT", &[2])];
             let chosen = keywords(p, &CHOICES, |p| {
-                keyword_error(p, "CROSSTABS /MISSING", &["REPORT"], &names(&CHOICES))
+                keyword_error(p, "CROSSTABS /MISSING", &[], &names(&CHOICES))
             })?;
-            command.include = chosen.last() == Some(&true);
+            command.include = chosen.last() == Some(&1);
+            command.report = chosen.last() == Some(&2);
         } else if p.eat_keyword("COUNT") {
             // a keyword left out is CELL or ROUND, what the dialog writes
             const CHOICES: [(&str, &[u8]); 5] = [
@@ -469,6 +472,11 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
     p.finish(&["'/'"])?;
     if command.tables.is_empty() {
         return Err(p.unexpected(&["TABLES=rows BY columns"]));
+    }
+    if command.report && command.ranges.is_empty() {
+        let message =
+            "MISSING=REPORT works only in integer mode, after VARIABLES with value ranges";
+        return Err(SyntaxError::new(p.span_from(0), message));
     }
     let mut cells = match no_tables {
         true => Vec::new(),

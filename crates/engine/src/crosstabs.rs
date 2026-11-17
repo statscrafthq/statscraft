@@ -85,6 +85,9 @@ pub(crate) struct Block {
     total: f64,
     /// `/COUNT TRUNCATE`: whole counts are truncated, not rounded.
     truncate: bool,
+    /// `/MISSING=REPORT`: the rows and the columns of user-missing values, shown with their
+    /// counts but kept out of the totals; empty when there are none.
+    missing: [Vec<bool>; 2],
 }
 
 /// A weight or count as a whole number, as `/COUNT` asks.
@@ -112,7 +115,42 @@ impl Block {
             row_totals,
             column_totals,
             truncate: false,
+            missing: [Vec::new(), Vec::new()],
         }
+    }
+
+    /// The block with the rows and columns of `missing` marked, the totals left without them:
+    /// a total adds up the cells of the other dimension's valid values.
+    fn reported(mut self, missing: [Vec<bool>; 2]) -> Block {
+        let (rows, columns) = (&missing[0], &missing[1]);
+        let valid = |flags: &[bool], i: usize| !flags[i];
+        self.row_totals = (self.counts.iter())
+            .map(|row| {
+                (0..row.len())
+                    .filter(|&j| valid(columns, j))
+                    .map(|j| row[j])
+                    .sum()
+            })
+            .collect();
+        self.column_totals = (0..self.columns.len())
+            .map(|j| {
+                (0..self.rows.len())
+                    .filter(|&i| valid(rows, i))
+                    .map(|i| self.counts[i][j])
+                    .sum()
+            })
+            .collect();
+        self.total = (0..self.rows.len())
+            .filter(|&i| valid(rows, i))
+            .map(|i| self.row_totals[i])
+            .sum();
+        self.missing = missing;
+        self
+    }
+
+    /// Whether a row (dimension 0) or column (1) is of a reported user-missing value.
+    fn is_missing(&self, dimension: usize, at: Option<usize>) -> bool {
+        at.is_some_and(|i| self.missing[dimension].get(i) == Some(&true))
     }
 
     /// The count of a cell; None stands for the Total row or column.
@@ -131,6 +169,13 @@ impl Block {
 
     pub(crate) fn cell(&self, statistic: C, row: Option<usize>, column: Option<usize>) -> Cell {
         let n = self.count(row, column);
+        // a reported missing value shows its count and nothing else
+        if self.is_missing(0, row) || self.is_missing(1, column) {
+            return match statistic {
+                C::Count => Cell::Number(n),
+                _ => Cell::Empty,
+            };
+        }
         let row_total = row.map_or(self.total, |i| self.row_totals[i]);
         let column_total = column.map_or(self.total, |j| self.column_totals[j]);
         let value = match (statistic, row.zip(column)) {
@@ -513,13 +558,36 @@ fn tables(
     }
     let blocks = blocks(&keys, weights.as_deref(), (command.descending, None), count);
     // integer mode shows empty values of the ranges too; the statistics use the values that occur
+    // REPORT: the table keeps the user-missing values of its rows and columns, marked
+    let reported = |d: usize, k: &Key| {
+        command.report && matches!(k, Key::Number(x) if variables[d].is_user_missing(*x))
+    };
+    let owned: Vec<Block>;
     let shown_blocks = match &fixed {
-        Some(fixed) => &self::blocks(
-            &keys,
-            weights.as_deref(),
-            (command.descending, Some(fixed)),
-            count,
-        ),
+        Some(fixed) => {
+            let mut keys = keys.clone();
+            if command.report {
+                // shortcut: a fractional user-missing value whose whole part is not missing
+                // shows as valid here; integer mode expects whole values
+                for (d, v) in variables.iter().enumerate().take(2) {
+                    keys[d] = whole_categories(v, true, range(v).expect("integer mode"));
+                }
+            }
+            let marks = |d: usize, keys: &[Key]| keys.iter().map(|k| reported(d, k)).collect();
+            owned = self::blocks(
+                &keys,
+                weights.as_deref(),
+                (command.descending, Some(fixed)),
+                count,
+            )
+            .into_iter()
+            .map(|b| {
+                let missing = [marks(0, &b.rows), marks(1, &b.columns)];
+                b.reported(missing)
+            })
+            .collect();
+            &owned
+        }
         None => &blocks,
     };
     let layer_variables = &variables[2..];
@@ -540,7 +608,11 @@ fn tables(
         let mut columns: Vec<String> = layer_names().collect();
         columns.extend([shown.variable(&variables[0]), "Statistic".into()]);
         let headers = columns.len();
-        columns.extend(union.iter().map(|k| shown.value(&variables[1], k)));
+        let label = |d: usize, k: &Key| match reported(d, k) {
+            true => format!("{} (missing)", shown.value(&variables[d], k)),
+            false => shown.value(&variables[d], k),
+        };
+        columns.extend(union.iter().map(|k| label(1, k)));
         columns.push("Total".into());
         let mut column_groups = vec![Vec::new(); columns.len()];
         for group in &mut column_groups[headers..columns.len() - 1] {
@@ -561,7 +633,7 @@ fn tables(
                     }
                     let mut row = layer_cells(block);
                     row.push(Cell::Text(match i {
-                        Some(i) => shown.value(&variables[0], &block.rows[i]),
+                        Some(i) => label(0, &block.rows[i]),
                         None => "Total".into(),
                     }));
                     row.push(Cell::Text(cell_name(statistic).into()));
@@ -574,12 +646,18 @@ fn tables(
                 }
             }
         }
+        let marked = shown_blocks
+            .iter()
+            .any(|b| b.missing.iter().flatten().any(|m| *m));
         out.push(Table {
             title: title.clone(),
             row_headers: headers,
             columns,
             column_groups,
             rows,
+            caption: marked.then(|| {
+                "Values marked (missing) are user-missing: their cells show counts only and stay out of totals, percentages and statistics.".into()
+            }),
             ..Table::default()
         });
     }
