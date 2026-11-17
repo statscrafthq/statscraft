@@ -462,8 +462,10 @@ mod tests {
 
     #[test]
     fn olap_cubes_write_only_what_changed() {
-        let mut d = OlapCubes::default();
-        d.summary = v(&["monthly_spend", "age"]);
+        let mut d = OlapCubes {
+            summary: v(&["monthly_spend", "age"]),
+            ..Default::default()
+        };
         assert_eq!(
             d.syntax().unwrap_err(),
             "add at least one variable to Group by"
