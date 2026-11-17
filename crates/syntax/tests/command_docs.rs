@@ -188,6 +188,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "PPLOT",
             "NPPLOT",
             "ROC",
+            "ROC ANALYSIS",
             "KM",
             "K-M",
             "SURVIVAL",

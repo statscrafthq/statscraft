@@ -119,7 +119,7 @@ fn count(p: &mut Parser, default: Option<u32>, what: &str) -> PResult<u32> {
 }
 
 /// `[=] KEYWORD` from `choices`, then the end of the subcommand.
-fn choice<T: Copy>(p: &mut Parser, choices: &[(&'static str, T)]) -> PResult<T> {
+pub(crate) fn choice<T: Copy>(p: &mut Parser, choices: &[(&'static str, T)]) -> PResult<T> {
     p.eat(Punct::Eq);
     let Some((_, value)) = choices.iter().find(|(k, _)| p.at_keyword(k)) else {
         return Err(p.unexpected(&names(choices)));

@@ -84,6 +84,7 @@ mod reliability;
 mod report;
 mod restructure;
 mod robustness;
+mod roc_analysis;
 mod save_translate;
 mod scratch;
 mod settings;

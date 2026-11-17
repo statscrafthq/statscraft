@@ -90,6 +90,7 @@ pub enum Command {
     Genlin(Box<crate::genlin::Genlin>),
     Pplot(Box<crate::pplot::Pplot>),
     Roc(Box<crate::pplot::Roc>),
+    RocAnalysis(Box<crate::roc_analysis::RocAnalysis>),
     Km(Box<crate::survival::Km>),
     Survival(Box<crate::survival::Survival>),
     Glm(Box<crate::glm::Glm>),

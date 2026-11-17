@@ -1165,6 +1165,19 @@ Where GNU PSPP differs:
 
 - Its interval uses the one-sided normal quantile (at 90 percent its interval is that of 80 percent) and its coordinates table misses some cutoffs; the area, the standard error and the significance agree.
 
+### ROC ANALYSIS
+
+- Weights are rounded to whole numbers and count cases in every statistic, as in ROC, not only in the Case Processing Summary; a case whose weight is missing or at most 0.5 is counted as one missing case. With whole weights the errors, the DeLong covariances and the precision-recall steps are those of the data with each case repeated.
+- MODELQUALITY=TRUE draws the bar chart of the lower bounds and FALSE (the default) does not. The reference text has the two values the other way round, which contradicts its own default.
+- PR_INTERPOLATE=FP fills in the precision-recall curve one false positive at a time with the true positives growing in proportion (TP = TP_A + (TP_B - TP_A) / (FP_B - FP_A) x step). The printed formula swaps the two counts, which would not interpolate between the two points.
+- CURVE=PR(REFERENCE) draws a horizontal line at the share of positive cases, the precision of a test that guesses (one line per group in the independent-group design). A diagonal means nothing in precision-recall space.
+- The independent-group design compares the first group (the first LEVEL value, or the cases at or above the midpoint or cut point) with the second: the difference is first minus second, and the tables and charts list the groups in that order. MIDPOINT is halfway between the smallest and largest group value among the valid cases.
+- Cases whose group value is neither LEVEL value are left out of the analysis and get their own row, In neither group, in the Case Processing Summary. A LEVEL value that no valid case has, a group without positive or negative cases, MIDPOINT or CUTPOINT with a string grouping variable, GROUP without SELECT (unless PAIR=TRUE) and SELECT without GROUP are errors.
+- DISTRIBUTION=NEGEXPO with PAIR=TRUE gives a warning and the DeLong errors. In the one-sample design the significance uses the error under the null hypothesis, as ROC does; in the paired design it uses the area's own DeLong error, as the formulas say.
+- When every test value of a curve lies strictly between 0 and 1, the outer cutoffs are 0 and 1 rather than 1 below the smallest and 1 above the largest value; the coordinates tables say which rule applied.
+- On the precision-recall curve the point where nothing tests positive takes the precision of the next point when that point has true positives, and is left out otherwise. In the coordinates table its precision is empty.
+- A repeated subcommand or a keyword given again with another value gives a warning, and the last one counts.
+
 ### MVA
 
 Choices where the documentation says nothing:

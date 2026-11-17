@@ -187,6 +187,7 @@ One page per supported command, generated from the same table that the parser an
 | [PPLOT](pplot.md) | Probability plots: Q-Q or P-P plots of variables against a test distribution. |
 | [NPPLOT](npplot.md) | Another name for PPLOT. |
 | [ROC](roc.md) | ROC curve of test variables against a state, with the area under the curve. |
+| [ROC ANALYSIS](roc-analysis.md) | ROC curves with paired or two-group comparisons of their areas, precision-recall curves and classifier metrics. |
 | [KM](km.md) | Kaplan-Meier survival estimates by factor level and stratum, with tests that compare the levels. |
 | [K-M](k-m.md) | Another name for KM. |
 | [SURVIVAL](survival.md) | Actuarial life tables over fixed time intervals, with the Wilcoxon (Gehan) comparison of groups. |

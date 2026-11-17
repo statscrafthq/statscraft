@@ -64,6 +64,7 @@ use crate::regression_more;
 use crate::reliability;
 use crate::report;
 use crate::restructure;
+use crate::roc_analysis;
 use crate::save_translate;
 use crate::selection;
 use crate::session_commands;
@@ -3740,6 +3741,46 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  diagonal; MODELQUALITY adds a bar chart of the lower bounds of the intervals.",
         example: "ROC risk_score lab_index BY relapsed (1) /PLOT=CURVE(REFERENCE) /PRINT=SE COORDINATES.",
         parse: pplot::roc,
+    },
+    CommandSpec {
+        name: "ROC ANALYSIS",
+        summary: "ROC curves with paired or two-group comparisons of their areas, precision-recall curves and classifier metrics.",
+        syntax: "ROC ANALYSIS testvars BY state(value)\n\
+                 \x20  [/MISSING USERMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/CRITERIA [CUTOFF=INCLUDE | EXCLUDE] [TESTPOS=LARGE | SMALL] [CI=95]\n\
+                 \x20             [DISTRIBUTION=FREE | NEGEXPO]]\n\
+                 \x20  [/DESIGN [PAIR=FALSE | TRUE] [GROUP=var]\n\
+                 \x20           [SELECT=LEVEL(value value) | MIDPOINT | CUTPOINT(value)]]\n\
+                 \x20  [/PLOT [CURVE=ROC[(REFERENCE)] [PR[(REFERENCE)]] | NONE] [PR_INTERPOLATE=TP | FP]\n\
+                 \x20         [MODELQUALITY=FALSE | TRUE]]\n\
+                 \x20  [/PRINT [SE=FALSE | TRUE] [COORDINATES=[ROC] [PR]] [CLASSIFIER=FALSE | TRUE]].\n\
+                 Every keyword may also be written KEY(value). Test variables are numeric; the state\n\
+                 variable may be a string, its value in parentheses marks the positive cases and every\n\
+                 other valid state is negative. A case takes part when its state, all test variables\n\
+                 and the grouping variable are valid (USERMISSING=INCLUDE keeps user-missing values).\n\
+                 Weights are rounded to whole numbers and count cases; a weight of 0.5 or less, or a\n\
+                 missing one, makes the case missing. Cutoffs, directions and areas as in\n\
+                 ROC; when every test value lies strictly between 0 and 1 the outer cutoffs are 0 and 1.\n\
+                 Without DESIGN each test variable gets its own area. PAIR=TRUE compares every pair of\n\
+                 two or more test variables measured on the same cases: the errors of the areas and of\n\
+                 their differences follow DeLong's method, and NEGEXPO does not apply. GROUP with SELECT\n\
+                 compares two independent groups of cases for each test variable (PAIR is then\n\
+                 ignored): LEVEL names the value of each group; MIDPOINT (halfway between the smallest\n\
+                 and largest group value) and CUTPOINT split a numeric grouping variable into the cases\n\
+                 at or above the point and those below it. NEGEXPO needs equally many positive and\n\
+                 negative cases in both groups, else both groups use the nonparametric error.\n\
+                 Tables: Case Processing Summary; Area Under the ROC Curve (SE=TRUE adds the standard\n\
+                 error, the test of area 0.5 and the CI interval); CLASSIFIER adds the Gini index\n\
+                 2 x area - 1 and the largest gap between sensitivity and 1 - specificity (Max K-S)\n\
+                 with its cutoff; the paired or independent design adds a table of area differences\n\
+                 with z tests and intervals; COORDINATES lists sensitivity and 1 - specificity (ROC) or\n\
+                 precision and recall (PR) at every cutoff. CURVE draws ROC curves (the default), PR\n\
+                 curves or none; with groups each test variable gets its own chart. PR curves are\n\
+                 filled in between cutoffs one true positive (TP) or one false positive (FP) at a\n\
+                 time; PR(REFERENCE) draws the share of positive cases. MODELQUALITY=TRUE adds a bar\n\
+                 chart of the lower bounds of the area intervals.",
+        example: "ROC ANALYSIS score_a score_b BY diseased (1) /DESIGN PAIR=TRUE /PRINT SE=TRUE CLASSIFIER=TRUE /PLOT CURVE=ROC(REFERENCE) PR.",
+        parse: roc_analysis::roc_analysis,
     },
     CommandSpec {
         name: "KM",

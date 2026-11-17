@@ -371,45 +371,49 @@ impl Engine {
             charts.push(chart);
         }
         if command.model_quality {
-            let mut chart = Chart::lines(
-                "Overall Model Quality".into(),
-                Axis::titled("Test variable"),
-                Axis {
-                    maximum: Some(1.0),
-                    ..Axis::titled("Area: lower confidence bound")
-                },
-                names
-                    .iter()
-                    .zip(&tests)
-                    .map(|(_, t)| Category {
-                        label: shown.variable(t),
-                        value: Cell::Empty,
-                        missing: false,
-                        bin: None,
-                    })
-                    .collect(),
-                vec![Series {
-                    name: "Lower bound".into(),
-                    statistic: Statistic::Value,
-                    variable: None,
-                    value: Cell::Empty,
-                    values: lower_bounds.iter().map(|v| v.max(0.0)).collect(),
-                }],
-            );
-            chart.kind = ChartKind::Bar;
-            chart.orientation = Some(Orientation::Horizontal);
-            chart.footnote = Some(
-                "Above 0.5 the test does better than chance; at or below 0.5 it does not".into(),
-            );
-            charts.push(chart);
+            let labels = tests.iter().map(|t| shown.variable(t)).collect();
+            charts.push(model_quality_chart(labels, &lower_bounds));
         }
         self.charts.extend(charts);
         Ok(tables)
     }
 }
 
+/// The horizontal bar chart of the lower confidence bounds of the areas, one bar per label.
+pub(crate) fn model_quality_chart(labels: Vec<String>, lower_bounds: &[f64]) -> Chart {
+    let mut chart = Chart::lines(
+        "Overall Model Quality".into(),
+        Axis::titled("Test variable"),
+        Axis {
+            maximum: Some(1.0),
+            ..Axis::titled("Area: lower confidence bound")
+        },
+        labels
+            .into_iter()
+            .map(|label| Category {
+                label,
+                value: Cell::Empty,
+                missing: false,
+                bin: None,
+            })
+            .collect(),
+        vec![Series {
+            name: "Lower bound".into(),
+            statistic: Statistic::Value,
+            variable: None,
+            value: Cell::Empty,
+            values: lower_bounds.iter().map(|v| v.max(0.0)).collect(),
+        }],
+    );
+    chart.kind = ChartKind::Bar;
+    chart.orientation = Some(Orientation::Horizontal);
+    chart.footnote =
+        Some("Above 0.5 the test does better than chance; at or below 0.5 it does not".into());
+    chart
+}
+
 /// A confidence level in a header: 95, 99.5.
-fn short(v: f64) -> String {
+pub(crate) fn short(v: f64) -> String {
     let text = format!("{v:.4}");
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }

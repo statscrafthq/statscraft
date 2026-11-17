@@ -84,6 +84,7 @@ mod regression_more;
 mod reliability;
 mod report;
 mod restructure;
+mod roc_analysis;
 mod save_translate;
 mod selection;
 mod session_commands;
@@ -158,6 +159,8 @@ mod tests_regression_more;
 mod tests_report;
 #[cfg(test)]
 mod tests_restructure;
+#[cfg(test)]
+mod tests_roc_analysis;
 #[cfg(test)]
 mod tests_session;
 #[cfg(test)]
@@ -318,6 +321,7 @@ pub use report::{
     ReportFormat, ReportFunction, ReportMissing, ReportOffset, ReportString, ReportSummary,
     StringPart, SummaryFormat, SummaryItem,
 };
+pub use roc_analysis::{RocAnalysis, RocCriteria, RocDesign, RocPlot, RocPrint, RocSelect};
 pub use session_commands::{SETTINGS, SettingEffect};
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
 pub use summarize::{Summarize, SummarizeList, SummarizeMissing};

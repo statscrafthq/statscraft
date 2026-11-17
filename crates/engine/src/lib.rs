@@ -110,6 +110,7 @@ mod reliability;
 mod report;
 mod restructure;
 mod roc;
+mod roc_analysis;
 mod rows;
 mod save_translate;
 pub mod session;
@@ -1267,6 +1268,7 @@ impl Engine {
             | Command::Genlin(_)
             | Command::Pplot(_)
             | Command::Roc(_)
+            | Command::RocAnalysis(_)
             | Command::Km(_)
             | Command::Survival(_)
             | Command::Glm(_)
@@ -1592,6 +1594,7 @@ impl Engine {
             Command::Genlin(command) => self.genlin(command),
             Command::Pplot(command) => self.pplot(command),
             Command::Roc(command) => self.roc(command),
+            Command::RocAnalysis(command) => self.roc_analysis(command),
             Command::Km(command) => self.km(command),
             Command::Survival(command) => self.life_tables(command),
             Command::Glm(command) => self.glm(command),
