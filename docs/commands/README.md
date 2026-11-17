@@ -219,7 +219,8 @@ One page per supported command, generated from the same table that the parser an
 
 | Command | What it does |
 |---|---|
-| [CSPLAN](csplan.md) | Write or show an analysis plan of a complex sample: strata, clusters, weight and estimator per stage. |
+| [CSPLAN](csplan.md) | Write or show the plan of a complex sample: how to draw it, or how to analyze it. |
+| [CSSELECT](csselect.md) | Draw a complex sample from the active dataset by a plan written by CSPLAN SAMPLE. |
 | [CSDESCRIPTIVES](csdescriptives.md) | Means, sums and ratios of a complex sample with design-based standard errors and design effects. |
 | [CSTABULATE](cstabulate.md) | One-way and two-way tables of a complex sample with design-based errors and adjusted tests. |
 | [CSGLM](csglm.md) | Linear regression, ANOVA and ANCOVA on a complex sample, with design-based standard errors and tests. |

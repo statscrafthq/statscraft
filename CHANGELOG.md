@@ -5,6 +5,7 @@
 - Analyze > Classify: new dialogs TwoStep Cluster (TWOSTEP CLUSTER) and Identify Unusual Cases (DETECTANOMALY).
 - Window: Analyze > Complex Samples > Ordinal Regression writes CSORDINAL (link function, descending order, parallel-lines test, odds ratios, saved probabilities).
 - CSGLM, CSLOGISTIC, CSORDINAL: OUTFILE. COVB or CORB writes the estimates, standard errors, p values and df with the covariance or correlation matrix of the parameters to a data file or a declared dataset (RowType_, VarName_, P1, P2, ...); MODEL or PARAMETER writes the estimates, with or without their covariances, as Statscraft's own JSON. See [differences](docs/differences.md).
+- CSPLAN SAMPLE and CSSELECT: write a sample plan (strata and clusters for up to three stages, SIMPLE_WOR, SIMPLE_WR, SIMPLE_SYSTEMATIC or SIMPLE_CHROMY, SIZE or RATE with MINSIZE and MAXSIZE as values, variables or matrices, STAGEVARS) and draw the sample from the active dataset, stage by stage, with a repeatable seed (CRITERIA SEED, or SET SEED). CSSELECT writes inclusion probabilities, cumulative and final weights and the other stage variables to the active dataset or a sample file (one row per draw with replacement), and shows the selection per stratum and a case summary. The plan's analysis side lets CSDESCRIPTIVES and CSTABULATE analyze the drawn sample at once. Not supported yet: the PPS methods and SELECTRULE. See [CSPLAN](docs/commands/csplan.md) and [CSSELECT](docs/commands/csselect.md).
 
 ## 0.17.0 (2026-11-17)
 
