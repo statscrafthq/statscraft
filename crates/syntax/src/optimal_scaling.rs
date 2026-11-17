@@ -155,7 +155,7 @@ pub(crate) fn specified_lists<T: Clone>(
     Ok(out)
 }
 
-fn discretize(p: &mut Parser) -> PResult<Discretize> {
+pub(crate) fn discretize(p: &mut Parser) -> PResult<Discretize> {
     if p.eat_keyword("RANKING") {
         return Ok(Discretize::Ranking);
     }
@@ -229,7 +229,7 @@ fn missing(p: &mut Parser) -> PResult<McaMissing> {
 }
 
 /// Case numbers with TO, inside the parentheses already opened.
-fn object_numbers(p: &mut Parser) -> PResult<Vec<(usize, usize)>> {
+pub(crate) fn object_numbers(p: &mut Parser) -> PResult<Vec<(usize, usize)>> {
     let mut out = Vec::new();
     while !p.at(Punct::RParen) {
         let first = whole(p, "a case number", 1)?;

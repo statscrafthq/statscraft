@@ -9,6 +9,7 @@ mod bayes;
 mod bayes_loglinear;
 mod bayes_models;
 mod catpca;
+mod catreg;
 mod cell_stats;
 mod chart_input;
 mod charts;

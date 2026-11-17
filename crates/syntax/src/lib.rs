@@ -20,6 +20,7 @@ mod anova;
 mod ast;
 mod bayes;
 mod catpca;
+mod catreg;
 mod cluster;
 mod codebook;
 mod commands;
@@ -100,6 +101,8 @@ mod tests;
 mod tests_agreement;
 #[cfg(test)]
 mod tests_bayes;
+#[cfg(test)]
+mod tests_catreg;
 #[cfg(test)]
 mod tests_complex_samples;
 #[cfg(test)]
@@ -194,6 +197,9 @@ pub use bayes::{
 };
 pub use catpca::{
     Catpca, CatpcaBootstrap, CatpcaPlot, CatpcaPlots, CatpcaPrint, CatpcaVariable, ScalingLevel,
+};
+pub use catreg::{
+    Catreg, CatregInitial, CatregPenalty, CatregPlot, CatregPrint, CatregResample, PenaltyRange,
 };
 pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};
 pub use codebook::{

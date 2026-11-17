@@ -9,6 +9,7 @@ mod arima;
 mod autorecode;
 mod bayes;
 mod catpca;
+mod catreg;
 pub mod chart;
 mod chart_input;
 mod cluster;
@@ -1266,6 +1267,7 @@ impl Engine {
             | Command::Correspondence(_)
             | Command::MultipleCorrespondence(_)
             | Command::Catpca(_)
+            | Command::Catreg(_)
             | Command::Genlin(_)
             | Command::Pplot(_)
             | Command::Roc(_)
@@ -1593,6 +1595,7 @@ impl Engine {
             Command::Correspondence(command) => self.correspondence(command),
             Command::MultipleCorrespondence(command) => self.multiple_correspondence(command),
             Command::Catpca(command) => self.catpca(command),
+            Command::Catreg(command) => self.catreg(command),
             Command::Genlin(command) => self.genlin(command),
             Command::Pplot(command) => self.pplot(command),
             Command::Roc(command) => self.roc(command),

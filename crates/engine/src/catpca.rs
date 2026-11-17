@@ -58,7 +58,7 @@ const WHO: &str = "CATPCA";
 
 /// How the fit quantifies a variable.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Kind {
+pub(crate) enum Kind {
     Multiple,
     Nominal,
     Ordinal,
@@ -67,16 +67,16 @@ enum Kind {
 }
 
 /// A variable's quantification.
-struct Quant {
-    kind: Kind,
+pub(crate) struct Quant {
+    pub(crate) kind: Kind,
     /// The code of each category, for the linear, monotone and spline restrictions.
-    values: Vec<f64>,
+    pub(crate) values: Vec<f64>,
     /// The extra category of ACTIVE EXTRACAT, outside the restriction in the final phase.
-    extra: Option<usize>,
+    pub(crate) extra: Option<usize>,
     /// The spline basis of each category (intercept first), for the spline levels.
-    basis: Option<Matrix>,
+    pub(crate) basis: Option<Matrix>,
     /// Single levels: the value of each category, weighted sum of squares n.
-    y: Vec<f64>,
+    pub(crate) y: Vec<f64>,
     /// Single levels: the loading in each dimension.
     a: Vec<f64>,
     /// The weighted mean object of each category.
@@ -84,6 +84,53 @@ struct Quant {
 }
 
 impl Quant {
+    /// The quantification of `v` at the numeric start: the standardized codes, with the
+    /// spline basis for the spline levels.
+    pub(crate) fn new(v: &AVar, level: ScalingLevel, n_w: f64) -> Quant {
+        let kind = match level {
+            ScalingLevel::MultipleNominal => Kind::Multiple,
+            ScalingLevel::Nominal => Kind::Nominal,
+            ScalingLevel::Ordinal => Kind::Ordinal,
+            ScalingLevel::Numeric => Kind::Numeric,
+            ScalingLevel::SplineOrdinal { .. } => Kind::Spline { ordinal: true },
+            ScalingLevel::SplineNominal { .. } => Kind::Spline { ordinal: false },
+        };
+        let values: Vec<f64> = v.cats.iter().map(|c| *c as f64).collect();
+        let extra = v.extra.and_then(|e| v.cats.binary_search(&e).ok());
+        let basis = match level {
+            ScalingLevel::SplineOrdinal { degree, inknot }
+            | ScalingLevel::SplineNominal { degree, inknot } => {
+                // knots at quantiles of the objects' codes, the extra category left out
+                let sample: Vec<f64> =
+                    v.h.iter()
+                        .flatten()
+                        .filter(|&&r| Some(r) != extra)
+                        .map(|&r| values[r])
+                        .collect();
+                let inside = values.len() - usize::from(extra.is_some());
+                (inside >= 2).then(|| {
+                    let inknot = inknot.min(inside - 2);
+                    spline_rows(&values, &spline_knots(&sample, degree, inknot), degree)
+                })
+            }
+            _ => None,
+        };
+        let kind = match (kind, &basis) {
+            (Kind::Spline { .. }, None) => Kind::Nominal,
+            _ => kind,
+        };
+        let y = standardized(&values, &v.d, n_w);
+        Quant {
+            kind,
+            values,
+            extra,
+            basis,
+            y,
+            a: Vec::new(),
+            centroids: Vec::new(),
+        }
+    }
+
     /// The point of category r: its centroid, or its value times the loadings.
     fn point(&self, r: usize, s: usize) -> f64 {
         match self.kind {
@@ -107,7 +154,7 @@ struct Step {
 }
 
 /// The codes standardized with the category weights: mean 0, weighted sum of squares n.
-fn standardized(values: &[f64], d: &[f64], n_w: f64) -> Vec<f64> {
+pub(crate) fn standardized(values: &[f64], d: &[f64], n_w: f64) -> Vec<f64> {
     let total: f64 = d.iter().sum();
     if total <= 0.0 {
         return vec![0.0; values.len()];
@@ -185,7 +232,7 @@ fn least_squares(s: &Matrix, t: &[f64]) -> Vec<f64> {
 }
 
 /// The restricted single quantification of the free one `yt`.
-fn restrict(q: &Quant, initial: bool, yt: &[f64], d: &[f64]) -> Vec<f64> {
+pub(crate) fn restrict(q: &Quant, initial: bool, yt: &[f64], d: &[f64]) -> Vec<f64> {
     let kind = if initial { Kind::Numeric } else { q.kind };
     if kind == Kind::Nominal {
         return yt.to_vec();
@@ -461,52 +508,10 @@ impl Engine {
         let n = prep.active.len();
 
         // the quantification of every variable, at its numeric start
-        let mut quants: Vec<Quant> = Vec::new();
-        for v in avars {
-            let level = command.analysis[v.list].1.level;
-            let kind = match level {
-                ScalingLevel::MultipleNominal => Kind::Multiple,
-                ScalingLevel::Nominal => Kind::Nominal,
-                ScalingLevel::Ordinal => Kind::Ordinal,
-                ScalingLevel::Numeric => Kind::Numeric,
-                ScalingLevel::SplineOrdinal { .. } => Kind::Spline { ordinal: true },
-                ScalingLevel::SplineNominal { .. } => Kind::Spline { ordinal: false },
-            };
-            let values: Vec<f64> = v.cats.iter().map(|c| *c as f64).collect();
-            let extra = v.extra.and_then(|e| v.cats.binary_search(&e).ok());
-            let basis = match level {
-                ScalingLevel::SplineOrdinal { degree, inknot }
-                | ScalingLevel::SplineNominal { degree, inknot } => {
-                    // knots at quantiles of the objects' codes, the extra category left out
-                    let sample: Vec<f64> =
-                        v.h.iter()
-                            .flatten()
-                            .filter(|&&r| Some(r) != extra)
-                            .map(|&r| values[r])
-                            .collect();
-                    let inside = values.len() - usize::from(extra.is_some());
-                    (inside >= 2).then(|| {
-                        let inknot = inknot.min(inside - 2);
-                        spline_rows(&values, &spline_knots(&sample, degree, inknot), degree)
-                    })
-                }
-                _ => None,
-            };
-            let kind = match (kind, &basis) {
-                (Kind::Spline { .. }, None) => Kind::Nominal,
-                _ => kind,
-            };
-            let y = standardized(&values, &v.d, n_w);
-            quants.push(Quant {
-                kind,
-                values,
-                extra,
-                basis,
-                y,
-                a: Vec::new(),
-                centroids: Vec::new(),
-            });
-        }
+        let mut quants: Vec<Quant> = avars
+            .iter()
+            .map(|v| Quant::new(v, command.analysis[v.list].1.level, n_w))
+            .collect();
         let is_single: Vec<bool> = quants.iter().map(Quant::single).collect();
         let single = |j: usize| is_single[j];
 

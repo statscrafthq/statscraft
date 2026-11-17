@@ -177,7 +177,7 @@ pub struct Catpca {
     pub outfile_ellcoord: Option<String>,
 }
 
-fn analysis_spec(p: &mut Parser) -> PResult<CatpcaVariable> {
+pub(crate) fn analysis_spec(p: &mut Parser) -> PResult<CatpcaVariable> {
     let mut out = CatpcaVariable::default();
     let (mut degree, mut inknot) = (None, None);
     let mut level = None;

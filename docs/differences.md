@@ -1108,6 +1108,23 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - Variable weights may be any positive number, not only whole numbers.
 - SPLIT FILE is ignored: one analysis runs on all cases.
 
+### CATREG
+
+- INITIAL=RANDOM starts as the Algorithms manual describes its first initialization: the standardized codes with the correlations with the response as coefficients, with no random numbers. NUMERICAL runs that start with every variable numeric first; that phase is solved in closed form (the least squares or ridge coefficients of the standardized codes, the point its iterations approach) unless a lasso penalty applies, so an all-numeric analysis gives plain regression on standardized variables exactly.
+- The sign of a predictor's coefficient carries over between iterations: ordinal and spline ordinal values stay rising and the coefficient keeps its sign, so the start decides the direction unless MULTISTART or FIXSIGNS fixes it. Numeric values always rise with the codes. When a restriction leaves no spread, the previous quantification is kept for that step.
+- MULTISTART with a threshold: after the nominal first phase one iteration with every ordered predictor positive gives each one's loss of squared coefficient in percent; those above the threshold may turn negative, one more at a time while the fit (1 less the apparent error) improves. The file has a row per pattern tried, SIGN1 to SIGNq for the ordered predictors in ANALYSIS order and RSQ. FIXSIGNS reads the first q numeric variables of the given row.
+- The coefficients' bootstrap standard errors (1000 samples, drawn with SET SEED's generator) start each sample from the final solution rather than from scratch, which keeps the signs of nominal quantifications aligned and the run short. F is the squared ratio of beta to that error, tested with the predictor's and the residual optimal scaling degrees of freedom.
+- The degrees of freedom of a spline ordinal predictor count the nonzero coefficients of a nonnegative least squares fit of its final values on its spline basis.
+- A REGULARIZATION file is optional: without one the table of models is only shown. Its columns are RIDGE, LASSO, RSQ, EPE and SE (when estimated), SUMCOEF and one coefficient per predictor under the predictor's name. The standardized sum of coefficients compares each model's coefficients with the least squares coefficients on that model's own quantifications.
+- With several models and neither RESAMPLE nor supplementary cases, only the Case Processing Summary, the REGU table and chart and OUTFILE DISCRDATA come out; SAVE and OUTFILE TRDATA are ignored with a warning. With RESAMPLE the model with the least resampled error is reported, else the one with the least test error.
+- Cross validation deals the active cases in a random order round the folds. A held-out case whose category cannot be valued from the training part (a nominal or ordinal category it lacks, a spline code outside its range) is left out of the error. The standard errors of the cross validation and training errors follow the manual's formulas without subtracting the mean.
+- A code that only supplementary cases (or held-out cases) have is interpolated linearly between the nearest codes on either side for numeric and spline levels, and extrapolated along the line through the outermost codes for numeric ones.
+- A category that a bootstrap sample or fold leaves out takes no part in that fit; its value is estimated afterwards as above.
+- PLOT REGU draws points, one group per predictor, against the standardized sum of coefficients; a listed ridge penalty that no model has is skipped with a warning. RESID scatters each active case's residual from the other predictors and the coefficient times the quantification against the codes. A label length above 60 is taken as 60.
+- PRINT REGU or PLOT REGU without REGULARIZATION gives a warning. A subcommand written twice keeps the last one, with a warning.
+- SAVE names TRDATA rootK_S, PRED root_S and RES root_S with the first free set number S for each keyword; OUTFILE TRDATA names its variables TRAK. SAVE with no keyword saves TRDATA.
+- SPLIT FILE is ignored: one analysis runs on all cases.
+
 ### TREE
 
 - A predictor category smaller than MINCHILDSIZE joins its most similar allowed group during merging (smallest first), so a predictor that cannot give two large enough children is not chosen and the next best one is tried.

@@ -162,6 +162,7 @@ One page per supported command, generated from the same table that the parser an
 | [CORRESPONDENCE](correspondence.md) | Correspondence analysis: rows and columns of a two-way table as points in a few dimensions. |
 | [MULTIPLE CORRESPONDENCE](multiple-correspondence.md) | Multiple correspondence (homogeneity) analysis: cases and categories of several nominal variables as points in a few dimensions. |
 | [CATPCA](catpca.md) | Categorical principal components: quantify each variable by optimal scaling (spline, ordinal, nominal, multiple nominal or numeric) and reduce them to a few components. |
+| [CATREG](catreg.md) | Categorical regression: quantify a response and its predictors by optimal scaling (spline, ordinal, nominal or numeric) so that a linear model fits best, with ridge, lasso and elastic net penalties. |
 | [LOGISTIC REGRESSION](logistic-regression.md) | Binary logistic regression with categorical covariates, stepwise selection and case diagnostics. |
 | [NOMREG](nomreg.md) | Multinomial logistic regression: a nominal dependent variable on factors and covariates. |
 | [MVA](mva.md) | Missing value analysis: where values are missing, how that relates to the other variables, and estimates that allow for it. |
