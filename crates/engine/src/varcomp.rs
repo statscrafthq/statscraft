@@ -316,6 +316,8 @@ fn maximize(
     let mut history = vec![(0, e.l, variances(&th))];
     let mut increase = f64::INFINITY;
     let mut converged = false;
+    // stopped early with its own warning: no ITERATE warning on top
+    let mut stopped = false;
     for iteration in 1..=c.iterate {
         // a ratio held at 0 by a gradient pointing below 0 stays out of the step
         let free: Vec<usize> = (0..=k)
@@ -330,10 +332,12 @@ fn maximize(
             warnings.push(format!(
                 "VARCOMP stopped at iteration {iteration}: the information matrix is singular. The estimates may not be final."
             ));
+            stopped = true;
             break;
         };
         let mut rho = 1.0;
         let mut accepted = None;
+        let mut evaluated = false;
         for _ in 0..=10 {
             let candidate: Vec<f64> = th
                 .iter()
@@ -344,19 +348,28 @@ fn maximize(
                     if i < k { v.max(0.0) } else { v }
                 })
                 .collect();
-            if let Some(next) = evaluate(model, &candidate, reml)
+            if let Some(next) = evaluate(model, &candidate, reml) {
+                evaluated = true;
                 // near the top the log likelihood is flat to its rounding error, so a step that
                 // keeps it within that error still counts
-                && next.l > e.l - 1e-9 * e.l.abs().max(1.0)
-            {
-                accepted = Some((candidate, next));
-                break;
+                if next.l > e.l - 1e-9 * e.l.abs().max(1.0) {
+                    accepted = Some((candidate, next));
+                    break;
+                }
             }
             rho /= 2.0;
         }
-        // no step raises the likelihood: it is at its top within the precision of the numbers
+        // no step raises the likelihood: it is at its top within the precision of the numbers;
+        // a step that cannot be evaluated at all is a stop, not the top
         let Some((next_th, next)) = accepted else {
-            converged = true;
+            if evaluated {
+                converged = true;
+            } else {
+                stopped = true;
+                warnings.push(format!(
+                    "VARCOMP stopped at iteration {iteration}: no step from the current estimates gives a valid model. The estimates may not be final."
+                ));
+            }
             break;
         };
         let change_l = next.l - e.l;
@@ -373,7 +386,7 @@ fn maximize(
             break;
         }
     }
-    if !converged {
+    if !converged && !stopped {
         warnings.push(format!(
             "VARCOMP reached ITERATE ({}) iterations without converging. The estimates may not be final.",
             c.iterate
@@ -913,7 +926,9 @@ fn out_data(
     if let Some(m) = matrix {
         for (j, label) in labels.iter().enumerate() {
             let name = format!("VC{}", j + 1);
-            out.set_numeric_values(&name, m.iter().map(|row| Some(row[j])).collect())?;
+            // a correlation with a variance of 0 is undefined: system-missing
+            let column = m.iter().map(|row| Some(row[j]).filter(|v| v.is_finite()));
+            out.set_numeric_values(&name, column.collect())?;
             out.set_variable_label(&name, Some(label))?;
         }
     }
