@@ -551,13 +551,6 @@ fn xsave_writes_the_cases_as_they_pass() {
     let saved = Dataset::read_sav(&file).unwrap();
     assert_eq!(numbers(&saved, "id"), [Some(101.0), Some(102.0)]);
     assert_eq!(numbers(s.dataset().unwrap(), "id"), [Some(1.0), Some(2.0)]);
-    assert!(
-        fails(
-            &mut s,
-            &format!("XSAVE OUTFILE='{file}' /UNCOMPRESSED.\nEXECUTE.")
-        )
-        .contains("not supported yet")
-    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

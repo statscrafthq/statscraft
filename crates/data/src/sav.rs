@@ -1,5 +1,16 @@
 //! Reading and writing `.sav` / `.zsav` files. The only module that knows the `statscraft-sav` crate.
 
+/// How a data file's cases are stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Compression {
+    /// Uncompressed.
+    None,
+    /// Compressed case by case (the usual .sav).
+    Bytecode,
+    /// Compressed in zlib blocks (.zsav).
+    Zlib,
+}
+
 use crate::{
     Dataset, Dictionary, Error, Measure, MissingValues, MultipleResponseSet, Value, VariableDef,
     VariableSet, non_empty,
@@ -225,16 +236,31 @@ impl Dataset {
     /// text the encoding cannot hold, or a value that does not fit its width there, is an
     /// error. An existing file is replaced only after the new one is complete.
     pub fn write_sav(&self, path: impl AsRef<Path>) -> Result<(), Error> {
-        self.write_sav_level(path, None)
+        self.write_sav_level(path, None, None)
+    }
+
+    /// Writes like `write_sav`, with the compression given (SAVE /COMPRESSED, /UNCOMPRESSED,
+    /// /ZCOMPRESSED); None chooses by the extension as `write_sav` does.
+    pub fn write_sav_as(
+        &self,
+        path: impl AsRef<Path>,
+        compression: Option<Compression>,
+    ) -> Result<(), Error> {
+        self.write_sav_level(path, None, compression)
     }
 
     /// Writes like `write_sav`, a `.zsav` file with zlib level 1: larger, but several times
     /// faster to write. For files that are read back by Statscraft only, such as a session.
     pub fn write_sav_quick(&self, path: impl AsRef<Path>) -> Result<(), Error> {
-        self.write_sav_level(path, Some(1))
+        self.write_sav_level(path, Some(1), None)
     }
 
-    fn write_sav_level(&self, path: impl AsRef<Path>, level: Option<u32>) -> Result<(), Error> {
+    fn write_sav_level(
+        &self,
+        path: impl AsRef<Path>,
+        level: Option<u32>,
+        chosen: Option<Compression>,
+    ) -> Result<(), Error> {
         if let Some(scratch) = self.variable_names().find(|name| name.starts_with('#')) {
             return Err(Error::Invalid(format!(
                 "{scratch} is a scratch variable, which a data file cannot hold"
@@ -337,10 +363,12 @@ impl Dataset {
         let zsav = path
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("zsav"));
-        let compression = if zsav {
-            statscraft_sav::Compression::Zlib
-        } else {
-            statscraft_sav::Compression::Bytecode
+        let compression = match chosen {
+            Some(Compression::None) => statscraft_sav::Compression::None,
+            Some(Compression::Bytecode) => statscraft_sav::Compression::Bytecode,
+            Some(Compression::Zlib) => statscraft_sav::Compression::Zlib,
+            None if zsav => statscraft_sav::Compression::Zlib,
+            None => statscraft_sav::Compression::Bytecode,
         };
         // a failed or interrupted write must not destroy the previous session state
         let mut partial = path.as_os_str().to_owned();

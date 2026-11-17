@@ -13,6 +13,8 @@ SAVE OUTFILE='path' | handle [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/KEEP
 
 KEEP, DROP and RENAME shape the saved file only; the active dataset stays as it is.
 
+COMPRESSED compresses case by case, ZCOMPRESSED in zlib blocks, UNCOMPRESSED not at all; without one a file named .zsav gets zlib blocks and any other the case by case form.
+
 ## Example
 
 ```text

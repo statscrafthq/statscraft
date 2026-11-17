@@ -503,7 +503,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Write the active dataset to a data file.",
         syntax: "SAVE OUTFILE='path' | handle [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/KEEP=varlist] [/DROP=varlist]\n\
                  \x20    [/RENAME=(old = new) ...].\n\
-                 KEEP, DROP and RENAME shape the saved file only; the active dataset stays as it is.",
+                 KEEP, DROP and RENAME shape the saved file only; the active dataset stays as it is.\n\
+                 COMPRESSED compresses case by case, ZCOMPRESSED in zlib blocks, UNCOMPRESSED not at all;\n\
+                 without one a file named .zsav gets zlib blocks and any other the case by case form.",
         example: "SAVE OUTFILE='survey_clean.sav' /COMPRESSED.",
         parse: commands::save,
     },
@@ -4961,11 +4963,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "XSAVE",
         summary: "Write the cases to a data file as the next data pass reads them.",
         syntax: "XSAVE OUTFILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...]\n\
-                 \x20     [/MAP] [/COMPRESSED | /ZCOMPRESSED] [/PERMISSIONS=READONLY | WRITEABLE].\n\
+                 \x20     [/MAP] [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/PERMISSIONS=READONLY | WRITEABLE].\n\
                  A transformation: the file holds the cases as they reach XSAVE in the next procedure or\n\
                  EXECUTE (or the end of the run), with the variables of that moment, scratch variables\n\
                  left out. KEEP, DROP and RENAME as on SAVE. MAP lists the saved variables. Two XSAVE\n\
-                 commands cannot write the same file in one pass. /UNCOMPRESSED is not supported yet.",
+                 commands cannot write the same file in one pass. Compression as on SAVE.",
         example: "XSAVE OUTFILE='wave2.sav' /DROP=tmp1 TO tmp5.",
         parse: output::xsave,
     },

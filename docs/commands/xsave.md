@@ -8,10 +8,10 @@ Write the cases to a data file as the next data pass reads them.
 
 ```text
 XSAVE OUTFILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...]
-      [/MAP] [/COMPRESSED | /ZCOMPRESSED] [/PERMISSIONS=READONLY | WRITEABLE].
+      [/MAP] [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/PERMISSIONS=READONLY | WRITEABLE].
 ```
 
-A transformation: the file holds the cases as they reach XSAVE in the next procedure or EXECUTE (or the end of the run), with the variables of that moment, scratch variables left out. KEEP, DROP and RENAME as on SAVE. MAP lists the saved variables. Two XSAVE commands cannot write the same file in one pass. /UNCOMPRESSED is not supported yet.
+A transformation: the file holds the cases as they reach XSAVE in the next procedure or EXECUTE (or the end of the run), with the variables of that moment, scratch variables left out. KEEP, DROP and RENAME as on SAVE. MAP lists the saved variables. Two XSAVE commands cannot write the same file in one pass. Compression as on SAVE.
 
 ## Example
 

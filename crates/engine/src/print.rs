@@ -34,7 +34,7 @@
 use crate::{Cell, Engine, Error, Table, format_value};
 use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{
-    Command, Compression, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
+    Command, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
 };
 use std::path::PathBuf;
 
@@ -243,9 +243,6 @@ impl Engine {
     }
 
     fn xsave(&mut self, xsave: &Xsave, open: bool) -> Result<Vec<Table>, Error> {
-        if matches!(xsave.compression, Some(Compression::Uncompressed)) {
-            return Err(Error("XSAVE /UNCOMPRESSED is not supported yet".into()));
-        }
         let mut data = self.active()?.clone();
         let scratch: Vec<String> = data
             .variable_names()
@@ -607,7 +604,7 @@ impl Engine {
         }
         for (path, xsave, parts) in saves {
             let data = Dataset::from_parts(&parts[0], &parts)?;
-            data.write_sav(&path)?;
+            data.write_sav_as(&path, crate::sav_compression(xsave.compression))?;
             if let Some(read_only) = xsave.read_only {
                 crate::output::set_permissions(&path, read_only)?;
             }

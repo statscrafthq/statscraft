@@ -723,6 +723,18 @@ pub struct Engine {
     ts_added: usize,
 }
 
+/// The compression SAVE or XSAVE asks for; none given chooses by the file's extension.
+pub(crate) fn sav_compression(
+    compression: Option<syntax::Compression>,
+) -> Option<statscraft_data::SavCompression> {
+    use statscraft_data::SavCompression as C;
+    compression.map(|c| match c {
+        syntax::Compression::Compressed => C::Bytecode,
+        syntax::Compression::Uncompressed => C::None,
+        syntax::Compression::ZCompressed => C::Zlib,
+    })
+}
+
 impl Engine {
     pub fn with_dataset(dataset: Option<Dataset>) -> Self {
         Self {
@@ -987,14 +999,11 @@ impl Engine {
                 compression,
                 options,
             } => {
-                if matches!(compression, Some(syntax::Compression::Uncompressed)) {
-                    return Err(Error("SAVE /UNCOMPRESSED is not supported yet".into()));
-                }
                 self.begin_pass()?;
                 let data = self.file_options(self.active()?.clone(), options, false)?;
                 if !self.dry_run {
                     let path = self.path(outfile);
-                    data.write_sav(&path)?;
+                    data.write_sav_as(&path, sav_compression(*compression))?;
                     let path = std::path::absolute(&path).unwrap_or(path);
                     self.active_mut()?.set_file(Some(path));
                 }

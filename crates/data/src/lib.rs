@@ -4,6 +4,7 @@ mod edit;
 mod por;
 mod retype;
 mod sav;
+pub use sav::Compression as SavCompression;
 
 pub use edit::is_valid_name;
 pub use por::portable_names;

@@ -267,3 +267,46 @@ fn match_files_warns_about_repeated_keys_in_a_file() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// SAVE writes what /COMPRESSED, /UNCOMPRESSED and /ZCOMPRESSED ask for, whatever the name:
+/// the header says $FL2 with compression code 1 or 0, or $FL3 with code 2; every file reads back
+/// the same. Without a keyword a .zsav name gets zlib blocks.
+#[test]
+fn save_writes_the_compression_asked_for() {
+    let dir = std::env::temp_dir().join(format!("statscraft-compression-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "CD '{}'.\nDATA LIST LIST /x (F3) s (A20).\nBEGIN DATA\n1, \"üks\"\n2, \"kaks\"\nEND DATA.\n\
+             SAVE OUTFILE='c.sav' /COMPRESSED.\nSAVE OUTFILE='u.sav' /UNCOMPRESSED.\n\
+             SAVE OUTFILE='z.sav' /ZCOMPRESSED.\nSAVE OUTFILE='d.zsav'.\n\
+             XSAVE OUTFILE='x.sav' /UNCOMPRESSED.\nEXECUTE.",
+            dir.display()
+        ),
+    );
+    for (file, magic, code) in [
+        ("c.sav", b"$FL2", 1),
+        ("u.sav", b"$FL2", 0),
+        ("z.sav", b"$FL3", 2),
+        ("d.zsav", b"$FL3", 2),
+        ("x.sav", b"$FL2", 0),
+    ] {
+        let bytes = std::fs::read(dir.join(file)).unwrap();
+        assert_eq!((&bytes[..4], bytes[72]), (&magic[..], code), "{file}");
+        let mut back = Engine::default();
+        run(
+            &mut back,
+            &format!("GET FILE='{}'.", dir.join(file).display()),
+        );
+        let data = back.dataset().unwrap();
+        assert_eq!(data.case_count(), 2, "{file}");
+        assert_eq!(
+            data.variable("s").unwrap().string().unwrap().get(0),
+            "üks",
+            "{file}"
+        );
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
