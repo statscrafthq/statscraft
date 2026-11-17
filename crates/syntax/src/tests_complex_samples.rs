@@ -344,7 +344,7 @@ fn csselect_parses_every_subcommand() {
     let c = select(
         "CSSELECT /PLAN FILE='mills.json' /CRITERIA STAGES=2 3 SEED=4242 /CLASSMISSING INCLUDE
            /DATA RENAMEVARS PRESORTED /SAMPLEFILE OUTFILE='drawn.sav' DROP=notes KEEP=ALL
-           /JOINTPROB OUTFILE='joint.sav' /PRINT CPS.",
+           /JOINTPROB OUTFILE='joint.sav' /SELECTRULE OUTFILE='rule.txt' /PRINT CPS.",
     );
     assert_eq!(c.plan, "mills.json");
     assert_eq!(c.stages, [2, 3]);
@@ -354,6 +354,7 @@ fn csselect_parses_every_subcommand() {
     assert_eq!(c.subsets.len(), 2);
     assert!(!c.subsets[0].0 && c.subsets[1].0);
     assert_eq!(c.jointprob.as_deref(), Some("joint.sav"));
+    assert_eq!(c.selectrule.as_deref(), Some("rule.txt"));
     assert!(!c.print_selection && c.print_cps);
     let d = select("CSSELECT /PLAN FILE='p' /CRITERIA SEED=RANDOM.");
     assert!(d.seed.is_none() && d.stages.is_empty() && d.print_selection);
@@ -371,9 +372,14 @@ fn csselect_rules_give_errors() {
             "CSSELECT /PLAN FILE='p' /CRITERIA SEED=0.",
             "positive whole number",
         ),
+        ("CSSELECT /PLAN FILE='p' /SELECTRULE.", "unexpected end"),
         (
-            "CSSELECT /PLAN FILE='p' /SELECTRULE OUTFILE='r.txt'.",
-            "not supported yet",
+            "CSSELECT /PLAN FILE='p' /SAMPLEFILE OUTFILE='x' /SELECTRULE OUTFILE='X'.",
+            "same file",
+        ),
+        (
+            "CSSELECT /PLAN FILE='p' /JOINTPROB OUTFILE='x' /SELECTRULE OUTFILE='x'.",
+            "same file",
         ),
         ("CSSELECT /PLAN FILE='p' /PRINT.", "needs SELECTION or CPS"),
         (
@@ -502,7 +508,7 @@ fn csglm_every_subcommand() {
            /EMMEANS
            /CRITERIA CILEVEL=90 DF=12 SINGULAR=1E-10 /STATISTICS PARAMETER SE DEFF DEFFSQRT
            /TEST TYPE=ADJF PADJUST=SEQSIDAK /DOMAIN VARIABLE=region('north')
-           /MISSING CLASSMISSING=INCLUDE /PRINT SUMMARY COVB LMATRIX /SAVE PRED(p) RESID.",
+           /MISSING CLASSMISSING=INCLUDE /PRINT SUMMARY COVB LMATRIX GEF /SAVE PRED(p) RESID.",
     );
     assert!(!m.logistic);
     assert_eq!(m.dependent, "yield");
@@ -537,7 +543,8 @@ fn csglm_every_subcommand() {
         Some(("region".to_string(), Value::String("north".into())))
     );
     assert!(m.include);
-    assert!(m.print.summary && m.print.covb && m.print.lmatrix && !m.print.sampleinfo);
+    assert!(m.print.summary && m.print.covb && m.print.lmatrix && m.print.gef);
+    assert!(!m.print.sampleinfo);
     assert_eq!(
         m.save,
         vec![
@@ -617,10 +624,7 @@ fn model_syntax_errors() {
             "CSGLM y BY a /PLAN FILE='p' /CUSTOM LMATRIX=a 1 -1; a 1 0 KMATRIX=0.",
             "1 values for 2 rows",
         ),
-        (
-            "CSGLM y BY a /PLAN FILE='p' /PRINT GEF.",
-            "not supported yet",
-        ),
+        ("CSGLM y BY a /PLAN FILE='p' /PRINT GEF GEF.", "only once"),
         (
             "CSGLM y BY a /PLAN FILE='p' /OUTFILE COVB='c.sav' CORB='d.sav'.",
             "one of COVB and CORB",
@@ -769,7 +773,6 @@ fn csordinal_syntax_errors() {
         ("/LINK LOGIT", "unexpected word LOGIT"),
         ("/LINK FUNCTION=PROBIT /LINK FUNCTION=LOGIT", "only once"),
         ("/CRITERIA METHOD=FISHER(-1)", "whole number"),
-        ("/PRINT GEF", "not supported yet"),
         ("/CUSTOM KMATRIX=1", "CSORDINAL CUSTOM needs LMATRIX="),
         ("/NONPARALLEL", "needs TEST, PARAMETER or COVB"),
         ("/NONPARALLEL TEST TEST", "only once"),

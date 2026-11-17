@@ -395,6 +395,79 @@ fn stages_run_one_at_a_time_give_the_same_weights() {
     assert!(error.contains("SampleWeightCumulative_1_"), "{error}");
 }
 
+/// The text of a file CSSELECT wrote in the folder of `data(folder)`.
+fn written(folder: &str, file: &str) -> String {
+    let dir =
+        std::env::temp_dir().join(format!("statscraft-cssel-{folder}-{}", std::process::id()));
+    std::fs::read_to_string(dir.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"))
+}
+
+/// The rule naming each selected unit by `parts` of its first case, the units joined by OR.
+fn expected_rule(units: &[Vec<(&str, u32)>]) -> String {
+    let clauses: Vec<String> = units
+        .iter()
+        .map(|parts| {
+            let inner: Vec<String> = parts
+                .iter()
+                .map(|(name, v)| format!("({name} EQ {v})"))
+                .collect();
+            format!("({})", inner.join(" AND "))
+        })
+        .collect();
+    clauses.join("\nOR ") + "\n"
+}
+
+#[test]
+fn selectrule_names_the_selected_clusters_of_a_two_stage_draw() {
+    // stage 2 draws trees without clusters, so the rule describes the orchards of stage 1
+    let source = format!(
+        "{}{TWO_STAGE}CSSELECT /PLAN FILE='two.json' /CRITERIA SEED=31 /SELECTRULE OUTFILE='rule.txt'.\n",
+        data("rule")
+    );
+    let (engine, _) = run(&source);
+    let first = column(&engine, "SampleWeightCumulative_1_");
+    let mut units: Vec<Vec<(&str, u32)>> = Vec::new();
+    for (case, (valley, orchard, _, _)) in frame().into_iter().enumerate() {
+        if first[case].is_some() && !units.iter().any(|u| u[1].1 == orchard) {
+            units.push(vec![("valley", valley), ("orchard", orchard)]);
+        }
+    }
+    assert_eq!(units.len(), 6);
+    assert_eq!(written("rule", "rule.txt"), expected_rule(&units));
+
+    // with a cluster in stage 2 too, the rule names the trees inside their orchards
+    let plan = "CSPLAN SAMPLE /PLAN FILE='both.json'
+       /DESIGN STRATA=valley CLUSTER=orchard /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=2
+       /DESIGN CLUSTER=tree /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=1.\n";
+    let source = format!(
+        "{}{plan}CSSELECT /PLAN FILE='both.json' /CRITERIA SEED=8 /SELECTRULE OUTFILE='rule.txt' /PRINT CPS.\n",
+        data("rule2")
+    );
+    let (engine, _) = run(&source);
+    let weight = column(&engine, "SampleWeight_Final_");
+    let units: Vec<Vec<(&str, u32)>> = frame()
+        .into_iter()
+        .enumerate()
+        .filter(|(case, _)| weight[*case].is_some())
+        .map(|(_, (valley, orchard, tree, _))| {
+            vec![("valley", valley), ("orchard", orchard), ("tree", tree)]
+        })
+        .collect();
+    assert_eq!(units.len(), 6);
+    assert_eq!(written("rule2", "rule.txt"), expected_rule(&units));
+
+    // a draw of cases without clusters has no rule: a warning and no file
+    let source = format!(
+        "{}CSPLAN SAMPLE /PLAN FILE='srs.json' /DESIGN STRATA=valley /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=2.
+         CSSELECT /PLAN FILE='srs.json' /CRITERIA SEED=5 /SELECTRULE OUTFILE='none.txt'.\n",
+        data("rule3")
+    );
+    let (engine, _) = run(&source);
+    assert!(engine.warnings().join("\n").contains("no SELECTRULE file"));
+    let dir = std::env::temp_dir().join(format!("statscraft-cssel-rule3-{}", std::process::id()));
+    assert!(!dir.join("none.txt").exists());
+}
+
 /// The total of yield estimated by CSDESCRIPTIVES from a drawn sample and the plan.
 fn estimated_total(plan: &str, seed: u32, folder: &str) -> f64 {
     let source = format!(

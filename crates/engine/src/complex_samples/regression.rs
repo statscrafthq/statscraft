@@ -48,6 +48,10 @@
 //! - CSORDINAL (the fit in `ordinal`): the design has its intercept only to find the redundant
 //!   columns; the K - 1 thresholds take its place and sit after the regression parameters, shown
 //!   first. Effects are tested on their regression parameters; the corrected model tests all.
+//! - PRINT GEF: L b is estimable when L = L H, H = (X'WX)^- X'WX, so the rows of H at the
+//!   columns that are not redundant span every estimable L; the table shows them transposed, a
+//!   column (L1, L2, ...) per such row. Logits repeat the block; CSORDINAL puts one per threshold
+//!   first, carrying minus the intercept's row on the redundant columns.
 //! - OUTFILE COVB / CORB writes RowType_, VarName_ and P1, P2, ... (one per parameter, in the
 //!   order of the Parameter Estimates, labelled with the parameter): rows EST, SE, SIG (of the
 //!   t test) and DF, then one COV or CORR row per parameter. MODEL / PARAMETER write our own
@@ -121,6 +125,59 @@ struct Wald {
     r: usize,
     /// The adjusted F and its d, when the SRS covariance is defined.
     adjusted: Option<(f64, f64)>,
+}
+
+/// The general form of the estimable functions of a model with H = (X'WX)^- X'WX: L b is
+/// estimable when L = L H, so every estimable L is a combination of the rows of H. The rows at
+/// the columns that are not redundant are a basis: row j is 1 at column j, 0 at the other such
+/// columns, and at a redundant column the weight of column j in it. Returns one row over the p
+/// parameters per free coefficient L1, L2, ... in column order.
+fn gef_basis(h: &Matrix, redundant: &[bool]) -> Matrix {
+    // factor columns give whole numbers; rounding residue goes
+    let snap = |v: f64| match v.round() {
+        r if (v - r).abs() <= 1e-9 => r + 0.0,
+        _ => v,
+    };
+    (0..h.len())
+        .filter(|&j| !redundant[j])
+        .map(|j| {
+            (0..h.len())
+                .map(|c| match redundant[c] {
+                    false => f64::from(u8::from(c == j)),
+                    true => snap(h[j][c]),
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// The General Estimable Function table: a row per parameter (in `order`), a column per free
+/// coefficient; a cell is the coefficient of the parameter as a combination of L1, L2, ...
+fn gef_table(
+    basis: &Matrix,
+    order: &[usize],
+    label: &dyn Fn(usize) -> String,
+    caption: String,
+) -> Table {
+    let mut cols = plain(&["Parameter"]);
+    cols.extend((1..=basis.len()).map(|k| (String::new(), format!("L{k}"))));
+    let out = order
+        .iter()
+        .map(|&a| {
+            let mut row = vec![text(label(a))];
+            row.extend(basis.iter().map(|l| Cell::Number(l[a])));
+            row
+        })
+        .collect();
+    table(
+        "General Estimable Function",
+        1,
+        cols,
+        out,
+        Some(format!(
+            "{caption} Each column is a free coefficient; a parameter's coefficient in any estimable function is the combination of them in its row."
+        )),
+    )
 }
 
 fn trace(m: &Matrix) -> f64 {
@@ -2560,6 +2617,38 @@ impl Engine {
             ));
         }
 
+        // General Estimable Function: logits block diagonal; with thresholds, moving one of them
+        // moves the intercept, so its free coefficient takes minus the intercept's row on the
+        // redundant columns (the model is threshold - x'b)
+        if c.print.gef {
+            let base = gef_basis(&h, &fit.redundant);
+            let basis: Matrix = if c.ordinal.is_some() {
+                let intercept_row = base.first().filter(|_| has_intercept_column);
+                let mut out: Matrix = (p..est.len())
+                    .map(|t| {
+                        let mut row = vec![0.0; est.len()];
+                        row[t] = 1.0;
+                        if let Some(r) = intercept_row {
+                            for j in 1..p {
+                                row[j] = -r[j] + 0.0;
+                            }
+                        }
+                        row
+                    })
+                    .collect();
+                let skip = usize::from(has_intercept_column);
+                out.extend(base.iter().skip(skip).map(|r| {
+                    let mut row = r.clone();
+                    row.resize(est.len(), 0.0);
+                    row
+                }));
+                out
+            } else {
+                blocks(&base)
+            };
+            tables.push(gef_table(&basis, &order, &param_label, caption.clone()));
+        }
+
         // L matrices
         if c.print.lmatrix {
             for (label, l) in &lmatrices {
@@ -2767,5 +2856,69 @@ impl Engine {
             }
         }
         Ok((tables, saved, cases, files))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_estimable_functions_of_a_factor_a_covariate_and_their_interaction() {
+        // (level 1..3, covariate, weight): two covariate values per level, uneven weights
+        let cases = [
+            (1, 2.0, 1.0),
+            (1, 5.0, 3.0),
+            (2, 1.0, 2.0),
+            (2, 4.0, 1.5),
+            (2, 6.0, 1.0),
+            (3, 3.0, 2.5),
+            (3, 7.0, 1.0),
+        ];
+        // columns: intercept, a1, a2, a3, x, a1*x, a2*x, a3*x
+        let x: Matrix = cases
+            .iter()
+            .map(|&(level, v, _)| {
+                let mut row = vec![1.0, 0.0, 0.0, 0.0, v, 0.0, 0.0, 0.0];
+                row[level] = 1.0;
+                row[4 + level] = v;
+                row
+            })
+            .collect();
+        let mut xwx = vec![vec![0.0; 8]; 8];
+        for (row, &(_, _, w)) in x.iter().zip(&cases) {
+            for i in 0..8 {
+                for j in 0..8 {
+                    xwx[i][j] += w * row[i] * row[j];
+                }
+            }
+        }
+        let (g, rank) = ginverse(&xwx, 1e-12);
+        assert_eq!(rank, 6);
+        let h = multiply(&g, &xwx);
+        let redundant: Vec<bool> = (0..8).map(|j| g[j][j] == 0.0).collect();
+        assert_eq!(
+            redundant,
+            [false, false, false, true, false, false, false, true]
+        );
+        let basis = gef_basis(&h, &redundant);
+        // a3 = intercept - a1 - a2 and a3*x = x - a1*x - a2*x, so a3 takes L1 - L2 - L3 and
+        // a3*x takes L4 - L5 - L6
+        let expected: Matrix = vec![
+            vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+            vec![0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0],
+            vec![0.0, 0.0, 1.0, -1.0, 0.0, 0.0, 0.0, 0.0],
+            vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0],
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, -1.0],
+        ];
+        assert_eq!(basis, expected);
+        // every row is estimable: L = L (X'WX)^- (X'WX)
+        for l in &basis {
+            for j in 0..8 {
+                let lh: f64 = (0..8).map(|i| l[i] * h[i][j]).sum();
+                assert!((lh - l[j]).abs() < 1e-9, "{l:?} column {j}: {lh}");
+            }
+        }
     }
 }

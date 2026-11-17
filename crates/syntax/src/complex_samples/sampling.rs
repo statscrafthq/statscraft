@@ -24,9 +24,8 @@
 //!   the stage number, such as InclusionProbability_1_.
 //! - CSSELECT: PLAN FILE (required), CRITERIA STAGES=consecutive stages SEED=RANDOM|n,
 //!   CLASSMISSING, DATA RENAMEVARS PRESORTED, SAMPLEFILE OUTFILE= KEEP= DROP=, JOINTPROB
-//!   OUTFILE=, SELECTRULE OUTFILE= (not supported yet) and PRINT SELECTION CPS. Each subcommand
-//!   once, none empty, a keyword once within its subcommand; two subcommands cannot write the
-//!   same file.
+//!   OUTFILE=, SELECTRULE OUTFILE= and PRINT SELECTION CPS. Each subcommand once, none empty, a
+//!   keyword once within its subcommand; two subcommands cannot write the same file.
 
 use super::{
     CsEstimator, CsRate, CsStage, Csplan, eat_assignment, error, once, plan_file,
@@ -517,6 +516,8 @@ pub struct Csselect {
     /// SAMPLEFILE KEEP (true) and DROP (false) in their order.
     pub subsets: Vec<(bool, Vec<VarItem>)>,
     pub jointprob: Option<String>,
+    /// SELECTRULE OUTFILE: the text file of the rule that picks the selected units.
+    pub selectrule: Option<String>,
     pub print_selection: bool,
     pub print_cps: bool,
 }
@@ -536,6 +537,7 @@ pub(crate) fn csselect(p: &mut Parser) -> PResult<Command> {
         samplefile: None,
         subsets: Vec::new(),
         jointprob: None,
+        selectrule: None,
         print_selection: true,
         print_cps: false,
     };
@@ -628,11 +630,9 @@ pub(crate) fn csselect(p: &mut Parser) -> PResult<Command> {
             once(p, start, &mut seen, "JOINTPROB")?;
             c.jointprob = Some(outfile(p)?);
         } else if p.eat_keyword("SELECTRULE") {
-            return Err(error(
-                p,
-                start,
-                "SELECTRULE (a text rule describing the selected units) is not supported yet",
-            ));
+            once(p, start, &mut seen, "SELECTRULE")?;
+            require_assignment(p, "OUTFILE")?;
+            c.selectrule = Some(p.file("a file name")?);
         } else if p.eat_keyword("PRINT") {
             once(p, start, &mut seen, "PRINT")?;
             if at_end(p) {
@@ -660,14 +660,23 @@ pub(crate) fn csselect(p: &mut Parser) -> PResult<Command> {
     if c.plan.is_empty() {
         return Err(error(p, end, "CSSELECT needs PLAN FILE='name'"));
     }
-    if let (Some(a), Some(b)) = (&c.samplefile, &c.jointprob)
-        && a.eq_ignore_ascii_case(b)
-    {
-        return Err(error(
-            p,
-            end,
-            "SAMPLEFILE and JOINTPROB cannot write the same file",
-        ));
+    let files = [
+        ("SAMPLEFILE", &c.samplefile),
+        ("JOINTPROB", &c.jointprob),
+        ("SELECTRULE", &c.selectrule),
+    ];
+    for (i, (a, fa)) in files.iter().enumerate() {
+        for (b, fb) in &files[i + 1..] {
+            if let (Some(x), Some(y)) = (fa, fb)
+                && x.eq_ignore_ascii_case(y)
+            {
+                return Err(error(
+                    p,
+                    end,
+                    format!("{a} and {b} cannot write the same file"),
+                ));
+            }
+        }
     }
     Ok(Command::Csselect(Box::new(c)))
 }

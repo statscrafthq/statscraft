@@ -3709,7 +3709,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "CSSELECT /PLAN FILE='file' [/CRITERIA [STAGES=n [n [n]]] [SEED=RANDOM | n]]\n\
                  \x20  [/CLASSMISSING EXCLUDE | INCLUDE] [/DATA [RENAMEVARS] [PRESORTED]]\n\
                  \x20  [/SAMPLEFILE OUTFILE='file' | dataset [KEEP=vars] [DROP=vars]]\n\
-                 \x20  [/JOINTPROB OUTFILE='file'] [/PRINT [SELECTION] [CPS]].\n\
+                 \x20  [/JOINTPROB OUTFILE='file'] [/SELECTRULE OUTFILE='file'] [/PRINT [SELECTION] [CPS]].\n\
                  The active dataset is the frame. Stage by stage, the units (cases, or the combinations of\n\
                  the CLUSTER values) are drawn inside each stratum; a later stage draws only inside the units\n\
                  the earlier one selected. STAGES runs part of the plan: a later stage then needs the\n\
@@ -3737,7 +3737,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  or else the plan's name with the extension .joint.sav. It holds the first-stage strata and\n\
                  clusters, Unit_No_ (the unit's number in its stratum) and Joint_Prob_k_ for k = 1, 2 and\n\
                  so on (the joint probability with unit k; the inclusion probability on the diagonal); with\n\
-                 other plans JOINTPROB is ignored with a warning. Not supported yet: SELECTRULE.",
+                 other plans JOINTPROB is ignored with a warning.\n\
+                 SELECTRULE OUTFILE writes a text file (replacing one of that name) with a condition that\n\
+                 is true for the units drawn by the last stage run that has clusters, ready to turn into a\n\
+                 SELECT IF or a database query for the next stage. Each unit is a line of comparisons\n\
+                 (name EQ value) on the strata and clusters of its stage and of the stages above it, joined\n\
+                 by AND; the lines are joined by OR; string values are quoted. When no stage run has\n\
+                 clusters, the cases themselves are the units and nothing names them, so no file is\n\
+                 written and a warning says so.",
         example: "CSSELECT /PLAN FILE='orchards_draw.json' /CRITERIA SEED=4711 /SAMPLEFILE OUTFILE='orchards_sample.sav' DROP=notes /PRINT SELECTION CPS.",
         parse: complex_samples::csselect,
     },
@@ -3876,7 +3883,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
                  \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
                  \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [LMATRIX] [COVB] [CORB] [NONE]]\n\
+                 \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [GEF] [LMATRIX] [COVB] [CORB] [NONE]]\n\
                  \x20  [/SAVE [PRED[(name)]] [RESID[(name)]]]\n\
                  \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file' | PARAMETER='file']].\n\
                  The plan written by CSPLAN gives the weight and the design; WEIGHT and SPLIT FILE do not\n\
@@ -3901,7 +3908,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  labelled with its name): rows EST, SE, SIG (of the t test) and DF, then a COV row per\n\
                  parameter; CORB puts CORR rows of correlations there instead. MODEL writes the estimates\n\
                  and their covariance matrix to a JSON file of Statscraft's own, PARAMETER the estimates\n\
-                 alone. JOINTPROB works as in CSDESCRIPTIVES. Not supported yet: PRINT GEF.",
+                 alone. JOINTPROB works as in CSDESCRIPTIVES. PRINT GEF writes every estimable function\n\
+                 as a combination of free coefficients: a row per parameter and a column per free\n\
+                 coefficient L1, L2, ... (one per parameter that is not redundant); a redundant parameter's\n\
+                 row says how its coefficient follows from the free ones. Any L that gives every parameter\n\
+                 its row's combination of the free coefficients is estimable, and every estimable L has\n\
+                 that form.",
         example: "CSGLM yield BY soil WITH rainfall /PLAN FILE='farms_plan.json' /STATISTICS PARAMETER SE CINTERVAL DEFF /EMMEANS TABLES=soil COMPARE=soil CONTRAST=REPEATED.",
         parse: complex_samples::csglm,
     },
@@ -3919,8 +3931,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
                  \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
                  \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]\n\
-                 \x20          [CLASSTABLE] [NONE]]\n\
+                 \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [HISTORY[(n)]] [GEF] [LMATRIX] [COVB]\n\
+                 \x20          [CORB] [CLASSTABLE] [NONE]]\n\
                  \x20  [/SAVE [PREDPROB[(root[:25])]] [PREDVAL[(name)]]]\n\
                  \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file' | PARAMETER='file']].\n\
                  Each category of the dependent variable but the reference one (the highest unless the\n\
@@ -3939,7 +3951,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  covariates at their weighted means by default). CLASSTABLE puts each case in its most\n\
                  probable category and sums the weights. Without STATISTICS no parameter table is shown.\n\
                  OUTFILE works as in CSGLM, the parameters of every logit in turn. JOINTPROB works as in\n\
-                 CSDESCRIPTIVES. Not supported yet: PRINT GEF.",
+                 CSDESCRIPTIVES. PRINT GEF works as in CSGLM, with a separate set of free coefficients for\n\
+                 every logit.",
         example: "CSLOGISTIC irrigated (LOW) BY soil WITH rainfall /PLAN FILE='farms_plan.json' /STATISTICS PARAMETER EXP SE CINTERVAL /ODDSRATIOS FACTOR=[soil(LOW)] /PRINT SUMMARY CLASSTABLE.",
         parse: complex_samples::cslogistic,
     },
@@ -3955,8 +3968,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
                  \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
                  \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]\n\
-                 \x20          [CLASSTABLE] [NONE]]\n\
+                 \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [HISTORY[(n)]] [GEF] [LMATRIX] [COVB]\n\
+                 \x20          [CORB] [CLASSTABLE] [NONE]]\n\
                  \x20  [/CUSTOM [LABEL='text'] LMATRIX=[thresholds] effect coefficients ... [; ...]\n\
                  \x20           | ALL coefficients [; ...] [KMATRIX=value [; value ...]]] ...\n\
                  \x20  [/ODDSRATIOS FACTOR=[factor(LOW | HIGH | value) ...] | COVARIATE=[covariate(changes) ...]\n\
@@ -3995,7 +4008,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  names: CumulativeProbability_k, PredictedProbability_k, PredictedValue,\n\
                  PredictedValueProbability, ObservedValueProbability, with a suffix when taken. OUTFILE\n\
                  works as in CSGLM, thresholds first; the model file also names the link. JOINTPROB works\n\
-                 as in CSDESCRIPTIVES. Not supported yet: PRINT GEF.",
+                 as in CSDESCRIPTIVES. PRINT GEF works as in CSGLM with a free coefficient per threshold\n\
+                 first: since moving every threshold moves the intercept, each threshold's coefficient\n\
+                 comes with minus the intercept's share of the redundant columns.",
         example: "CSORDINAL rating BY region WITH age /PLAN FILE='poll_plan.json' /LINK FUNCTION=PROBIT /STATISTICS PARAMETER SE CINTERVAL TTEST /PRINT SUMMARY HISTORY.",
         parse: complex_samples::csordinal,
     },

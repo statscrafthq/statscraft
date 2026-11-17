@@ -39,6 +39,10 @@
 //!   is read or counted, and it must then be above 0.
 //! - The joint probabilities file is named after the plan with the extension joint.sav unless
 //!   JOINTPROB names one.
+//! - SELECTRULE describes the units of the last stage run that has clusters: per unit the
+//!   comparisons (name EQ value) on the strata and clusters of that stage and the stages above it
+//!   joined by AND, the units joined by OR, one per line. Without such a stage nothing names the
+//!   selected cases, so no file is written and a warning says so.
 
 use super::{PlanFile, PlanRate, PlanSampling, RateSource, key_part, keys_of, numbers};
 use crate::crosstabs::Key;
@@ -438,6 +442,8 @@ impl Engine {
         let mut columns: Vec<(String, Vec<Option<f64>>, &'static str)> = Vec::new();
         let mut tables = Vec::new();
         let mut hits_last = vec![1u32; cases];
+        // SELECTRULE: the last stage run that has clusters, and a case of each unit it selected
+        let mut rule_units: Option<(usize, Vec<usize>)> = None;
         for (i, s) in range.clone().enumerate() {
             let d = stage_sampling(s);
             let method = method_of(d);
@@ -493,6 +499,7 @@ impl Engine {
             let mut values: Vec<Vec<Option<f64>>> = vec![vec![None; cases]; 7];
             let mut hits_case = vec![0u32; cases];
             let mut rows = Vec::new();
+            let mut chosen = Vec::new();
             let mut capped = 0;
             let (source, is_size) = &sources[i];
             for (first, units) in &strata {
@@ -605,6 +612,9 @@ impl Engine {
                     (hits, vec![inclprob; big_n], vec![bn / nf; big_n])
                 };
                 for (k, (&u, &h)) in units.iter().zip(&hits).enumerate() {
+                    if h > 0 {
+                        chosen.push(unit_cases[u][0]);
+                    }
                     for &case in &unit_cases[u] {
                         if h == 0 {
                             alive[case] = false;
@@ -662,6 +672,9 @@ impl Engine {
                         kind.format(),
                     ));
                 }
+            }
+            if !cluster_keys.is_empty() {
+                rule_units = Some((s, chosen));
             }
             parent = unit_key;
             if s == last {
@@ -721,6 +734,33 @@ impl Engine {
                 Some((file.clone(), out))
             }
             None => None,
+        };
+        // SELECTRULE: the text of the rule, None when there is nothing to write
+        let rule = match (&c.selectrule, &rule_units) {
+            (None, _) => None,
+            (Some(_), None) => {
+                notes.push(
+                    "CSSELECT writes no SELECTRULE file: no stage run has clusters, so no variable tells the selected cases apart"
+                        .to_string(),
+                );
+                None
+            }
+            (Some(_), Some((s, chosen))) => {
+                let mut columns = Vec::new();
+                for (t, stage) in plan.stages[..=*s].iter().enumerate() {
+                    let names = stage.strata.iter().chain(&stage.clusters);
+                    for (name, column) in names.zip(keys[t].0.iter().chain(&keys[t].1)) {
+                        columns.push((data.variable(name)?.name().to_string(), column));
+                    }
+                }
+                if chosen.is_empty() {
+                    notes.push(format!(
+                        "CSSELECT selected no unit in stage {}, so the SELECTRULE file is empty",
+                        s + 1
+                    ));
+                }
+                Some(selection_rule(&columns, chosen))
+            }
         };
         let selected = alive.iter().filter(|a| **a).count();
         let mut written = selected;
@@ -812,6 +852,17 @@ impl Engine {
         if let Some((file, out)) = joint_out {
             self.write_data_file(&file, out)?;
         }
+        if let (Some(file), Some(rule)) = (&c.selectrule, rule)
+            && !self.dry_run
+        {
+            let path = self.path(file);
+            std::fs::write(&path, rule).map_err(|e| {
+                Error(format!(
+                    "CSSELECT cannot write the SELECTRULE file {}: {e}",
+                    path.display()
+                ))
+            })?;
+        }
         if c.print_cps {
             let mut rows = vec![
                 vec![
@@ -844,6 +895,37 @@ impl Engine {
         }
         Ok(tables)
     }
+}
+
+/// The rule that picks the units at `cases` (one case of each): per unit the comparisons
+/// `(name EQ value)` of every column joined by AND, the units joined by OR, one per line.
+fn selection_rule(columns: &[(String, &Vec<Option<Key>>)], cases: &[usize]) -> String {
+    let clauses: Vec<String> = cases
+        .iter()
+        .map(|&case| {
+            let parts: Vec<String> = columns
+                .iter()
+                .map(|(name, keys)| {
+                    let value = match keys[case].as_ref().expect("in the frame") {
+                        Key::Number(n) => n.to_string(),
+                        Key::Text(t) => format!("'{}'", t.trim_end().replace('\'', "''")),
+                    };
+                    format!("({name} EQ {value})")
+                })
+                .collect();
+            let clause = parts.join(" AND ");
+            if cases.len() > 1 && parts.len() > 1 {
+                format!("({clause})")
+            } else {
+                clause
+            }
+        })
+        .collect();
+    let mut out = clauses.join("\nOR ");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
 }
 
 #[cfg(test)]
@@ -918,6 +1000,32 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_selection_rule_compares_each_column_and_joins_the_units_by_or() {
+        let region = vec![
+            Some(Key::Text("north  ".into())),
+            Some(Key::Text("o'hara".into())),
+        ];
+        let block = vec![Some(Key::Number(2.0)), Some(Key::Number(-0.5))];
+        let columns = [
+            ("Region".to_string(), &region),
+            ("block".to_string(), &block),
+        ];
+        assert_eq!(
+            selection_rule(&columns, &[0, 1]),
+            "((Region EQ 'north') AND (block EQ 2))\nOR ((Region EQ 'o''hara') AND (block EQ -0.5))\n"
+        );
+        assert_eq!(
+            selection_rule(&columns[1..], &[1, 0]),
+            "(block EQ -0.5)\nOR (block EQ 2)\n"
+        );
+        assert_eq!(
+            selection_rule(&columns, &[1]),
+            "(Region EQ 'o''hara') AND (block EQ -0.5)\n"
+        );
+        assert_eq!(selection_rule(&columns, &[]), "");
     }
 
     #[test]

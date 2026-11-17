@@ -1207,7 +1207,7 @@ Not supported yet: pooled results of the other procedures (GENLIN and the other 
 - **PPS_SAMPFORD** gives up after a million tries without a sample free of repeats (possible when a unit's n p_i is very close to 1) and suggests PPS_WOR.
 - **The joint probabilities file** is written when the first stage is run with PPS_WOR, PPS_BREWER, PPS_MURTHY or PPS_SAMPFORD without ESTIMATION=WR, to JOINTPROB OUTFILE or else next to the plan, named after it with the extension `.joint.sav` (the manual says only that the name follows the plan's with another extension). It holds the first-stage strata and clusters, Unit_No_ and Joint_Prob_1_, Joint_Prob_2_, ... with one row per selected unit, in the manual's layout; a stratum where every unit is taken has joint probabilities of 1. JOINTPROB with another plan is ignored with a warning, as the manual says.
 - **Beyond the documentation:** subcommand names and keywords other than the method names may be shortened as elsewhere in Statscraft.
-- Not supported yet: SELECTRULE.
+- **SELECTRULE.** The manual says only that the file holds a rule describing the selected units in a generic notation of comparisons joined by AND. Statscraft describes the units of the last stage run that has clusters, as those are what the next stage of a staged extraction works inside: per unit the comparisons `(name EQ value)` on the strata and clusters of that stage and of every stage above it (so cluster codes reused across strata stay apart), joined by AND; the units are joined by OR, one per line, each in parentheses when there are several. Numbers are written in full, strings in single quotes with an inner quote doubled. A unit drawn several times with replacement appears once. When no stage run has clusters, the units are cases that no variable names, so no file is written and a warning says so; a stage that draws no unit (a rate rounding to 0 everywhere) writes an empty file with a warning.
 
 ### Complex samples models: CSGLM and CSLOGISTIC
 
@@ -1222,7 +1222,8 @@ Not supported yet: pooled results of the other procedures (GENLIN and the other 
 - **OUTFILE.** The manual names what the COVB and CORB files hold but not their layout, so they take the layout the manual gives GENLIN for its matching files: the string variables RowType_ and VarName_, then P1, P2, ... with one variable per row of the Parameter Estimates table, in its order, each labelled with the parameter's name. The rows are EST (the estimates), SE, SIG (the two-sided p value of the t test) and DF (the design df, or CRITERIA DF), then one row per parameter, COV or CORR, with VarName_ P1, P2, .... The intercept is written even under SHOW=NO, so the columns stay those of the model. A redundant parameter keeps its column with the estimate 0; its other values and its matrix row and column are system-missing. The dataset form needs a name made by DATASET DECLARE (or DATASET NAME) beforehand, as with AGGREGATE OUTFILE. MODEL and PARAMETER write a small JSON file of Statscraft's own instead of the XML the manual describes (`"format": "statscraft-cs-model"`, `"version": 1`): the command, the plan file, the dependent variable, the factors, the covariates, the model terms, the df, and each parameter with its name, estimate and whether it is redundant; CSLOGISTIC and CSORDINAL add the categories of the dependent in their order, CSLOGISTIC the reference category, CSORDINAL the link. MODEL adds the covariance matrix over the same parameters (null for redundant ones); PARAMETER leaves it out.
 - **Beyond the documentation:** keywords may be shortened as elsewhere in Statscraft, although the manual asks for them in full.
 - **JOINTPROB and UNEQUAL_WOR** work as in CSDESCRIPTIVES.
-- Not supported yet: PRINT GEF, and the modified estimates of marginal means that skip empty cells (a mean that is not estimable is left empty). The check for separation looks for complete separation only.
+- **PRINT GEF.** The manual names the table without describing it. The General Estimable Function has a row per parameter, in the order of the Parameter Estimates, and a column per free coefficient L1, L2, ..., one per parameter that is not redundant, in that order; the cells are the rows of (X'WX)^- X'WX at those parameters, transposed, so a redundant parameter's row shows how its coefficient follows from the free ones (with a factor of three levels, the last level's coefficient is L1 - L2 - L3). CSLOGISTIC with several logits repeats the free coefficients for every logit. The intercept stays in the table under SHOW=NO, as in the L matrices.
+- Not supported yet: the modified estimates of marginal means that skip empty cells (a mean that is not estimable is left empty). The check for separation looks for complete separation only.
 
 ### Complex samples ordinal regression: CSORDINAL
 
@@ -1236,7 +1237,7 @@ Not supported yet: pooled results of the other procedures (GENLIN and the other 
 - **Beyond the documentation:** keywords may be shortened as elsewhere in Statscraft, although the manual asks for them in full.
 - **OUTFILE** works as in CSGLM and CSLOGISTIC; the thresholds come first, as in the tables, and the model file also names the link and the categories in their order.
 - **JOINTPROB and UNEQUAL_WOR** work as in CSDESCRIPTIVES.
-- Not supported yet: PRINT GEF; it stops with an error naming it.
+- **PRINT GEF** has a free coefficient per threshold first, then one per regression parameter that is not redundant. The manual does not say how thresholds enter it. Moving every threshold by the same amount moves the intercept by minus that amount (the model is threshold - x'b), so each threshold's column carries minus the intercept's part of every redundant column, the same rule that decides whether a CUSTOM row with thresholds is estimable.
 
 ### Complex samples Cox regression: CSCOXREG
 
@@ -1418,7 +1419,7 @@ Where the documentation is silent:
   - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - LOGLINEAR, the older loglinear command with contrasts, is not supported; GENLOG and HILOGLINEAR cover its models.
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
-  - CSSELECT has no SELECTRULE; CSGLM, CSLOGISTIC and CSORDINAL have no PRINT GEF; CSCOXREG has no ID (several records per subject, so no aggregated residuals), time program covariates, piecewise PATTERN paths, TESTASSUMPTIONS or PRINT GEF.
+  - CSCOXREG has no ID (several records per subject, so no aggregated residuals), time program covariates, piecewise PATTERN paths, TESTASSUMPTIONS or PRINT GEF.
   - UNIANOVA and GLM have no RANDOM, TEST, ROBUST, OUTFILE, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF and TEST(LMATRIX) or the heteroskedasticity tests, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).

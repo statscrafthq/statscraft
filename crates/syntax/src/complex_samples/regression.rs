@@ -184,6 +184,8 @@ pub struct CsModelPrint {
     pub sampleinfo: bool,
     pub variableinfo: bool,
     pub summary: bool,
+    /// GEF: the general form of the estimable functions.
+    pub gef: bool,
     /// HISTORY(n): every nth iteration.
     pub history: Option<u32>,
     pub lmatrix: bool,
@@ -805,7 +807,6 @@ fn print(p: &mut Parser, logistic: bool) -> PResult<CsModelPrint> {
         return Err(error(p, start, "PRINT needs at least one keyword"));
     }
     while !at_end(p) {
-        let at = p.pos;
         if flag(p, &mut seen, "SAMPLEINFO")? {
             out.sampleinfo = true;
         } else if flag(p, &mut seen, "VARIABLEINFO")? {
@@ -828,12 +829,8 @@ fn print(p: &mut Parser, logistic: bool) -> PResult<CsModelPrint> {
                 p.expect(Punct::RParen)?;
             }
             out.history = Some(every);
-        } else if p.eat_keyword("GEF") {
-            return Err(error(
-                p,
-                at,
-                "PRINT GEF (the general estimable function) is not supported yet",
-            ));
+        } else if flag(p, &mut seen, "GEF")? {
+            out.gef = true;
         } else if logistic {
             return Err(p.unexpected(&[
                 "SAMPLEINFO",

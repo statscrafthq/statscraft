@@ -675,6 +675,84 @@ fn cslogistic_multinomial_with_custom_tests_and_saved_probabilities() {
     assert_eq!(column(&engine, "pp_1_1"), probs[0]);
 }
 
+/// The General Estimable Function as (row label, coefficients of L1, L2, ...).
+fn gef_rows(table: &Table) -> Vec<(String, Vec<f64>)> {
+    assert_eq!(table.title, "General Estimable Function");
+    table
+        .rows
+        .iter()
+        .map(|row| {
+            let Cell::Text(label) = &row[0] else {
+                panic!("{row:?}")
+            };
+            let values = row[1..]
+                .iter()
+                .map(|c| match c {
+                    Cell::Number(n) => *n,
+                    other => panic!("{other:?}"),
+                })
+                .collect();
+            (label.clone(), values)
+        })
+        .collect()
+}
+
+fn expect_gef(table: &Table, expected: &[(&str, &[f64])]) {
+    let expected: Vec<(String, Vec<f64>)> = expected
+        .iter()
+        .map(|(l, v)| (l.to_string(), v.to_vec()))
+        .collect();
+    assert_eq!(gef_rows(table), expected);
+}
+
+#[test]
+fn print_gef_gives_the_general_form_of_the_estimable_functions() {
+    // heat has three levels: [heat=3] is the intercept minus the other two, and its slope on
+    // members is the members slope minus the other two
+    let source = format!(
+        "{}CSGLM food BY heat WITH members /PLAN FILE='wr.json'
+           /MODEL heat members heat*members /PRINT GEF.
+         CSLOGISTIC online BY town WITH members /PLAN FILE='wr.json' /PRINT GEF.
+         {ORDINAL} /PRINT GEF.\n",
+        data("gef")
+    );
+    let (_, tables) = run(&source);
+    expect_gef(
+        find(&tables, "General Estimable Function", 0),
+        &[
+            ("Intercept", &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[heat=1]", &[0.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[heat=2]", &[0.0, 0.0, 1.0, 0.0, 0.0, 0.0]),
+            ("[heat=3]", &[1.0, -1.0, -1.0, 0.0, 0.0, 0.0]),
+            ("members", &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0]),
+            ("[heat=1] * members", &[0.0, 0.0, 0.0, 0.0, 1.0, 0.0]),
+            ("[heat=2] * members", &[0.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
+            ("[heat=3] * members", &[0.0, 0.0, 0.0, 1.0, -1.0, -1.0]),
+        ],
+    );
+    expect_gef(
+        find(&tables, "General Estimable Function", 1),
+        &[
+            ("Intercept", &[1.0, 0.0, 0.0]),
+            ("[town=1]", &[0.0, 1.0, 0.0]),
+            ("[town=2]", &[1.0, -1.0, 0.0]),
+            ("members", &[0.0, 0.0, 1.0]),
+        ],
+    );
+    // the model is threshold - x'b, so a threshold's coefficient goes with minus the intercept's
+    // part of [town=2]
+    expect_gef(
+        find(&tables, "General Estimable Function", 2),
+        &[
+            ("Threshold [heat=1]", &[1.0, 0.0, 0.0, 0.0]),
+            ("Threshold [heat=2]", &[0.0, 1.0, 0.0, 0.0]),
+            ("[town=1]", &[0.0, 0.0, 1.0, 0.0]),
+            ("[town=2]", &[-1.0, -1.0, -1.0, 0.0]),
+            ("members", &[0.0, 0.0, 0.0, 1.0]),
+        ],
+    );
+}
+
 #[test]
 fn model_errors() {
     let d = data("errors");
