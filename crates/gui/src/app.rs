@@ -36,7 +36,7 @@ use crate::nptests_dialog::{NpKind, Nptests};
 use crate::output;
 use crate::output_view;
 use crate::power_dialog::{POWER_MENU, PowerAnalysis};
-use crate::settings::Settings;
+use crate::settings::{Settings, usable_position, usable_size};
 use crate::settings_window::{self, Section};
 use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliability, numeric};
 use crate::stats_dialogs_view;
@@ -3796,9 +3796,12 @@ impl App {
                 pressed,
             )
         });
+        // a window not shown yet or minimized reports a tiny size or an odd place: kept as it was
+        let inner = inner.filter(|r| usable_size([r.width(), r.height()]));
+        let outer = outer.filter(|r| inner.is_some() && usable_position([r.min.x, r.min.y]));
         if let Some(w) = self.windows.get_mut(id) {
-            w.position = outer.map(|r| r.min);
-            w.size = inner.map(|r| r.size());
+            w.position = outer.map(|r| r.min).or(w.position);
+            w.size = inner.map(|r| r.size()).or(w.size);
         }
         if focused == Some(true) {
             self.windows.focused = Some(id);

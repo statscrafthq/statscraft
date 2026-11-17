@@ -150,7 +150,20 @@ impl Settings {
         }
         std::fs::write(file, self.text())
     }
+}
 
+/// A window size worth opening with again: at least 300 by 200 points and not absurdly large. A
+/// window that was never shown (or minimized) reports tiny sizes such as 0 by 0 or 16 by 39.
+pub fn usable_size([w, h]: [f32; 2]) -> bool {
+    (300.0..=20_000.0).contains(&w) && (200.0..=20_000.0).contains(&h)
+}
+
+/// A window position worth opening at again; a minimized window on Windows reports -32000.
+pub fn usable_position([x, y]: [f32; 2]) -> bool {
+    (-10_000.0..=20_000.0).contains(&x) && (-10_000.0..=20_000.0).contains(&y)
+}
+
+impl Settings {
     /// The size and position a window of a kind (data, syntax or output) opens with.
     pub fn window(&self, kind: &str) -> (Option<[f32; 2]>, Option<[f32; 2]>) {
         match kind {
@@ -191,12 +204,17 @@ impl Settings {
         for line in text.lines() {
             let (key, rest) = line.split_once(' ').unwrap_or((line, ""));
             match key {
-                "size" => settings.size = pair(rest),
-                "position" => settings.position = pair(rest),
-                "syntax-size" => settings.syntax_size = pair(rest),
-                "syntax-position" => settings.syntax_position = pair(rest),
-                "output-size" => settings.output_size = pair(rest),
-                "output-position" => settings.output_position = pair(rest),
+                // a size or position no window can usefully have is forgotten
+                "size" => settings.size = pair(rest).filter(|&s| usable_size(s)),
+                "position" => settings.position = pair(rest).filter(|&p| usable_position(p)),
+                "syntax-size" => settings.syntax_size = pair(rest).filter(|&s| usable_size(s)),
+                "syntax-position" => {
+                    settings.syntax_position = pair(rest).filter(|&p| usable_position(p))
+                }
+                "output-size" => settings.output_size = pair(rest).filter(|&s| usable_size(s)),
+                "output-position" => {
+                    settings.output_position = pair(rest).filter(|&p| usable_position(p))
+                }
                 "paper" => settings.paper_follows_system = rest == "system",
                 "theme" => settings.theme = rest.to_string(),
                 "wrap" => settings.wrap_off = rest == "off",
@@ -515,6 +533,19 @@ mod tests {
         assert_eq!(settings.recent[0], absolute("/data/f5.sav"));
         assert_eq!(settings.recent[1], absolute("/data/f11.sav"));
         assert_eq!(Settings::parse(&settings.text()), settings);
+        // a window that was never shown, or a minimized one, is not remembered
+        let tiny = Settings::parse(
+            "size 0 0\nposition 1 1\nsyntax-size 16 39\noutput-position -32000 -32000\n",
+        );
+        assert_eq!(tiny.size, None);
+        assert_eq!(tiny.syntax_size, None);
+        assert_eq!(tiny.position, Some([1.0, 1.0]));
+        assert_eq!(tiny.output_position, None);
+        let fine = Settings::parse("size 1280 820\nposition 40 30\n");
+        assert_eq!(
+            (fine.size, fine.position),
+            (Some([1280.0, 820.0]), Some([40.0, 30.0]))
+        );
         // broken or unknown lines are skipped
         let read = Settings::parse(
             "size 10\nposition a b\ncolour red\nfolder \nrecent /x.sps\nupdates maybe\n",
