@@ -283,11 +283,11 @@ pub(crate) fn select_if(p: &mut Parser) -> PResult<Command> {
 }
 
 fn recode_mapping(p: &mut Parser) -> PResult<RecodeMapping> {
-    if p.at_keyword("CONVERT") {
-        return Err(SyntaxError::new(
-            p.span(),
-            "CONVERT in RECODE is not supported yet",
-        ));
+    if p.eat_keyword("CONVERT") {
+        return Ok(RecodeMapping {
+            inputs: vec![RecodeInput::Convert],
+            output: RecodeOutput::Sysmis,
+        });
     }
     let mut inputs = Vec::new();
     while !p.at(Punct::Eq) {

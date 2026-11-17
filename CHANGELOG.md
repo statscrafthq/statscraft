@@ -4,6 +4,7 @@
 
 - SAVE and XSAVE write the compression asked for: /UNCOMPRESSED works now, and /ZCOMPRESSED gives zlib blocks whatever the file is named (before, only a .zsav name did).
 - CTABLES SEMEAN with fractional weights divides by the cell's weight rounded to a whole number, as a standard error does under Weights and Rounding (and as MEAN.SE already did).
+- RECODE (CONVERT): strings that read as numbers become those numbers at CONVERT's place among the specifications, blanks system-missing, other strings go on to the specifications after it.
 - CROSSTABS /STATISTICS=ALL: every statistic, with CMH testing the common odds ratio against 1.
 - CROSSTABS /STATISTICS=CMH(value): Breslow-Day and Tarone tests of homogeneity, Cochran and Mantel-Haenszel tests of conditional independence, and the Mantel-Haenszel common odds ratio with its 95% interval, over the layers of 2 x 2 tables.
 - CROSSTABS /STATISTICS=D (Somers' d, symmetric and directional) and ETA (numeric variables) in the Directional Measures table.

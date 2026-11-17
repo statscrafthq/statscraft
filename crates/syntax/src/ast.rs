@@ -1707,6 +1707,10 @@ pub enum RecodeInput {
     Missing,
     Sysmis,
     Else,
+    /// `(CONVERT)`: a string that reads as a number becomes that number, a blank one
+    /// system-missing; any other string goes on to the next specification. Its mapping's output
+    /// is SYSMIS, which a blank gets.
+    Convert,
 }
 
 #[derive(Debug, Clone, PartialEq)]

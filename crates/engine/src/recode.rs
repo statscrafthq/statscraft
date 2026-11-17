@@ -29,7 +29,7 @@ fn check_inputs<'a>(
     for input in inputs {
         let for_strings = match input {
             RecodeInput::Else | RecodeInput::Missing => continue,
-            RecodeInput::Value(Value::String(_)) => true,
+            RecodeInput::Value(Value::String(_)) | RecodeInput::Convert => true,
             RecodeInput::Value(Value::Number(_)) | RecodeInput::Range(..) | RecodeInput::Sysmis => {
                 false
             }
@@ -73,9 +73,19 @@ fn matches(input: &RecodeInput, variable: &Variable, values: Values, case: usize
             RecodeInput::Else => true,
             RecodeInput::Missing => variable.is_user_missing_str(values.get(case)),
             RecodeInput::Value(Value::String(s)) => s.trim_end_matches(' ') == values.get(case),
+            RecodeInput::Convert => {
+                let text = values.get(case).trim();
+                text.is_empty() || converted(text).is_some()
+            }
             _ => false,
         },
     }
+}
+
+/// A string read as a number in the F format: digits with an optional sign, decimal point and
+/// exponent, blanks around them allowed. None when it does not read as one.
+fn converted(text: &str) -> Option<f64> {
+    text.trim().parse::<f64>().ok().filter(|v| v.is_finite())
 }
 
 /// The longest prefix of `text` that fits in `width` bytes.
@@ -209,21 +219,26 @@ impl Engine {
         }
 
         let values = source.values();
-        let output = |case: usize| {
+        let mapping = |case: usize| {
             let hit = |m: &&RecodeMapping| {
                 (m.inputs.iter()).any(|input| matches(input, &source, values, case))
             };
-            group.mappings.iter().find(hit).map(|m| &m.output)
+            group.mappings.iter().find(hit)
         };
+        let output = |case: usize| mapping(case).map(|m| &m.output);
         let cases = 0..data.case_count();
         if !to_string {
             let own = source.numeric().ok();
+            let own_text = source.string().ok();
             let old = existing.and_then(|t| t.numeric().ok());
             let copy = |case: usize| own.and_then(|values| values.get(case));
             return Ok(Column::Numeric(
                 cases
                     .map(|case| {
-                        let new = match output(case) {
+                        let found = mapping(case);
+                        let convert = found.is_some_and(|m| m.inputs == [RecodeInput::Convert]);
+                        let new = match found.map(|m| &m.output) {
+                            _ if convert => own_text.and_then(|t| converted(t.get(case))),
                             Some(RecodeOutput::Value(Value::Number(n))) => Some(*n),
                             Some(RecodeOutput::Copy) => copy(case),
                             None if in_place => copy(case),

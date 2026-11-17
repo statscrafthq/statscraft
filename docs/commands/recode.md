@@ -12,6 +12,8 @@ RECODE varlist (inputs = output) [(inputs = output) ...] [INTO newvars] [/ varli
 
 inputs: values, low THRU high (with LOWEST or HIGHEST), MISSING, SYSMIS, ELSE.
 
+(CONVERT), for a string into a numeric target: at its place, a string that reads as a number becomes that number and a blank one system-missing; other strings go on to the next (inputs).
+
 output: a value, SYSMIS or COPY.
 
 The first matching (inputs = output) wins. A value or range also matches user-missing values.

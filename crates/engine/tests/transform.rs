@@ -1153,3 +1153,67 @@ fn string_replacing_cutting_and_conversion() {
     assert_eq!(constant_text("STRING(13381372800, DATE11)"), "28-OCT-2006");
     assert_eq!(constant_text("STRING(86070, TIME8)"), "23:54:30");
 }
+
+// RECODE (CONVERT) (Command Syntax Reference, RECODE, CONVERT keyword): at its place among the
+// specifications it turns a string that reads as a number (F format) into that number and a
+// blank one into system-missing, even if a later specification names blanks; any other string
+// goes on to the specifications after it, or becomes system-missing.
+#[test]
+fn recode_convert_reads_numbers_at_its_place() {
+    let mut engine = Engine::default();
+    try_run(
+        &mut engine,
+        "DATA LIST LIST /s (A8).\nBEGIN DATA\n\" 12 \"\n\"-3.5\"\n\"1E2\"\n\"\"\n\"x\"\n\"-\"\n\"0\"\n\
+         \"1 2\"\nEND DATA.\n\
+         RECODE s (CONVERT) ('-'=11) ('0'=10) (' '=99) INTO a.\n\
+         RECODE s ('0'=10) (CONVERT) ('x'=7) INTO b.\n\
+         RECODE s ('x'=7) (CONVERT) (ELSE=5) INTO c.",
+    )
+    .unwrap();
+    let n = Some;
+    assert_eq!(
+        numbers(&engine, "a"),
+        [
+            n(12.0),
+            n(-3.5),
+            n(100.0),
+            None,
+            None,
+            n(11.0),
+            n(0.0),
+            None
+        ]
+    );
+    assert_eq!(
+        numbers(&engine, "b"),
+        [
+            n(12.0),
+            n(-3.5),
+            n(100.0),
+            None,
+            n(7.0),
+            None,
+            n(10.0),
+            None
+        ]
+    );
+    assert_eq!(
+        numbers(&engine, "c"),
+        [
+            n(12.0),
+            n(-3.5),
+            n(100.0),
+            None,
+            n(7.0),
+            n(5.0),
+            n(0.0),
+            n(5.0)
+        ]
+    );
+    // CONVERT reads strings: a numeric source is an error
+    assert!(
+        try_run(&mut engine, "RECODE a (CONVERT) INTO d.")
+            .unwrap_err()
+            .contains("numeric")
+    );
+}

@@ -864,6 +864,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Map values of variables to new values.",
         syntax: "RECODE varlist (inputs = output) [(inputs = output) ...] [INTO newvars] [/ varlist ...].\n\
                  inputs: values, low THRU high (with LOWEST or HIGHEST), MISSING, SYSMIS, ELSE.\n\
+                 (CONVERT), for a string into a numeric target: at its place, a string that reads as a number\n\
+                 becomes that number and a blank one system-missing; other strings go on to the next (inputs).\n\
                  output: a value, SYSMIS or COPY.\n\
                  The first matching (inputs = output) wins. A value or range also matches user-missing values.\n\
                  Without a match a variable keeps its value, and so does an existing INTO target; a new target becomes system-missing.\n\

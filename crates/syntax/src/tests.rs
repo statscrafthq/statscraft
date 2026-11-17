@@ -1075,9 +1075,10 @@ fn recode() {
     assert_eq!(err("RECODE a (=2).").message, "unexpected '='");
     assert_eq!(err("RECODE a.").expected, ["'('"]);
     assert_eq!(err("RECODE a (1=2) INTO.").expected, ["a variable name"]);
-    let error = err("RECODE a (CONVERT) INTO b.");
-    assert_eq!(error.message, "CONVERT in RECODE is not supported yet");
-    assert_eq!(at(&error), (1, 11));
+    let Command::Recode(groups) = one("RECODE a ('0'=10) (CONVERT) INTO b.") else {
+        panic!()
+    };
+    assert_eq!(groups[0].mappings[1].inputs, [RecodeInput::Convert]);
 }
 
 // Help
