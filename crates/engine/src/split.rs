@@ -243,6 +243,7 @@ impl Engine {
         // TREE, DETECTANOMALY, OPTIMAL BINNING, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples procedures ignore SPLIT FILE, as
         // TREE, DETECTANOMALY, MULTIPLE CORRESPONDENCE, CATPCA, CATREG and the complex samples procedures ignore SPLIT FILE, as
         // TREE, DETECTANOMALY, NAIVEBAYES, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples procedures ignore SPLIT FILE, as
+        // TREE, DETECTANOMALY, SELECTPRED, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples procedures ignore SPLIT FILE, as
         // the manual says
         // TREE, DETECTANOMALY, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples
         // procedures ignore SPLIT FILE, as the manual says; HOMALS, PRINCALS and OVERALS do as
@@ -256,6 +257,7 @@ impl Engine {
                 | Command::GenLinMixed(_)
                 | Command::Naivebayes(_)
                 | Command::Prefscal(_)
+                | Command::Selectpred(_)
                 | Command::MultipleCorrespondence(_)
                 | Command::Catpca(_)
                 | Command::Catreg(_)

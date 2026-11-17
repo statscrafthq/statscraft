@@ -158,6 +158,8 @@ const AREAS: &[(&str, &[&str])] = &[
             "OPTIMAL BINNING",
             "KNN",
             "NAIVEBAYES",
+            "AIM",
+            "SELECTPRED",
             "PROXIMITIES",
             "PROXSCAL",
             "PREFSCAL",

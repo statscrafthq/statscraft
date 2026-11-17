@@ -2,6 +2,7 @@
 
 mod aggregate;
 mod agreement;
+mod aim;
 mod alscal;
 mod anova;
 mod areg;
@@ -125,6 +126,7 @@ mod roc;
 mod roc_analysis;
 mod rows;
 mod save_translate;
+mod selectpred;
 pub mod session;
 mod session_commands;
 mod shown;
@@ -1284,6 +1286,7 @@ impl Engine {
             | Command::QuickCluster(_)
             | Command::Twostep(_)
             | Command::Knn(_)
+            | Command::Aim(_)
             | Command::Logistic(_)
             | Command::Coxreg(_)
             | Command::Nomreg(_)
@@ -1357,6 +1360,9 @@ impl Engine {
             Command::Naivebayes(_) => {
                 if self.active()?.split_file().is_some() {
                     self.warn("NAIVEBAYES does not use SPLIT FILE: it analyzes all cases together");
+            Command::Selectpred(_) => {
+                if self.active()?.split_file().is_some() {
+                    self.warn("SELECTPRED does not use SPLIT FILE: it analyzes all cases together");
                 }
                 return self.procedure(command);
             }
@@ -1640,6 +1646,8 @@ impl Engine {
             Command::Detectanomaly(command) => self.detectanomaly(command),
             Command::OptimalBinning(command) => self.optimal_binning(command),
             Command::Naivebayes(command) => self.naivebayes(command),
+            Command::Aim(command) => self.aim(command),
+            Command::Selectpred(command) => self.selectpred(command),
             Command::Logistic(command) => self.logistic(command),
             Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),

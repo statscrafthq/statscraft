@@ -1,6 +1,7 @@
 //! The command table: the single source for command name matching, parsing and help.
 
 use crate::agreement;
+use crate::aim;
 use crate::alscal;
 use crate::anova;
 use crate::ast::Command;
@@ -2356,6 +2357,71 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "NAIVEBAYES churn BY region plan WITH tenure spend /TRAININGSAMPLE PERCENT=70\n\
                   \x20 /SUBSET MAXSIZE=3 /CRITERIA BINS=5 /SAVE PREDVAL PREDPROB(prob).",
         parse: naivebayes::naivebayes,
+        name: "AIM",
+        summary: "Attribute importance: how much each variable sets every group (cluster) apart from all cases.",
+        syntax: "AIM groupvar [/CATEGORICAL varlist] [/CONTINUOUS varlist]\n\
+                 \x20   [/CRITERIA [ADJUST=BONFERRONI | NONE] [CI=95] [HIDENOTSIG=NO | YES] [SHOWREFLINE=YES | NO]]\n\
+                 \x20   [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20   [/PLOT [CATEGORY] [CLUSTER[(TYPE=BAR | PIE)]] [ERRORBAR] [IMPORTANCE[([X=GROUP | VARIABLE] [Y=TEST | PVALUE])]]].\n\
+                 The group variable (numeric or string) comes first; CATEGORICAL takes variables of any type,\n\
+                 CONTINUOUS numeric ones, and at least one of them is needed. For every group and variable a\n\
+                 test compares the group with all cases: a categorical variable by the chi-square of the\n\
+                 group's category counts against the shares of all cases (categories less one degrees of\n\
+                 freedom), a continuous one by Student's t of the group mean against the overall mean, over\n\
+                 the group's own standard deviation (group size less one degrees of freedom, two-sided). A\n\
+                 group whose values are all equal gets an infinite t and significance 0. The significance\n\
+                 level is 100 less CI percent; BONFERRONI (default) divides it by the number of groups, for\n\
+                 the tests and for the error bar intervals. Tables: one row per variable and group with the\n\
+                 statistic, degrees of freedom, significance and whether it passes the level. PLOT CATEGORY\n\
+                 shows each categorical variable's category shares within the groups, CLUSTER the size of\n\
+                 the groups as bars or a pie, ERRORBAR the group means with their intervals, IMPORTANCE the\n\
+                 statistics (Y=TEST) or -log10 of the significance (Y=PVALUE), one chart per variable with\n\
+                 the groups along the axis (X=GROUP) or one per group with the variables (X=VARIABLE).\n\
+                 HIDENOTSIG=YES leaves out of the charts what does not pass the level; SHOWREFLINE adds the\n\
+                 critical values, or the overall mean to the error bars. A case missing on any of the named\n\
+                 variables is left out; INCLUDE keeps user-missing values. The weight variable is not used.\n\
+                 Subcommands may be given in any order; a repeated one replaces the earlier.",
+        example: "AIM segment /CATEGORICAL region plan /CONTINUOUS spend visits\n\
+                  \x20 /CRITERIA CI=90 /PLOT CLUSTER(TYPE=PIE) ERRORBAR IMPORTANCE(X=VARIABLE Y=PVALUE).",
+        parse: aim::aim,
+    },
+    CommandSpec {
+        name: "SELECTPRED",
+        summary: "Screens a long list of predictors and ranks them one by one by how well each relates to a target.",
+        syntax: "SELECTPRED target [(MLEVEL={S | O | N})] [BY factors] [WITH covariates]\n\
+                 \x20   [/EXCEPT VARIABLES=varlist]\n\
+                 \x20   [/SCREENING [STATUS={ON | OFF}] [PCTMISSING=70] [PCTEQUAL=95] [PCTUNEQUAL=90] [STDDEV=0] [CV=0.001]]\n\
+                 \x20   [/CRITERIA [SIZE={AUTO | n}] [PCUTOFF=0.05] [RANKING={PEARSONCHISQ | LRCHISQ | CRAMERSV | LAMBDA}]\n\
+                 \x20              [TIMER=5] [SHOWUNSELECTED=0]]\n\
+                 \x20   [/MISSING USERMISSING={EXCLUDE | INCLUDE}]\n\
+                 \x20   [/PRINT [CPS] [EXCLUDED] [SELECTED] [SUMMARY[(PEARSONCHISQ LRCHISQ CRAMERSV LAMBDA)]] [NONE]]\n\
+                 \x20   [/PLOT SUMMARY].\n\
+                 The target is categorical when nominal or ordinal (by MLEVEL or the dictionary), else scale.\n\
+                 Factors (BY) are categorical predictors, covariates (WITH, numeric) scale ones; without BY\n\
+                 and WITH every other variable but the weight is a predictor, its kind from the dictionary, and\n\
+                 EXCEPT leaves some out. Cases missing on the target or on every predictor are left out.\n\
+                 Predictors missing or constant in every case are left out, and with screening on also those\n\
+                 with more than PCTMISSING percent missing, categorical ones with one category over PCTEQUAL\n\
+                 percent of their cases or over PCTUNEQUAL percent of categories holding a single case, and\n\
+                 scale ones with a standard deviation under STDDEV or an absolute coefficient of variation under\n\
+                 CV. Each remaining predictor is tested alone on the cases valid on it and the target: with a\n\
+                 categorical target a categorical predictor by RANKING (the Pearson or likelihood-ratio\n\
+                 chi-square significance, or Cramer's V or lambda, largest first), a scale one by the one-way\n\
+                 F of the predictor across the target classes; with a scale target a categorical predictor by\n\
+                 the F of the target across its categories and a scale one by the significance of Pearson's r.\n\
+                 When both kinds are present a chi-square significance (Pearson's unless LRCHISQ) ranks the categorical ones. Ties go\n\
+                 to the larger statistic, then the manual's further rules, then file order. SIZE predictors\n\
+                 are selected from the top (AUTO: the nearest whole number to the smaller of the predictor count\n\
+                 and the larger of 30 and twice its square root), only those with a significance below PCUTOFF\n\
+                 when significance ranks. Tables: Case Processing Summary, Excluded Predictors, Predictor\n\
+                 Ranking (the selected ones and SHOWUNSELECTED more) and Selected Predictors; PLOT SUMMARY\n\
+                 charts the ranking. Frequency weights are rounded, cases with a weight under 0.5 left out.\n\
+                 USERMISSING=INCLUDE keeps user-missing values of categorical variables. TIMER stops a run\n\
+                 longer than that many minutes (0 for no limit). SPLIT FILE is not used. Names are written\n\
+                 in full and each subcommand once.",
+        example: "SELECTPRED churned BY region plan WITH spend visits tenure\n\
+                  \x20 /EXCEPT VARIABLES=tenure /CRITERIA SIZE=3 RANKING=LRCHISQ /PRINT SUMMARY(CRAMERSV) /PLOT SUMMARY.",
+        parse: aim::selectpred,
     },
     CommandSpec {
         name: "CLUSTER",
@@ -6179,6 +6245,9 @@ static STRAY: &[&str] = &[
     "END REPEAT",
 ];
 
+/// Command names the manual wants written in full, never shortened.
+static IN_FULL: &[&str] = &["SELECTPRED"];
+
 fn names() -> impl Iterator<Item = (&'static str, Option<&'static CommandSpec>)> {
     let supported = COMMANDS.iter().map(|spec| (spec.name, Some(spec)));
     let recognised = UNSUPPORTED.iter().chain(STRAY);
@@ -6213,6 +6282,9 @@ pub(crate) fn resolve(words: &[&str]) -> Resolution {
             continue;
         }
         let exact = pairs().all(|(part, word)| word.eq_ignore_ascii_case(part));
+        if !exact && IN_FULL.contains(&name) {
+            continue;
+        }
         let rank = (parts.len(), exact);
         if rank > best_rank {
             best.clear();

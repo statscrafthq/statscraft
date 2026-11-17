@@ -72,6 +72,8 @@ pub enum Command {
     Factor(Box<crate::factor::Factor>),
     QuickCluster(Box<crate::factor::QuickCluster>),
     Twostep(Box<crate::twostep::Twostep>),
+    Aim(Box<crate::aim::Aim>),
+    Selectpred(Box<crate::aim::Selectpred>),
     Detectanomaly(Box<crate::twostep::Detectanomaly>),
     OptimalBinning(Box<crate::optimal_binning::OptimalBinning>),
     Knn(Box<crate::knn::Knn>),

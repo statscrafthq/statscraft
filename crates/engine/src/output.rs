@@ -76,6 +76,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Detectanomaly(_)
         | Command::OptimalBinning(_)
         | Command::Naivebayes(_)
+        | Command::Aim(_)
+        | Command::Selectpred(_)
         | Command::Tree(_)
         | Command::Csdescriptives(_)
         | Command::Csselect(_)

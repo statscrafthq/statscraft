@@ -2,6 +2,7 @@
 //! linking after every engine edit and gigabytes of disk. A new test file needs a line here.
 
 mod agreement;
+mod aim_selectpred;
 mod alscal;
 mod anova;
 mod autorecode;

@@ -15,6 +15,7 @@
 //! - Names are kept as written; comparing them case-insensitively is the caller's job.
 
 mod agreement;
+mod aim;
 mod alscal;
 mod anova;
 mod ast;
@@ -110,6 +111,8 @@ mod tests;
 #[cfg(test)]
 mod tests_agreement;
 #[cfg(test)]
+mod tests_aim;
+#[cfg(test)]
 mod tests_bayes;
 #[cfg(test)]
 mod tests_catreg;
@@ -204,6 +207,7 @@ mod twostep;
 mod varcomp;
 
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
+pub use aim::{Aim, AimImportance, MeasurementLevel, Ranking, Selectpred};
 pub use alscal::{Alscal, AlscalLevel};
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
