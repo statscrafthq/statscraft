@@ -801,6 +801,20 @@ Choices where the documentation says nothing, and where it is not followed:
 - MMATRIX or KMATRIX without LMATRIX tests the L matrix of the intercept's Type III test, whatever METHOD says. The documentation names the estimable function of the intercept without saying which form.
 - In the multivariate model EMMEANS, POSTHOC, PLOT and SAVE run for each dependent in turn, with that dependent's tables. EMMEANS COMPARE gives the univariate tests only; SAVE takes no variable names.
 
+### MANOVA
+
+- The tables follow the layout of the GLM tables (one table per kind with the effect as a row header), not the line-printer listing of the original procedure, and the effects come in the order of DESIGN. Each multivariate effect is labelled with its S, M and N; Roy's largest root is shown as lambda / (1 + lambda) with no F, as the algorithms describe.
+- The algorithms print Pillai's F with ne - p - s in the numerator but give s(ne - p + s) as its error df; Statscraft uses ne - p + s in both places, which is the usual approximation and matches R's `summary.manova`.
+- The cells for the WITHIN error are all combinations of all factors on the variable list, also when a design leaves a factor out; the RESIDUAL error is then the part of the cell model the design does not use. With a continuous variable on DESIGN only WR is available (WITHIN and RESIDUAL give an error), because the design is no longer inside the cell model.
+- Factor values that are not whole numbers are cut to whole numbers; case weights are used as they are (not rounded), and N is their sum.
+- The constant is fitted in every design (unless NOCONSTANT) but shown and tested only when DESIGN names CONSTANT or MUPLUS, or when there are no factors (a one-sample test).
+- A term defined as error term n is not tested against itself; with ERROR=n such a term needs its own VS to be tested.
+- Parameter estimates and their standard errors come from the whole design with the covariates (the adjusted parameters of the algorithms); their mean square is that of the term's error term. When that error is WITHIN in a design that does not fill the cell model, the covariate part of their covariance uses the residual of the whole design, not the within-cell matrix.
+- PMEANS: the adjusted mean is the cell mean of the design with the covariates' coefficients, at covariate values of 0, as the algorithms define the adjusted cell means; the estimated mean is the fit of the design without covariates; the standardized residual divides by the error standard deviation after the covariates.
+- Dimension reduction: the test that roots k to s are zero is Rao's F for their Wilks' lambda with p - k + 1 variables, hypothesis df less k - 1 and the full error df.
+- Cochran's C takes the mean cell size less 1 as its df (the cells need not be equal) and its significance as the number of cells times the upper tail of F((k - 1)C / (1 - C)) with that df and k - 1 times it. The Bartlett-Box F is Box's M test for one variable.
+- GNU PSPP 2.0 has no MANOVA command. Numbers were compared with R run as a separate program on synthetic data: multivariate linear models with each effect entered last (all four statistics), nested linear model comparisons, sequential tables and coefficients under sum-to-zero, simple and difference codings.
+
 ### MIXED
 
 - GNU PSPP has no MIXED. The numbers were compared with R's nlme package (`lme` and `gls`), run as a separate program on synthetic data. nlme reports standard deviations and correlations; the tables here give variances and covariances, as the documentation does, and a compound symmetry structure as a diagonal offset and a common covariance. The -2 log likelihoods agree.

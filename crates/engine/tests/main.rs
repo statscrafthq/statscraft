@@ -47,6 +47,7 @@ mod logistic;
 mod loglinear;
 mod loops;
 mod macros;
+mod manova;
 mod matrix;
 mod matrix_data;
 mod mixed;

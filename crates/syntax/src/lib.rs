@@ -50,6 +50,7 @@ mod logistic;
 mod loglinear;
 mod loops;
 mod macros;
+mod manova;
 mod matrix;
 mod matrix_data;
 mod mixed;
@@ -266,6 +267,10 @@ pub use loglinear::{
     GenlogSaveKind, HiloCriteria, HiloDesign, HiloPrint, HiloRange, Hiloglinear,
 };
 pub use loops::{RepeatItem, command_text, substitute};
+pub use manova::{
+    Manova, ManovaDesign, ManovaEffect, ManovaError, ManovaFactors, ManovaItem, ManovaOmeans,
+    ManovaPrint, ManovaTerm, effect_label as manova_effect_label,
+};
 pub use matrix::{
     CallStatement, DataFormat, ExprKind, Field, Index, Labels, LoopIndex, MExpr, MatrixGet,
     MatrixLoop, MatrixMget, MatrixMsave, MatrixOp, MatrixPrint, MatrixProgram, MatrixRead,

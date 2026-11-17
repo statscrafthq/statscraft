@@ -179,6 +179,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "GENLIN",
             "UNIANOVA",
             "GLM",
+            "MANOVA",
             "MIXED",
             "VARCOMP",
             "COXREG",

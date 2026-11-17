@@ -96,6 +96,7 @@ pub enum Command {
     Km(Box<crate::survival::Km>),
     Survival(Box<crate::survival::Survival>),
     Glm(Box<crate::glm::Glm>),
+    Manova(Box<crate::manova::Manova>),
     Mixed(Box<crate::mixed::Mixed>),
     Varcomp(Box<crate::varcomp::Varcomp>),
     Csplan(Box<crate::complex_samples::Csplan>),

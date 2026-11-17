@@ -2917,7 +2917,11 @@ fn trace(a: &Matrix) -> f64 {
 
 /// The eigenvalues of S_E^-1 S_H, largest first, and the rank of S_E. `reference` is each
 /// variable's own scale (see `correlation_form`).
-fn relative_eigenvalues(sh: &Matrix, se: &Matrix, reference: &[f64]) -> (Vec<f64>, usize) {
+pub(crate) fn relative_eigenvalues(
+    sh: &Matrix,
+    se: &Matrix,
+    reference: &[f64],
+) -> (Vec<f64>, usize) {
     // in correlation form, which keeps the eigenvalues and makes the rank independent of the
     // units of the variables; a variable with no error variance drops out
     let scale: Vec<f64> = (0..se.len()).map(|i| se[i][i].max(0.0).sqrt()).collect();
@@ -2957,7 +2961,7 @@ fn relative_eigenvalues(sh: &Matrix, se: &Matrix, reference: &[f64]) -> (Vec<f64
 
 /// The four multivariate statistics: name, value, F, hypothesis df, error df, eta squared and
 /// the denominator df of the noncentrality.
-fn multivariate(
+pub(crate) fn multivariate(
     sh: &Matrix,
     se: &Matrix,
     reference: &[f64],
@@ -3700,6 +3704,30 @@ fn log_determinant_and_rank(a: &Matrix, reference: &[f64]) -> (f64, usize) {
 /// of all factors, from the observed cell means. A cell with a singular covariance matrix is
 /// left out; None when fewer than two cells remain or the pooled matrix is singular.
 fn box_m(d: &Data, design: &str) -> Option<Table> {
+    let (m, f, f1, f2) = box_m_stats(d)?;
+    let rows = vec![
+        vec![text("Box's M"), number(Some(m))],
+        vec![text("F"), number(f.is_finite().then_some(f))],
+        vec![text("df1"), number(Some(f1))],
+        vec![text("df2"), number(f2.is_finite().then_some(f2))],
+        vec![
+            text("Sig."),
+            number((f.is_finite() && f2.is_finite()).then(|| f_p(f, f1, f2))),
+        ],
+    ];
+    Some(table(
+        "Box's Test of Equality of Covariance Matrices",
+        1,
+        plain(&["", "Value"]),
+        rows,
+        Some(format!(
+            "Tests whether the covariance matrix of the dependent variables is the same in every cell. Design: {design}."
+        )),
+    ))
+}
+
+/// Box's M with its F approximation and the two df.
+pub(crate) fn box_m_stats(d: &Data) -> Option<(f64, f64, f64, f64)> {
     let r = d.y.first()?.len();
     let mut cells: Vec<Vec<usize>> = d.level.clone();
     cells.sort();
@@ -3773,26 +3801,7 @@ fn box_m(d: &Data, design: &str) -> Option<Table> {
     let tau = (r - 1.0) * (r + 2.0) / (6.0 * (g - 1.0)) * square_sum;
     let f2 = (f1 + 2.0) / (tau - (1.0 - rho).powi(2)).abs();
     let gamma = (rho - f1 / f2) / f1;
-    let f = gamma * m;
-    let rows = vec![
-        vec![text("Box's M"), number(Some(m))],
-        vec![text("F"), number(f.is_finite().then_some(f))],
-        vec![text("df1"), number(Some(f1))],
-        vec![text("df2"), number(f2.is_finite().then_some(f2))],
-        vec![
-            text("Sig."),
-            number((f.is_finite() && f2.is_finite()).then(|| f_p(f, f1, f2))),
-        ],
-    ];
-    Some(table(
-        "Box's Test of Equality of Covariance Matrices",
-        1,
-        plain(&["", "Value"]),
-        rows,
-        Some(format!(
-            "Tests whether the covariance matrix of the dependent variables is the same in every cell. Design: {design}."
-        )),
-    ))
+    Some((m, gamma * m, f1, f2))
 }
 
 /// Residual SSCP Matrix (sums of squares and cross-products, covariance, correlation) and

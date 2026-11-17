@@ -32,6 +32,7 @@ use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
 use crate::loglinear;
 use crate::loops;
+use crate::manova;
 use crate::matrix;
 use crate::matrix_data;
 use crate::mixed;
@@ -2684,6 +2685,57 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  NORMPLOT); PLOT alone means both.",
         example: "HILOGLINEAR route(1,3) season(1,4) delay(0,1) /METHOD=BACKWARD /CRITERIA=P(0.01) /DESIGN.",
         parse: loglinear::hiloglinear,
+    },
+    CommandSpec {
+        name: "MANOVA",
+        summary: "Analysis of variance and covariance for one or several dependents, with nested and pooled terms, partitions and chosen error terms.",
+        syntax: "MANOVA dependents [BY factors (min,max) [factors (min,max) ...]] [WITH covariates]\n\
+                 \x20  [/ERROR=WITHIN | RESIDUAL | WR | n] [/METHOD=[UNIQUE | SEQUENTIAL] [CONSTANT | NOCONSTANT] [QR | CHOLESKY]]\n\
+                 \x20  [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] | DIFFERENCE | HELMERT | REPEATED |\n\
+                 \x20                     POLYNOMIAL[(metric)] | SPECIAL(matrix)] ... [/PARTITION(factor)[=(n, m*k ...)]] ...\n\
+                 \x20  [/PRINT | NOPRINT=[CELLINFO[(MEANS SSCP COV COR ALL)]] [HOMOGENEITY[(BARTLETT COCHRAN BOXM ALL)]]\n\
+                 \x20        [PARAMETERS[(ESTIM NEGSUM ALL)]] [SIGNIF(MULTIV UNIV EIGEN DIMENR HYPOTH STEPDOWN BRIEF)]\n\
+                 \x20        [ERROR[(SSCP COV COR STDDEV)]]]\n\
+                 \x20  [/OMEANS=[VARIABLES(varlist)] TABLES(factor [BY factor] | CONSTANT, ...)] [/PMEANS]\n\
+                 \x20  [/ANALYSIS=dependents [WITH covariates]] [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]]\n\
+                 \x20  [/DESIGN=term [term ...]] [/DESIGN ...].\n\
+                 term: effect [+ effect ...] [= n] [VS WITHIN | RESIDUAL | WR | n], or CONSTANT, or MUPLUS before a term;\n\
+                 effect: item [BY item ...] [WITHIN item [BY item ...] ...]; item: factor[(n)], a continuous variable or POOL(varlist).\n\
+                 Factors take every whole number of their range (values are cut to whole numbers); a case outside\n\
+                 a range or missing on any listed variable is left out. Case weights are used as they are. Settings\n\
+                 carry over to every later DESIGN; when the command does not end with DESIGN, a full factorial\n\
+                 design (all main effects and interactions) is added. Each factor is coded by its contrast\n\
+                 (DEVIATION by default, the last level left out): the design columns are the inverse of the matrix\n\
+                 whose first row is the level mean and whose other rows are the contrasts, so each parameter\n\
+                 estimates its contrast. In a term, a(n) keeps partition n of the factor's degrees of freedom (one\n\
+                 each, or as PARTITION groups them); after WITHIN (or W) a factor stands for each of its levels, or\n\
+                 level n alone for b(n); '+' pools effects into one test; '= n' makes the term error term n (1 to 10);\n\
+                 VS (or AGAINST) names the error a term is tested against. A continuous variable on DESIGN must be\n\
+                 a dependent or covariate that ANALYSIS leaves out. The constant is fitted first and shown only\n\
+                 when written as CONSTANT (or when there are no factors); NOCONSTANT drops it unless written.\n\
+                 UNIQUE sums of squares adjust each term for all others; SEQUENTIAL for the terms before it.\n\
+                 Error terms: WITHIN, the pooled within-cell matrix (df N less the non-empty cells); RESIDUAL,\n\
+                 the part of the cell model the design leaves out; WR, both together; n, a numbered term. The\n\
+                 default is WITHIN, RESIDUAL when no cell holds two cases, WR when DESIGN has a continuous variable.\n\
+                 Covariates are taken out of every test by regression within the error term, which loses a df\n\
+                 for each, and are tested as a regression with their coefficients.\n\
+                 Tables: Cases; with one dependent, Tests of Significance (each error term and the terms tested\n\
+                 against it, the regression, (Model), (Total), R-squared); with several, Multivariate Tests of\n\
+                 Significance (Pillais, Wilks, Hotellings with their F approximations, and Roys as the largest\n\
+                 root over one plus it) and Univariate F-tests. SIGNIF adds Eigenvalues and Canonical Correlations\n\
+                 (EIGEN), Dimension Reduction Analysis (DIMENR), the Hypothesis SSCP Matrix (HYPOTH), Roy-Bargmann\n\
+                 Stepdown F-tests (STEPDOWN), or only a Wilks table (BRIEF); NOPRINT SIGNIF(MULTIV) or (UNIV)\n\
+                 drops a default table. PARAMETERS gives each design column's estimate with its standard error\n\
+                 from the term's error term, t, Sig. and 95% limits, NEGSUM minus their sum per term; ERROR the\n\
+                 error matrices after the covariates. CELLINFO gives cell means with 95% intervals and the\n\
+                 within-cell matrices; HOMOGENEITY Cochran's C, the Bartlett-Box F and Box's M; OMEANS\n\
+                 weighted and unweighted means over the factors named; PMEANS observed, adjusted and\n\
+                 estimated cell means with residuals. Not supported yet: repeated measures (WSFACTORS,\n\
+                 WSDESIGN, MEASURE, MWITHIN), TRANSFORM, RENAME, RESIDUALS, POWER, CINTERVAL, PLOT, PCOMPS,\n\
+                 DISCRIM, MATRIX, PRINT DESIGN and TRANSFORM, PARAMETERS ORTHO, COR, EFSIZE and OPTIMAL,\n\
+                 SIGNIF SINGLEDF, PMEANS keywords, and groups of analyses on ANALYSIS.",
+        example: "MANOVA score1 score2 BY method(1,3) school(1,2) WITH pretest /PRINT=SIGNIF(EIGEN) /DESIGN.",
+        parse: manova::manova,
     },
     CommandSpec {
         name: "GENLOG",

@@ -56,6 +56,7 @@ pub mod live;
 mod locale;
 mod logistic;
 mod loops;
+mod manova;
 mod matrix;
 mod matrix_data;
 mod matrix_functions;
@@ -1261,6 +1262,7 @@ impl Engine {
             | Command::Nomreg(_)
             | Command::Mva(_)
             | Command::Hiloglinear(_)
+            | Command::Manova(_)
             | Command::Genlog(_)
             | Command::Probit(_)
             | Command::Plum(_)
@@ -1579,6 +1581,7 @@ impl Engine {
             Command::Nomreg(command) => self.nomreg(command),
             Command::Mva(command) => self.mva(command),
             Command::Hiloglinear(command) => self.hiloglinear(command),
+            Command::Manova(command) => self.manova(command),
             Command::Genlog(command) => self.genlog(command),
             Command::Probit(command) => self.probit(command),
             Command::Curvefit(command) => self.curvefit(command),

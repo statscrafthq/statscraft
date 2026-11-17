@@ -178,6 +178,7 @@ One page per supported command, generated from the same table that the parser an
 | [GENLIN](genlin.md) | Generalized linear models: normal, binomial, Poisson, gamma, inverse Gaussian, negative binomial and ordinal responses. |
 | [UNIANOVA](unianova.md) | General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression. |
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, several (multivariate analysis of variance and covariance), or repeated measures with WSFACTOR. |
+| [MANOVA](manova.md) | Analysis of variance and covariance for one or several dependents, with nested and pooled terms, partitions and chosen error terms. |
 | [MIXED](mixed.md) | Linear mixed model: fixed effects with random effects of subjects and correlated repeated measures. |
 | [VARCOMP](varcomp.md) | Variance components: how much each random effect of a linear model adds to the variance of the dependent variable. |
 | [COXREG](coxreg.md) | Cox proportional hazards regression of survival times, with strata, categorical covariates, stepwise selection and time-dependent covariates. |
