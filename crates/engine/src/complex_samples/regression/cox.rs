@@ -2485,39 +2485,14 @@ fn path_curve(
     out
 }
 
-/// PRINT GEF: the general estimable function, one column per nonredundant parameter j with 1
-/// at j, 0 at the other nonredundant parameters and row j of H = G X'WX at the redundant ones.
-// a helper of its own so that the other complex samples models can share it
+/// PRINT GEF through the shared basis of the other models; column 0, the intercept the Cox
+/// model drops, is neither a parameter nor a free coefficient.
 fn gef_table(fit: &Fit, names: &[String], caption: &str) -> Table {
-    let h = fit.h();
-    let cols: Vec<usize> = (1..fit.p).filter(|&j| !fit.redundant[j]).collect();
-    let mut columns = plain(&["Parameter"]);
-    columns.extend((1..=cols.len()).map(|k| (String::new(), format!("L{k}"))));
-    let rows = (1..fit.p)
-        .map(|k| {
-            let mut row = vec![text(names[k].clone())];
-            row.extend(cols.iter().map(|&j| {
-                let v = if fit.redundant[k] {
-                    h[j][k]
-                } else {
-                    f64::from(u8::from(k == j))
-                };
-                // the generalized inverse leaves rounding noise around whole numbers
-                let r = v.round();
-                Cell::Number(if (v - r).abs() <= 1e-9 { r + 0.0 } else { v })
-            }));
-            row
-        })
-        .collect();
-    table(
-        "General Estimable Function",
-        1,
-        columns,
-        rows,
-        Some(format!(
-            "{caption} Each column Lk is an estimable function of the parameters."
-        )),
-    )
+    let mut redundant = fit.redundant.clone();
+    redundant[0] = true;
+    let basis = super::gef_basis(&fit.h(), &redundant);
+    let order: Vec<usize> = (1..fit.p).collect();
+    super::gef_table(&basis, &order, &|k| names[k].clone(), caption.to_string())
 }
 
 /// What the test of proportional hazards needs from the fitted model.
