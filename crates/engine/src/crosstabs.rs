@@ -63,7 +63,8 @@ fn whole_categories(
         .map(|v| {
             let v = v
                 .filter(|v| include || !variable.is_user_missing(*v))?
-                .trunc();
+                .trunc()
+                + 0.0; // -0.4 cuts to -0, which would sort and show apart from 0
             (low..=high).contains(&v).then_some(Key::Number(v))
         })
         .collect()
@@ -437,7 +438,6 @@ fn bar_chart(
 type Crosstab = (Vec<Table>, Option<Chart>, Vec<Cell>);
 
 /// The tables of one combination of variables (rows, columns, then layers), its chart, and its
-/// row of the Case Processing Summary.
 /// row of the Case Processing Summary. `ranges` holds the range of every variable in integer
 /// mode and is empty in general mode.
 fn tables(
