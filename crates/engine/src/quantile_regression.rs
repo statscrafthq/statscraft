@@ -92,7 +92,7 @@ fn simplex(x: &[Vec<f64>], y: &[f64], p: f64, start: Vec<usize>) -> Option<(Vec<
     let mut h = start;
     let mut in_basis = vec![false; n];
     h.iter().for_each(|&i| in_basis[i] = true);
-    let mut c = vec![vec![0.0; k]; n];
+    let mut c = vec![vec![0.0; n]; k];
     // every step lowers the objective, so no basis comes back; the cap only guards rounding
     for _ in 0..100 * (n + k) + 1000 {
         let b: Matrix = h.iter().map(|&i| x[i].clone()).collect();
@@ -105,19 +105,19 @@ fn simplex(x: &[Vec<f64>], y: &[f64], p: f64, start: Vec<usize>) -> Option<(Vec<
             r[i] = y[i] - dot(&x[i], &beta);
             let size: f64 = x[i].iter().zip(&beta).map(|(a, b)| (a * b).abs()).sum();
             zero[i] = 1e-12 * (y[i].abs() + size) + 1e-300;
-            for j in 0..k {
-                c[i][j] = (0..k).map(|l| x[i][l] * binv[l][j]).sum();
+            for (j, column) in c.iter_mut().enumerate() {
+                column[i] = (0..k).map(|l| x[i][l] * binv[l][j]).sum();
             }
         }
         // the edge where basis case j leaves the plane upward (s = 1: its residual falls
         // below 0) or downward, along which the objective falls fastest
         let mut best: Option<(f64, usize, f64)> = None;
-        for j in 0..k {
+        for (j, column) in c.iter().enumerate() {
             let (mut up, mut down, mut size) = (1.0 - p, p, 1.0);
             for i in (0..n).filter(|&i| !in_basis[i]) {
-                up += slope(r[i], -c[i][j], p, zero[i]);
-                down += slope(r[i], c[i][j], p, zero[i]);
-                size += c[i][j].abs();
+                up += slope(r[i], -column[i], p, zero[i]);
+                down += slope(r[i], column[i], p, zero[i]);
+                size += column[i].abs();
             }
             for (g, s) in [(up, 1.0), (down, -1.0)] {
                 if g < -1e-11 * size && best.is_none_or(|(b, _, _)| g < b) {
@@ -133,7 +133,7 @@ fn simplex(x: &[Vec<f64>], y: &[f64], p: f64, start: Vec<usize>) -> Option<(Vec<
         let mut breaks: Vec<(f64, f64, usize)> = (0..n)
             .filter(|&i| !in_basis[i])
             .filter_map(|i| {
-                let a = -s * c[i][j];
+                let a = -s * c[j][i];
                 let toward = (r[i] > zero[i] && a < 0.0) || (r[i] < -zero[i] && a > 0.0);
                 toward.then(|| (-r[i] / a, a.abs(), i))
             })
@@ -193,6 +193,9 @@ fn least_squares(x: &[Vec<f64>], y: &[f64]) -> Vec<f64> {
     g.iter().map(|row| dot(row, &xy)).collect()
 }
 
+/// A Newton direction: the changes of b, a, u and v (s changes by minus that of a).
+type NewtonStep = (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>);
+
 /// The Frisch-Newton interior-point method on the dual problem (the Algorithms manual's
 /// steps), with y scaled to at most 1 in size. Returns the coefficients and whether the duality
 /// gap fell below the criterion within `maxiter` iterations.
@@ -233,7 +236,7 @@ fn interior_point(
                      xi: &[f64],
                      extra_u: &dyn Fn(usize) -> f64,
                      extra_v: &dyn Fn(usize) -> f64|
-     -> Option<(Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>)> {
+     -> Option<NewtonStep> {
         let g: Vec<f64> = (0..n).map(|i| 1.0 / (u[i] / s[i] + v[i] / a[i])).collect();
         let mut m = vec![vec![0.0; k]; k];
         let mut rhs = vec![0.0; k];
