@@ -4,7 +4,7 @@
 
 use crate::advanced_dialogs::{
     ContrastTest, MeansTable, Terms, ci_level, coefficient, covariate_values, full_factorial,
-    main_effects, model_variables, plan_file, row_part, same_term,
+    main_effects, model_variables, one_form, plan_file, row_part, same_term,
 };
 use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
@@ -257,11 +257,7 @@ impl SampleModel {
     }
 
     pub fn model_variables(&self) -> Vec<String> {
-        self.factors
-            .iter()
-            .chain(&self.covariates)
-            .cloned()
-            .collect()
+        [&self.factors[..], &self.covariates[..]].concat()
     }
 
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
@@ -729,12 +725,7 @@ fn custom(
         }
         // a leading INTERCEPT is written as a bare number, so it goes with either form
         for &i in names.iter().filter(|&&i| i > 0 || !is(i, "INTERCEPT")) {
-            let all = is(i, "ALL");
-            if *all_form.get_or_insert(all) != all {
-                return Err(format!(
-                    "test {n}: ALL and effect names cannot be mixed in one test"
-                ));
-            }
+            one_form(&mut all_form, is(i, "ALL"), n)?;
         }
         let row = if is(0, "INTERCEPT") {
             if names.get(1).copied().unwrap_or(tokens.len()) != 2 {

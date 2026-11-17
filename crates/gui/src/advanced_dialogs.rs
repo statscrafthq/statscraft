@@ -24,7 +24,7 @@ use crate::imputation_dialog::Imputation;
 use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::mca_dialog::Mca;
 use crate::mds_dialog::{Alscal, Proxscal};
-use crate::model_dialogs::GLM_ADJUSTMENTS;
+use crate::model_dialogs::{GLM_ADJUSTMENTS, by_with};
 use crate::mva_dialog::MissingValueAnalysis;
 use crate::nptests_dialog::Nptests;
 use crate::power_dialog::PowerAnalysis;
@@ -417,12 +417,7 @@ impl ContrastTest {
                 .split_whitespace()
                 .filter(|t| *t != "|" && coefficient(t).is_none())
             {
-                let all = token.eq_ignore_ascii_case("ALL");
-                if *all_form.get_or_insert(all) != all {
-                    return Err(format!(
-                        "test {n}: ALL and effect names cannot be mixed in one test"
-                    ));
-                }
+                one_form(&mut all_form, token.eq_ignore_ascii_case("ALL"), n)?;
             }
             if !row.is_empty() {
                 rows.push(row);
@@ -436,6 +431,16 @@ impl ContrastTest {
             label => format!("{} ", quote(label)),
         };
         Ok(format!("\n  /TEST={label}{}", rows.join("; ")))
+    }
+}
+
+/// Keeps a test to one form, ALL or effect names: `form` holds the first one seen.
+pub(crate) fn one_form(form: &mut Option<bool>, all: bool, n: usize) -> Result<(), String> {
+    match *form.get_or_insert(all) == all {
+        true => Ok(()),
+        false => Err(format!(
+            "test {n}: ALL and effect names cannot be mixed in one test"
+        )),
     }
 }
 
@@ -554,14 +559,7 @@ pub(crate) fn model_variables(
     if let Some(n) = factors.iter().find(|n| covariates.contains(n)) {
         return Err(format!("{n} is both a factor and a covariate"));
     }
-    let mut text = dependent.to_string();
-    if !factors.is_empty() {
-        text.push_str(&format!(" BY {}", factors.join(" ")));
-    }
-    if !covariates.is_empty() {
-        text.push_str(&format!(" WITH {}", covariates.join(" ")));
-    }
-    Ok(text)
+    Ok(by_with(dependent, factors, covariates))
 }
 
 /// A confidence level in percent; an empty field means the default of 95, as for the other
@@ -686,11 +684,7 @@ impl Default for Ordinal {
 impl Ordinal {
     /// The factors and covariates, the variables the terms are made of.
     pub fn model(&self) -> Vec<String> {
-        self.factors
-            .iter()
-            .chain(&self.covariates)
-            .cloned()
-            .collect()
+        [&self.factors[..], &self.covariates[..]].concat()
     }
 
     pub fn syntax(&self) -> Result<String, String> {
@@ -897,11 +891,7 @@ impl Default for Multinomial {
 
 impl Multinomial {
     pub fn model_variables(&self) -> Vec<String> {
-        self.factors
-            .iter()
-            .chain(&self.covariates)
-            .cloned()
-            .collect()
+        [&self.factors[..], &self.covariates[..]].concat()
     }
 
     /// `string`: the dependent variable is a string, so a custom reference value is quoted.
@@ -1258,11 +1248,7 @@ impl LinearMixed {
     }
 
     pub fn model(&self) -> Vec<String> {
-        self.factors
-            .iter()
-            .chain(&self.covariates)
-            .cloned()
-            .collect()
+        [&self.factors[..], &self.covariates[..]].concat()
     }
 
     pub fn syntax(&self) -> Result<String, String> {

@@ -327,11 +327,7 @@ impl Default for GeneralizedLinear {
 
 impl GeneralizedLinear {
     pub fn model_variables(&self) -> Vec<String> {
-        self.factors
-            .iter()
-            .chain(&self.covariates)
-            .cloned()
-            .collect()
+        [&self.factors[..], &self.covariates[..]].concat()
     }
 
     fn kind(&self) -> D {

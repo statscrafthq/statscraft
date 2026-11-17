@@ -1041,7 +1041,7 @@ fn glm_options(
 }
 
 /// `dependents BY factors WITH covariates`.
-fn model_variables(dependents: &str, factors: &[String], covariates: &[String]) -> String {
+pub(crate) fn by_with(dependents: &str, factors: &[String], covariates: &[String]) -> String {
     let mut text = dependents.to_string();
     if !factors.is_empty() {
         text.push_str(&format!(" BY {}", factors.join(" ")));
@@ -1245,7 +1245,7 @@ impl Univariate {
         }
         let mut text = format!(
             "{command} {}",
-            model_variables(&dependents.join(" "), &self.factors, &self.covariates)
+            by_with(&dependents.join(" "), &self.factors, &self.covariates)
         );
         if !self.intercept {
             text.push_str("\n  /INTERCEPT=EXCLUDE");
@@ -1553,7 +1553,7 @@ impl RepeatedMeasures {
         }
         let mut text = format!(
             "GLM {}",
-            model_variables(&self.dependents.join(" "), &self.factors, &self.covariates)
+            by_with(&self.dependents.join(" "), &self.factors, &self.covariates)
         );
         let within: Vec<String> = factors.iter().map(|(n, l)| format!("{n} {l}")).collect();
         text.push_str(&format!("\n  /WSFACTOR={}", within.join(" ")));
