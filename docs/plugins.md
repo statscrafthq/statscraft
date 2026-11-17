@@ -115,8 +115,8 @@ example plugin's, shortened):
 `text` setting may add `"presets": true` for a list of saved values in the dialog (see above).
 Any setting may add `"per_file": true` when its value belongs to one data file rather than to a
 look, such as the size of the population the sample was drawn from: design templates leave it
-out, and it always comes from the data file. Any setting may add `"group"` with the heading of its section in the dialog. A plugin whose
-`protocol` is not 1 is refused.
+out, and it always comes from the data file. Any setting may add `"group"` with the heading
+of its section in the dialog. A plugin whose `protocol` is not 1 is refused.
 
 A `style` is a JSON object with these keys, each optional:
 
