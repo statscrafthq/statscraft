@@ -81,6 +81,7 @@ mod plum;
 mod portable;
 mod power;
 mod pplot;
+mod prefscal;
 mod preprocess;
 mod procedures;
 mod proportions;
@@ -343,6 +344,10 @@ pub use pls::{Pls, PlsDependent, PlsLevel, PlsReference};
 pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
 pub use power::{PairwiseAdjust, Power, PowerKind, PowerPlot, ProportionTest, RankVariance};
 pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
+pub use prefscal::{
+    InputCount, Prefscal, PrefscalCondition, PrefscalPlot, PrefscalPrint, PrefscalStart,
+    PrefscalTransformation, ValueList,
+};
 pub use preprocess::{FileHandle, MacroState};
 pub use proportions::{Proportions, ProportionsAnalysis, ProportionsGroups, ProportionsSuccess};
 pub use proximities::{Proximities, Standardize};

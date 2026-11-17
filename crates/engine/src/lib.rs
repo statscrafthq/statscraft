@@ -105,6 +105,7 @@ mod pooling;
 mod portable;
 mod power;
 mod pplot;
+mod prefscal;
 mod print;
 mod probit;
 mod proportions;
@@ -143,6 +144,7 @@ mod tsmodel;
 mod ttest;
 mod two_stage;
 mod twostep;
+mod unfolding;
 mod validatedata;
 mod varcomp;
 mod variables;
@@ -1313,6 +1315,7 @@ impl Engine {
             | Command::CsCox(_)
             | Command::Cluster(_)
             | Command::Proxscal(_)
+            | Command::Prefscal(_)
             | Command::Alscal(_)
             | Command::Discriminant(_)
             | Command::Anova(_)
@@ -1688,6 +1691,7 @@ impl Engine {
             Command::Cluster(command) => self.cluster(command),
             Command::Proximities(command) => self.proximities(command),
             Command::Proxscal(command) => self.proxscal(command),
+            Command::Prefscal(command) => self.prefscal(command),
             Command::Alscal(command) => self.alscal(command),
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),

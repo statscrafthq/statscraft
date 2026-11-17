@@ -255,6 +255,7 @@ impl Engine {
                 | Command::OptimalBinning(_)
                 | Command::GenLinMixed(_)
                 | Command::Naivebayes(_)
+                | Command::Prefscal(_)
                 | Command::MultipleCorrespondence(_)
                 | Command::Catpca(_)
                 | Command::Catreg(_)

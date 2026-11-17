@@ -130,14 +130,14 @@ pub struct Proxscal {
 }
 
 /// A whole number from `low` in parentheses.
-fn whole_in_parens(p: &mut Parser, what: &str, low: usize) -> PResult<usize> {
+pub(crate) fn whole_in_parens(p: &mut Parser, what: &str, low: usize) -> PResult<usize> {
     p.expect(Punct::LParen)?;
     let n = whole(p, what, low)?;
     p.expect(Punct::RParen)?;
     Ok(n)
 }
 
-fn whole(p: &mut Parser, what: &str, low: usize) -> PResult<usize> {
+pub(crate) fn whole(p: &mut Parser, what: &str, low: usize) -> PResult<usize> {
     let start = p.pos;
     match p.number() {
         Some(n) if n.fract() == 0.0 && n >= low as f64 => Ok(n as usize),

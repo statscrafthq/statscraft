@@ -1112,6 +1112,22 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - With TABLE row BY column BY source the sources are the codes that occur, in order; a gap in the codes makes no empty source.
 - PLOT=TRANSFORMATIONS and RESIDUALS give one plot per parenthesized list of sources. SPLINE accepts INKNOT=0.
 
+### PREFSCAL
+
+- The penalized stress is the mean normalized stress of the transformation lists (|t - d|^2 / |t|^2 per list) raised to LAMBDA, times the mean over the lists of 1 + OMEGA v(p)^2 / v(t)^2, with v the weighted coefficient of variation of the list's proximities p (as mirrored for similarities) and transformed proximities t. A list whose proximities have no variation has no penalty.
+- LAMBDA defaults to 0.5, as in the syntax chart; the text that names 0.75 is not followed. MINSTRESS defaults to 0.0001, also as in the chart. DIFFSTRESS compares the fall of the penalized stress with its new value.
+- Each iteration takes one majorization step of the common space (and of the space weights) and one projected gradient step of the transformation, whose step length doubles after a step that lowers the penalized stress and halves until one does. The penalized stress never rises, but it may need many iterations, as the default MAXITER of 5000 suggests.
+- Transformed proximities are never negative: NONE(INTERCEPT) and LINEAR(INTERCEPT) keep their intercept at or above minus the smallest proximity (LINEAR's slope counts from the smallest proximity), ORDINAL cuts below 0. NONE, LINEAR and SPLINE without INTERCEPT refuse negative proximities. SPLINE's inner knots sit at equally spaced quantiles of each list's proximities; without INTERCEPT the lower boundary knot is 0.
+- CLASSICAL(TRIANGLE) fills each row-row and column-column distance with the middle of its triangle bounds, the largest difference and the smallest sum over the other set. CLASSICAL(SPEARMAN) ranks the proximities within each row and uses those ranks between rows and columns and the root mean squared rank differences within each set. Several sources are averaged first.
+- CENTROIDS(n) puts the rows on the principal components of their proximities and every column at the centroid of the rows that have it among their n smallest proximities (all rows when none do). CORRESPONDENCE adds a hundredth of the range to the mirrored proximities so every row and column has mass.
+- RANDOM starts draw from the session's random generator; the table lists each start's penalized stress and its parts, not seeds. Random starts compute the smallest dimensionality only.
+- The Measures table: Kruskal's and Young's stress values, variance accounted for (squared correlation of the transformed proximities and distances) and the coefficients of variation are taken over all proximities together; dispersion accounted for is 1 minus the normalized stress; recovered preference orders is the share of pairs of unequal proximities within a row of a source whose distances keep the same strict order; Spearman's rho and Kendall's tau-b are the means over those rows. No degeneracy indices are shown.
+- The decomposition splits the normalized stress: every proximity gives half of its share to its row and half to its column.
+- A row variable starts a new source when its value falls below the one before; a source variable's sorted values number the sources. Rows are named by the row variable's value labels or values, otherwise Row 1, Row 2, ...; sources likewise (Source 1, ...). Plot value lists match the identifier's values when INPUT names a variable, otherwise the row or source numbers.
+- OPTIONS MARKERS and COLORS group the row points of the joint plots by the values (labels) of the variable at each row's first case; both together form one group per combination. The weight variable of the data multiplies the weights of each row; a weight of 0 or missing leaves the row out.
+- The common space is shown as PROXSCAL shows it: the identity model on principal axes, the weighted model with sum of squares n per dimension, the generalized model with Z'Z = nI.
+- Not supported yet: RESTRICTIONS, TRANSFORMATION=SMOOTH and a start from a file.
+
 ### ALSCAL
 
 - Only symmetric matrices with the EUCLID and INDSCAL models: SHAPE=ASYMMETRIC and RECTANGULAR, CONDITION=ROW, ASCAL, AINDS, GEMSCAL and FILE are refused with an error.

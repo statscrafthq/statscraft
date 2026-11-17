@@ -62,6 +62,7 @@ use crate::plum;
 use crate::portable;
 use crate::power;
 use crate::pplot;
+use crate::prefscal;
 use crate::procedures;
 use crate::proportions;
 use crate::proximities;
@@ -2460,6 +2461,66 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  from a file, and the VARIABLES and CORRELATIONS keywords of PRINT and PLOT.",
         example: "PROXSCAL brand1 TO brand6 /TRANSFORMATION=ORDINAL /CRITERIA=DIMENSIONS(1,3) /PRINT=COMMON STRESS HISTORY /PLOT=COMMON STRESS.",
         parse: proxscal::proxscal,
+    },
+    CommandSpec {
+        name: "PREFSCAL",
+        summary: "Multidimensional unfolding of preferences or proximities between row and column objects, with penalized stress.",
+        syntax: "PREFSCAL [VARIABLES=]varlist\n\
+                 \x20  [/INPUT=[ROWS(n | rowvar)] [SOURCES(n | sourcevar)]] [/PROXIMITIES=DISSIMILARITIES | SIMILARITIES]\n\
+                 \x20  [/WEIGHTS=varlist] [/INITIAL=CLASSICAL[(TRIANGLE | SPEARMAN)] | CORRESPONDENCE | ROSSCLIFF\n\
+                 \x20            | CENTROIDS[(n)] | RANDOM[(n)]]\n\
+                 \x20  [/CONDITION=ROW | MATRIX | UNCONDITIONAL]\n\
+                 \x20  [/TRANSFORMATION=NONE[(INTERCEPT)] | LINEAR[(INTERCEPT)] | ORDINAL[(KEEPTIES | UNTIE)]\n\
+                 \x20                   | SPLINE[([INTERCEPT] [ORDER=2] [INKNOT=1])]]\n\
+                 \x20  [/MODEL=IDENTITY | WEIGHTED | GENERALIZED] [/PENALTY=[LAMBDA(0.5)] [OMEGA(1)]]\n\
+                 \x20  [/CRITERIA=[DIMENSIONS(2[,max])] [MAXITER(5000)] [DIFFSTRESS(.000001)] [MINSTRESS(.0001)]]\n\
+                 \x20  [/PRINT=[NONE] [INPUT] [MULTIPLE] [INITIAL] [HISTORY] [MEASURES] [DECOMPOSITION] [COMMON]\n\
+                 \x20          [DISTANCES] [WEIGHTS] [INDIVIDUAL] [TRANSFORMATION]]\n\
+                 \x20  [/PLOT=[NONE] [MULTIPLE] [INITIAL] [STRESS] [COMMON] [WEIGHTS] [INDIVIDUAL[(values)...]]\n\
+                 \x20         [TRANSFORMATIONS[(values)...]] [SHEPARD[(values)...]] [FIT[(values)...]] [RESIDUALS[(values)...]]]\n\
+                 \x20  [/OPTIONS=[MARKERS(var)] [COLORS(var)]]\n\
+                 \x20  [/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)]].\n\
+                 Each listed variable is a column object and each case a row object of a source. INPUT says how the\n\
+                 cases form sources: ROWS(n) cases per source or SOURCES(n) sources (the cases divide evenly; both\n\
+                 numbers take the first rows times sources cases); a row variable numbers the rows (a smaller\n\
+                 value than the one before starts the next source), a source variable numbers the sources, which\n\
+                 hold consecutive cases. Without INPUT there is one source. A missing proximity or a WEIGHTS value\n\
+                 of 0 leaves the cell out; the weight variable of the data weights whole rows. SPLIT FILE is not\n\
+                 used. Similarities are mirrored within each transformation list (largest and smallest swap).\n\
+                 The loss is penalized stress: the mean over transformation lists of the normalized stress,\n\
+                 raised to LAMBDA, times the mean over lists of 1 + OMEGA v(p)^2 / v(t)^2, where v is the\n\
+                 coefficient of variation and p and t are the proximities and transformed proximities of the\n\
+                 list. A small LAMBDA makes the penalty stronger, OMEGA 0 turns it off. CONDITION picks the\n\
+                 lists: every row of every source, every source, or all proximities. Each iteration moves the\n\
+                 configuration by one majorization step and the transformation by one projected gradient step,\n\
+                 so the penalized stress never rises. NONE keeps the proximities (INTERCEPT adds a constant),\n\
+                 LINEAR fits a slope (INTERCEPT also a constant), ORDINAL keeps the order (UNTIE lets tied values\n\
+                 part) and SPLINE fits a rising spline of the given degree with INKNOT inner knots; the\n\
+                 transformed proximities are never negative. MODEL=WEIGHTED gives each source its own weight per\n\
+                 dimension and GENERALIZED its own linear map; one source uses IDENTITY. Starts: CLASSICAL scales\n\
+                 the full matrix after filling the row-row and column-column distances with the middle of their\n\
+                 triangle bounds (SPEARMAN: root mean squared differences of the ranks within rows), ROSSCLIFF\n\
+                 takes the singular vectors of the double centered squared proximities, CORRESPONDENCE the\n\
+                 scores of a correspondence analysis of the mirrored proximities, CENTROIDS(n) the principal\n\
+                 components of the rows with every column at the centroid of the rows that rank it among their\n\
+                 first n, RANDOM(n) n random starts from the session's generator, the best kept. DIMENSIONS solves\n\
+                 from max down to min. Iterations stop after MAXITER, at MINSTRESS, or when the penalized stress\n\
+                 falls by no more than DIFFSTRESS times its value.\n\
+                 Tables: Case Processing Summary; Measures (penalized stress with its stress and penalty parts;\n\
+                 with MEASURES also normalized stress, Kruskal's Stress-I and II, Young's S-Stress-I and II,\n\
+                 dispersion and variance accounted for, recovered preference orders, the mean Spearman rho and\n\
+                 Kendall tau-b of the rows and the coefficients of variation); Final Common Space (rows, then\n\
+                 columns); Dimension Weights or Space Weights; and on request the proximities, Random Starts,\n\
+                 Initial Common Space, Iteration History, Decomposition of Normalized Stress, Individual Space\n\
+                 Coordinates, Distances and Transformed Proximities. Charts: the joint plot of the common space\n\
+                 (OPTIONS groups the rows by the values of a variable), Dimension Weights, Individual Space,\n\
+                 Scree Plot, Initial Common Space, Random Starts, and Transformation, Shepard, Fit and Residuals\n\
+                 plots; the values pick rows (CONDITION=ROW) or sources by their number or identifier, ALL for\n\
+                 all. OUTFILE writes DIM_1, DIM_2, ... for the common space or the weights and ROW_1, ...,\n\
+                 COL_1, ... for the distances and transformed proximities, the sources one below the other.\n\
+                 Not supported yet: RESTRICTIONS, the SMOOTH transformation and a start from a file.",
+        example: "PREFSCAL brand1 TO brand6 /INPUT=ROWS(person) /TRANSFORMATION=ORDINAL(UNTIE) /PRINT=MEASURES COMMON HISTORY /PLOT=COMMON TRANSFORMATIONS(1 TO 4).",
+        parse: prefscal::prefscal,
     },
     CommandSpec {
         name: "ALSCAL",

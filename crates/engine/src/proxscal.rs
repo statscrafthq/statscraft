@@ -857,14 +857,14 @@ impl Engine {
 }
 
 /// The value label of `value`, or None.
-fn label_of(v: &Variable, value: f64) -> Option<String> {
+pub(crate) fn label_of(v: &Variable, value: f64) -> Option<String> {
     v.value_labels()
         .iter()
         .find(|(k, _)| matches!(k, Value::Number(x) if *x == value))
         .map(|(_, label)| label.clone())
 }
 
-fn titled(title: &str, source: &str, m: usize) -> String {
+pub(crate) fn titled(title: &str, source: &str, m: usize) -> String {
     match m {
         1 => title.to_string(),
         _ => format!("{title}: {source}"),
@@ -946,7 +946,7 @@ pub(crate) fn coordinates(title: String, objects: &[String], z: &Matrix, dims: &
     }
 }
 
-fn space_weights(
+pub(crate) fn space_weights(
     model: Model,
     after: &str,
     sources: &[String],

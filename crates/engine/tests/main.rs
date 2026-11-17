@@ -81,6 +81,7 @@ mod plum;
 mod portable;
 mod power;
 mod pplot_roc;
+mod prefscal;
 mod procedures;
 mod proportions;
 mod proximities;

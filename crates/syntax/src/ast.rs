@@ -112,6 +112,7 @@ pub enum Command {
     Cluster(Box<crate::cluster::Cluster>),
     Proximities(Box<crate::proximities::Proximities>),
     Proxscal(Box<crate::proxscal::Proxscal>),
+    Prefscal(Box<crate::prefscal::Prefscal>),
     Alscal(Box<crate::alscal::Alscal>),
     Orthoplan(Box<crate::conjoint::Orthoplan>),
     Plancards(Box<crate::conjoint::Plancards>),

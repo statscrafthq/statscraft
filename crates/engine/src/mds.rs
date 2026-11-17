@@ -190,7 +190,7 @@ pub(crate) fn fit_measures(s: &Sums) -> [f64; 6] {
 }
 
 /// V = sum of the weights as a Laplacian: v_ij = -w_ij, v_ii = sum of row i.
-fn laplacian(w: &Matrix) -> Matrix {
+pub(crate) fn laplacian(w: &Matrix) -> Matrix {
     let n = w.len();
     let mut v = zeros(n, n);
     for i in 0..n {
@@ -206,7 +206,7 @@ fn laplacian(w: &Matrix) -> Matrix {
 
 /// The Moore-Penrose inverse of a Laplacian whose null space is the vector of ones:
 /// (V + 11'/n)^-1 - 11'/n.
-fn laplacian_inverse(v: &Matrix) -> Option<Matrix> {
+pub(crate) fn laplacian_inverse(v: &Matrix) -> Option<Matrix> {
     let n = v.len();
     let c = 1.0 / n as f64;
     let shifted: Matrix = v
@@ -222,7 +222,7 @@ fn laplacian_inverse(v: &Matrix) -> Option<Matrix> {
 }
 
 /// B(X) X for one source: b_ij = -w_ij dhat_ij / d_ij(X) off the diagonal (0 where d is 0).
-fn bx(w: &Matrix, dhat: &Matrix, x: &Matrix) -> Matrix {
+pub(crate) fn bx(w: &Matrix, dhat: &Matrix, x: &Matrix) -> Matrix {
     let n = x.len();
     let p = x.first().map_or(0, Vec::len);
     let d = distances(x);
@@ -248,7 +248,7 @@ fn bx(w: &Matrix, dhat: &Matrix, x: &Matrix) -> Matrix {
     out
 }
 
-fn center(z: &mut Matrix) {
+pub(crate) fn center(z: &mut Matrix) {
     let n = z.len() as f64;
     let p = z.first().map_or(0, Vec::len);
     for a in 0..p {
@@ -262,7 +262,7 @@ fn scale(m: &mut Matrix, f: f64) {
 }
 
 /// The space of every source.
-fn spaces(z: &Matrix, a: &[Matrix]) -> Vec<Matrix> {
+pub(crate) fn spaces(z: &Matrix, a: &[Matrix]) -> Vec<Matrix> {
     a.iter().map(|ak| multiply(z, ak)).collect()
 }
 
@@ -863,7 +863,7 @@ pub(crate) fn iterate(
 }
 
 /// The Guttman transform of the common space for the space weights `a`.
-fn update_z(
+pub(crate) fn update_z(
     laplacians: &[Matrix],
     vinv: &Matrix,
     same_weights: bool,
@@ -979,7 +979,7 @@ fn pseudo_inverse(a: &Matrix) -> Matrix {
 }
 
 /// The space weights for the common space `z`.
-fn update_a(
+pub(crate) fn update_a(
     model: Model,
     laplacians: &[Matrix],
     c: &[Matrix],

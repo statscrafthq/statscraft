@@ -64,6 +64,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Cluster(_)
         | Command::Proximities(_)
         | Command::Proxscal(_)
+        | Command::Prefscal(_)
         | Command::Alscal(_)
         | Command::Discriminant(_)
         | Command::Coxreg(_)
