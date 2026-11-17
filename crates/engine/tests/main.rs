@@ -46,6 +46,7 @@ mod inline_data;
 mod input_program;
 mod km_survival;
 mod legacy_scaling;
+mod knn;
 mod logistic;
 mod loglinear;
 mod loops;

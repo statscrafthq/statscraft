@@ -48,6 +48,7 @@ mod glm;
 mod graph;
 mod input_program;
 mod legacy_scaling;
+mod knn;
 mod lexer;
 mod logistic;
 mod loglinear;
@@ -130,6 +131,8 @@ mod tests_glm;
 mod tests_graph;
 #[cfg(test)]
 mod tests_input_program;
+#[cfg(test)]
+mod tests_knn;
 #[cfg(test)]
 mod tests_loglinear;
 #[cfg(test)]
@@ -269,6 +272,7 @@ pub use graph::{
     Graph, GraphChart, GraphData, GraphFunction, GraphInterval, GraphPanel, GraphSummary,
 };
 pub use legacy_scaling::{LegacyChart, LegacyCoding, LegacyLevel, Overals};
+pub use knn::{Knn, KnnFeatureCount, KnnFolds, KnnLevel, KnnNeighbors, KnnPartition, KnnSave};
 pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
     Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,

@@ -1047,6 +1047,23 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - PRINT DESCRIPTIVES counts weighted cases: N is the analyzed cases, Missing the other cases of positive weight. The guide's class distribution is one table with a row per binned variable. ENTROPY gives one model entropy per variable.
 - **The RULES file** holds, per variable, COMPUTE to system-missing, one IF per bin guarded by NOT MISSING, VARIABLE LABELS, VALUE LABELS, FORMATS and VARIABLE LEVEL, with the end points written as the shortest decimal that reads back as the same number.
 - SPLIT FILE is not used, with a warning, so that one rules file fits all cases.
+### KNN
+
+- Training cases are predicted from the other training cases: a case is never its own neighbor, in the error summary, the classification table, saved values, cross-validation and feature selection alike. Holdout and focal cases look for neighbors among all training cases (a focal training case not counting itself).
+- Equal distances keep file order: the earlier case is the nearer neighbor.
+- The error used to choose k and features is the share of cases misclassified (shown in percent) or the sum of squared errors. A holdout case whose target category no training case has counts as misclassified.
+- The vote tie rule counts the training cases of the whole training sample, also inside cross-validation folds.
+- Random partition: each analyzed case in file order takes one number from the session's generator and trains when it is below TRAINING / (TRAINING + HOLDOUT). With HOLDOUT=0 nothing is drawn. Random folds: each training case in file order takes one number; in the order of those numbers the cases take folds 1, 2, ..., V in turn, so the folds differ in size by at most one. FOLDS above the number of training cases becomes that number.
+- A fold variable must hold whole numbers from 1 to V over the training cases, each value present; a case missing on it is left out. The partition variable leaves out only system-missing cases.
+- k may not exceed the training cases that can be neighbors (the training cases less one, or less the largest fold in cross-validation); a larger k is an error.
+- Forward selection: ties between candidates go to the earlier predictor (factors, then covariates, in command order). Without forced predictors the first predictor is always added; the error ratio rule applies from the second step on, and an error of 0 ends the selection. When both NEIGHBORS and FEATURES are AUTO, ties between values of k go to the smaller k.
+- Importance is the error without the predictor plus 1/m, scaled to sum 1 (any common divisor, such as the full model's error, cancels in the scaling); one predictor has importance 1. It is computed for the chosen k and features with unweighted distances; WEIGHTFEATURES=YES then weights the final distances only, not the choice of k or features.
+- A covariate with one value over the training cases adds nothing to the distances when rescaled (warning). Factors and the target use the categories of the training cases; a holdout or focal case with a factor category the training cases lack is not scored (warning).
+- The target's level: MLEVEL, else its measurement level; an unknown level is settled from the data as for other procedures (SET SCALEMIN). A string target cannot be scale.
+- Saved values go to the analyzed cases; others are missing. KNN_Partition is 1 for training and 0 for holdout, so it can be given back as a partition variable. KNN_PredictedValue takes the target's format (text for a string target) and, for a categorical target, its value labels. A name given on SAVE that exists is an error; a default name in use gets the first free suffix _1, _2 and so on.
+- Keywords ignored by the manual's rules (for example CROSSVALIDATION with NEIGHBORS=FIXED or FEATURES=AUTO, FOLD without cross-validation, PREDPROB with a scale target) are ignored with a warning.
+- The model view comes as tables: Model Summary, k Selection Error Log, Feature Selection Error Log, Feature Importance, Error Summary, Classification Table, and Nearest Neighbors and Distances. The predictor space chart, peers chart and quadrant map are not drawn; CASELABELS names the cases in the focal table.
+- OUTFILE MODEL writes our own JSON model (the coding, k, metric, features, weights and coded training cases), not an XML model. Under SPLIT FILE neither OUTFILE file is written (warning). OUTFILE FOCALCASES without a FOCALCASES variable writes nothing (warning).
 
 ### PROXIMITIES
 

@@ -53,6 +53,7 @@ mod html;
 mod input;
 mod km;
 mod legacy_scaling;
+mod knn;
 mod life_table;
 pub mod live;
 mod locale;
@@ -1268,6 +1269,7 @@ impl Engine {
             | Command::Factor(_)
             | Command::QuickCluster(_)
             | Command::Twostep(_)
+            | Command::Knn(_)
             | Command::Logistic(_)
             | Command::Coxreg(_)
             | Command::Nomreg(_)
@@ -1606,6 +1608,7 @@ impl Engine {
             Command::Factor(command) => self.factor(command),
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Twostep(command) => self.twostep(command),
+            Command::Knn(command) => self.knn(command),
             Command::Detectanomaly(command) => self.detectanomaly(command),
             Command::OptimalBinning(command) => self.optimal_binning(command),
             Command::Logistic(command) => self.logistic(command),

@@ -71,6 +71,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::QuickCluster(_)
         | Command::Twostep(_)
         | Command::Pls(_)
+        | Command::Knn(_)
         | Command::Detectanomaly(_)
         | Command::OptimalBinning(_)
         | Command::Tree(_)

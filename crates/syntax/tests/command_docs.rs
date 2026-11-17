@@ -156,6 +156,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "DMCLUSTER",
             "DETECTANOMALY",
             "OPTIMAL BINNING",
+            "KNN",
             "PROXIMITIES",
             "PROXSCAL",
             "ALSCAL",
