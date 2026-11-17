@@ -10,6 +10,7 @@ use crate::analyze_dialogs::{
 };
 use crate::bayes_dialog::{BAYES_MENU, Bayesian};
 use crate::catreg_dialog::CategoricalRegression;
+use crate::conjoint_dialog::Design;
 use crate::connect_window::Connect;
 use crate::cs_model_dialog::SampleModel;
 use crate::data_dialogs::{
@@ -1680,6 +1681,22 @@ impl App {
                         self.open_dialog(dialog);
                     }
                 }
+                ui.menu_button("Orthogonal Design", |ui| {
+                    // a plan is made from typed factors, so Generate needs no data
+                    if ui.button("Generate...").clicked() {
+                        self.open_dialog(Dialog::Advanced(Advanced::Conjoint(Box::new(
+                            Design::Generate(Default::default()),
+                        ))));
+                    }
+                    if ui
+                        .add_enabled(has_data, egui::Button::new("Display..."))
+                        .clicked()
+                    {
+                        self.open_dialog(Dialog::Advanced(Advanced::Conjoint(Box::new(
+                            Design::Display(Default::default()),
+                        ))));
+                    }
+                });
                 ui.add_enabled_ui(has_data, |ui| {
                     ui.menu_button("Validation", |ui| {
                         if ui.button("Validate Data...").clicked() {
@@ -1995,6 +2012,11 @@ impl App {
                             }
                         }
                     });
+                    if ui.button("Conjoint...").clicked() {
+                        self.open_dialog(Dialog::Advanced(Advanced::Conjoint(Box::new(
+                            Design::Analysis(Default::default()),
+                        ))));
+                    }
                     ui.menu_button("Nonparametric Tests", |ui| {
                         for (label, kind) in [
                             ("One Sample...", NpKind::OneSample),
@@ -3782,14 +3804,16 @@ impl App {
         let Some(dialog) = self.dialog.as_mut() else {
             return;
         };
-        // opening a file needs no data
+        // opening a file needs no data, nor does generating a plan
         let empty;
+        let makes_data = matches!(dialog, Dialog::Advanced(Advanced::Conjoint(d)) if d.generates());
         let data = match window_data(&self.session, &self.windows, self.popups) {
             Some(data) => data,
-            None if matches!(
-                dialog,
-                Dialog::ImportData(_) | Dialog::Advanced(Advanced::Power(_))
-            ) =>
+            None if makes_data
+                || matches!(
+                    dialog,
+                    Dialog::ImportData(_) | Dialog::Advanced(Advanced::Power(_))
+                ) =>
             {
                 empty = Dataset::new(0);
                 &empty
@@ -3831,12 +3855,14 @@ impl App {
                 let height = (ctx.content_rect().height() - 150.0 - lines * row).max(160.0);
                 ui.horizontal_top(|ui| {
                     // Sort Variables, Open Data and Power Analysis take no variables
-                    if !matches!(
-                        dialog,
-                        Dialog::SortVariables(_)
-                            | Dialog::ImportData(_)
-                            | Dialog::Advanced(Advanced::Power(_))
-                    ) {
+                    if !makes_data
+                        && !matches!(
+                            dialog,
+                            Dialog::SortVariables(_)
+                                | Dialog::ImportData(_)
+                                | Dialog::Advanced(Advanced::Power(_))
+                        )
+                    {
                         ui.vertical(|ui| {
                             ui.set_width(230.0);
                             let sets = matches!(

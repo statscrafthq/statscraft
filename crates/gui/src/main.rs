@@ -16,6 +16,8 @@ mod catreg_dialog;
 mod catreg_dialog_view;
 mod chart_paint;
 mod complete;
+mod conjoint_dialog;
+mod conjoint_dialog_view;
 mod connect_window;
 mod correspondence_dialog;
 mod correspondence_dialog_view;

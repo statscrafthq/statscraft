@@ -15,6 +15,7 @@ use crate::agreement_dialog::{FleissKappa, Ratio, WeightedKappa};
 use crate::analyze_dialogs::keywords;
 use crate::bayes_dialog::Bayesian;
 use crate::catpca_dialog::Catpca;
+use crate::conjoint_dialog::Design;
 use crate::correspondence_dialog::Correspondence;
 use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::SampleModel;
@@ -111,6 +112,8 @@ pub enum Advanced {
     Validate(Box<DataValidation>),
     Compare(Box<DatasetComparison>),
     CopyDictionary(Box<DictionaryCopy>),
+    // the conjoint dialogs (in `conjoint_dialog`)
+    Conjoint(Box<Design>),
 }
 
 impl Advanced {
@@ -167,6 +170,7 @@ impl Advanced {
             Advanced::Validate(_) => "Validate Data",
             Advanced::Compare(_) => "Compare Datasets",
             Advanced::CopyDictionary(_) => "Apply Data Dictionary",
+            Advanced::Conjoint(d) => d.title(),
         }
     }
 
@@ -231,6 +235,7 @@ impl Advanced {
             Advanced::Validate(_) => Advanced::Validate(Default::default()),
             Advanced::Compare(_) => Advanced::Compare(Default::default()),
             Advanced::CopyDictionary(_) => Advanced::CopyDictionary(Default::default()),
+            Advanced::Conjoint(d) => Advanced::Conjoint(Box::new(d.reset())),
         }
     }
 
@@ -294,6 +299,7 @@ impl Advanced {
             Advanced::Validate(d) => d.syntax(),
             Advanced::Compare(d) => d.syntax(),
             Advanced::CopyDictionary(d) => d.syntax(data),
+            Advanced::Conjoint(d) => d.syntax(data),
         }
     }
 }

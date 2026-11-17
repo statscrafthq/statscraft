@@ -80,6 +80,7 @@ pub fn body(
         Advanced::CopyDictionary(d) => {
             crate::data_tools_dialog_view::apply_dictionary(ui, d, picked, folder)
         }
+        Advanced::Conjoint(d) => crate::conjoint_dialog_view::body(ui, data, d, picked, folder),
     }
 }
 

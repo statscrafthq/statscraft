@@ -13,6 +13,9 @@ use crate::analyze_dialogs::{
 };
 use crate::catpca_dialog::{Catpca, CatpcaVariable};
 use crate::catreg_dialog::{CategoricalRegression, CatregVariable};
+use crate::conjoint_dialog::{
+    ConjointAnalysis, Design, FactorModel, Level, OrthogonalPlan, PlanCards, PlanFactor,
+};
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
 use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::{CsCox, CsOrdinal, Held, OddsRatio, SampleModel};
@@ -67,6 +70,72 @@ fn table_variable(name: &str, min: &str, max: &str, roles: &[(i64, Role)]) -> Ta
         max: s(max),
         roles: roles.iter().copied().collect(),
     }
+}
+
+/// A plan factor with the levels 1, 2, ... named by `labels`.
+fn plan_factor(name: &str, label: &str, labels: &[&str]) -> PlanFactor {
+    PlanFactor {
+        name: s(name),
+        label: s(label),
+        levels: labels
+            .iter()
+            .enumerate()
+            .map(|(i, l)| Level {
+                value: (i + 1).to_string(),
+                label: s(l),
+            })
+            .collect(),
+    }
+}
+
+/// A plan file made by ORTHOPLAN from `factors` and a data file with invented scores of five
+/// subjects for its rated profiles, in `out`: the two paths and the number of rated profiles.
+fn conjoint_files(out: &Path, tag: &str, factors: &str, holdout: usize) -> (String, String, usize) {
+    let path = |what: &str| {
+        out.join(format!("{tag}_{what}.sav"))
+            .to_string_lossy()
+            .into_owned()
+    };
+    let (plan, scores) = (path("plan"), path("scores"));
+    let mut session = statscraft_engine::session::Session::default();
+    let holdout = if holdout > 0 {
+        format!(" /HOLDOUT={holdout}")
+    } else {
+        String::new()
+    };
+    session
+        .run(
+            &format!(
+                "SET SEED=7.\nORTHOPLAN FACTORS={factors}{holdout} /OUTFILE={}.",
+                crate::syntax_text::quote(&plan)
+            ),
+            None,
+        )
+        .unwrap();
+    let n = statscraft_data::Dataset::read_sav(&plan)
+        .unwrap()
+        .case_count();
+    let rows: Vec<String> = (1..=5)
+        .map(|subject| {
+            let scores: Vec<String> = (1..=n)
+                .map(|k| ((k * (subject + 1) + subject * 3) % 9 + 1).to_string())
+                .collect();
+            format!("{subject} {}", scores.join(" "))
+        })
+        .collect();
+    let columns: Vec<String> = (1..=n).map(|k| format!("s{k}")).collect();
+    let mut data = statscraft_engine::session::Session::default();
+    data.run(
+        &format!(
+            "DATA LIST LIST /id {}.\nBEGIN DATA\n{}\nEND DATA.\nSAVE OUTFILE={}.",
+            columns.join(" "),
+            rows.join("\n"),
+            crate::syntax_text::quote(&scores)
+        ),
+        None,
+    )
+    .unwrap();
+    (plan, scores, n)
 }
 
 /// Each dialog with the fewest choices that make its syntax.
@@ -569,6 +638,29 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         variables: v(&["age"]),
         ..Default::default()
     }));
+    let (cj_plan, _, _) = conjoint_files(out, "min", "a (1 2) b (1 2) c (1 2)", 0);
+    list.push(Dialog::Advanced(Advanced::Conjoint(Box::new(
+        Design::Generate(OrthogonalPlan {
+            factors: vec![plan_factor("a", "", &["", ""])],
+            ..Default::default()
+        }),
+    ))));
+    list.push(Dialog::Advanced(Advanced::Conjoint(Box::new(
+        Design::Display(PlanCards {
+            factors: v(&["gender", "region"]),
+            ..Default::default()
+        }),
+    ))));
+    // four survey columns without missing values stand in for the responses to four profiles
+    list.push(Dialog::Advanced(Advanced::Conjoint(Box::new(
+        Design::Analysis(Box::new(ConjointAnalysis {
+            plan_from_file: true,
+            plan_file: cj_plan,
+            responses: s("age gender region resp_id"),
+            subject: s("resp_id"),
+            ..Default::default()
+        })),
+    ))));
     list.push(Dialog::RocCurve(RocCurve {
         tests: v(&["age"]),
         state: s("q5_1"),
@@ -2481,6 +2573,66 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         median: true,
         ..Default::default()
     }))));
+    let (cj_plan, cj_scores, n) =
+        conjoint_files(out, "max", "brand (1 2 3) price (1 2 3) organic (1 2)", 2);
+    list.push(Dialog::Advanced(Advanced::Conjoint(Box::new(
+        Design::Generate(OrthogonalPlan {
+            factors: vec![
+                plan_factor("brand", "Brand", &["Acme", "Brio", "Cora"]),
+                plan_factor("price", "Price", &["", "", ""]),
+                plan_factor("organic", "", &["no", "yes"]),
+            ],
+            at: 1,
+            minimum: s("9"),
+            holdout: s("2"),
+            mixed: true,
+            seed: s("5"),
+            output: 1,
+            file: out.join("max_made.sav").to_string_lossy().into_owned(),
+        }),
+    ))));
+    list.push(Dialog::Advanced(Advanced::Conjoint(Box::new(
+        Design::Display(PlanCards {
+            factors: v(&["region", "gender"]),
+            format: 2,
+            title: s("Profile )CARD\nOf the survey"),
+            footer: s("Score it from 0 to 10"),
+            file: out.join("max_cards.txt").to_string_lossy().into_owned(),
+        }),
+    ))));
+    list.push(Dialog::Advanced(Advanced::Conjoint(Box::new(
+        Design::Analysis(Box::new(ConjointAnalysis {
+            plan_from_file: true,
+            plan_file: cj_plan,
+            data_from_file: true,
+            data_file: cj_scores,
+            record: 0,
+            responses: format!("s1 TO s{n}"),
+            subject: s("id"),
+            factors: vec![
+                FactorModel {
+                    name: s("brand"),
+                    model: 0,
+                    direction: 1,
+                },
+                FactorModel {
+                    name: s("price"),
+                    model: 2,
+                    direction: 0,
+                },
+                FactorModel {
+                    name: s("organic"),
+                    model: 1,
+                    direction: 2,
+                },
+            ],
+            print: 1,
+            summary_only: true,
+            utility: out.join("max_utility.sav").to_string_lossy().into_owned(),
+            plot: 3,
+            ..Default::default()
+        })),
+    ))));
     list
 }
 
@@ -5581,6 +5733,123 @@ fn the_categorical_principal_components_dialog_writes_syntax_that_runs() {
         assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
     }
     assert!(Path::new(&recoded).exists());
+    std::fs::remove_dir_all(out).unwrap();
+}
+
+/// The conjoint dialogs in a chain: the plan is generated, shown as cards and then analysed
+/// from invented ranks, and the syntax is as expected, parses and runs.
+#[test]
+fn the_conjoint_dialogs_write_syntax_that_runs() {
+    let out = folder("walk-conjoint");
+    let cards = out.join("cards.txt").to_string_lossy().into_owned();
+    let ranks = out.join("ranks.sav").to_string_lossy().into_owned();
+    let mut session = statscraft_engine::session::Session::default();
+    let step = |session: &mut statscraft_engine::session::Session, design: Design| {
+        let data = session
+            .dataset()
+            .cloned()
+            .unwrap_or_else(|| statscraft_data::Dataset::new(0));
+        let syntax = Dialog::Advanced(Advanced::Conjoint(Box::new(design)))
+            .syntax(&data)
+            .unwrap();
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+        // cards written to a file leave nothing to show
+        assert!(
+            syntax.contains("OUTFILE") || result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        syntax
+    };
+    let generate = step(
+        &mut session,
+        Design::Generate(OrthogonalPlan {
+            factors: vec![
+                plan_factor("brand", "Brand", &["Acme", "Brio", "Cora"]),
+                plan_factor("price", "Price", &["", "", ""]),
+                plan_factor("organic", "", &["no", "yes"]),
+            ],
+            holdout: s("2"),
+            seed: s("11"),
+            ..Default::default()
+        }),
+    );
+    assert_eq!(
+        generate,
+        "SET SEED=11.\nORTHOPLAN\n  /FACTORS=brand 'Brand' (1 'Acme' 2 'Brio' 3 'Cora')\n    \
+         price 'Price' (1 2 3)\n    organic (1 'no' 2 'yes')\n  /HOLDOUT=2\n  /REPLACE."
+    );
+    let rated = session.dataset().unwrap().case_count();
+    let show = step(
+        &mut session,
+        Design::Display(PlanCards {
+            factors: v(&["brand", "price", "organic"]),
+            format: 2,
+            title: s("Profile )CARD"),
+            footer: s("Rank the profiles"),
+            file: cards.clone(),
+        }),
+    );
+    assert_eq!(
+        show,
+        format!(
+            "PLANCARDS\n  /FACTORS=brand price organic\n  /FORMAT=BOTH\n  \
+             /TITLE='Profile )CARD'\n  /FOOTER='Rank the profiles'\n  /OUTFILE='{cards}'."
+        )
+    );
+    assert!(Path::new(&cards).exists());
+    // five subjects rank the rated profiles, each starting the order at another place
+    let rows: Vec<String> = (0..5)
+        .map(|subject| {
+            let ranks: Vec<String> = (0..rated)
+                .map(|k| ((k + subject * 3) % rated + 1).to_string())
+                .collect();
+            format!("{} {}", subject + 1, ranks.join(" "))
+        })
+        .collect();
+    let columns: Vec<String> = (1..=rated).map(|k| format!("r{k}")).collect();
+    let mut data = statscraft_engine::session::Session::default();
+    data.run(
+        &format!(
+            "DATA LIST LIST /id {}.\nBEGIN DATA\n{}\nEND DATA.\nSAVE OUTFILE='{ranks}'.",
+            columns.join(" "),
+            rows.join("\n")
+        ),
+        None,
+    )
+    .unwrap();
+    let conjoint = step(
+        &mut session,
+        Design::Analysis(Box::new(ConjointAnalysis {
+            data_from_file: true,
+            data_file: ranks.clone(),
+            record: 1,
+            responses: format!("r1 TO r{rated}"),
+            subject: s("id"),
+            factors: vec![
+                FactorModel {
+                    name: s("price"),
+                    model: 1,
+                    direction: 2,
+                },
+                FactorModel {
+                    name: s("brand"),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        })),
+    );
+    assert_eq!(
+        conjoint,
+        format!(
+            "CONJOINT PLAN=*\n  /DATA='{ranks}'\n  /RANK=r1 TO r{rated}\n  /SUBJECT=id\n  \
+             /FACTORS=price (LINEAR LESS) brand (DISCRETE)."
+        )
+    );
     std::fs::remove_dir_all(out).unwrap();
 }
 
