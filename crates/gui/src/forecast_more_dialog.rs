@@ -112,7 +112,11 @@ impl Spectra {
             text.push_str("\n  /CROSS");
         }
         let keyword = SPECTRA_WINDOWS[self.window].0;
-        let span = whole(&self.span, 1, "the span")?;
+        // no window has no span; a leftover entry in the greyed-out box is ignored
+        let span = match self.window {
+            SPECTRA_NO_WINDOW => None,
+            _ => whole(&self.span, 1, "the span")?,
+        };
         match (self.window, span) {
             (0, None) => {}
             (SPECTRA_NO_WINDOW, _) => text.push_str("\n  /WINDOW=NONE"),
