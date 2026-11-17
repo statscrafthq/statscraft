@@ -4,7 +4,7 @@
 //! the window's document, so a saved document keeps them. Its settings are data file
 //! attributes of the active dataset, which Edit > Plugin Settings writes through syntax.
 
-use crate::settings::{Preset, Settings};
+use crate::settings::{Preset, Settings, Template};
 use crate::syntax_text::quote;
 use crate::windows::WindowId;
 use eframe::egui::{self, Ui};
@@ -35,8 +35,21 @@ pub struct Plugins {
     /// Counts the changes of the plugin or its settings, so a slow answer asked before a change
     /// cannot overwrite a newer one.
     pub generation: u64,
-    /// The open settings dialog: the description it was opened with and the values typed.
-    pub dialog: Option<(Description, Vec<Field>)>,
+    /// The open settings dialog.
+    pub dialog: Option<Dialog>,
+}
+
+/// Edit > Plugin Settings while it is open: the description it was opened with, the values
+/// typed, and the design templates as Cancel would leave them untouched.
+pub struct Dialog {
+    description: Description,
+    fields: Vec<Field>,
+    /// A copy of the window's templates, kept on OK.
+    templates: Vec<Template>,
+    /// The template OK makes active.
+    chosen: Option<String>,
+    /// The name typed for a new template.
+    new_name: String,
 }
 
 /// One setting in Edit > Plugin Settings.
@@ -183,6 +196,36 @@ fn attributes(settings: &Settings, data: Option<&Dataset>) -> Vec<(String, Vec<S
     all
 }
 
+/// The attributes with the template laid over them: its values win for every setting not kept
+/// per data file (with the setting's preset name); a setting the template lacks keeps what the
+/// data or this computer has, else the plugin's default.
+fn with_template(
+    description: &Description,
+    mut all: Vec<(String, Vec<String>)>,
+    template: Option<&Template>,
+) -> Vec<(String, Vec<String>)> {
+    let Some(template) = template else {
+        return all;
+    };
+    for s in description.settings.iter().filter(|s| !s.per_file) {
+        let preset = s.presets.then(|| description.preset_attribute(&s.key));
+        for name in [Some(description.attribute(&s.key)), preset]
+            .into_iter()
+            .flatten()
+        {
+            let found = template
+                .values
+                .iter()
+                .find(|(a, _)| a.eq_ignore_ascii_case(&name));
+            if let Some((_, value)) = found {
+                all.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
+                all.push((name, vec![value.clone()]));
+            }
+        }
+    }
+    all
+}
+
 fn first_value(attributes: &[(String, Vec<String>)], name: &str) -> Option<String> {
     let mut found = attributes
         .iter()
@@ -248,13 +291,15 @@ impl Plugins {
             return;
         };
         let attributes = attributes(settings, data);
+        let template = settings.active_template().cloned();
         let sender = self.sender.clone();
         let document = document.to_string();
         let generation = self.generation;
         std::thread::spawn(move || {
             let refs: Vec<(u64, &Table)> = tables.iter().map(|(id, t)| (*id, t)).collect();
             let result = plugin::describe(&program).and_then(|description| {
-                let values = description.values(|name| first_value(&attributes, name));
+                let known = with_template(&description, attributes, template.as_ref());
+                let values = description.values(|name| first_value(&known, name));
                 plugin::decorate(&program, &values, &refs)
             });
             let _ = sender.send(Done {
@@ -291,7 +336,8 @@ impl Plugins {
             Some(Err(e)) => return Err(format!("plugin: {e}")),
             None => return Err("choose a plugin in Edit > Settings > Plugins first".into()),
         };
-        let known = attributes(settings, data);
+        let template = settings.active_template();
+        let known = with_template(&description, attributes(settings, data), template);
         let values = description.values(|name| first_value(&known, name));
         let fields = description.settings.iter().map(|s| {
             let text = match &values[&s.key] {
@@ -309,19 +355,34 @@ impl Plugins {
                 style: None,
             }
         });
-        self.dialog = Some((description.clone(), fields.collect()));
+        let fields = fields.collect();
+        self.dialog = Some(Dialog {
+            description,
+            fields,
+            templates: settings.templates.clone(),
+            chosen: template.map(|t| t.name.clone()),
+            new_name: String::new(),
+        });
         Ok(())
     }
 
     /// Edit > Plugin Settings while it is open; returns, when OK is pressed, the syntax that
     /// keeps the values as data file attributes and the same values as (attribute, value)
-    /// pairs. Presets saved or removed change `presets`.
+    /// pairs. Presets saved or removed change the settings' presets at once; the templates and
+    /// the active one change on OK.
     pub fn dialog_ui(
         &mut self,
         ctx: &egui::Context,
-        presets: &mut Vec<Preset>,
+        settings: &mut Settings,
     ) -> Option<(String, Vec<(String, String)>)> {
-        let (description, fields) = self.dialog.as_mut()?;
+        let presets = &mut settings.presets;
+        let Dialog {
+            description,
+            fields,
+            templates,
+            chosen,
+            new_name,
+        } = self.dialog.as_mut()?;
         let (mut open, mut ok, mut cancel) = (true, false, false);
         let screen = ctx.content_rect();
         let sections = sections(&description.settings);
@@ -333,6 +394,48 @@ impl Plugins {
                 ui.weak(
                     "Kept with the active data (save the data file to take them along) and \
                      remembered on this computer for its file.",
+                );
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label("Template");
+                    egui::ComboBox::from_id_salt("plugin template")
+                        .selected_text(chosen.as_deref().unwrap_or("(none)"))
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(chosen.is_none(), "(none)").clicked() {
+                                *chosen = None;
+                            }
+                            for t in templates.iter() {
+                                let on = chosen.as_ref() == Some(&t.name);
+                                if ui.selectable_label(on, &t.name).clicked() {
+                                    load_template(description, fields, t);
+                                    *chosen = Some(t.name.clone());
+                                }
+                            }
+                        });
+                    if ui
+                        .add_enabled(chosen.is_some(), egui::Button::new("Delete"))
+                        .clicked()
+                    {
+                        templates.retain(|t| Some(&t.name) != chosen.as_ref());
+                        *chosen = None;
+                    }
+                    let name = egui::TextEdit::singleline(new_name)
+                        .hint_text("Template name")
+                        .desired_width(130.0);
+                    ui.add(name);
+                    let all_valid = fields.iter().all(|f| valid(f.setting.kind, &f.text));
+                    let can = !new_name.trim().is_empty() && all_valid;
+                    if ui
+                        .add_enabled(can, egui::Button::new("Save as template"))
+                        .clicked()
+                    {
+                        *chosen = Some(save_template(description, fields, templates, new_name));
+                        new_name.clear();
+                    }
+                });
+                ui.weak(
+                    "A template holds every setting except those kept per data file, and is \
+                     used for every data file until another is chosen.",
                 );
                 ui.add_space(6.0);
                 let mut column = |ui: &mut Ui, sections: &[(String, Vec<usize>)]| {
@@ -406,12 +509,61 @@ impl Plugins {
             return None;
         }
         // the description the dialog was opened with: the program may have changed since
-        let (description, fields) = self.dialog.take()?;
-        ok.then(|| {
-            let pairs = attribute_values(&description, &fields);
-            (attribute_syntax(&pairs), pairs)
-        })
+        let dialog = self.dialog.take()?;
+        ok.then(|| dialog.finish(settings))
     }
+}
+
+impl Dialog {
+    /// OK: the chosen template becomes the active one (or none) and takes the values of the
+    /// template settings; every value, per file or not, goes to the data through syntax.
+    fn finish(mut self, settings: &mut Settings) -> (String, Vec<(String, String)>) {
+        if let Some(name) = &self.chosen {
+            save_template(&self.description, &self.fields, &mut self.templates, name);
+        }
+        settings.templates = self.templates;
+        settings.template = self.chosen;
+        let pairs = attribute_values(&self.description, &self.fields);
+        (attribute_syntax(&pairs), pairs)
+    }
+}
+
+/// Puts a template's values in the fields of the settings it holds; the others keep theirs.
+fn load_template(description: &Description, fields: &mut [Field], template: &Template) {
+    let value = |name: String| {
+        let found = template
+            .values
+            .iter()
+            .find(|(a, _)| a.eq_ignore_ascii_case(&name));
+        found.map(|(_, v)| v.clone())
+    };
+    for f in fields.iter_mut().filter(|f| !f.setting.per_file) {
+        let Some(text) = value(description.attribute(&f.setting.key)) else {
+            continue;
+        };
+        f.preset = value(description.preset_attribute(&f.setting.key))
+            .filter(|name| f.setting.presets && !name.is_empty())
+            .map(|name| (name, text.trim().to_string()));
+        f.text = text;
+    }
+}
+
+/// Keeps the values of the template settings under a name, replacing a template of that name
+/// in its place, or adding it last; returns the name as kept.
+fn save_template(
+    description: &Description,
+    fields: &[Field],
+    templates: &mut Vec<Template>,
+    name: &str,
+) -> String {
+    let mine = fields.iter().filter(|f| !f.setting.per_file);
+    let template = Template::new(name, &attribute_values(description, mine));
+    let name = template.name.clone();
+    match templates.iter_mut().find(|t| t.name == name) {
+        Some(t) => *t = template,
+        None => templates.push(template),
+    }
+    name
 }
 
 /// The settings by section: those without a group first, then each group in the order it first
@@ -662,7 +814,10 @@ fn attribute_syntax(pairs: &[(String, String)]) -> String {
 }
 
 /// Every value under its attribute name, with the preset name of a setting that has presets.
-fn attribute_values(description: &Description, fields: &[Field]) -> Vec<(String, String)> {
+fn attribute_values<'a>(
+    description: &Description,
+    fields: impl IntoIterator<Item = &'a Field>,
+) -> Vec<(String, String)> {
     let mut pairs = Vec::new();
     for f in fields {
         let key = &f.setting.key;
@@ -751,6 +906,7 @@ mod tests {
             kind,
             default: default.into(),
             presets: false,
+            per_file: false,
             group: None,
         };
         let description = Description {
@@ -806,6 +962,7 @@ mod tests {
                 kind: Kind::Number,
                 default: 0.into(),
                 presets: true,
+                per_file: false,
                 group: None,
             }],
         };
@@ -885,6 +1042,7 @@ mod tests {
                 kind: Kind::Style,
                 default: plugin::Value::Object(plugin::Map::new()),
                 presets: false,
+                per_file: false,
                 group: Some("Header".into()),
             }],
         };
@@ -910,6 +1068,148 @@ mod tests {
         assert_eq!(values["head"]["bold"], true);
     }
 
+    /// A plugin with a colour and a limit with presets in the template, and a universe size
+    /// kept per data file.
+    fn client_plugin() -> Description {
+        let setting = |key: &str, kind, default: Value, presets, per_file| plugin::Setting {
+            key: key.into(),
+            label: key.into(),
+            kind,
+            default,
+            presets,
+            per_file,
+            group: None,
+        };
+        Description {
+            name: "House".into(),
+            version: "1".into(),
+            protocol: 1,
+            settings: vec![
+                setting("high", Kind::Colour, "#ffffff".into(), false, false),
+                setting("limit", Kind::Number, 0.into(), true, false),
+                setting("universe", Kind::Number, 0.into(), false, true),
+            ],
+        }
+    }
+
+    /// With a template active, its values win for the template settings, a setting it lacks
+    /// keeps the data's value, and a per-file setting keeps the data's value even when the
+    /// template names it. Without a template the data's values hold, as before.
+    #[test]
+    fn the_active_template_wins_for_its_settings_only() {
+        let description = client_plugin();
+        let data = |pairs: &[(&str, &str)]| -> Vec<(String, Vec<String>)> {
+            let pairs = pairs.iter();
+            pairs
+                .map(|(a, v)| (a.to_string(), vec![v.to_string()]))
+                .collect()
+        };
+        let known = data(&[
+            ("plugin_house_high", "#000000"),
+            ("PLUGIN_HOUSE_LIMIT", "5"),
+            ("plugin_house_limit_preset", "Loose"),
+            ("plugin_house_universe", "1200"),
+        ]);
+        let pairs = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(a, v)| (a.to_string(), v.to_string()))
+                .collect()
+        };
+        let template = Template::new(
+            "Client A",
+            &pairs(&[
+                ("plugin_house_limit", "9"),
+                ("plugin_house_limit_preset", "Strict"),
+                ("plugin_house_universe", "99"),
+            ]),
+        );
+        let values = |template| {
+            let all = with_template(&description, known.clone(), template);
+            (
+                description.values(|name| first_value(&all, name)),
+                first_value(&all, "plugin_house_limit_preset"),
+            )
+        };
+        let (with, preset) = values(Some(&template));
+        assert_eq!(with["limit"], 9.0);
+        assert_eq!(preset.as_deref(), Some("Strict"));
+        assert_eq!(with["high"], "#000000");
+        assert_eq!(with["universe"], 1200.0);
+        let (without, preset) = values(None);
+        assert_eq!(without["limit"], 5.0);
+        assert_eq!(preset.as_deref(), Some("Loose"));
+        assert_eq!(without["universe"], 1200.0);
+        // nothing in the data: the template, then the default
+        let all = with_template(&description, Vec::new(), Some(&template));
+        let values = description.values(|name| first_value(&all, name));
+        assert_eq!(
+            (&values["limit"], &values["high"]),
+            (&9.0.into(), &"#ffffff".into())
+        );
+    }
+
+    /// Choosing a template fills the template fields; OK makes it active, keeps the edited
+    /// values in it (not the per-file one) and still writes every value to the data.
+    #[test]
+    fn ok_activates_and_updates_the_chosen_template() {
+        let description = client_plugin();
+        let field = |s: &plugin::Setting, text: &str| Field {
+            setting: s.clone(),
+            text: text.into(),
+            preset: None,
+            new_name: String::new(),
+            style: None,
+        };
+        let s = &description.settings;
+        let mut fields = vec![
+            field(&s[0], "#000000"),
+            field(&s[1], "5"),
+            field(&s[2], "1200"),
+        ];
+        let mut templates = Vec::new();
+        let name = save_template(&description, &fields, &mut templates, " Client\tA ");
+        assert_eq!(name, "Client A");
+        assert_eq!(templates[0].values.len(), 3, "{:?}", templates[0].values);
+        let b = [
+            ("plugin_house_high", "#ed7d31"),
+            ("plugin_house_limit", "9"),
+        ];
+        let b = b.map(|(a, v)| (a.to_string(), v.to_string()));
+        templates.push(Template::new("Client B", &b));
+        fields[2].text = "1500".into();
+        load_template(&description, &mut fields, &templates[1]);
+        let texts: Vec<&str> = fields.iter().map(|f| f.text.as_str()).collect();
+        assert_eq!(texts, ["#ed7d31", "9", "1500"]);
+        // edited after choosing: the template takes the edit on OK
+        fields[1].text = "10".into();
+        let dialog = Dialog {
+            description: description.clone(),
+            fields,
+            templates,
+            chosen: Some("Client B".into()),
+            new_name: String::new(),
+        };
+        let mut settings = Settings::default();
+        let (syntax, _) = dialog.finish(&mut settings);
+        assert_eq!(settings.template.as_deref(), Some("Client B"));
+        let active = settings.active_template().unwrap();
+        assert_eq!(
+            active.values,
+            [
+                ("plugin_house_high".to_string(), "#ed7d31".to_string()),
+                ("plugin_house_limit".to_string(), "10".to_string()),
+                ("plugin_house_limit_preset".to_string(), String::new()),
+            ]
+        );
+        assert_eq!(settings.templates.len(), 2);
+        assert_eq!(
+            syntax,
+            "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_house_high('#ed7d31') plugin_house_limit('10') \
+             plugin_house_limit_preset('') plugin_house_universe('1500')."
+        );
+    }
+
     /// Settings without a group come first, then each group in the order it first appears.
     #[test]
     fn settings_are_shown_in_sections() {
@@ -919,6 +1219,7 @@ mod tests {
             kind: Kind::Bool,
             default: true.into(),
             presets: false,
+            per_file: false,
             group: group.map(str::to_string),
         };
         let settings = [

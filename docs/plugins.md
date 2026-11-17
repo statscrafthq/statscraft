@@ -33,6 +33,19 @@ note to a cell, or giving the exports a look of your own.
   preset of the same name is replaced). Presets belong to the window, not to a data file, so
   they are there for every data file; they are kept in the window's settings file as lines
   `preset <attribute>`, a tab, the name, a tab and the value.
+- **Templates**: a design template is a named set of values for every setting except those the
+  plugin keeps per data file (`"per_file": true`, see the protocol below), for example one look
+  per client. The **Template** row at the top of the dialog chooses one (or **(none)**), which
+  fills the template's settings and leaves the per-file ones as they are; a name and **Save as
+  template** keep the current values under that name (a template of the same name is
+  replaced), and **Delete** removes the chosen one. OK makes the chosen template the active one
+  and keeps any changes to its settings in it; Cancel changes nothing, the template list
+  included. While a template is active, its values hold for every data file: they win over the
+  data's attributes, and a setting the template lacks takes the data's value or the default.
+  Per-file settings come from the data as before. OK still writes every value to the data
+  file's attributes, so the data file and the command line see the same values. Templates are
+  kept in the window's settings file as lines `template <name>`, a tab, the attribute, a tab
+  and the value, and the active one as `template-active <name>`.
 
 After every run that makes custom tables, the plugin runs on the new tables in the background,
 and the output window shows their colours when it answers. Hovering over a cell with a small
@@ -100,7 +113,9 @@ example plugin's, shortened):
 
 `kind` is `number`, `text`, `colour` (written `#rrggbb`), `bool` or `style`. A `number` or
 `text` setting may add `"presets": true` for a list of saved values in the dialog (see above).
-Any setting may add `"group"` with the heading of its section in the dialog. A plugin whose
+Any setting may add `"per_file": true` when its value belongs to one data file rather than to a
+look, such as the size of the population the sample was drawn from: design templates leave it
+out, and it always comes from the data file. Any setting may add `"group"` with the heading of its section in the dialog. A plugin whose
 `protocol` is not 1 is refused.
 
 A `style` is a JSON object with these keys, each optional:

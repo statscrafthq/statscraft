@@ -4004,7 +4004,7 @@ impl App {
             .dialog
             .is_some()
             .then(|| self.settings.presets.clone());
-        let set = self.plugins.dialog_ui(ctx, &mut self.settings.presets);
+        let set = self.plugins.dialog_ui(ctx, &mut self.settings);
         if presets.is_some_and(|p| p != self.settings.presets) {
             // the window works on without them
             let _ = self.settings.save();
@@ -4018,8 +4018,9 @@ impl App {
                 .map(Path::to_path_buf);
             if let Some(file) = file {
                 self.settings.remember_values(&file, &values);
-                let _ = self.settings.save();
             }
+            // the templates and the active one changed with OK
+            let _ = self.settings.save();
             self.run(&syntax, None, After::Show);
             self.plugins.again();
         }

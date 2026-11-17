@@ -38,6 +38,9 @@ pub struct Setting {
     /// The window offers saved values of the setting (a number or text) to choose from.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub presets: bool,
+    /// The window keeps the setting for each data file and leaves it out of design templates.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub per_file: bool,
     /// The heading of the section the window shows the setting in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
@@ -316,9 +319,14 @@ mod tests {
             r##"{"name": "Heat Map", "version": "1.0", "protocol": 1, "settings": [
                 {"key": "level", "label": "Colour steps", "kind": "number", "default": 95},
                 {"key": "up", "label": "Higher", "kind": "colour", "default": "#c6efce"},
-                {"key": "notes", "label": "Comments", "kind": "bool", "default": true}]}"##,
+                {"key": "notes", "label": "Comments", "kind": "bool", "default": true},
+                {"key": "universe", "label": "Population", "kind": "number", "default": 0,
+                 "per_file": true}]}"##,
         )
         .unwrap();
+        // only a setting that says so is kept per data file
+        let per_file: Vec<bool> = description.settings.iter().map(|s| s.per_file).collect();
+        assert_eq!(per_file, [false, false, false, true]);
         assert_eq!(description.attribute("level"), "plugin_heat_map_level");
         let values = description.values(|name| match name {
             "plugin_heat_map_level" => Some("99".into()),

@@ -61,6 +61,33 @@ pub struct Settings {
     /// The plugin settings last chosen for each data file, by its path: they hold when the
     /// file is read again (GET FILE in a syntax) before its new data file attributes were saved.
     pub file_values: Vec<FileValue>,
+    /// Design templates of the plugin's settings, and the name of the one in use.
+    pub templates: Vec<Template>,
+    pub template: Option<String>,
+}
+
+/// A named set of plugin setting values (every setting not kept per data file), as
+/// (attribute, value) pairs; one template per client's look, say.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Template {
+    pub name: String,
+    pub values: Vec<(String, String)>,
+}
+
+impl Template {
+    /// A template from the dialog: tabs and line breaks become spaces, so each value fits its
+    /// line of the settings file.
+    pub fn new(name: &str, values: &[(String, String)]) -> Self {
+        let values = values.iter().map(|(a, v)| (clean(a), clean(v)));
+        Template {
+            name: clean(name).trim().to_string(),
+            values: values.collect(),
+        }
+    }
+}
+
+fn clean(text: &str) -> String {
+    text.replace(['\t', '\n', '\r'], " ")
 }
 
 /// A plugin setting's value chosen for one data file.
@@ -149,7 +176,9 @@ impl Settings {
     /// `tnumbers values|labels|both`, `mioutput` with MIOUTPUT keywords, `output-shows` with
     /// the kinds of element the output shows (`headings titles tables notes charts`) and
     /// `export hidden`, `plugin PATH`, `plugin-off`, `excel-comments off` and
-    /// `preset ATTRIBUTE<tab>NAME<tab>VALUE`; anything else is skipped.
+    /// `preset ATTRIBUTE<tab>NAME<tab>VALUE`, `plugin-value ATTRIBUTE<tab>VALUE<tab>FILE`,
+    /// `template NAME<tab>ATTRIBUTE<tab>VALUE` (or `template NAME` for one without values) and
+    /// `template-active NAME`; anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -212,6 +241,24 @@ impl Settings {
                         });
                     }
                 }
+                "template" => {
+                    let parts: Vec<&str> = rest.split('\t').collect();
+                    if parts[0].is_empty() {
+                        continue;
+                    }
+                    let found = settings.templates.iter().position(|t| t.name == parts[0]);
+                    let at = found.unwrap_or_else(|| {
+                        settings.templates.push(Template::new(parts[0], &[]));
+                        settings.templates.len() - 1
+                    });
+                    if let [_, attribute, value] = parts[..]
+                        && !attribute.is_empty()
+                    {
+                        let pair = (attribute.to_string(), value.to_string());
+                        settings.templates[at].values.push(pair);
+                    }
+                }
+                "template-active" if !rest.is_empty() => settings.template = Some(rest.into()),
                 _ => {}
             }
         }
@@ -301,13 +348,29 @@ impl Settings {
                 v.file.display()
             ));
         }
+        for t in &self.templates {
+            if t.values.is_empty() {
+                text.push_str(&format!("template {}\n", t.name));
+            }
+            for (attribute, value) in &t.values {
+                text.push_str(&format!("template {}\t{attribute}\t{value}\n", t.name));
+            }
+        }
+        if let Some(name) = &self.template {
+            text.push_str(&format!("template-active {name}\n"));
+        }
         text
+    }
+
+    /// The design template in use, if any.
+    pub fn active_template(&self) -> Option<&Template> {
+        let name = self.template.as_ref()?;
+        self.templates.iter().find(|t| &t.name == name)
     }
 
     /// Keeps the plugin settings chosen for a data file, replacing earlier ones of the same
     /// attributes; tabs and line breaks become spaces so each fits its line.
     pub fn remember_values(&mut self, file: &Path, values: &[(String, String)]) {
-        let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
         for (attribute, value) in values {
             self.file_values
                 .retain(|v| !(v.file == file && v.attribute.eq_ignore_ascii_case(attribute)));
@@ -427,7 +490,20 @@ mod tests {
                 attribute: "plugin_house_limit".into(),
                 value: "1043000".into(),
             }],
+            templates: vec![
+                Template::new(
+                    "Client A",
+                    &[
+                        ("plugin_house_high".into(), "#ed7d31".into()),
+                        ("plugin_house_head".into(), "{\"bold\":true}\tx".into()),
+                    ],
+                ),
+                Template::new("Empty one", &[]),
+            ],
+            template: Some("Client A".into()),
         };
+        assert_eq!(settings.templates[0].values[1].1, "{\"bold\":true} x");
+        assert_eq!(settings.active_template(), Some(&settings.templates[0]));
         assert_eq!(settings.presets[1].name, "All: steps 0+");
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
