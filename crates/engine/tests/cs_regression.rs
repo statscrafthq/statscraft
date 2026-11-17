@@ -1151,3 +1151,192 @@ fn csordinal_save_and_custom_errors() {
         assert!(error.contains(expected), "{rest}: {error}");
     }
 }
+
+/// The numbers of a column of a table, row by row; None for an empty cell.
+fn table_column(table: &Table, column: &str) -> Vec<Option<f64>> {
+    let c = table
+        .column_titles()
+        .iter()
+        .position(|t| t == column)
+        .unwrap_or_else(|| panic!("{}: no column {column}", table.title));
+    table
+        .rows
+        .iter()
+        .map(|row| match &row[c] {
+            Cell::Number(n) => Some(*n),
+            Cell::Empty => None,
+            other => panic!("{column}: {other:?}"),
+        })
+        .collect()
+}
+
+/// The active dataset is an OUTFILE COVB or CORB file: its estimate rows match Parameter
+/// Estimates number `p_nth` (P1, P2, ... in the order of its rows) and its matrix rows printed
+/// matrix number `m_nth`, exactly. Returns the number of parameters.
+fn check_matrix_file(
+    engine: &Engine,
+    tables: &[Table],
+    p_nth: usize,
+    m_nth: usize,
+    corr: bool,
+) -> usize {
+    let data = engine.dataset().unwrap();
+    let names: Vec<String> = data.variable_names().map(String::from).collect();
+    let k = names.len() - 2;
+    assert_eq!(names[..2], ["RowType_", "VarName_"]);
+    assert_eq!(data.case_count(), 4 + k);
+    let strings = |name: &str| -> Vec<String> {
+        let v = data.variable(name).unwrap();
+        let s = v.string().unwrap();
+        s.iter().map(|t| t.trim_end().to_string()).collect()
+    };
+    let kind = if corr { "CORR" } else { "COV" };
+    let mut types = vec!["EST", "SE", "SIG", "DF"];
+    types.extend(std::iter::repeat_n(kind, k));
+    assert_eq!(strings("RowType_"), types);
+    let mut varnames = vec![String::new(); 4];
+    varnames.extend((1..=k).map(|i| format!("P{i}")));
+    assert_eq!(strings("VarName_"), varnames);
+    let p = find(tables, "Parameter Estimates", p_nth);
+    assert_eq!(p.rows.len(), k);
+    let estimates = table_column(p, "Estimate");
+    let ses = table_column(p, "Std. Error");
+    let dfs = table_column(p, "Hypothesis Test / df");
+    let sigs = table_column(p, SIG);
+    let title = if corr {
+        "Correlations of Parameter Estimates"
+    } else {
+        "Covariances of Parameter Estimates"
+    };
+    let m = find(tables, title, m_nth);
+    let printed = row_keys(m);
+    let mut labels = Vec::new();
+    for (i, name) in names[2..].iter().enumerate() {
+        assert_eq!(*name, format!("P{}", i + 1));
+        let label = data.variable(name).unwrap().label().unwrap().to_string();
+        let values = column(engine, name);
+        assert_eq!(values[0], estimates[i], "{label}");
+        assert_eq!(values[1], ses[i], "{label}");
+        assert_eq!(values[2], sigs[i], "{label}");
+        // a redundant parameter has no df in the file
+        assert_eq!(values[3], ses[i].and(dfs[i]), "{label}");
+        assert_eq!(values[1].is_none(), !printed.contains(&label), "{label}");
+        labels.push(label);
+    }
+    for (i, a) in labels.iter().enumerate() {
+        for (j, b) in labels.iter().enumerate() {
+            let in_file = column(engine, &format!("P{}", j + 1))[4 + i];
+            if printed.contains(a) && printed.contains(b) {
+                assert_eq!(in_file, Some(value(m, a, b)), "{a} / {b}");
+            } else {
+                assert_eq!(in_file, None, "{a} / {b}");
+            }
+        }
+    }
+    k
+}
+
+fn read_json(path: &std::path::Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// A MODEL or PARAMETER file of OUTFILE against the COVB file, the active dataset.
+fn check_model_file(engine: &Engine, model: &serde_json::Value, command: &str, covariance: bool) {
+    let data = engine.dataset().unwrap();
+    let k = data.variable_names().count() - 2;
+    assert_eq!(model["format"], "statscraft-cs-model");
+    assert_eq!(model["version"], 1);
+    assert_eq!(model["command"], command);
+    assert_eq!(model["plan"], "wr.json");
+    let parameters = model["parameters"].as_array().unwrap();
+    assert_eq!(parameters.len(), k);
+    for (i, parameter) in parameters.iter().enumerate() {
+        let name = format!("P{}", i + 1);
+        let values = column(engine, &name);
+        assert_eq!(
+            parameter["name"],
+            data.variable(&name).unwrap().label().unwrap()
+        );
+        assert_eq!(parameter["estimate"].as_f64(), values[0]);
+        assert_eq!(parameter["redundant"], values[1].is_none());
+        let row = &model["covariance"][i];
+        if covariance {
+            for (j, cell) in row.as_array().unwrap().iter().enumerate() {
+                let file = column(engine, &format!("P{}", j + 1))[4 + i];
+                assert_eq!(cell.as_f64(), file, "{name} / P{}", j + 1);
+            }
+        } else {
+            assert!(row.is_null());
+        }
+    }
+}
+
+#[test]
+fn outfile_writes_the_matrices_and_the_model_of_every_command() {
+    let stats = "/STATISTICS PARAMETER SE TTEST";
+    let source = format!(
+        "{}DATASET NAME households.
+         DATASET DECLARE glmcorb.
+         {GLM} {stats} /PRINT COVB CORB /OUTFILE COVB='glm_covb.sav' MODEL='glm.json'.
+         {GLM} {stats} /PRINT CORB /OUTFILE CORB='glmcorb' PARAMETER='glm_parameters.json'.
+         CSLOGISTIC heat (LOW) BY town WITH members /PLAN FILE='wr.json' {stats}
+           /PRINT COVB /OUTFILE MODEL='logistic.json' COVB='logistic.sav'.
+         {ORDINAL} /LINK FUNCTION=PROBIT {stats} /PRINT CORB COVB
+           /OUTFILE CORB='ordinal_corb.sav' MODEL='ordinal.json'.
+         {ORDINAL} /LINK FUNCTION=PROBIT /PRINT NONE /OUTFILE COVB='ordinal_covb.sav'.\n",
+        data("outfile")
+    );
+    let (mut engine, tables) = run(&source);
+    let folder =
+        std::env::temp_dir().join(format!("statscraft-csreg-outfile-{}", std::process::id()));
+    let get = |engine: &mut Engine, what: &str| {
+        let (commands, errors) = parse(what);
+        assert!(errors.is_empty(), "{errors:?}");
+        engine.execute(&commands[0].command).unwrap();
+    };
+
+    // CSGLM: the last level of heat is redundant
+    get(&mut engine, "GET FILE='glm_covb.sav'.");
+    assert_eq!(check_matrix_file(&engine, &tables, 0, 0, false), 6);
+    assert_eq!(column(&engine, "P4")[..4], [Some(0.0), None, None, None]);
+    let model = read_json(&folder.join("glm.json"));
+    check_model_file(&engine, &model, "CSGLM", true);
+    assert_eq!(model["dependent"], "food");
+    assert_eq!(model["factors"], serde_json::json!(["heat"]));
+    assert_eq!(model["covariates"], serde_json::json!(["members", "earn"]));
+    assert_eq!(model["parameters"][0]["name"], "Intercept");
+    assert!(model.get("link").is_none() && model.get("categories").is_none());
+    let parameters = read_json(&folder.join("glm_parameters.json"));
+    check_model_file(&engine, &parameters, "CSGLM", false);
+    // CORB went into the declared dataset
+    get(&mut engine, "DATASET ACTIVATE glmcorb.");
+    check_matrix_file(&engine, &tables, 1, 1, true);
+    assert_eq!(column(&engine, "P2")[5], Some(1.0));
+
+    // CSLOGISTIC with three categories: two logits
+    get(&mut engine, "GET FILE='logistic.sav'.");
+    check_matrix_file(&engine, &tables, 2, 1, false);
+    let model = read_json(&folder.join("logistic.json"));
+    check_model_file(&engine, &model, "CSLOGISTIC", true);
+    assert_eq!(model["reference"], "1");
+    assert_eq!(model["categories"], serde_json::json!(["1", "2", "3"]));
+
+    // CSORDINAL: thresholds first, no intercept; the file does not depend on PRINT
+    get(&mut engine, "GET FILE='ordinal_corb.sav'.");
+    let k = check_matrix_file(&engine, &tables, 3, 2, true);
+    get(&mut engine, "GET FILE='ordinal_covb.sav'.");
+    assert_eq!(check_matrix_file(&engine, &tables, 3, 2, false), k);
+    let model = read_json(&folder.join("ordinal.json"));
+    check_model_file(&engine, &model, "CSORDINAL", true);
+    assert_eq!(model["link"], "Probit");
+    assert_eq!(model["parameters"][0]["name"], "Threshold [heat=1]");
+}
+
+#[test]
+fn outfile_errors() {
+    let d = data("outfile-errors");
+    let message = run_error(&format!(
+        "{d}DATASET NAME households.\n{GLM} /OUTFILE COVB='households'.\n"
+    ));
+    assert!(message.contains("active dataset"), "{message}");
+}

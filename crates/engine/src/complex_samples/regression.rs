@@ -48,6 +48,10 @@
 //! - CSORDINAL (the fit in `ordinal`): the design has its intercept only to find the redundant
 //!   columns; the K - 1 thresholds take its place and sit after the regression parameters, shown
 //!   first. Effects are tested on their regression parameters; the corrected model tests all.
+//! - OUTFILE COVB / CORB writes RowType_, VarName_ and P1, P2, ... (one per parameter, in the
+//!   order of the Parameter Estimates, labelled with the parameter): rows EST, SE, SIG (of the
+//!   t test) and DF, then one COV or CORR row per parameter. MODEL / PARAMETER write our own
+//!   JSON with the estimates (and for MODEL the covariances).
 
 use super::{Design, keys_of, numbers};
 use crate::contrast::contrast_rows;
@@ -65,7 +69,8 @@ use crate::plum::{cdf, cell_probabilities, link_name};
 use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Measure, Value as DataValue, Variable};
+use serde_json::json;
+use statscraft_data::{Dataset, Measure, Value as DataValue, Variable};
 use statscraft_syntax::{
     Contrast, CsContrast, CsControl, CsIntercept, CsModel, CsModelSave, CsModelStatistics,
     CsPadjust, CsReference, CsTestType, LRow, PlumLink, Term, Value,
@@ -497,6 +502,9 @@ struct Saved {
     category: Option<(String, Vec<(DataValue, String)>)>,
 }
 
+/// What OUTFILE writes: the matrix data and the model file.
+type Files = (Option<Dataset>, Option<serde_json::Value>);
+
 /// The parameter names of every parameter, with the category of its logit.
 fn parameter_names(d: &Data, fit: &Fit) -> Vec<String> {
     let mut out = vec![String::new(); fit.p];
@@ -527,10 +535,18 @@ impl Engine {
             }
         }
         let mut warnings = Vec::new();
-        let (tables, saved, cases) = self.cs_model_tables(c, &mut warnings)?;
+        let (tables, saved, cases, (matrix, model)) = self.cs_model_tables(c, &mut warnings)?;
         self.warn_weight_and_split(c.name());
         for w in warnings {
             self.warn(w);
+        }
+        if let (Some(data), Some((file, _))) = (matrix, &c.outfile.matrix) {
+            self.write_data_file(file, data)?;
+        }
+        if let (Some(model), Some((file, _))) = (model, &c.outfile.model)
+            && !self.dry_run
+        {
+            self.write_json(c.name(), file, "model", &model)?;
         }
         if !saved.is_empty() {
             self.cs_save(c.name(), saved, cases)?;
@@ -599,7 +615,7 @@ impl Engine {
         &self,
         c: &CsModel,
         warnings: &mut Vec<String>,
-    ) -> Result<(Vec<Table>, Vec<Saved>, usize), Error> {
+    ) -> Result<(Vec<Table>, Vec<Saved>, usize, Files), Error> {
         let name = c.name();
         let plan = self.read_plan(&c.plan)?;
         let data = self.active()?;
@@ -1611,6 +1627,118 @@ impl Engine {
             tables.push(table(title, 1, cols, out, Some(caption.clone())));
         }
 
+        // OUTFILE: every parameter of the Parameter Estimates, the intercept whatever SHOW says; a
+        // redundant one has its estimate 0 and nothing else
+        let files: Files = {
+            let ok = |a: usize| !est.redundant[a];
+            let se = |a: usize| ok(a).then(|| est.v[a][a].max(0.0).sqrt());
+            let matrix = c.outfile.matrix.as_ref().map(|(_, corr)| {
+                let mut rows: Vec<(&str, String, Vec<Option<f64>>)> = vec![
+                    (
+                        "EST",
+                        String::new(),
+                        order.iter().map(|&a| Some(est.b[a])).collect(),
+                    ),
+                    ("SE", String::new(), order.iter().map(|&a| se(a)).collect()),
+                    (
+                        "SIG",
+                        String::new(),
+                        order
+                            .iter()
+                            .map(|&a| {
+                                se(a)
+                                    .filter(|&s| s > 0.0 && df > 0.0)
+                                    .map(|s| t_p(est.b[a] / s, df))
+                            })
+                            .collect(),
+                    ),
+                    (
+                        "DF",
+                        String::new(),
+                        order.iter().map(|&a| ok(a).then_some(df)).collect(),
+                    ),
+                ];
+                for (i, &a) in order.iter().enumerate() {
+                    let values = order
+                        .iter()
+                        .map(|&b| {
+                            let v = est.v[a][b];
+                            let v = if *corr {
+                                v / (est.v[a][a] * est.v[b][b]).sqrt()
+                            } else {
+                                v
+                            };
+                            (ok(a) && ok(b) && v.is_finite()).then_some(v)
+                        })
+                        .collect();
+                    rows.push((
+                        if *corr { "CORR" } else { "COV" },
+                        format!("P{}", i + 1),
+                        values,
+                    ));
+                }
+                let mut out = Dataset::new(rows.len());
+                out.set_string_values(
+                    "RowType_",
+                    8,
+                    rows.iter().map(|r| r.0.to_string()).collect(),
+                )?;
+                out.set_string_values("VarName_", 8, rows.iter().map(|r| r.1.clone()).collect())?;
+                for (i, &a) in order.iter().enumerate() {
+                    let var = format!("P{}", i + 1);
+                    out.set_numeric_values(&var, rows.iter().map(|r| r.2[i]).collect())?;
+                    out.set_variable_label(&var, Some(&param_label(a)))?;
+                }
+                Ok::<_, Error>(out)
+            });
+            let model = c.outfile.model.as_ref().map(|(_, with_covariance)| {
+                let parameters: Vec<_> = order
+                    .iter()
+                    .map(|&a| json!({"name": param_label(a), "estimate": est.b[a], "redundant": !ok(a)}))
+                    .collect();
+                let mut model = json!({
+                    "format": "statscraft-cs-model",
+                    "version": 1,
+                    "command": name,
+                    "plan": c.plan,
+                    "dependent": dependent,
+                    "factors": factor_names,
+                    "covariates": covariate_names,
+                    "model": model_text,
+                    "df": df,
+                    "parameters": parameters,
+                });
+                if c.logistic {
+                    let values: Vec<_> = categories
+                        .iter()
+                        .map(|k| key_value_text(&dep_var, k))
+                        .collect();
+                    model["categories"] = json!(values);
+                }
+                match c.ordinal {
+                    Some(o) => model["link"] = json!(link_name(o.link)),
+                    None if c.logistic => {
+                        model["reference"] = json!(key_value_text(&dep_var, &categories[base]))
+                    }
+                    None => {}
+                }
+                if *with_covariance {
+                    let covariance: Vec<Vec<Option<f64>>> = order
+                        .iter()
+                        .map(|&a| {
+                            order
+                                .iter()
+                                .map(|&b| (ok(a) && ok(b)).then_some(est.v[a][b]))
+                                .collect()
+                        })
+                        .collect();
+                    model["covariance"] = json!(covariance);
+                }
+                model
+            });
+            (matrix.transpose()?, model)
+        };
+
         // NONPARALLEL: the test of parallel lines and the general model
         if let (Some((g, gcols)), Some(np)) = (&general, c.ordinal.and_then(|o| o.nonparallel)) {
             let k = categories.len();
@@ -2621,6 +2749,6 @@ impl Engine {
                 }
             }
         }
-        Ok((tables, saved, cases))
+        Ok((tables, saved, cases, files))
     }
 }

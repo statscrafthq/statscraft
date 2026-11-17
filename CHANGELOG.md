@@ -4,6 +4,7 @@
 
 - Analyze > Classify: new dialogs TwoStep Cluster (TWOSTEP CLUSTER) and Identify Unusual Cases (DETECTANOMALY).
 - Window: Analyze > Complex Samples > Ordinal Regression writes CSORDINAL (link function, descending order, parallel-lines test, odds ratios, saved probabilities).
+- CSGLM, CSLOGISTIC, CSORDINAL: OUTFILE. COVB or CORB writes the estimates, standard errors, p values and df with the covariance or correlation matrix of the parameters to a data file or a declared dataset (RowType_, VarName_, P1, P2, ...); MODEL or PARAMETER writes the estimates, with or without their covariances, as Statscraft's own JSON. See [differences](docs/differences.md).
 
 ## 0.17.0 (2026-11-17)
 

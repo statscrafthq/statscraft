@@ -358,8 +358,21 @@ fn model_syntax_errors() {
             "not supported yet",
         ),
         (
-            "CSGLM y BY a /PLAN FILE='p' /OUTFILE COVB='c.sav'.",
-            "not supported yet",
+            "CSGLM y BY a /PLAN FILE='p' /OUTFILE COVB='c.sav' CORB='d.sav'.",
+            "one of COVB and CORB",
+        ),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /OUTFILE MODEL='m' PARAMETER='q'.",
+            "one of MODEL and PARAMETER",
+        ),
+        ("CSGLM y BY a /PLAN FILE='p' /OUTFILE.", "unexpected end"),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /OUTFILE COVB 'c'.",
+            "unexpected word COVB",
+        ),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /OUTFILE COVB='c' /OUTFILE MODEL='m'.",
+            "only once",
         ),
         (
             "CSGLM y BY a /PLAN FILE='p' /JOINTPROB FILE='j'.",
@@ -466,14 +479,31 @@ fn csordinal_subcommands_and_defaults() {
 #[test]
 fn csordinal_syntax_errors() {
     let base = "CSORDINAL y BY a WITH x /PLAN FILE='p'";
-    for sub in ["JOINTPROB FILE='j'", "OUTFILE COVB='c.sav'"] {
-        let message = err(&format!("{base} /{sub}."));
-        let name = sub.split(' ').next().unwrap();
-        assert!(
-            message.contains(&format!(
-                "subcommand {name} of CSORDINAL is not supported yet"
-            )),
-            "{sub}: {message}"
+    let message = err(&format!("{base} /JOINTPROB FILE='j'."));
+    assert!(
+        message.contains("subcommand JOINTPROB of CSORDINAL is not supported yet"),
+        "{message}"
+    );
+    for command in ["CSGLM", "CSLOGISTIC", "CSORDINAL"] {
+        let m = model(&format!(
+            "{command} y BY a /PLAN FILE='p' /OUTFILE MODEL='m.json' CORB=est."
+        ));
+        assert_eq!(
+            m.outfile,
+            CsOutfile {
+                matrix: Some(("est".into(), true)),
+                model: Some(("m.json".into(), true)),
+            }
+        );
+        let m = model(&format!(
+            "{command} y BY a /PLAN FILE='p' /OUTFILE COVB='c.sav' PARAMETER='e.json'."
+        ));
+        assert_eq!(
+            m.outfile,
+            CsOutfile {
+                matrix: Some(("c.sav".into(), false)),
+                model: Some(("e.json".into(), false)),
+            }
         );
     }
     let cases = [

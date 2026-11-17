@@ -3736,7 +3736,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
                  \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [LMATRIX] [COVB] [CORB] [NONE]]\n\
-                 \x20  [/SAVE [PRED[(name)]] [RESID[(name)]]].\n\
+                 \x20  [/SAVE [PRED[(name)]] [RESID[(name)]]]\n\
+                 \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file' | PARAMETER='file']].\n\
                  The plan written by CSPLAN gives the weight and the design; WEIGHT and SPLIT FILE do not\n\
                  apply. The coefficients solve the weighted normal equations, with one parameter per level of\n\
                  each factor effect; a parameter that depends on earlier ones is redundant and set to 0. The\n\
@@ -3754,7 +3755,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the cases with the value, keeping the whole design; cases with a missing value on a model\n\
                  variable count as outside it. R Square compares the weighted residual sum of squares with\n\
                  the weighted total sum of squares. Without STATISTICS the estimates come with SE, interval\n\
-                 and t test. Not supported yet: JOINTPROB, OUTFILE, PRINT GEF and the UNEQUAL_WOR estimator.",
+                 and t test. OUTFILE COVB writes, to a data file or a dataset made by DATASET DECLARE, the\n\
+                 variables RowType_ and VarName_ and P1, P2, ... (one per row of Parameter Estimates,\n\
+                 labelled with its name): rows EST, SE, SIG (of the t test) and DF, then a COV row per\n\
+                 parameter; CORB puts CORR rows of correlations there instead. MODEL writes the estimates\n\
+                 and their covariance matrix to a JSON file of Statscraft's own, PARAMETER the estimates\n\
+                 alone. Not supported yet: JOINTPROB, PRINT GEF and the UNEQUAL_WOR estimator.",
         example: "CSGLM yield BY soil WITH rainfall /PLAN FILE='farms_plan.json' /STATISTICS PARAMETER SE CINTERVAL DEFF /EMMEANS TABLES=soil COMPARE=soil CONTRAST=REPEATED.",
         parse: complex_samples::csglm,
     },
@@ -3774,7 +3780,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]\n\
                  \x20          [CLASSTABLE] [NONE]]\n\
-                 \x20  [/SAVE [PREDPROB[(root[:25])]] [PREDVAL[(name)]]].\n\
+                 \x20  [/SAVE [PREDPROB[(root[:25])]] [PREDVAL[(name)]]]\n\
+                 \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file' | PARAMETER='file']].\n\
                  Each category of the dependent variable but the reference one (the highest unless the\n\
                  parentheses say otherwise) gets a logit against the reference with its own set of\n\
                  parameters. The estimates maximize the weighted log likelihood (pseudo-likelihood) by\n\
@@ -3790,7 +3797,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  moved by each change, with the other variables at CONTROL (factors at their highest level,\n\
                  covariates at their weighted means by default). CLASSTABLE puts each case in its most\n\
                  probable category and sums the weights. Without STATISTICS no parameter table is shown.\n\
-                 Not supported yet: JOINTPROB, OUTFILE, PRINT GEF and the UNEQUAL_WOR estimator.",
+                 OUTFILE works as in CSGLM, the parameters of every logit in turn. Not supported yet:\n\
+                 JOINTPROB, PRINT GEF and the UNEQUAL_WOR estimator.",
         example: "CSLOGISTIC irrigated (LOW) BY soil WITH rainfall /PLAN FILE='farms_plan.json' /STATISTICS PARAMETER EXP SE CINTERVAL /ODDSRATIOS FACTOR=[soil(LOW)] /PRINT SUMMARY CLASSTABLE.",
         parse: complex_samples::cslogistic,
     },
@@ -3814,7 +3822,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20               [CONTROL=[factor(LOW | HIGH | value) covariate(MEAN | value) ...]]] ...\n\
                  \x20  [/NONPARALLEL [TEST] [PARAMETER] [COVB]]\n\
                  \x20  [/SAVE [CUMPROB[(root[:n])]] [PREDPROB[(root[:n])]] [PREDVAL[(name)]]\n\
-                 \x20         [PREDVALPROB[(name)]] [OBSVALPROB[(name)]]].\n\
+                 \x20         [PREDVALPROB[(name)]] [OBSVALPROB[(name)]]]\n\
+                 \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file' | PARAMETER='file']].\n\
                  The categories of the dependent variable, sorted up (or down with DESCENDING), are ordered\n\
                  1 to K. For each k below K the model says link(P(Y <= k)) = threshold_k - x'b: one\n\
                  threshold per cut point and one set of coefficients b for all of them, so a positive\n\
@@ -3843,8 +3852,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  its probability, and the probability of the observed category; a domain case whose\n\
                  dependent is missing still gets predictions when every predictor has a parameter. Default\n\
                  names: CumulativeProbability_k, PredictedProbability_k, PredictedValue,\n\
-                 PredictedValueProbability, ObservedValueProbability, with a suffix when taken. Not\n\
-                 supported yet: JOINTPROB, OUTFILE, PRINT GEF and the UNEQUAL_WOR estimator.",
+                 PredictedValueProbability, ObservedValueProbability, with a suffix when taken. OUTFILE\n\
+                 works as in CSGLM, thresholds first; the model file also names the link. Not supported\n\
+                 yet: JOINTPROB, PRINT GEF and the UNEQUAL_WOR estimator.",
         example: "CSORDINAL rating BY region WITH age /PLAN FILE='poll_plan.json' /LINK FUNCTION=PROBIT /STATISTICS PARAMETER SE CINTERVAL TTEST /PRINT SUMMARY HISTORY.",
         parse: complex_samples::csordinal,
     },

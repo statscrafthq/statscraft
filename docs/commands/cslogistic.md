@@ -20,12 +20,13 @@ CSLOGISTIC dependent [(LOW | HIGH | value)] [BY factors] [WITH covariates] /PLAN
    [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]
    [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]
            [CLASSTABLE] [NONE]]
-   [/SAVE [PREDPROB[(root[:25])]] [PREDVAL[(name)]]].
+   [/SAVE [PREDPROB[(root[:25])]] [PREDVAL[(name)]]]
+   [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file' | PARAMETER='file']].
 ```
 
 Each category of the dependent variable but the reference one (the highest unless the parentheses say otherwise) gets a logit against the reference with its own set of parameters. The estimates maximize the weighted log likelihood (pseudo-likelihood) by Newton-Raphson with step-halving; they start at 0 with the intercepts at the log ratio of the weighted category counts, and stop when the parameters (PCONVERGE) or the log likelihood (LCONVERGE) change little or after MXITER steps. The covariance is a sandwich: the inverse information on both sides of the design covariance of the score total. Design, df, domains, CUSTOM, TEST and PADJUST work as in CSGLM; a CUSTOM row without ALL is tested for every logit, a row with ALL lists the parameters of all logits in turn. The model summary gives the pseudo R squares of Cox and Snell, Nagelkerke and McFadden from the weighted log likelihoods of the model and of the intercept-only start, with the summed weights as N. ODDSRATIOS compares each level of a factor with its reference, or a covariate moved by each change, with the other variables at CONTROL (factors at their highest level, covariates at their weighted means by default). CLASSTABLE puts each case in its most probable category and sums the weights. Without STATISTICS no parameter table is shown.
 
-Not supported yet: JOINTPROB, OUTFILE, PRINT GEF and the UNEQUAL\_WOR estimator.
+OUTFILE works as in CSGLM, the parameters of every logit in turn. Not supported yet: JOINTPROB, PRINT GEF and the UNEQUAL\_WOR estimator.
 
 ## Example
 

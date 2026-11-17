@@ -37,6 +37,8 @@
 //!   row may start with the K - 1 threshold coefficients; ALL lists the thresholds first; LMATRIX
 //!   is required. NONPARALLEL TEST PARAMETER COVB. SAVE CUMPROB[(root[:n])] PREDPROB[(root[:n])]
 //!   PREDVAL[(name)] PREDVALPROB[(name)] OBSVALPROB[(name)].
+//! - OUTFILE (all three): COVB= or CORB= a data file or a declared dataset, MODEL= or PARAMETER=
+//!   a file; each pair is either-or, and at least one keyword is needed.
 
 use super::{eat_assignment, error, once, plan_file, require_assignment};
 use crate::ast::{Command, Value, VarItem};
@@ -207,6 +209,15 @@ pub struct CsNonparallel {
     pub covb: bool,
 }
 
+/// OUTFILE: where the estimates go.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CsOutfile {
+    /// COVB or CORB: the data file or dataset, and whether it holds correlations (CORB).
+    pub matrix: Option<(String, bool)>,
+    /// MODEL or PARAMETER: the file, and whether it holds the covariances too (MODEL).
+    pub model: Option<(String, bool)>,
+}
+
 /// What only CSORDINAL has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CsOrdinal {
@@ -245,6 +256,7 @@ pub struct CsModel {
     pub include: bool,
     pub print: CsModelPrint,
     pub save: Vec<CsModelSave>,
+    pub outfile: CsOutfile,
 }
 
 impl CsModel {
@@ -928,6 +940,33 @@ fn save(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Vec<CsModelSav
     Ok(out)
 }
 
+/// OUTFILE COVB | CORB = 'file' and MODEL | PARAMETER = 'file'.
+fn outfile(p: &mut Parser) -> PResult<CsOutfile> {
+    let mut out = CsOutfile::default();
+    while !at_end(p) {
+        let at = p.pos;
+        let (slot, flag, pair) = if eat_assignment(p, "COVB")? {
+            (&mut out.matrix, false, "COVB and CORB")
+        } else if eat_assignment(p, "CORB")? {
+            (&mut out.matrix, true, "COVB and CORB")
+        } else if eat_assignment(p, "MODEL")? {
+            (&mut out.model, true, "MODEL and PARAMETER")
+        } else if eat_assignment(p, "PARAMETER")? {
+            (&mut out.model, false, "MODEL and PARAMETER")
+        } else {
+            return Err(p.unexpected(&["COVB =", "CORB =", "MODEL =", "PARAMETER ="]));
+        };
+        if slot.is_some() {
+            return Err(error(p, at, format!("OUTFILE takes one of {pair}, once")));
+        }
+        *slot = Some((p.file("a quoted file name")?, flag));
+    }
+    if out == CsOutfile::default() {
+        return Err(p.unexpected(&["COVB =", "CORB =", "MODEL =", "PARAMETER ="]));
+    }
+    Ok(out)
+}
+
 fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
     let dependent = p.name("the dependent variable")?;
     let mut c = CsModel {
@@ -962,6 +1001,7 @@ fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
             ..CsModelPrint::default()
         },
         save: Vec::new(),
+        outfile: CsOutfile::default(),
     };
     let command = c.name();
     if let Some(o) = &mut c.ordinal {
@@ -1161,10 +1201,13 @@ fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
         } else if p.eat_keyword("SAVE") {
             once(p, start, &mut seen, "SAVE")?;
             c.save = save(p, logistic, ordinal)?;
+        } else if p.eat_keyword("OUTFILE") {
+            once(p, start, &mut seen, "OUTFILE")?;
+            c.outfile = outfile(p)?;
         } else if logistic && p.at_keyword("EMMEANS") {
             return Err(p.subcommand_error(command, &[]));
         } else {
-            return Err(p.subcommand_error(command, &["JOINTPROB", "OUTFILE"]));
+            return Err(p.subcommand_error(command, &["JOINTPROB"]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

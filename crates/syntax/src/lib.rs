@@ -187,8 +187,8 @@ pub use codebook::{
 pub use complex_samples::{
     CsCells, CsContrast, CsControl, CsCriteria, CsCustom, CsEmmeans, CsEstimator, CsIntercept,
     CsModel, CsModelPrint, CsModelSave, CsModelStatistics, CsNonparallel, CsOddsRatios, CsOrdinal,
-    CsPadjust, CsRate, CsRatio, CsReference, CsStage, CsStatistics, CsSubpop, CsTestType, CsTests,
-    Csdescriptives, Csplan, CsplanMode, Cstabulate,
+    CsOutfile, CsPadjust, CsRate, CsRatio, CsReference, CsStage, CsStatistics, CsSubpop,
+    CsTestType, CsTests, Csdescriptives, Csplan, CsplanMode, Cstabulate,
 };
 pub use correspondence::{
     Correspondence, CorrespondenceMeasure, CorrespondenceNormalization, CorrespondencePlot,
