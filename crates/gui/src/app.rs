@@ -4171,7 +4171,6 @@ impl WindowKind {
     }
 }
 
-/// The app icon as a texture, at 128 px so it stays sharp on a high-density screen.
 /// The last part of a path, for messages: the full path shows the user's folders and says
 /// little about what went wrong with the file they just picked.
 pub(crate) fn file_name(path: &Path) -> String {
@@ -4181,6 +4180,7 @@ pub(crate) fn file_name(path: &Path) -> String {
     }
 }
 
+/// The app icon as a texture, at 128 px so it stays sharp on a high-density screen.
 fn logo(ctx: &egui::Context) -> egui::TextureHandle {
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../icons/statscraft-128.png"))
         .expect("the bundled icon is a valid PNG");
