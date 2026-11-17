@@ -51,8 +51,8 @@ use crate::nomreg;
 use crate::npar;
 use crate::nptests;
 use crate::olap_cubes;
-use crate::optimal_binning;
 use crate::oms;
+use crate::optimal_binning;
 use crate::output;
 use crate::output_docs;
 use crate::output_modify;
@@ -2323,6 +2323,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "KNN plan (MLEVEL=N) BY region WITH age income /PARTITION TRAINING=8 HOLDOUT=2\n\
                   \x20 /MODEL NEIGHBORS=AUTO(KMIN=2, KMAX=6) /CROSSVALIDATION FOLDS=5 /SAVE PREDVAL PREDPROB.",
         parse: knn::knn,
+    },
+    CommandSpec {
         name: "NAIVEBAYES",
         summary: "Naive Bayes classification of a categorical target, with forward selection of the predictors.",
         syntax: "NAIVEBAYES target [BY factors] [WITH covariates]\n\
