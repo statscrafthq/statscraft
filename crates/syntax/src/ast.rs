@@ -1741,6 +1741,10 @@ pub struct Aggregate {
     pub outfile: Option<String>,
     /// `MODE=ADDVARIABLES`: keep the cases and add the results to each of them.
     pub add_variables: bool,
+    /// `/PRESORTED`: a group is a run of adjacent cases with the same break values.
+    pub presorted: bool,
+    /// `/MISSING=COLUMNWISE`: a group with a missing source value gets a missing result.
+    pub columnwise: bool,
     pub breaks: Vec<SortKey>,
     pub aggregations: Vec<Aggregation>,
 }

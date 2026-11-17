@@ -161,6 +161,8 @@ fn aggregate() {
         Command::Aggregate(Aggregate {
             outfile: None,
             add_variables: true,
+            presorted: false,
+            columnwise: false,
             breaks: vec![key(vec![var("region"), var("gender")], true)],
             aggregations: vec![
                 Aggregation {
@@ -204,10 +206,12 @@ fn aggregate_errors() {
     assert_eq!((error.span.line, error.span.column), (1, 36));
     assert!(error.expected.contains(&"MEDIAN".to_string()));
 
-    assert_eq!(
-        err("AGGREGATE /OUTFILE=* /MISSING=COLUMNWISE /m = MEAN(a).").message,
-        "subcommand MISSING of AGGREGATE is not supported yet"
-    );
+    let Command::Aggregate(c) =
+        one("AGGREGATE /OUTFILE=* /MISSING=COLUMNWISE /PRESORTED /BREAK=g /m = MEAN(a).")
+    else {
+        panic!()
+    };
+    assert!(c.columnwise && c.presorted);
     assert_eq!(
         err("AGGREGATE /OUTFILE=* MODE=FAST /m = N.").expected,
         ["ADDVARIABLES", "REPLACE"]

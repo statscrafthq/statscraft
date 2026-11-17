@@ -128,6 +128,7 @@ fn aggregated(
     source: Option<&Variable>,
     groups: &[Vec<usize>],
     weights: Option<&[f64]>,
+    columnwise: bool,
 ) -> Result<(Column, Result<String, &'static str>), Error> {
     let weight = |case: usize| weights.map_or(1.0, |w| w[case]);
     let counting = matches!(function, F::N | F::Nu | F::Nmiss | F::Numiss);
@@ -146,7 +147,10 @@ fn aggregated(
         Some((source, Values::Numeric(values))) => {
             let valid = |case: usize| values.get(case).filter(|v| !source.is_user_missing(*v));
             numbers(&|group| {
-                if counting {
+                // MISSING=COLUMNWISE: one missing value leaves the group without a result
+                if columnwise && !counting && group.iter().any(|&case| valid(case).is_none()) {
+                    None
+                } else if counting {
                     Some(count(function, group, |case| valid(case).is_some(), weight))
                 } else if picking {
                     pick(function, group.iter().filter_map(|&case| valid(case)))
@@ -166,6 +170,9 @@ fn aggregated(
                 numbers(&|group| Some(count(function, group, |case| valid(case).is_some(), weight)))
             } else if picking {
                 let picked = |group: &Vec<usize>| {
+                    if columnwise && group.iter().any(|&case| valid(case).is_none()) {
+                        return String::new();
+                    }
                     let valid_values = group.iter().filter_map(|&case| valid(case));
                     pick(function, valid_values).unwrap_or("").to_string()
                 };
@@ -238,6 +245,7 @@ impl Engine {
         aggregation: &Aggregation,
         groups: &[Vec<usize>],
         weights: Option<&[f64]>,
+        columnwise: bool,
     ) -> Result<Vec<Target>, Error> {
         let data = self.active()?;
         let function = aggregation.function;
@@ -263,7 +271,8 @@ impl Engine {
         let mut targets = Vec::new();
         for (i, (name, label)) in names.into_iter().enumerate() {
             let source = sources.get(i).map(|s| data.variable(s)).transpose()?;
-            let (column, like) = aggregated(function, source.as_ref(), groups, weights)?;
+            let (column, like) =
+                aggregated(function, source.as_ref(), groups, weights, columnwise)?;
             targets.push(Target {
                 name,
                 label,
@@ -284,7 +293,12 @@ impl Engine {
             ));
         }
         let keys = self.sort_keys(&command.breaks)?;
-        let order = keys.order(data.case_count());
+        // PRESORTED: the cases stay in file order and a group is a run of equal break values
+        let order = if command.presorted {
+            (0..data.case_count()).collect()
+        } else {
+            keys.order(data.case_count())
+        };
         // groups in break order, the cases of a group in file order
         let mut groups: Vec<Vec<usize>> = Vec::new();
         let mut starts_group = Vec::with_capacity(order.len());
@@ -314,7 +328,12 @@ impl Engine {
 
         let mut targets = Vec::new();
         for aggregation in &command.aggregations {
-            targets.extend(self.targets(aggregation, &groups, weights.as_deref())?);
+            targets.extend(self.targets(
+                aggregation,
+                &groups,
+                weights.as_deref(),
+                command.columnwise,
+            )?);
         }
         let names: Vec<String> = targets.iter().map(|t| t.name.clone()).collect();
         if let Some(name) = duplicate(&names) {

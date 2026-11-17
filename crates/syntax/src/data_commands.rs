@@ -10,7 +10,7 @@ use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::table::matches_keyword;
 
-const AGGREGATE_SUBCOMMANDS: [&str; 3] = ["PRESORTED", "DOCUMENT", "MISSING"];
+const AGGREGATE_SUBCOMMANDS: [&str; 1] = ["DOCUMENT"];
 
 const AGGREGATE_FUNCTIONS: [(&str, AggregateFunction); 12] = [
     ("SUM", AggregateFunction::Sum),
@@ -234,6 +234,7 @@ fn aggregate_body(
 ) -> PResult<Command> {
     let mut breaks = Vec::new();
     let mut aggregations = Vec::new();
+    let (mut presorted, mut columnwise) = (false, false);
     // the first subcommand may come without its slash, as in `AGGREGATE BREAK=g /m = MEAN(x)`
     let mut first = true;
     while p.eat(Punct::Slash) || (std::mem::take(&mut first) && p.peek().is_some()) {
@@ -241,15 +242,19 @@ fn aggregate_body(
         let assigns = p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq));
         // these words are subcommands only where they cannot start a target list
         let bare = matches!(p.peek_at(1), None | Some(TokenKind::Punct(Punct::Slash)));
-        let columnwise =
+        let columnwise_keyword =
             matches!(p.peek_at(2), Some(TokenKind::Word(w)) if matches_keyword(w, "COLUMNWISE"));
-        // PRESORTED only promises sorted cases: groups by the break values come out the same
         if bare && p.at_keyword("PRESORTED") {
             p.pos += 1;
+            presorted = true;
             continue;
         }
-        if (bare && p.at_keyword("DOCUMENT")) || (assigns && columnwise && p.at_keyword("MISSING"))
-        {
+        if assigns && columnwise_keyword && p.at_keyword("MISSING") {
+            p.pos += 3;
+            columnwise = true;
+            continue;
+        }
+        if bare && p.at_keyword("DOCUMENT") {
             return Err(p.subcommand_error("AGGREGATE", &AGGREGATE_SUBCOMMANDS));
         }
         if assigns && p.at_keyword("BREAK") {
@@ -266,6 +271,8 @@ fn aggregate_body(
     Ok(Command::Aggregate(Aggregate {
         outfile,
         add_variables,
+        presorted,
+        columnwise,
         breaks,
         aggregations,
     }))

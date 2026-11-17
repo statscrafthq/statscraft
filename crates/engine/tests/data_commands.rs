@@ -815,3 +815,32 @@ fn aggregate_errors() {
     let data = engine.dataset().unwrap();
     assert_eq!((data.case_count(), data.variable_count()), (200, 19));
 }
+
+/// AGGREGATE /PRESORTED makes a group of each run of adjacent cases with the same break values,
+/// in file order; /MISSING=COLUMNWISE leaves a group without a result once one of its source
+/// values is missing, but N and NUMISS still count. The data: g 1 1 2 2 1 with x 4 5 6 . 9.
+#[test]
+fn aggregate_presorted_runs_and_columnwise_missing() {
+    let data = "DATA LIST LIST /g x.\nBEGIN DATA\n1, 4\n1, 5\n2, 6\n2, .\n1, 9\nEND DATA.\n";
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!("{data}AGGREGATE OUTFILE=* /PRESORTED /BREAK=g /n=N /m=MEAN(x)."),
+    );
+    assert_eq!(column(&engine, "g"), [Some(1.0), Some(2.0), Some(1.0)]);
+    assert_eq!(column(&engine, "n"), [Some(2.0), Some(2.0), Some(1.0)]);
+    assert_eq!(column(&engine, "m"), [Some(4.5), Some(6.0), Some(9.0)]);
+
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{data}AGGREGATE OUTFILE=* /MISSING=COLUMNWISE /BREAK=g /m=MEAN(x) /hi=MAX(x) \
+             /n=N /nm=NUMISS(x)."
+        ),
+    );
+    assert_eq!(column(&engine, "m"), [Some(6.0), None]);
+    assert_eq!(column(&engine, "hi"), [Some(9.0), None]);
+    assert_eq!(column(&engine, "n"), [Some(3.0), Some(2.0)]);
+    assert_eq!(column(&engine, "nm"), [Some(0.0), Some(1.0)]);
+}

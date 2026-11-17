@@ -670,7 +670,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "AGGREGATE",
         summary: "Aggregate groups of cases into new variables or a new dataset.",
-        syntax: "AGGREGATE [/OUTFILE=* | 'path' | dataset [MODE=ADDVARIABLES | REPLACE]] [/BREAK=varlist [(A | D)] ...]\n\
+        syntax: "AGGREGATE [/OUTFILE=* | 'path' | dataset [MODE=ADDVARIABLES | REPLACE]] [/MISSING=COLUMNWISE] [/PRESORTED]\n\
+                 \x20         [/BREAK=varlist [(A | D)] ...]\n\
                  \x20         /target ['label'] [target ...] = function(varlist) [/target ...].\n\
                  OUTFILE=* replaces the active dataset with one case per break group (break variables, then\n\
                  targets); with MODE=ADDVARIABLES it keeps the cases and adds the targets to each of them.\n\
@@ -678,7 +679,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  OUTFILE=dataset puts it into a dataset that DATASET DECLARE or DATASET NAME defined.\n\
                  Without OUTFILE the targets are added to every case, as with OUTFILE=* MODE=ADDVARIABLES.\n\
                  functions: SUM MEAN SD MEDIAN MIN MAX FIRST LAST N NU NMISS NUMISS; N and NU also without (varlist).\n\
-                 Missing values are skipped. With a weight variable SUM, MEAN, SD, MEDIAN, N and NMISS are weighted.",
+                 Missing values are skipped; with MISSING=COLUMNWISE a group with one missing value gets a missing\n\
+                 result (N, NU, NMISS and NUMISS still count). PRESORTED keeps the cases in file order and makes a\n\
+                 group of each run of adjacent cases with the same break values. With a weight variable SUM,\n\
+                 MEAN, SD, MEDIAN, N and NMISS are weighted.",
         example: "AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=region /region_mean = MEAN(income) /region_n = N.",
         parse: data_commands::aggregate,
     },
