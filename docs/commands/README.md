@@ -171,6 +171,7 @@ One page per supported command, generated from the same table that the parser an
 | [WLS](wls.md) | Weighted least squares: weights from a power of a source variable, or a given weight. |
 | [MULTIPLE IMPUTATION](multiple-imputation.md) | Multiple imputation: several completed copies of the data with plausible values in place of the missing ones. |
 | [PLUM](plum.md) | Ordinal regression: a cumulative link model of an ordered dependent variable. |
+| [QUANTILE REGRESSION](quantile-regression.md) | Linear regression of a chosen quantile of the dependent variable, fitted by linear programming. |
 | [GENLIN](genlin.md) | Generalized linear models: normal, binomial, Poisson, gamma, inverse Gaussian, negative binomial and ordinal responses. |
 | [UNIANOVA](unianova.md) | General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression. |
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, several (multivariate analysis of variance and covariance), or repeated measures with WSFACTOR. |

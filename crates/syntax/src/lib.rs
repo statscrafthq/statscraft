@@ -75,6 +75,7 @@ mod procedures;
 mod proportions;
 mod proximities;
 mod proxscal;
+mod quantile_regression;
 mod rank;
 mod ratio_statistics;
 mod regression;
@@ -294,6 +295,7 @@ pub use proxscal::{
     ProxShape, ProxTransformation, Proxscal, ProxscalOutfile, ProxscalPlot, ProxscalPrint,
     ProxscalTable, ScalingModel, ScalingStart,
 };
+pub use quantile_regression::{QrMethod, QrSave, QuantileRegression};
 pub use ratio_statistics::{RatioOrder, RatioRequest, RatioStatistics};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,

@@ -98,6 +98,7 @@ mod probit;
 mod proportions;
 mod proximities;
 mod proxscal;
+mod quantile_regression;
 mod quick_cluster;
 mod random;
 mod rank;
@@ -1257,6 +1258,7 @@ impl Engine {
             | Command::Genlog(_)
             | Command::Probit(_)
             | Command::Plum(_)
+            | Command::QuantileRegression(_)
             | Command::Correspondence(_)
             | Command::MultipleCorrespondence(_)
             | Command::Catpca(_)
@@ -1571,6 +1573,7 @@ impl Engine {
             Command::SeriesPlot(command) => self.series_plot(command),
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),
+            Command::QuantileRegression(command) => self.quantile_regression(command),
             Command::Correspondence(command) => self.correspondence(command),
             Command::MultipleCorrespondence(command) => self.multiple_correspondence(command),
             Command::Catpca(command) => self.catpca(command),

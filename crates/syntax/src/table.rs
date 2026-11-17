@@ -55,6 +55,7 @@ use crate::procedures;
 use crate::proportions;
 use crate::proximities;
 use crate::proxscal;
+use crate::quantile_regression;
 use crate::rank;
 use crate::ratio_statistics;
 use crate::regression;
@@ -3083,6 +3084,53 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  its 0.",
         example: "PLUM comfort BY seat_row WITH trip_hours /LINK=PROBIT /PRINT=FIT PARAMETER SUMMARY TPARALLEL /SAVE=ESTPROB PREDCAT.",
         parse: plum::plum,
+    },
+    CommandSpec {
+        name: "QUANTILE REGRESSION",
+        summary: "Linear regression of a chosen quantile of the dependent variable, fitted by linear programming.",
+        syntax: "QUANTILE REGRESSION dependent [BY factors] [WITH covariates]\n\
+                 \x20  [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/CRITERIA [QUANTILE=values [v1 TO v2 BY step]] [IID=TRUE | FALSE]\n\
+                 \x20             [BANDWIDTH=BOFINGER | HALL_SHEATHER] [CILEVEL=95]\n\
+                 \x20             [METHOD=AUTO | SIMPLEX | INTERIOR_POINT] [TOL=1E-12] [CONV=1E-6] [MAXITER=2000]]\n\
+                 \x20  [/MODEL [effects] [REGWGT=var] [INTERCEPT=TRUE | FALSE]]\n\
+                 \x20  [/SAVE [PRED[(name)]] [RESID[(name)]] [CIPREDL[(name)]] [CIPREDU[(name)]]]\n\
+                 \x20  [/PREDICT_EFFECTS NUM_TOP_EFFECTS=3] [/PREDICTION_TABLES effects] [/PREDICTION_LINES effects]\n\
+                 \x20  [/PRINT [PARAMETER] [COVB] [CORB]]\n\
+                 \x20  [/PLOT [MAX_CATEGORIES=10] [PREDICTED_BY_OBSERVED=FALSE | TRUE] [PARAM_EST=50 | ALL]]\n\
+                 \x20  [/OUTFILE [COVB=file] [CORB=file] [FILE_SEPARATE=FALSE | TRUE] [MODEL=file | PARAMETER=file]]\n\
+                 \x20  [/EXTERNAL].\n\
+                 For each quantile p (0.5 unless QUANTILE lists others; a grid v1 TO v2 BY step may join\n\
+                 them, a repeated value is fitted once) the coefficients make the weighted sum of p times\n\
+                 each positive residual and 1-p times the size of each negative one as small as it can be.\n\
+                 The weight is the case weight, rounded, times REGWGT; a case with a weight below 0.5 or a\n\
+                 REGWGT of 0 or less is left out, as is a case missing on any variable (CLASSMISSING=INCLUDE\n\
+                 keeps user-missing factor values). MODEL lists effects as in UNIANOVA; without them the\n\
+                 model has the intercept and every covariate and factor as a main effect. A parameter that\n\
+                 depends on earlier ones is redundant and 0. SIMPLEX walks from vertex to vertex of the\n\
+                 linear program to the exact solution; INTERIOR_POINT runs Frisch-Newton steps (TOL for its\n\
+                 matrices, CONV for the duality gap, MAXITER steps) and finishes with the simplex from there;\n\
+                 AUTO takes the simplex for up to 1000 cases. With IID=TRUE the standard errors come from the\n\
+                 spread of the residuals around p over a bandwidth (BOFINGER or HALL_SHEATHER); with FALSE\n\
+                 the model is refitted at p plus and minus the bandwidth and each case gets its own density.\n\
+                 t tests and CILEVEL intervals use N minus the number of estimated parameters as df.\n\
+                 Tables: Case Processing Summary, Model Quality (pseudo R squared against the intercept-only\n\
+                 fit, mean absolute error), Parameter Estimates (PARAMETER, shown unless PRINT leaves it out),\n\
+                 Parameter Covariance (COVB) and Parameter Correlation (CORB). Predicted values over the cells\n\
+                 of effects with one or two factors are tables, along one covariate (alone or with factors)\n\
+                 line charts, other covariates at their means and other factors averaged: for the effects of\n\
+                 PREDICTION_TABLES and PREDICTION_LINES, or else the first NUM_TOP_EFFECTS such effects of the\n\
+                 model. PLOT PREDICTED_BY_OBSERVED adds a scatter of each case per quantile, PARAM_EST a chart\n\
+                 of each of the first n estimated parameters across the quantiles (with two or more).\n\
+                 SAVE adds the predicted value, residual and interval bounds (named PRED, RESID, CIPREDL and\n\
+                 CIPREDU unless a name is given; with several quantiles the name gets _ and the quantile's\n\
+                 digits, as in PRED_25). OUTFILE COVB or CORB writes RowType_, VarName_ and P1, P2, ... with\n\
+                 rows EST, SE, SIG, DF and then COV or CORR to a data file or declared dataset (a Quantile\n\
+                 column joins several quantiles; FILE_SEPARATE=TRUE writes one file each, the quantile's\n\
+                 digits added to the name). MODEL or PARAMETER writes the estimates (MODEL with their\n\
+                 covariances) to a JSON file of Statscraft's own, one per quantile. EXTERNAL changes nothing.",
+        example: "QUANTILE REGRESSION rent BY district WITH floor_area /CRITERIA QUANTILE=0.25 0.5 0.75 IID=FALSE /PRINT PARAMETER COVB /SAVE PRED(fit) RESID.",
+        parse: quantile_regression::quantile_regression,
     },
     CommandSpec {
         name: "CORRESPONDENCE",

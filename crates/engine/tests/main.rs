@@ -74,6 +74,7 @@ mod procedures;
 mod proportions;
 mod proximities;
 mod proxscal;
+mod quantile_regression;
 mod random;
 mod rank;
 mod regression;

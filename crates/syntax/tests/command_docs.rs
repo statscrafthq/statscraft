@@ -172,6 +172,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "WLS",
             "MULTIPLE IMPUTATION",
             "PLUM",
+            "QUANTILE REGRESSION",
             "GENLIN",
             "UNIANOVA",
             "GLM",
