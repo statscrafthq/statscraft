@@ -1,31 +1,34 @@
-//! The plugin of Edit > Settings > Plugins (docs/plugins.md): it runs on a thread of its own
-//! after every run that made tables with cell statistics, and again when its settings change.
-//! Its answers wait until no run goes on, then go on the tables of the output window and of
-//! the window's document, so a saved document keeps them. Its settings are data file
-//! attributes of the active dataset, which Edit > Plugin Settings writes through syntax.
+//! The plugins of Edit > Settings > Plugins (docs/plugins.md): they run in their order on a
+//! thread of their own after every run that made tables with cell statistics, and again when
+//! their settings change, and their answers merge table by table. The answers wait until no
+//! run goes on, then go on the tables of the output window and of the window's document, so a
+//! saved document keeps them. A plugin's settings are data file attributes of the active
+//! dataset, which its Plugin Settings dialog (Settings... in that list) writes through syntax.
 
-use crate::settings::{Preset, Settings, Template};
+use crate::settings::{Preset, Settings, Template, active_template};
 use crate::syntax_text::quote;
 use crate::windows::WindowId;
 use eframe::egui::{self, Ui};
 use statscraft_data::Dataset;
 use statscraft_engine::plugin::{self, Description, Kind, Value};
 use statscraft_engine::{Table, parse_colour};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
-/// A plugin's answer for the tables of one output window.
+/// The plugins' answers for the tables of one output window, merged in their order.
 pub struct Done {
     pub window: WindowId,
     pub document: String,
     /// The settings generation the answer was asked under; an older one is dropped.
     pub generation: u64,
-    pub result: Result<Vec<(u64, plugin::Answer)>, String>,
+    pub answers: Vec<(u64, plugin::Answer)>,
+    /// Why plugins failed; the others' answers still hold.
+    pub errors: Vec<String>,
 }
 
 pub struct Plugins {
-    /// The description of the plugin program, with the program it came from.
-    described: Option<(PathBuf, Result<Description, String>)>,
+    /// The description of each plugin program asked so far, with the program it came from.
+    described: Vec<(PathBuf, Result<Description, String>)>,
     sender: mpsc::Sender<Done>,
     receiver: mpsc::Receiver<Done>,
     /// Answers not yet put on the tables.
@@ -39,12 +42,12 @@ pub struct Plugins {
     pub dialog: Option<Dialog>,
 }
 
-/// Edit > Plugin Settings while it is open: the description it was opened with, the values
-/// typed, and the design templates as Cancel would leave them untouched.
+/// A plugin's Plugin Settings dialog while it is open: the description it was opened with, the
+/// values typed, and the plugin's design templates as Cancel would leave them untouched.
 pub struct Dialog {
     description: Description,
     fields: Vec<Field>,
-    /// A copy of the window's templates, kept on OK.
+    /// A copy of the plugin's templates, kept on OK.
     templates: Vec<Template>,
     /// The template OK makes active.
     chosen: Option<String>,
@@ -165,7 +168,7 @@ impl Default for Plugins {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel();
         Plugins {
-            described: None,
+            described: Vec::new(),
             sender,
             receiver,
             waiting: Vec::new(),
@@ -234,23 +237,27 @@ fn first_value(attributes: &[(String, Vec<String>)], name: &str) -> Option<Strin
 }
 
 impl Plugins {
-    /// The description of the chosen plugin program, asked once per program; None without one.
-    pub fn description(&mut self, settings: &Settings) -> Option<&Result<Description, String>> {
-        let program = settings.plugin.as_ref()?;
-        if self.described.as_ref().is_none_or(|(p, _)| p != program) {
-            self.described = Some((program.clone(), plugin::describe(program)));
-        }
-        self.described.as_ref().map(|(_, d)| d)
+    /// The description of a plugin program, asked once per program.
+    pub fn description(&mut self, program: &Path) -> &Result<Description, String> {
+        let at = match self.described.iter().position(|(p, _)| p == program) {
+            Some(at) => at,
+            None => {
+                let described = plugin::describe(program);
+                self.described.push((program.to_path_buf(), described));
+                self.described.len() - 1
+            }
+        };
+        &self.described[at].1
     }
 
-    /// The plugin program or whether it runs changed: it is asked again and every table is
-    /// decorated again.
+    /// The plugins, their order or whether they run changed: they are asked again and every
+    /// table is decorated again.
     pub fn changed(&mut self) {
-        self.described = None;
+        self.described.clear();
         self.again();
     }
 
-    /// The plugin's settings changed: every table is decorated again, and answers asked before
+    /// The plugins' settings changed: every table is decorated again, and answers asked before
     /// are dropped.
     pub fn again(&mut self) {
         self.redo = true;
@@ -259,19 +266,20 @@ impl Plugins {
         self.waiting.retain(|d| d.generation == generation);
     }
 
-    /// What Edit > Settings shows about the plugin.
-    pub fn line(&mut self, settings: &Settings) -> String {
-        match self.description(settings) {
-            None => "No plugin chosen".into(),
-            Some(Ok(d)) => format!("{} {}", d.name, d.version),
-            Some(Err(e)) => format!("Not usable: {e}"),
+    /// What Edit > Settings shows about a plugin: its name and version, or why it cannot be
+    /// used.
+    pub fn line(&mut self, program: &Path) -> String {
+        match self.description(program) {
+            Ok(d) => format!("{} {}", d.name, d.version),
+            Err(e) => format!("Not usable: {e}"),
         }
     }
 
-    /// Starts the plugin on the tables of an output window that have cell statistics, on a
-    /// thread of its own, which also asks it for its settings, so a slow plugin never holds up
-    /// the window; `wake` is called when it is done. Nothing runs while the plugin is off or
-    /// not chosen.
+    /// Starts the plugins that are on, in their order, on the tables of an output window that
+    /// have cell statistics, on a thread of its own, which also asks each for its settings, so
+    /// a slow plugin never holds up the window; `wake` is called when they are done. Each
+    /// plugin's answer is laid over those before it; one that fails leaves the others' answers
+    /// standing. Nothing runs while no plugin is on.
     pub fn start(
         &self,
         settings: &Settings,
@@ -284,29 +292,41 @@ impl Plugins {
             .into_iter()
             .filter(|(_, t)| t.cell_stats.is_some())
             .collect();
-        if settings.plugin_off || tables.is_empty() {
+        let on = settings.plugins.iter().filter(|p| p.on);
+        let programs: Vec<PathBuf> = on.map(|p| p.path.clone()).collect();
+        if programs.is_empty() || tables.is_empty() {
             return;
         }
-        let Some(program) = settings.plugin.clone() else {
-            return;
-        };
         let attributes = attributes(settings, data);
-        let template = settings.active_template().cloned();
+        let templates = settings.templates.clone();
+        let active = settings.active_templates.clone();
         let sender = self.sender.clone();
         let document = document.to_string();
         let generation = self.generation;
         std::thread::spawn(move || {
             let refs: Vec<(u64, &Table)> = tables.iter().map(|(id, t)| (*id, t)).collect();
-            let result = plugin::describe(&program).and_then(|description| {
-                let known = with_template(&description, attributes, template.as_ref());
-                let values = description.values(|name| first_value(&known, name));
-                plugin::decorate(&program, &values, &refs)
-            });
+            let (mut answers, mut errors) = (Vec::new(), Vec::new());
+            for program in &programs {
+                let result = plugin::describe(program).and_then(|description| {
+                    let template = active_template(&templates, &active, &description);
+                    let known = with_template(&description, attributes.clone(), template);
+                    let values = description.values(|name| first_value(&known, name));
+                    plugin::decorate(program, &values, &refs)
+                });
+                match result {
+                    Ok(answer) => plugin::merge(&mut answers, answer),
+                    Err(e) => errors.push(match program.file_name() {
+                        Some(name) => format!("{}: {e}", name.to_string_lossy()),
+                        None => e,
+                    }),
+                }
+            }
             let _ = sender.send(Done {
                 window,
                 document,
                 generation,
-                result,
+                answers,
+                errors,
             });
             wake();
         });
@@ -322,21 +342,21 @@ impl Plugins {
         self.waiting.extend(current);
     }
 
-    /// Opens Edit > Plugin Settings with the values of the active dataset; an error when no
-    /// plugin is usable.
+    /// Opens the Plugin Settings dialog of a plugin with the values of the active dataset; an
+    /// error when the plugin is not usable.
     pub fn open_dialog(
         &mut self,
         settings: &Settings,
         data: Option<&Dataset>,
+        program: &Path,
     ) -> Result<(), String> {
         // asked afresh: the program may have changed since
-        self.described = None;
-        let description = match self.description(settings) {
-            Some(Ok(d)) => d.clone(),
-            Some(Err(e)) => return Err(format!("plugin: {e}")),
-            None => return Err("choose a plugin in Edit > Settings > Plugins first".into()),
+        self.described.retain(|(p, _)| p != program);
+        let description = match self.description(program) {
+            Ok(d) => d.clone(),
+            Err(e) => return Err(format!("plugin: {e}")),
         };
-        let template = settings.active_template();
+        let template = settings.active_template(&description);
         let known = with_template(&description, attributes(settings, data), template);
         let values = description.values(|name| first_value(&known, name));
         let fields = description.settings.iter().map(|s| {
@@ -357,16 +377,16 @@ impl Plugins {
         });
         let fields = fields.collect();
         self.dialog = Some(Dialog {
+            templates: settings.templates_of(&description),
+            chosen: template.map(|t| t.name.clone()),
             description,
             fields,
-            templates: settings.templates.clone(),
-            chosen: template.map(|t| t.name.clone()),
             new_name: String::new(),
         });
         Ok(())
     }
 
-    /// Edit > Plugin Settings while it is open; returns, when OK is pressed, the syntax that
+    /// A plugin's Plugin Settings while it is open; returns, when OK is pressed, the syntax that
     /// keeps the values as data file attributes and the same values as (attribute, value)
     /// pairs. Presets saved or removed change the settings' presets at once; the templates and
     /// the active one change on OK.
@@ -386,7 +406,8 @@ impl Plugins {
         let (mut open, mut ok, mut cancel) = (true, false, false);
         let screen = ctx.content_rect();
         let sections = sections(&description.settings);
-        egui::Window::new("Plugin Settings")
+        egui::Window::new(format!("Plugin Settings: {}", description.name))
+            .id(egui::Id::unique("plugin settings"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
@@ -521,8 +542,7 @@ impl Dialog {
         if let Some(name) = &self.chosen {
             save_template(&self.description, &self.fields, &mut self.templates, name);
         }
-        settings.templates = self.templates;
-        settings.template = self.chosen;
+        settings.set_templates(&self.description, self.templates, self.chosen);
         let pairs = attribute_values(&self.description, &self.fields);
         (attribute_syntax(&pairs), pairs)
     }
@@ -557,7 +577,8 @@ fn save_template(
     name: &str,
 ) -> String {
     let mine = fields.iter().filter(|f| !f.setting.per_file);
-    let template = Template::new(name, &attribute_values(description, mine));
+    let values = attribute_values(description, mine);
+    let template = Template::new(&description.name, name, &values);
     let name = template.name.clone();
     match templates.iter_mut().find(|t| t.name == name) {
         Some(t) => *t = template,
@@ -886,7 +907,8 @@ mod tests {
             window: 1,
             document: "doc".into(),
             generation,
-            result: Ok(Vec::new()),
+            answers: Vec::new(),
+            errors: Vec::new(),
         };
         plugins.sender.send(done(0)).unwrap();
         plugins.waiting.push(done(0));
@@ -1117,6 +1139,7 @@ mod tests {
                 .collect()
         };
         let template = Template::new(
+            "House",
             "Client A",
             &pairs(&[
                 ("plugin_house_limit", "9"),
@@ -1176,7 +1199,7 @@ mod tests {
             ("plugin_house_limit", "9"),
         ];
         let b = b.map(|(a, v)| (a.to_string(), v.to_string()));
-        templates.push(Template::new("Client B", &b));
+        templates.push(Template::new("", "Client B", &b));
         fields[2].text = "1500".into();
         load_template(&description, &mut fields, &templates[1]);
         let texts: Vec<&str> = fields.iter().map(|f| f.text.as_str()).collect();
@@ -1190,10 +1213,17 @@ mod tests {
             chosen: Some("Client B".into()),
             new_name: String::new(),
         };
-        let mut settings = Settings::default();
+        // another plugin's template and choice stay as they are
+        let other = Template::new("Heat", "Client B", &[]);
+        let mut settings = Settings {
+            templates: vec![other.clone()],
+            active_templates: vec![("Heat".into(), "Client B".into())],
+            ..Settings::default()
+        };
         let (syntax, _) = dialog.finish(&mut settings);
-        assert_eq!(settings.template.as_deref(), Some("Client B"));
-        let active = settings.active_template().unwrap();
+        let active = settings.active_template(&description).unwrap();
+        let names = (active.plugin.as_str(), active.name.as_str());
+        assert_eq!(names, ("House", "Client B"));
         assert_eq!(
             active.values,
             [
@@ -1202,7 +1232,9 @@ mod tests {
                 ("plugin_house_limit_preset".to_string(), String::new()),
             ]
         );
-        assert_eq!(settings.templates.len(), 2);
+        assert_eq!(settings.templates.len(), 3);
+        assert_eq!(settings.templates[0], other);
+        assert_eq!(settings.active_templates.len(), 2);
         assert_eq!(
             syntax,
             "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_house_high('#ed7d31') plugin_house_limit('10') \
@@ -1233,5 +1265,74 @@ mod tests {
         assert_eq!(shown, want.map(|(g, list)| (g.to_string(), list)));
         // no setting without a group: no empty section
         assert_eq!(sections(&settings[..1]), [("Look".to_string(), vec![0])]);
+    }
+
+    /// Two plugins decorate the same table in their order: the fill of the first and the bold
+    /// of the second both land, and the second's text colour wins. A plugin that cannot start
+    /// leaves its error without stopping the others, and one turned off does not run.
+    #[cfg(unix)]
+    #[test]
+    fn two_plugins_decorate_the_same_table() {
+        use crate::settings::Plugin;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("statscraft-plugins-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // a plugin as a shell script that styles cell (0, 1) of table 4
+        let script = |name: &str, cell: &str| {
+            let path = dir.join(name);
+            let describe = format!(r#"{{"name": "{name}", "version": "1", "protocol": 1}}"#);
+            let answer = format!(
+                r#"{{"tables": [{{"id": 4, "cells": [{{"row": 0, "col": 1, {cell}}}]}}]}}"#
+            );
+            let text = format!(
+                "#!/bin/sh\nif [ \"$1\" = --describe ]; then echo '{describe}'; exit 0; fi\n\
+                 cat > /dev/null\necho '{answer}'\n"
+            );
+            std::fs::write(&path, text).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            Plugin { path, on: true }
+        };
+        let shade = script("shade", r##""fill": "#ff0000", "text": "#000000""##);
+        let bold = script("bold", r##""bold": true, "text": "#9c0006""##);
+        let off = Plugin {
+            on: false,
+            ..script("off", r##""fill": "#00ff00""##)
+        };
+        let missing = Plugin {
+            path: dir.join("missing"),
+            on: true,
+        };
+        let settings = Settings {
+            plugins: vec![shade, missing, off, bold],
+            ..Settings::default()
+        };
+        let mut table = Table {
+            row_headers: 1,
+            columns: vec!["".into(), "a".into()],
+            rows: vec![vec![
+                statscraft_engine::Cell::Text("r".into()),
+                statscraft_engine::Cell::Number(1.0),
+            ]],
+            cell_stats: Some(Box::default()),
+            ..Table::default()
+        };
+        let plugins = Plugins::default();
+        plugins.start(&settings, None, (1, "doc"), vec![(4, table.clone())], || {});
+        let done = plugins
+            .receiver
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(done.errors.len(), 1, "{:?}", done.errors);
+        assert!(done.errors[0].starts_with("missing: "), "{:?}", done.errors);
+        assert!(done.errors[0].contains("cannot start"), "{:?}", done.errors);
+        let [(4, (cells, style))] = &done.answers[..] else {
+            panic!("one answer for table 4: {:?}", done.answers);
+        };
+        table.set_decorations(cells.clone(), style.clone());
+        let d = table.decoration(0, 1).unwrap();
+        assert_eq!(d.fill.as_deref(), Some("#ff0000"));
+        assert!(d.bold);
+        assert_eq!(d.text.as_deref(), Some("#9c0006"));
     }
 }

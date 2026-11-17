@@ -132,9 +132,11 @@ struct XlsxArgs {
     #[arg(long, requires = "xlsx")]
     xlsx_one_sheet: bool,
     /// With --xlsx, let this plugin program colour, comment and lay out the custom tables, with
-    /// its settings from the active data's attributes (see docs/plugins.md)
+    /// its settings from the active data's attributes (see docs/plugins.md). Give it more than
+    /// once for several plugins: they run in that order, and where two style the same thing
+    /// the later one wins
     #[arg(long, value_name = "PROGRAM", requires = "xlsx")]
-    plugin: Option<PathBuf>,
+    plugin: Vec<PathBuf>,
 }
 
 #[derive(Args)]
@@ -604,9 +606,9 @@ fn run_result(
     result.session = args.session.clone();
     // a run is all or nothing: a failure above returned before anything was saved
     let changed = std::mem::take(&mut result.saved);
-    // only when a workbook is written: the plugin's look is for the workbook
-    if let (false, Some(program), Some(_)) = (check_only, &xlsx.plugin, &xlsx.xlsx) {
-        decorate(&mut result, program, &session)?;
+    // only when a workbook is written: the plugins' look is for the workbook
+    if !check_only && !xlsx.plugin.is_empty() && xlsx.xlsx.is_some() {
+        decorate(&mut result, &xlsx.plugin, &session)?;
     }
     // before the session is saved, so a workbook that cannot be written leaves the session as it was
     write_workbook(&result, xlsx)?;
@@ -658,26 +660,20 @@ fn keep_trail(data: &std::path::Path, syntax: &str) -> Result<PathBuf, String> {
     Ok(file)
 }
 
-/// Runs the plugin on the run's custom tables, with its settings from the active data's
-/// attributes, and puts its answer on them.
+/// Runs the plugins in their order on the run's custom tables, each with its settings from the
+/// active data's attributes, and puts their merged answers on them; a plugin that fails fails
+/// the run.
 fn decorate(
     result: &mut RunResult,
-    program: &std::path::Path,
+    programs: &[PathBuf],
     session: &Session,
 ) -> Result<(), Vec<Failure>> {
     use statscraft_engine::plugin;
     let failed = |e: String| vec![Failure::plain("plugin", e)];
-    let description = plugin::describe(program).map_err(failed)?;
     let attributes = session
         .dataset()
         .map(|d| d.attributes())
         .unwrap_or_default();
-    let values = description.values(|name| {
-        let mut found = attributes
-            .iter()
-            .filter(|(n, _)| n.eq_ignore_ascii_case(name));
-        found.next()?.1.first().cloned()
-    });
     let tables: Vec<(u64, &statscraft_engine::Table)> = result
         .commands
         .iter()
@@ -685,7 +681,18 @@ fn decorate(
         .enumerate()
         .map(|(i, t)| (i as u64, t))
         .collect();
-    let answers = plugin::decorate(program, &values, &tables).map_err(failed)?;
+    let mut answers = Vec::new();
+    for program in programs {
+        let description = plugin::describe(program).map_err(failed)?;
+        let values = description.values(|name| {
+            let mut found = attributes
+                .iter()
+                .filter(|(n, _)| n.eq_ignore_ascii_case(name));
+            found.next()?.1.first().cloned()
+        });
+        let answer = plugin::decorate(program, &values, &tables).map_err(failed)?;
+        plugin::merge(&mut answers, answer);
+    }
     let mut all: Vec<&mut statscraft_engine::Table> = result
         .commands
         .iter_mut()

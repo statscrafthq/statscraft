@@ -310,6 +310,36 @@ impl Decoration {
         )
     }
 
+    /// Lays a later plugin's style of the same cell over this one, key by key: what the later
+    /// one sets wins (a border side by side), what it leaves out stays, so a fill from one and
+    /// bold from the other both show. The later style is cleaned first, so a bad value of it
+    /// cannot wipe out a good one.
+    pub fn merge(&mut self, mut later: Decoration) {
+        later.clean();
+        fn over<T>(mine: &mut Option<T>, later: Option<T>) {
+            if later.is_some() {
+                *mine = later;
+            }
+        }
+        over(&mut self.fill, later.fill);
+        over(&mut self.text, later.text);
+        self.bold |= later.bold;
+        self.italic |= later.italic;
+        match (&mut self.border, later.border) {
+            (Some(mine), Some(b)) => {
+                over(&mut mine.top, b.top);
+                over(&mut mine.bottom, b.bottom);
+                over(&mut mine.left, b.left);
+                over(&mut mine.right, b.right);
+            }
+            (mine, b) => over(mine, b),
+        }
+        over(&mut self.align, later.align);
+        over(&mut self.font, later.font);
+        over(&mut self.size, later.size);
+        over(&mut self.comment, later.comment);
+    }
+
     /// Colours that are not #rrggbb left out, a border without a side, an unknown alignment, a
     /// font name that is not plain and a size outside 1 to 409 points.
     fn clean(&mut self) {
@@ -391,6 +421,71 @@ pub struct ColumnWidth {
 impl TableStyle {
     pub fn is_empty(&self) -> bool {
         *self == TableStyle::default()
+    }
+
+    /// Lays a later plugin's table style over this one, key by key: what the later one sets
+    /// wins, what it leaves out stays. Header cells, the caption and the title merge as cells
+    /// do (`Decoration::merge`), column widths column by column and header heights line by
+    /// line.
+    pub fn merge(&mut self, later: TableStyle) {
+        if let Some(font) = later.font.filter(|f| plain_font(f)) {
+            self.font = Some(font);
+        }
+        if let Some(size) = later.font_size.filter(font_size) {
+            self.font_size = Some(size);
+        }
+        merge_decorations(&mut self.header_cells, later.header_cells);
+        self.plain |= later.plain;
+        if let Some(labels) = later.row_labels.filter(|r| r == "stacked") {
+            self.row_labels = Some(labels);
+        }
+        for width in later.column_widths {
+            match self.column_widths.iter_mut().find(|w| w.col == width.col) {
+                Some(w) => *w = width,
+                None => self.column_widths.push(width),
+            }
+        }
+        if later.freeze_columns.is_some() {
+            self.freeze_columns = later.freeze_columns;
+        }
+        for (line, height) in later.header_heights.into_iter().enumerate() {
+            match self.header_heights.get_mut(line) {
+                Some(h) => *h = height,
+                None => self.header_heights.push(height),
+            }
+        }
+        if later.rows_above.is_some() {
+            self.rows_above = later.rows_above;
+        }
+        for (mine, later) in [
+            (&mut self.caption, later.caption),
+            (&mut self.title, later.title),
+        ] {
+            match (mine, later) {
+                (Some(mine), Some(later)) => mine.merge(later),
+                (mine, later) => *mine = later.or(mine.take()),
+            }
+        }
+    }
+}
+
+/// Lays a later plugin's cell styles over earlier ones, cell by cell (`Decoration::merge`); a
+/// cell only the later one styles is added. As on the table, the first style a plugin gives a
+/// cell counts and a second one for the same cell is dropped.
+pub fn merge_decorations(cells: &mut Vec<Decoration>, later: Vec<Decoration>) {
+    let mut at = std::collections::HashMap::new();
+    for (i, d) in cells.iter().enumerate() {
+        at.entry((d.row, d.col)).or_insert(i);
+    }
+    let mut seen = std::collections::HashSet::new();
+    for d in later {
+        if !seen.insert((d.row, d.col)) {
+            continue;
+        }
+        match at.get(&(d.row, d.col)) {
+            Some(&i) => cells[i].merge(d),
+            None => cells.push(d),
+        }
     }
 }
 

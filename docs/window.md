@@ -712,7 +712,7 @@ Edit > Settings holds every setting of the window in one dialog, with its sectio
   - Adds the Statscraft MCP server to the AI apps on this computer, or takes it out again, with a click per app, and says what to restart. For Claude Desktop, **Install extension** downloads and opens the Statscraft extension of this version. **Check** shows each app's settings files and whether the entry is in them now. See [Connect your AI agent](connect.md#from-the-window-edit--settings--ai-agents).
 
 - **Plugins**
-  - **Plugin program** with **Browse...**: a program that colours and comments the cells of custom tables, with a line naming it and its version. **Colour and comment tables with the plugin** turns it on and off, and **Write plugin comments as Excel comments** (on by default) decides whether Excel exports carry its comments as cell notes. Kept in `window.txt` as `plugin PATH`, `plugin-off` and `excel-comments off`. The plugin's own settings are in **Edit > Plugin Settings...** and are kept with the data file. See [Plugins](plugins.md).
+  - The installed plugins, programs that colour and comment the cells of custom tables, in the order they run: each with its name and version, a box that turns it on and off, its full path, **Up**, **Down**, **Remove** and **Settings...**, which opens the plugin's own settings (kept with the data file). **Add plugin...** adds one. Where two plugins style the same thing, the later one wins. **Write plugin comments as Excel comments** (on by default) decides whether Excel exports carry the comments as cell notes. Kept in `window.txt` as one line per plugin, `plugin PATH` or `plugin-off PATH`, and `excel-comments off`. See [Plugins](plugins.md).
 
 ## What the window remembers
 

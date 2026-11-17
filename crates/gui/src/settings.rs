@@ -5,6 +5,7 @@
 //! the window starts by running that SET.
 
 use crate::output::{Part, Show};
+use statscraft_engine::plugin::Description;
 use std::path::{Path, PathBuf};
 
 /// The most recent files kept.
@@ -51,25 +52,36 @@ pub struct Settings {
     pub mioutput: Option<String>,
     /// The kinds of element the output shows, and whether exports take hidden items.
     pub output: Show,
-    /// The plugin program that decorates tables (docs/plugins.md), and whether it is off.
-    pub plugin: Option<PathBuf>,
-    pub plugin_off: bool,
-    /// Excel exports leave out the plugin's comments.
+    /// The plugin programs that decorate tables (docs/plugins.md), in the order they run.
+    pub plugins: Vec<Plugin>,
+    /// Excel exports leave out the plugins' comments.
     pub excel_comments_off: bool,
     /// Saved values of plugin settings, for every data file.
     pub presets: Vec<Preset>,
     /// The plugin settings last chosen for each data file, by its path: they hold when the
     /// file is read again (GET FILE in a syntax) before its new data file attributes were saved.
     pub file_values: Vec<FileValue>,
-    /// Design templates of the plugin's settings, and the name of the one in use.
+    /// Design templates of the plugins' settings, and the one in use for each plugin as
+    /// (plugin name, template name); the plugin name is empty in a line from before there were
+    /// several plugins.
     pub templates: Vec<Template>,
-    pub template: Option<String>,
+    pub active_templates: Vec<(String, String)>,
 }
 
-/// A named set of plugin setting values (every setting not kept per data file), as
+/// A plugin program, and whether it runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Plugin {
+    pub path: PathBuf,
+    pub on: bool,
+}
+
+/// A named set of one plugin's setting values (every setting not kept per data file), as
 /// (attribute, value) pairs; one template per client's look, say.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Template {
+    /// The name the plugin describes itself with; empty in a template saved before there were
+    /// several plugins.
+    pub plugin: String,
     pub name: String,
     pub values: Vec<(String, String)>,
 }
@@ -77,13 +89,48 @@ pub struct Template {
 impl Template {
     /// A template from the dialog: tabs and line breaks become spaces, so each value fits its
     /// line of the settings file.
-    pub fn new(name: &str, values: &[(String, String)]) -> Self {
+    pub fn new(plugin: &str, name: &str, values: &[(String, String)]) -> Self {
         let values = values.iter().map(|(a, v)| (clean(a), clean(v)));
         Template {
+            plugin: clean(plugin),
             name: clean(name).trim().to_string(),
             values: values.collect(),
         }
     }
+
+    /// Whether the template holds settings of the plugin: it was saved for it, or it has no
+    /// plugin name and every attribute it holds is one of the plugin's (`plugin_<name>_...`).
+    pub fn belongs_to(&self, plugin: &Description) -> bool {
+        if !self.plugin.is_empty() {
+            return self.plugin == plugin.name;
+        }
+        let prefix = plugin.attribute("");
+        let mine = |a: &str| a.to_ascii_lowercase().starts_with(&prefix);
+        self.values.iter().all(|(a, _)| mine(a))
+    }
+}
+
+/// The template in use for a plugin: the one chosen for it, else one chosen before there were
+/// several plugins that holds its settings.
+pub fn active_template<'a>(
+    templates: &'a [Template],
+    active: &[(String, String)],
+    plugin: &Description,
+) -> Option<&'a Template> {
+    let chosen = |exact: bool| {
+        active.iter().find_map(|(p, name)| {
+            let fits = if exact {
+                *p == plugin.name
+            } else {
+                p.is_empty()
+            };
+            let found = templates
+                .iter()
+                .find(|t| &t.name == name && t.belongs_to(plugin));
+            found.filter(|_| fits)
+        })
+    };
+    chosen(true).or_else(|| chosen(false))
 }
 
 fn clean(text: &str) -> String {
@@ -188,12 +235,17 @@ impl Settings {
     /// `log hidden`, `variable_widths W ...`, `tvars names|labels|both` and
     /// `tnumbers values|labels|both`, `mioutput` with MIOUTPUT keywords, `output-shows` with
     /// the kinds of element the output shows (`headings titles tables notes charts`) and
-    /// `export hidden`, `plugin PATH`, `plugin-off`, `excel-comments off` and
+    /// `export hidden`, one line per plugin in order (`plugin PATH`, or `plugin-off PATH` for
+    /// one turned off), `excel-comments off`,
     /// `preset ATTRIBUTE<tab>NAME<tab>VALUE`, `plugin-value ATTRIBUTE<tab>VALUE<tab>FILE`,
-    /// `template NAME<tab>ATTRIBUTE<tab>VALUE` (or `template NAME` for one without values) and
-    /// `template-active NAME`; anything else is skipped.
+    /// `plugin-template PLUGIN<tab>NAME<tab>ATTRIBUTE<tab>VALUE` (or `plugin-template
+    /// PLUGIN<tab>NAME` for one without values) and `plugin-template-active PLUGIN<tab>NAME`;
+    /// anything else is skipped. The older lines `plugin-off` alone (the one plugin is off),
+    /// `template NAME<tab>ATTRIBUTE<tab>VALUE`, `template NAME` and `template-active NAME` are
+    /// read too.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
+        let mut old_off = false;
         let pair = |rest: &str| {
             let numbers: Vec<f32> = rest
                 .split_whitespace()
@@ -237,8 +289,12 @@ impl Settings {
                     settings.output.kinds = Part::ALL.map(|p| words.contains(&p.word()));
                 }
                 "export" => settings.output.export_hidden = rest == "hidden",
-                "plugin" if !rest.is_empty() => settings.plugin = Some(PathBuf::from(rest)),
-                "plugin-off" => settings.plugin_off = true,
+                "plugin" | "plugin-off" if !rest.is_empty() => settings.plugins.push(Plugin {
+                    path: PathBuf::from(rest),
+                    on: key == "plugin",
+                }),
+                // the older form: one `plugin PATH` line and this one turning it off
+                "plugin-off" => old_off = true,
                 "excel-comments" => settings.excel_comments_off = rest == "off",
                 "preset" => {
                     if let [attribute, name, value] = rest.split('\t').collect::<Vec<_>>()[..]
@@ -259,28 +315,54 @@ impl Settings {
                         });
                     }
                 }
-                "template" => {
-                    let parts: Vec<&str> = rest.split('\t').collect();
-                    if parts[0].is_empty() {
-                        continue;
-                    }
-                    let found = settings.templates.iter().position(|t| t.name == parts[0]);
-                    let at = found.unwrap_or_else(|| {
-                        settings.templates.push(Template::new(parts[0], &[]));
-                        settings.templates.len() - 1
-                    });
-                    if let [_, attribute, value] = parts[..]
-                        && !attribute.is_empty()
-                    {
-                        let pair = (attribute.to_string(), value.to_string());
-                        settings.templates[at].values.push(pair);
+                "plugin-template" => {
+                    if let Some((plugin, rest)) = rest.split_once('\t') {
+                        settings.read_template(plugin, rest);
                     }
                 }
-                "template-active" if !rest.is_empty() => settings.template = Some(rest.into()),
+                // the older form, without the plugin's name
+                "template" => settings.read_template("", rest),
+                "plugin-template-active" => {
+                    if let Some((plugin, name)) = rest.split_once('\t')
+                        && !name.is_empty()
+                    {
+                        let active = (plugin.to_string(), name.to_string());
+                        settings.active_templates.push(active);
+                    }
+                }
+                "template-active" if !rest.is_empty() => {
+                    settings.active_templates.push((String::new(), rest.into()))
+                }
                 _ => {}
             }
         }
+        if old_off {
+            settings.plugins.iter_mut().for_each(|p| p.on = false);
+        }
         settings
+    }
+
+    /// A template line after its plugin name: `NAME<tab>ATTRIBUTE<tab>VALUE`, or `NAME` for a
+    /// template without values.
+    fn read_template(&mut self, plugin: &str, rest: &str) {
+        let parts: Vec<&str> = rest.split('\t').collect();
+        if parts[0].is_empty() {
+            return;
+        }
+        let found = self
+            .templates
+            .iter()
+            .position(|t| t.plugin == plugin && t.name == parts[0]);
+        let at = found.unwrap_or_else(|| {
+            self.templates.push(Template::new(plugin, parts[0], &[]));
+            self.templates.len() - 1
+        });
+        if let [_, attribute, value] = parts[..]
+            && !attribute.is_empty()
+        {
+            let pair = (attribute.to_string(), value.to_string());
+            self.templates[at].values.push(pair);
+        }
     }
 
     pub fn text(&self) -> String {
@@ -343,11 +425,9 @@ impl Settings {
         if self.output.export_hidden {
             text.push_str("export hidden\n");
         }
-        if let Some(plugin) = &self.plugin {
-            text.push_str(&format!("plugin {}\n", plugin.display()));
-        }
-        if self.plugin_off {
-            text.push_str("plugin-off\n");
+        for p in &self.plugins {
+            let key = if p.on { "plugin" } else { "plugin-off" };
+            text.push_str(&format!("{key} {}\n", p.path.display()));
         }
         if self.excel_comments_off {
             text.push_str("excel-comments off\n");
@@ -367,23 +447,54 @@ impl Settings {
             ));
         }
         for t in &self.templates {
+            let head = format!("plugin-template {}\t{}", t.plugin, t.name);
             if t.values.is_empty() {
-                text.push_str(&format!("template {}\n", t.name));
+                text.push_str(&format!("{head}\n"));
             }
             for (attribute, value) in &t.values {
-                text.push_str(&format!("template {}\t{attribute}\t{value}\n", t.name));
+                text.push_str(&format!("{head}\t{attribute}\t{value}\n"));
             }
         }
-        if let Some(name) = &self.template {
-            text.push_str(&format!("template-active {name}\n"));
+        for (plugin, name) in &self.active_templates {
+            text.push_str(&format!("plugin-template-active {plugin}\t{name}\n"));
         }
         text
     }
 
-    /// The design template in use, if any.
-    pub fn active_template(&self) -> Option<&Template> {
-        let name = self.template.as_ref()?;
-        self.templates.iter().find(|t| &t.name == name)
+    /// The design template in use for a plugin, if any.
+    pub fn active_template(&self, plugin: &Description) -> Option<&Template> {
+        active_template(&self.templates, &self.active_templates, plugin)
+    }
+
+    /// The templates of a plugin (`Template::belongs_to`).
+    pub fn templates_of(&self, plugin: &Description) -> Vec<Template> {
+        let mine = self.templates.iter().filter(|t| t.belongs_to(plugin));
+        mine.cloned().collect()
+    }
+
+    /// Puts a plugin's templates, as its Plugin Settings dialog left them, in place of those it
+    /// had, each saved for the plugin, and makes `chosen` the plugin's active template.
+    pub fn set_templates(
+        &mut self,
+        plugin: &Description,
+        mine: Vec<Template>,
+        chosen: Option<String>,
+    ) {
+        self.templates.retain(|t| !t.belongs_to(plugin));
+        let templates = &self.templates;
+        // an older choice without a plugin name goes when its template went
+        let left = |(p, name): &(String, String)| {
+            *p != plugin.name && (!p.is_empty() || templates.iter().any(|t| &t.name == name))
+        };
+        self.active_templates.retain(left);
+        let name = &plugin.name;
+        let mine = mine
+            .into_iter()
+            .map(|t| Template::new(name, &t.name, &t.values));
+        self.templates.extend(mine);
+        if let Some(chosen) = chosen {
+            self.active_templates.push((name.clone(), chosen));
+        }
     }
 
     /// Keeps the plugin settings chosen for a data file, replacing earlier ones of the same
@@ -495,8 +606,16 @@ mod tests {
                 kinds: [true, false, true, false, true],
                 export_hidden: true,
             },
-            plugin: Some(PathBuf::from("/opt/plugins/heat map")),
-            plugin_off: true,
+            plugins: vec![
+                Plugin {
+                    path: PathBuf::from("/opt/plugins/heat map"),
+                    on: false,
+                },
+                Plugin {
+                    path: PathBuf::from("/opt/plugins/house"),
+                    on: true,
+                },
+            ],
             excel_comments_off: true,
             presets: vec![
                 Preset::new("plugin_house_limit", "Strict 1-10", "1043000"),
@@ -510,18 +629,37 @@ mod tests {
             }],
             templates: vec![
                 Template::new(
+                    "House",
                     "Client A",
                     &[
                         ("plugin_house_high".into(), "#ed7d31".into()),
                         ("plugin_house_head".into(), "{\"bold\":true}\tx".into()),
                     ],
                 ),
-                Template::new("Empty one", &[]),
+                Template::new("House", "Empty one", &[]),
+                Template::new(
+                    "Heat Map",
+                    "Client A",
+                    &[("plugin_heat_map_high".into(), "#000000".into())],
+                ),
+                // from before there were several plugins
+                Template::new("", "Old", &[("plugin_house_high".into(), "#111111".into())]),
             ],
-            template: Some("Client A".into()),
+            active_templates: vec![
+                ("House".into(), "Client A".into()),
+                ("Heat Map".into(), "Client A".into()),
+            ],
         };
         assert_eq!(settings.templates[0].values[1].1, "{\"bold\":true} x");
-        assert_eq!(settings.active_template(), Some(&settings.templates[0]));
+        let house = described("House");
+        assert_eq!(
+            settings.active_template(&house),
+            Some(&settings.templates[0])
+        );
+        assert_eq!(
+            settings.active_template(&described("Heat Map")),
+            Some(&settings.templates[2])
+        );
         assert_eq!(settings.presets[1].name, "All: steps 0+");
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
@@ -562,6 +700,73 @@ mod tests {
         // a relative path is kept as the folder it means now
         settings.remember_folder(Path::new("job.sps"));
         assert_eq!(settings.folder, Some(std::env::current_dir().unwrap()));
+    }
+
+    /// A plugin's description with a name and no settings.
+    fn described(name: &str) -> Description {
+        Description {
+            name: name.into(),
+            version: "1".into(),
+            protocol: 1,
+            settings: Vec::new(),
+        }
+    }
+
+    /// A file from before there were several plugins: one plugin turned off by a line of its
+    /// own, templates without a plugin name, and the active one by name only. Each template
+    /// belongs to the plugin whose attributes it holds; the new form is written.
+    #[test]
+    fn the_older_plugin_lines_still_read() {
+        let old = "plugin /opt/house\nplugin-off\n\
+                   template Client A\tplugin_house_high\t#ed7d31\n\
+                   template Client A\tplugin_house_limit\t9\n\
+                   template Heat\tplugin_heat_map_low\t#ffffff\n\
+                   template-active Client A\n";
+        let mut settings = Settings::parse(old);
+        let plugin = |path: &str, on| Plugin {
+            path: PathBuf::from(path),
+            on,
+        };
+        assert_eq!(settings.plugins, [plugin("/opt/house", false)]);
+        let (house, heat) = (described("House"), described("Heat Map"));
+        let names = |d: &Description| -> Vec<String> {
+            settings
+                .templates_of(d)
+                .into_iter()
+                .map(|t| t.name)
+                .collect()
+        };
+        assert_eq!(names(&house), ["Client A"]);
+        assert_eq!(names(&heat), ["Heat"]);
+        assert_eq!(settings.active_template(&house).unwrap().values.len(), 2);
+        assert_eq!(settings.active_template(&heat), None);
+        let text = settings.text();
+        assert!(text.starts_with("plugin-off /opt/house\n"), "{text}");
+        assert!(text.contains("plugin-template \tClient A\tplugin_house_limit\t9\n"));
+        assert!(text.contains("plugin-template-active \tClient A\n"));
+        assert_eq!(Settings::parse(&text), settings);
+        // OK in the house plugin's dialog saves its templates under its name
+        let mine = settings.templates_of(&house);
+        settings.set_templates(&house, mine, Some("Client A".into()));
+        assert_eq!(settings.templates[0].plugin, "");
+        assert_eq!(settings.templates[1].plugin, "House");
+        assert_eq!(
+            settings.active_templates,
+            [("House".to_string(), "Client A".to_string())]
+        );
+        assert_eq!(settings.active_template(&house).unwrap().plugin, "House");
+        // turning a template off for one plugin leaves another's choice alone
+        settings.set_templates(&heat, settings.templates_of(&heat), Some("Heat".into()));
+        settings.set_templates(&house, settings.templates_of(&house), None);
+        assert_eq!(settings.active_template(&house), None);
+        assert_eq!(settings.active_template(&heat).unwrap().name, "Heat");
+        assert_eq!(Settings::parse(&settings.text()), settings);
+        // several plugins in order, each on or off
+        let text = "plugin /a\nplugin-off /b\nplugin /c\n";
+        let read = Settings::parse(text);
+        let expected = [plugin("/a", true), plugin("/b", false), plugin("/c", true)];
+        assert_eq!(read.plugins, expected);
+        assert_eq!(read.text(), text);
     }
 
     #[test]

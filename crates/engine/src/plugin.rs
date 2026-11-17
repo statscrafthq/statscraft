@@ -4,7 +4,10 @@
 //! standard input, one out on its standard output. A plugin that fails, answers badly or takes
 //! too long gives an error and no decorations; the tables stay as they are.
 
-use crate::{CellStats, ColumnWidth, Decoration, Table, TableStyle, cell_text, header_rows};
+use crate::{
+    CellStats, ColumnWidth, Decoration, Table, TableStyle, cell_text, header_rows,
+    merge_decorations,
+};
 use serde::{Deserialize, Serialize};
 pub use serde_json::{Map, Value};
 use std::io::{Read, Write};
@@ -223,6 +226,22 @@ pub fn decorate(
     answers(&out)
 }
 
+/// Lays the answers of a later plugin over those of the plugins before it, table by table:
+/// cells, header cells and the table style key by key, what the later plugin sets winning
+/// (`Decoration::merge`, `TableStyle::merge`). A table only the later plugin answers for is
+/// added.
+pub fn merge(answers: &mut Vec<(u64, Answer)>, later: Vec<(u64, Answer)>) {
+    for (id, (cells, style)) in later {
+        match answers.iter_mut().find(|(i, _)| *i == id) {
+            Some((_, (mine, my_style))) => {
+                merge_decorations(mine, cells);
+                my_style.merge(style);
+            }
+            None => answers.push((id, (cells, style))),
+        }
+    }
+}
+
 /// The tables of a plugin's answer.
 fn answers(out: &[u8]) -> Result<Vec<(u64, Answer)>, String> {
     let response: Response = serde_json::from_slice(out)
@@ -370,6 +389,83 @@ mod tests {
         // a JSON value that is not an object takes the default too
         let values = description.values(|_| Some("[1]".into()));
         assert_eq!(values["total"], serde_json::json!({"fill": "#eeeeee"}));
+    }
+
+    /// Two plugins' answers merge key by key: a fill from one and bold from the other both
+    /// stay, the later one wins where both set a key, and a bad value of the later one does
+    /// not wipe out a good one.
+    #[test]
+    fn answers_of_two_plugins_merge_key_by_key() {
+        let first = br##"{"tables": [{"id": 1, "font": "Cambria", "font_size": 9,
+            "column_widths": [{"col": 1, "width": 20}, {"col": 2, "width": 5}],
+            "header_heights": [30, 15], "caption": {"italic": true},
+            "cells": [
+              {"row": 0, "col": 1, "fill": "#ff0000", "text": "#000000", "comment": "n = 7",
+               "border": {"top": "#111111", "left": "#222222"}},
+              {"row": 0, "col": 2, "fill": "#00ff00"}],
+            "header_cells": [{"row": 0, "col": 1, "fill": "#dddddd"}]},
+            {"id": 2, "cells": [{"row": 0, "col": 1, "italic": true}]}]}"##;
+        let second = br##"{"tables": [{"id": 1, "font_size": 11, "plain": true,
+            "column_widths": [{"col": 2, "width": 8}], "header_heights": [40],
+            "caption": {"text": "#094e56"}, "title": {"bold": true},
+            "cells": [
+              {"row": 0, "col": 1, "bold": true, "text": "#9c0006", "fill": "teal",
+               "border": {"top": "#333333"}},
+              {"row": 0, "col": 1, "italic": true},
+              {"row": 0, "col": 0, "comment": "label"}],
+            "header_cells": [{"row": 0, "col": 1, "bold": true}]},
+            {"id": 3, "cells": [{"row": 0, "col": 2, "bold": true}]}]}"##;
+        let mut merged = answers(first).unwrap();
+        merge(&mut merged, answers(second).unwrap());
+        let ids: Vec<u64> = merged.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, [1, 2, 3]);
+        let mut table = Table {
+            row_headers: 1,
+            columns: vec!["".into(), "a".into(), "b".into()],
+            rows: vec![vec![
+                crate::Cell::Text("r".into()),
+                crate::Cell::Number(1.0),
+                crate::Cell::Number(2.0),
+            ]],
+            ..Table::default()
+        };
+        let (cells, style) = merged[0].1.clone();
+        table.set_decorations(cells, style);
+        let d = table.decoration(0, 1).unwrap();
+        // the fill of the first stays (the second's is not a colour), bold comes from the
+        // second, its text colour wins, and the comment of the first stays
+        assert_eq!(d.fill.as_deref(), Some("#ff0000"));
+        assert!(
+            d.bold && !d.italic,
+            "a second style of the same cell is dropped"
+        );
+        assert_eq!(d.text.as_deref(), Some("#9c0006"));
+        assert_eq!(d.comment.as_deref(), Some("n = 7"));
+        let border = d.border.as_ref().unwrap();
+        assert_eq!(
+            (border.top.as_deref(), border.left.as_deref()),
+            (Some("#333333"), Some("#222222"))
+        );
+        let fill = |r, c| table.decoration(r, c).unwrap().fill.clone();
+        assert_eq!(fill(0, 2).as_deref(), Some("#00ff00"));
+        let label = table.decoration(0, 0).unwrap();
+        assert_eq!(label.comment.as_deref(), Some("label"));
+        let h = table.header_decoration(0, 1).unwrap();
+        assert_eq!((h.fill.as_deref(), h.bold), (Some("#dddddd"), true));
+        let s = &table.style;
+        assert_eq!(
+            (s.font.as_deref(), s.font_size),
+            (Some("Cambria"), Some(11.0))
+        );
+        assert!(s.plain);
+        let widths: Vec<(usize, f64)> = s.column_widths.iter().map(|w| (w.col, w.width)).collect();
+        assert_eq!(widths, [(1, 20.0), (2, 8.0)]);
+        let caption = s.caption.as_ref().unwrap();
+        assert!(caption.italic);
+        assert_eq!(caption.text.as_deref(), Some("#094e56"));
+        assert!(s.title.as_ref().unwrap().bold);
+        // one header line here, so only the first height is kept: the second plugin's
+        assert_eq!(s.header_heights, [40.0]);
     }
 
     #[test]

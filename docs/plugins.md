@@ -8,14 +8,27 @@ A plugin gets each table with the statistics behind its cells and answers with s
 comments and layout: shading cells as a heat map, flagging cells with a small base, adding a
 note to a cell, or giving the exports a look of your own.
 
-## Using a plugin in the window
+## Using plugins in the window
 
-- **Edit > Settings > Plugins**: choose the plugin's executable file with **Browse...**. The
-  line under it shows the plugin's name and version, or why it cannot be used. The box
-  **Colour and comment tables with the plugin** turns it on and off, and **Write plugin
-  comments as Excel comments** decides whether Excel exports carry the comments as cell notes.
-- **Edit > Plugin Settings...** shows the settings the plugin declares, with their values for
-  the active data. OK runs `DATAFILE ATTRIBUTE` to keep them with the data; save the data file
+- **Edit > Settings > Plugins** lists the installed plugins in the order they run. Each row
+  shows the plugin's name and version (or why it cannot be used) beside a box that turns it on
+  and off, its full path, **Up** and **Down** to change the order, **Remove**, and
+  **Settings...** for its own settings (below). **Add plugin...** adds an executable file to
+  the end of the list. **Write plugin comments as Excel comments** decides whether Excel
+  exports carry the comments as cell notes.
+- **Several plugins**: after a run, every plugin that is on decorates the tables, one after
+  the other in the order of the list, each with its own settings. Their answers are merged
+  table by table: for a cell, a header cell, the caption and the title, each key the later
+  plugin gives (a fill, bold, a text colour, one side of a border, a comment) wins over the
+  same key of an earlier one, and the keys it leaves out stay. So a fill from one plugin and
+  bold from another both show. The table's keys (font, size, plain look, row labels, frozen
+  columns, rows above) go the same way, column widths column by column and header heights line
+  by line. A plugin that fails does not stop the others: the status bar says why, and the
+  others' answers still apply. On the command line, `statscraft run --xlsx FILE --plugin A
+  --plugin B` runs and merges them the same way, but there a plugin that fails fails the run.
+- **Settings...** of a plugin opens its Plugin Settings dialog: the settings the plugin
+  declares, with their values for the active data. OK runs `DATAFILE ATTRIBUTE` to keep them
+  with the data; save the data file
   to take them along to other computers. The window also remembers them for the data file's
   path, so reading the same file again (GET FILE in a syntax, or opening it) before it was
   saved keeps them; attributes the data carries win over the remembered values. A setting
@@ -33,8 +46,9 @@ note to a cell, or giving the exports a look of your own.
   preset of the same name is replaced). Presets belong to the window, not to a data file, so
   they are there for every data file; they are kept in the window's settings file as lines
   `preset <attribute>`, a tab, the name, a tab and the value.
-- **Templates**: a design template is a named set of values for every setting except those the
-  plugin keeps per data file (`"per_file": true`, see the protocol below), for example one look
+- **Templates**: a design template belongs to one plugin, and each plugin has its own active
+  template. It is a named set of values for every setting except those the plugin keeps per
+  data file (`"per_file": true`, see the protocol below), for example one look
   per client. The **Template** row at the top of the dialog chooses one (or **(none)**), which
   fills the template's settings and leaves the per-file ones as they are; a name and **Save as
   template** keep the current values under that name (a template of the same name is
@@ -44,15 +58,22 @@ note to a cell, or giving the exports a look of your own.
   data's attributes, and a setting the template lacks takes the data's value or the default.
   Per-file settings come from the data as before. OK still writes every value to the data
   file's attributes, so the data file and the command line see the same values. Templates are
-  kept in the window's settings file as lines `template <name>`, a tab, the attribute, a tab
-  and the value, and the active one as `template-active <name>`.
+  kept in the window's settings file as lines `plugin-template <plugin>`, a tab, the template's
+  name, a tab, the attribute, a tab and the value, and each plugin's active one as
+  `plugin-template-active <plugin>`, a tab and the name, where `<plugin>` is the name the
+  plugin describes itself with. Lines `template` and `template-active` without the plugin's
+  name, from before there were several plugins, are still read: such a template belongs to the
+  plugin whose attributes it holds.
 
-After every run that makes custom tables, the plugin runs on the new tables in the background,
-and the output window shows their colours when it answers. Hovering over a cell with a small
-red corner shows its comment. When the plugin or its settings change, all tables are decorated
-again; turning the plugin off or removing it takes its colours and comments away. A plugin that
-fails, gives a broken answer or takes longer than two minutes leaves the tables as they were,
-and the status bar says why.
+The plugins are kept in the window's settings file in their order, one line each:
+`plugin <path>` for one that is on and `plugin-off <path>` for one that is off.
+
+After every run that makes custom tables, the plugins run on the new tables in the background,
+and the output window shows their colours when they answer. Hovering over a cell with a small
+red corner shows its comment. When a plugin, the order or their settings change, all tables
+are decorated again; turning the last plugin off or removing it takes the colours and comments
+away. A plugin that fails, gives a broken answer or takes longer than two minutes adds nothing,
+and the status bar says why; when every plugin fails the tables stay as they were.
 
 The decorations are saved with the output document (.scout), so the document shows them again
 without the plugin. What each place shows:
@@ -327,5 +348,5 @@ Build it with:
 cargo build --release --manifest-path examples/plugin-example/Cargo.toml
 ```
 
-and choose `examples/plugin-example/target/release/statscraft-plugin-example` in Edit > Settings
-> Plugins.
+and add `examples/plugin-example/target/release/statscraft-plugin-example` with **Add
+plugin...** in Edit > Settings > Plugins.

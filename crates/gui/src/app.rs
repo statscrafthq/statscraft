@@ -610,7 +610,7 @@ pub struct App {
     ctx: egui::Context,
     /// The listener for `--session gui`; dropping it removes the endpoint file.
     server: Option<live::Server>,
-    /// The plugin that colours and comments tables, and Edit > Plugin Settings.
+    /// The plugins that colour and comment tables, and their Plugin Settings dialog.
     plugins: crate::plugins::Plugins,
 }
 
@@ -793,13 +793,14 @@ impl App {
             .start(&self.settings, data, window, tables, wake);
     }
 
-    /// Puts the plugin's answers on the tables of their windows and documents, and decorates
-    /// everything again after its settings changed. Only while no run goes on: a run works on
+    /// Puts the plugins' answers on the tables of their windows and documents, and decorates
+    /// everything again after their settings changed. Only while no run goes on: a run works on
     /// a copy of the documents.
     fn apply_plugin(&mut self) {
+        let off = |settings: &Settings| !settings.plugins.iter().any(|p| p.on);
         if std::mem::take(&mut self.plugins.redo) {
-            // a plugin turned off or taken away takes its colours and comments with it
-            let off = self.settings.plugin_off || self.settings.plugin.is_none();
+            // the last plugin turned off or taken away takes the colours and comments with it
+            let off = off(&self.settings);
             for id in self.windows.ids() {
                 match self.windows.output(id) {
                     Some(o) if off => {
@@ -812,7 +813,8 @@ impl App {
                             window: id,
                             document: o.document.clone(),
                             generation: self.plugins.generation,
-                            result: Ok(cleared),
+                            answers: cleared,
+                            errors: Vec::new(),
                         });
                     }
                     _ => self.start_plugin(id, false),
@@ -820,16 +822,13 @@ impl App {
             }
         }
         for done in std::mem::take(&mut self.plugins.waiting) {
-            let answer = match done.result {
-                Ok(answer) => answer,
-                Err(e) => {
-                    self.status = Err(format!("plugin: {e}"));
-                    continue;
-                }
-            };
-            // an answer that comes in after the plugin was turned off is dropped
-            let off = self.settings.plugin_off || self.settings.plugin.is_none();
-            if off
+            // a plugin that failed says so; the others' answers still go on the tables
+            if !done.errors.is_empty() {
+                self.status = Err(format!("plugin: {}", done.errors.join("; ")));
+            }
+            let answer = done.answers;
+            // an answer that comes in after the plugins were turned off is dropped
+            if off(&self.settings)
                 && answer
                     .iter()
                     .any(|(_, (d, s))| !d.is_empty() || !s.is_empty())
@@ -1600,13 +1599,6 @@ impl App {
                 ui.separator();
                 if ui.button("Settings...").clicked() {
                     self.settings_section = Some(Section::default());
-                    self.popups = self.here;
-                }
-                if ui.button("Plugin Settings...").clicked() {
-                    let data = self.session.dataset();
-                    if let Err(e) = self.plugins.open_dialog(&self.settings, data) {
-                        self.status = Err(e);
-                    }
                     self.popups = self.here;
                 }
             });
@@ -4034,25 +4026,36 @@ impl App {
             values: self.session.setting("TNUMBERS"),
             mioutput: self.session.setting("MIOUTPUT"),
         };
-        // the plugin is asked to describe itself only while the dialog shows it
-        let plugin = match self.settings_section {
-            Some(_) => self.plugins.line(&self.settings),
-            None => String::new(),
+        // the plugins are asked to describe themselves only while the dialog shows them
+        let lines: Vec<String> = match self.settings_section {
+            Some(Section::Plugins) => {
+                let paths = self.settings.plugins.iter().map(|p| &p.path);
+                paths.map(|p| self.plugins.line(p)).collect()
+            }
+            _ => Vec::new(),
         };
-        let chosen = (self.settings.plugin.clone(), self.settings.plugin_off);
+        let chosen = self.settings.plugins.clone();
+        let mut open_plugin = None;
         let set = settings_window::show(
             ctx,
             &mut self.settings_section,
             &mut self.settings,
             &labels,
             &mut self.connect,
-            &plugin,
+            &lines,
+            &mut open_plugin,
         );
         if let Some(syntax) = set {
             self.run(&syntax, None, After::Show);
         }
-        if (self.settings.plugin.clone(), self.settings.plugin_off) != chosen {
+        if self.settings.plugins != chosen {
             self.plugins.changed();
+        }
+        if let Some(program) = open_plugin {
+            let data = self.session.dataset();
+            if let Err(e) = self.plugins.open_dialog(&self.settings, data, &program) {
+                self.status = Err(e);
+            }
         }
         let presets = self
             .plugins

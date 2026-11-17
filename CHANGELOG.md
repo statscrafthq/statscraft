@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Plugins: several at once. Edit > Settings > Plugins lists them in the order they run, each with a box to turn it on and off, its path, Up, Down, Remove and Settings... for its own settings and design templates (which now belong to one plugin); the Edit > Plugin Settings menu entry is gone. Their answers merge per cell and per table, the later plugin winning key by key, and one that fails does not stop the others. `statscraft run --plugin` may be given more than once.
 - Window: Analyze > Forecasting > Spectral Analysis (SPECTRA), Analyze > Forecasting > Autoregression (AREG) and Analyze > Regression > 2-Stage Least Squares (2SLS) dialogs.
 - Window: Data > Validation > Validate Data (VALIDATEDATA), Data > Compare Datasets (COMPARE DATASETS) and File > Apply Data Dictionary (APPLY DICTIONARY) dialogs.
 - Window: Analyze > Complex Samples > Sampling Plan (CSPLAN SAMPLE: strata and clusters for up to two stages, the equal-probability and PPS methods with a measure of size, sample size or rate, names of the weight and inclusion probability variables) and Select a Sample (CSSELECT: seed, add the weights to the data or write the selected cases to a file, joint probabilities file).

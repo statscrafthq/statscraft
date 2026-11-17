@@ -2,14 +2,15 @@
 //! once and is saved. How tables show variables and values are settings of the session: a
 //! choice there runs SET TVARS or SET TNUMBERS like any other command, the session keeps it, and
 //! the window saves it to run the same SET when it starts again. AI agents connects Statscraft
-//! to the AI apps on this computer (connect_window.rs). Plugins picks the program that colours
-//! and comments tables (docs/plugins.md).
+//! to the AI apps on this computer (connect_window.rs). Plugins lists the programs that colour
+//! and comment tables (docs/plugins.md) and opens each one's own settings.
 
 use crate::connect_window::Connect;
 use crate::output::Part;
-use crate::settings::{MIOUTPUT, Settings};
+use crate::settings::{MIOUTPUT, Plugin, Settings};
 use crate::themes;
 use eframe::egui::{self, Align2, ComboBox, Key, Ui, vec2};
+use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum Section {
@@ -67,14 +68,16 @@ const VALUE_CHOICES: (&str, [(&str, &str); 3]) = (
 );
 
 /// The dialog while `section` is set; closing it clears `section`. Returns the SET command a
-/// choice of the session asks for, to run. `plugin` says what the plugin program is.
+/// choice of the session asks for, to run. `plugins` says what each plugin program is, in the
+/// order of the settings; Settings... of a plugin puts its program in `open_plugin`.
 pub fn show(
     ctx: &egui::Context,
     section: &mut Option<Section>,
     settings: &mut Settings,
     labels: &TableLabels,
     connect: &mut Connect,
-    plugin: &str,
+    plugins: &[String],
+    open_plugin: &mut Option<PathBuf>,
 ) -> Option<String> {
     let current = section.as_mut()?;
     let mut open = true;
@@ -101,14 +104,15 @@ pub fn show(
                 ui.add_space(16.0);
                 ui.vertical(|ui| {
                     let agents = *current == Section::AiAgents;
-                    ui.set_width(if agents { 560.0 } else { 320.0 });
+                    let wide = agents || *current == Section::Plugins;
+                    ui.set_width(if wide { 560.0 } else { 320.0 });
                     ui.set_min_height(140.0);
                     if agents {
                         connect.ui(ui);
                     }
                     changed = body(ui, *current, settings);
                     if *current == Section::Plugins {
-                        changed |= plugins(ui, settings, plugin);
+                        changed |= plugin_list(ui, settings, plugins, open_plugin);
                     }
                     if *current == Section::GridsAndOutput {
                         ui.add_space(8.0);
@@ -139,35 +143,77 @@ pub fn show(
     run
 }
 
-/// The plugin program, whether it runs, and whether Excel exports take its comments; true
-/// when one of them changed.
-fn plugins(ui: &mut Ui, settings: &mut Settings, plugin: &str) -> bool {
+/// What a row of the plugin list asks for.
+enum Step {
+    Up(usize),
+    Down(usize),
+    Remove(usize),
+}
+
+/// The plugin programs in the order they run, each with its name and version (`lines`), its
+/// path, whether it runs, buttons to move or remove it and Settings... for its own settings;
+/// Add plugin... and whether Excel exports take the comments. True when one of them changed.
+fn plugin_list(
+    ui: &mut Ui,
+    settings: &mut Settings,
+    lines: &[String],
+    open_plugin: &mut Option<PathBuf>,
+) -> bool {
     let mut changed = false;
-    ui.label("Plugin program");
-    ui.horizontal(|ui| {
-        let path = settings.plugin.as_ref();
-        ui.label(path.map_or("none".to_string(), |p| p.display().to_string()));
-        if ui.button("Browse...").clicked()
-            && let Some(file) = crate::app::file_dialog(&None).pick_file()
-        {
-            settings.plugin = Some(file);
-            changed = true;
+    let mut step = None;
+    let count = settings.plugins.len();
+    if count == 0 {
+        ui.label("No plugins yet.");
+    }
+    for (i, plugin) in settings.plugins.iter_mut().enumerate() {
+        ui.push_id(i, |ui| {
+            ui.horizontal(|ui| {
+                let line = lines.get(i).map_or("", String::as_str);
+                changed |= ui.checkbox(&mut plugin.on, line).changed();
+            });
+            ui.horizontal(|ui| {
+                ui.add_space(24.0);
+                ui.weak(plugin.path.display().to_string());
+            });
+            ui.horizontal(|ui| {
+                ui.add_space(24.0);
+                if ui.add_enabled(i > 0, egui::Button::new("Up")).clicked() {
+                    step = Some(Step::Up(i));
+                }
+                if ui
+                    .add_enabled(i + 1 < count, egui::Button::new("Down"))
+                    .clicked()
+                {
+                    step = Some(Step::Down(i));
+                }
+                if ui.button("Remove").clicked() {
+                    step = Some(Step::Remove(i));
+                }
+                if ui.button("Settings...").clicked() {
+                    *open_plugin = Some(plugin.path.clone());
+                }
+            });
+        });
+        ui.add_space(6.0);
+    }
+    match step {
+        Some(Step::Up(i)) => settings.plugins.swap(i - 1, i),
+        Some(Step::Down(i)) => settings.plugins.swap(i, i + 1),
+        Some(Step::Remove(i)) => {
+            settings.plugins.remove(i);
         }
-        if settings.plugin.is_some() && ui.button("Remove").clicked() {
-            settings.plugin = None;
-            changed = true;
-        }
-    });
-    ui.weak(plugin);
-    ui.add_space(8.0);
-    let mut on = !settings.plugin_off;
-    if ui
-        .checkbox(&mut on, "Colour and comment tables with the plugin")
-        .changed()
+        None => {}
+    }
+    changed |= step.is_some();
+    if ui.button("Add plugin...").clicked()
+        && let Some(path) = crate::app::file_dialog(&None).pick_file()
+        // the same program twice would only run twice with the same settings
+        && !settings.plugins.iter().any(|p| p.path == path)
     {
-        settings.plugin_off = !on;
+        settings.plugins.push(Plugin { path, on: true });
         changed = true;
     }
+    ui.add_space(8.0);
     let mut comments = !settings.excel_comments_off;
     if ui
         .checkbox(&mut comments, "Write plugin comments as Excel comments")
@@ -177,7 +223,10 @@ fn plugins(ui: &mut Ui, settings: &mut Settings, plugin: &str) -> bool {
         changed = true;
     }
     ui.add_space(8.0);
-    ui.weak("Edit > Plugin Settings sets the plugin's values for the active data.");
+    ui.weak(
+        "The plugins colour and comment tables in this order; where two style the same thing, \
+         the lower one wins. Settings... sets a plugin's values for the active data.",
+    );
     changed
 }
 
