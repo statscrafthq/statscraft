@@ -148,6 +148,10 @@ One page per supported command, generated from the same table that the parser an
 | [POWER SPEARMAN ONESAMPLE](power-spearman-onesample.md) | Power or sample size of a test of one Spearman rank correlation against a hypothesized value. |
 | [POWER PARTIALCORR](power-partialcorr.md) | Power or sample size of a test of one partial correlation against a hypothesized value. |
 | [POWER UNIVARIATE LINEAR](power-univariate-linear.md) | Power or sample size of the F test of a set of predictors in a linear regression. |
+| [SIMPLAN](simplan.md) | A simulation plan: distributions of the inputs, fitted to the data or given, their correlations and the targets of a model. |
+| [SIMRUN](simrun.md) | Runs a simulation plan: draws the inputs, computes the targets and describes their distributions. |
+| [BEGIN EXPR](begin-expr.md) | Starts a block of expressions that END EXPR saves as a model for SIMPLAN. |
+| [END EXPR](end-expr.md) | Ends the BEGIN EXPR block and writes its model file. |
 | [FACTOR](factor.md) | Factor analysis: principal components and six factoring methods, rotations, factor scores. |
 | [QUICK CLUSTER](quick-cluster.md) | K-means clustering of cases into a given number of clusters. |
 | [CLUSTER](cluster.md) | Hierarchical clustering of cases by one of 37 proximity measures and seven methods. |

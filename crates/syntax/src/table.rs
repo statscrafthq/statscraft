@@ -82,6 +82,7 @@ use crate::save_translate;
 use crate::selection;
 use crate::session_commands;
 use crate::spchart;
+use crate::simulation;
 use crate::stats;
 use crate::summarize;
 use crate::survival;
@@ -2119,6 +2120,103 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "POWER UNIVARIATE LINEAR /PARAMETERS TOTAL_PREDICTORS=7 TEST_PREDICTORS=3 FULL_MODEL=0.31\n\
                   \x20 NESTED_MODEL=0.24 MODEL=RANDOM POWER=0.8 /PLOT N.",
         parse: power::univariate_linear,
+    },
+    CommandSpec {
+        name: "SIMPLAN",
+        summary: "A simulation plan: distributions of the inputs, fitted to the data or given, their correlations and the targets of a model.",
+        syntax: "SIMPLAN CREATE [SOURCE=AUTOFIT]\n\
+                 \x20 [/MODEL FILE='file' [CUSTOM=NO | YES]]\n\
+                 \x20 [/TARGETOPTS TARGET=field[(FORMAT=type[,d])] ... [COMMENT='text'] [OUTPUT=YES | NO]\n\
+                 \x20             [TARGETFILTER=NO | YES([MIN=LO | value[(INCLUSIVE | EXCLUSIVE)]] [MAX=HI | value[(...)]])]] ...\n\
+                 \x20 /SIMINPUT INPUT=field[(MAPTO=name FORMAT=type[,d])] ... [OUTPUT=YES | NO]\n\
+                 \x20           [TYPE=AUTOFIT[(DEFAULT | distributions)] | MANUAL] [DISTRIBUTION=name(PARAM=values ...)]\n\
+                 \x20           [MINVAL=n] [MAXVAL=n] ...\n\
+                 \x20 [/FIXEDINPUT INPUT=field ... VALUE=n | ITERATIONS=VALUES(n ...) | RANGE(MIN=n MAX=n N=k)] ...\n\
+                 \x20 [/CORRELATIONS VARORDER=fields CORRMATRIX=1; r, 1; r, r, 1 ...]\n\
+                 \x20 [/AUTOFIT [NCASES=ALL | n] [FIT=AD | KS] [MAXITERATIONS=100] [BINS=100]]\n\
+                 \x20 [/STOPCRITERIA [MAXCASES=100000] [TARGET=field\n\
+                 \x20               TYPE=MEAN(THRESH=n UNIT=PERCENT | VALUE [CILEVEL=95]) |\n\
+                 \x20                    TAIL(UNIT=PERCENTILE | VALUE THRESH=n [SIDE=RIGHT | LEFT] FREQUENCY=n)]]\n\
+                 \x20 [/MISSING CLASSMISSING=EXCLUDE | INCLUDE] [/VALUELABELS VARIABLES=fields VALUES=value 'label' ...] ...\n\
+                 \x20 /PLAN FILE='file' [DISPLAY=YES | NO].\n\
+                 SIMPLAN VIEW /PLAN FILE='file'.\n\
+                 Distributions and their parameters: BERNOULLI(PROB) BETA(SHAPE1 SHAPE2) BINOM(N PROB)\n\
+                 CATEGORICAL(CATS=values PROBS=values) EMPIRICAL EXP(SCALE) GAMMA(SHAPE SCALE) LNORMAL(A B)\n\
+                 NEGBIN([TYPE=FAILURES | TRIALS] THRESHOLD PROB) NORMAL(MEAN STDDEV) POISSON(MEAN)\n\
+                 TRIANGULAR(MIN MAX MODE) UNIFORM(MIN MAX) USER_RANGES(MIN=values MAX=values PROBS=values)\n\
+                 WEIBULL(A B [C]). The SCALE of EXP and GAMMA is the rate, as in the RV and CDF functions; LNORMAL A is\n\
+                 the median and B the standard deviation of the logarithm; WEIBULL A is the scale, B the shape and C\n\
+                 the origin. The model is a file that BEGIN EXPR wrote, or a plan whose model is taken. Every input\n\
+                 of a model is simulated (SIMINPUT) or fixed (FIXEDINPUT); without MODEL the plan only generates the\n\
+                 SIMINPUT fields. AUTOFIT (default) fits each input to its field in the active dataset (MAPTO names\n\
+                 another field) by maximum likelihood: a nominal field gets the categorical distribution, an ordinal one\n\
+                 the binomial, negative binomial (failures) and Poisson by the chi-square statistic, a scale one the\n\
+                 beta, exponential, gamma, lognormal, normal, triangular, uniform and two-parameter Weibull by the\n\
+                 Anderson-Darling statistic (or Kolmogorov-Smirnov with FIT=KS); the smallest statistic wins and a\n\
+                 Goodness of Fit table shows them all with their p-values where known. Weights count; cases missing\n\
+                 on any fitted input are left out (user-missing values of a categorical fit count with\n\
+                 CLASSMISSING=INCLUDE). Without CORRELATIONS the Pearson correlations of the fields in the data are\n\
+                 used. MINVAL and MAXVAL cut the distribution. Several values of one parameter, several PROBS sets or\n\
+                 FIXEDINPUT ITERATIONS run one simulation per value (sensitivity analysis). The plan is Statscraft's\n\
+                 own JSON. SPLIT FILE is not used. Not supported yet: model files of other procedures (PMML),\n\
+                 SOURCE='file', CONTINGENCY MULTIWAY=YES, string inputs.",
+        example: "SIMPLAN CREATE /MODEL FILE='margin.json' CUSTOM=YES\n\
+                  \x20 /SIMINPUT INPUT=units TYPE=MANUAL DISTRIBUTION=TRIANGULAR(MIN=800 MAX=1400 MODE=1000)\n\
+                  \x20 /SIMINPUT INPUT=unit_cost /FIXEDINPUT INPUT=unit_price VALUE=12\n\
+                  \x20 /PLAN FILE='margin.splan'.",
+        parse: simulation::simplan,
+    },
+    CommandSpec {
+        name: "SIMRUN",
+        summary: "Runs a simulation plan: draws the inputs, computes the targets and describes their distributions.",
+        syntax: "SIMRUN /PLAN FILE='file' [/CRITERIA [REPRESULTS=TRUE | FALSE] [SEED=629111597]]\n\
+                 \x20 [/DISTRIBUTION [DISPLAY=[PDF] [CDF] [NONE]] [CDFORDER=[ASCENDING] [DESCENDING]] [SCALE=...] [CATEGORICAL=...]]\n\
+                 \x20 [/SCATTERPLOT [DISPLAY=NO | YES] [ROWSIZE=n]] [/BOXPLOT [DISPLAY=NO | YES] [OVERLAYTARGETS=...]]\n\
+                 \x20 [/TORNADO [DISPLAY=YES | NO] [TYPE=[CORR] [DELTASTDDEV(k)] [VARIANCE]]]\n\
+                 \x20 [/PRINT [DESCRIPTIVES=YES[(CILEVEL=95)] | NO] [PERCENTILES=NO | YES([NTILES=k] [PTILES=values])]\n\
+                 \x20         [ASSOCIATIONS=NO | YES]]\n\
+                 \x20 [/OPTIONS VIZSTYLESHEET='name'] [/OUTFILE FILE='file' | dataset | *].\n\
+                 Each case draws standard normal numbers from a Mersenne Twister started by SEED, correlates them\n\
+                 (the correlation of each pair of normals is searched so that the inputs, after the inverse\n\
+                 distribution function, reach the planned correlation) and turns them into the inputs; the model's\n\
+                 expressions then give the targets. Cases are drawn up to MAXCASES, or until the stopping rule\n\
+                 of the plan holds, for each value of a sensitivity analysis. Tables: Target Statistics (mean,\n\
+                 standard deviation, median, minimum, maximum, the confidence interval of the mean, 5th and 95th\n\
+                 percentiles), Target Categories for an ordinal or nominal target, Input Statistics, Target\n\
+                 Percentiles, Correlations of Inputs (ASSOCIATIONS), and the tornado tables: the correlation with\n\
+                 each input, the mean change of the target when an input moves DELTASTDDEV standard deviations\n\
+                 down and up, and each input's total share of the target's variance (Sobol, from a second\n\
+                 sample). Charts: the histogram (PDF) and the cumulative distribution (CDF) of each target, the\n\
+                 boxplot, scatterplots of each target with each input (the first 5000 cases) and tornado bar\n\
+                 charts. SCALE, CATEGORICAL, ROWSIZE, OVERLAYTARGETS and OPTIONS are accepted and change\n\
+                 nothing. OUTFILE writes every case: the targets, the inputs and, with a sensitivity analysis,\n\
+                 Iteration. Without a model only the input statistics, ASSOCIATIONS and OUTFILE apply.",
+        example: "SIMRUN /PLAN FILE='margin.splan' /CRITERIA SEED=4711\n\
+                  \x20 /TORNADO TYPE=CORR VARIANCE /PRINT PERCENTILES=YES(NTILES=4) /OUTFILE FILE='draws.sav'.",
+        parse: simulation::simrun,
+    },
+    CommandSpec {
+        name: "BEGIN EXPR",
+        summary: "Starts a block of expressions that END EXPR saves as a model for SIMPLAN.",
+        syntax: "BEGIN EXPR /OUTFILE PREPXML='file'.\n\
+                 NUMERIC and STRING, VARIABLE LEVEL, VALUE LABELS and COMPUTE commands, then END EXPR.\n\
+                 Nothing in the block touches the active dataset. Each COMPUTE gives a target, in order, and may\n\
+                 use the targets before it; a variable is computed once. NUMERIC names the inputs the active\n\
+                 dataset lacks, and only those. Targets and declared inputs are\n\
+                 scale unless VARIABLE LEVEL says otherwise. The file is Statscraft's own JSON (not XML); a name\n\
+                 starting with *\\ is kept in memory for the session.",
+        example: "BEGIN EXPR /OUTFILE PREPXML='margin.json'.\n\
+                  NUMERIC units unit_price.\n\
+                  COMPUTE margin = units * (unit_price - unit_cost).\n\
+                  END EXPR.",
+        parse: simulation::begin_expr,
+    },
+    CommandSpec {
+        name: "END EXPR",
+        summary: "Ends the BEGIN EXPR block and writes its model file.",
+        syntax: "END EXPR.",
+        example: "END EXPR.",
+        parse: simulation::end_expr,
     },
     CommandSpec {
         name: "FACTOR",

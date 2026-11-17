@@ -102,6 +102,7 @@ mod save_translate;
 mod selection;
 mod session_commands;
 mod spchart;
+mod simulation;
 mod split;
 mod stats;
 mod summarize;
@@ -193,6 +194,7 @@ mod tests_roc_analysis;
 mod tests_session;
 #[cfg(test)]
 mod tests_spchart;
+mod tests_simulation;
 #[cfg(test)]
 mod tests_survival;
 #[cfg(test)]
@@ -386,6 +388,9 @@ pub use session_commands::{SETTINGS, SettingEffect};
 pub use spchart::{
     CAPABILITY_SIGMA_STATISTICS, CapSigma, SPCHART_RULES, SPCHART_STATISTICS, Spchart, SpchartData,
     SpchartKind, SpchartNormal, SpchartSize,
+pub use simulation::{
+    FixedInput, SimDistribution, SimField, SimInput, Simplan, Simrun, StopRule, TargetFilter,
+    TargetOptions, is_iterated,
 };
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
 pub use summarize::{Summarize, SummarizeList, SummarizeMissing};

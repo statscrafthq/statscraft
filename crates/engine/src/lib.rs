@@ -130,6 +130,8 @@ mod selectpred;
 pub mod session;
 mod session_commands;
 mod shown;
+mod sim_dist;
+mod simulation;
 mod sort;
 mod spchart;
 mod spectra;
@@ -855,6 +857,8 @@ pub struct Engine {
     /// While EXSMOOTH or ARIMA runs: the cases PREDICT added at the end of the file, which
     /// are not part of the series.
     ts_added: usize,
+    /// SIMPLAN, SIMRUN and BEGIN EXPR: an open block and the files kept in memory.
+    simulation: simulation::State,
 }
 
 /// The compression SAVE or XSAVE asks for; none given chooses by the file's extension.
@@ -1008,6 +1012,8 @@ impl Engine {
             ggraph::GplStep::Pass => {}
             ggraph::GplStep::Wait => return Ok(Vec::new()),
             ggraph::GplStep::Run(joined) => return self.execute_inner(&joined),
+        if let Some(result) = self.collect_expr(command) {
+            return result;
         }
         if let Some(result) = self.collect_input(command) {
             let tables = result?;
@@ -1383,6 +1389,11 @@ impl Engine {
             Command::Orthoplan(command) => return self.orthoplan(command),
             Command::Plancards(command) => return self.plancards(command),
             Command::Conjoint(command) => return self.conjoint(command),
+            Command::Simplan(c) if !c.view && self.dataset.is_some() => {
+                return self.procedure(command);
+            }
+            Command::Simplan(c) => return self.simplan(c),
+            Command::Simrun(c) => return self.simrun(c),
             Command::TimeProgram => {
                 self.time_program = Some(coxreg::TimeProgram {
                     collecting: true,
@@ -1649,6 +1660,7 @@ impl Engine {
             Command::Naivebayes(command) => self.naivebayes(command),
             Command::Aim(command) => self.aim(command),
             Command::Selectpred(command) => self.selectpred(command),
+            Command::Simplan(command) => self.simplan(command),
             Command::Logistic(command) => self.logistic(command),
             Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),

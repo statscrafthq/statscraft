@@ -78,6 +78,11 @@ pub enum Command {
     OptimalBinning(Box<crate::optimal_binning::OptimalBinning>),
     Knn(Box<crate::knn::Knn>),
     Naivebayes(Box<crate::naivebayes::Naivebayes>),
+    Simplan(Box<crate::simulation::Simplan>),
+    Simrun(Box<crate::simulation::Simrun>),
+    /// BEGIN EXPR /OUTFILE PREPXML='file': the commands up to END EXPR define a model.
+    BeginExpr(String),
+    EndExpr,
     Logistic(Box<crate::logistic::Logistic>),
     Coxreg(Box<crate::coxreg::Coxreg>),
     Nomreg(Box<crate::nomreg::Nomreg>),

@@ -73,6 +73,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Twostep(_)
         | Command::Pls(_)
         | Command::Knn(_)
+        | Command::Simplan(_)
         | Command::Detectanomaly(_)
         | Command::OptimalBinning(_)
         | Command::Naivebayes(_)
@@ -168,6 +169,9 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Display(_)
         | Command::Csplan(_)
         | Command::Power(_)
+        | Command::Simrun(_)
+        | Command::BeginExpr(_)
+        | Command::EndExpr
         | Command::Output(_)
         | Command::Oms(_)
         | Command::Omsend(_)

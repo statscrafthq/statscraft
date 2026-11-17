@@ -258,6 +258,7 @@ impl Engine {
                 | Command::Naivebayes(_)
                 | Command::Prefscal(_)
                 | Command::Selectpred(_)
+                | Command::Simplan(_)
                 | Command::MultipleCorrespondence(_)
                 | Command::Catpca(_)
                 | Command::Catreg(_)
