@@ -88,6 +88,7 @@ mod roc_analysis;
 mod save_translate;
 mod selection;
 mod session_commands;
+mod spchart;
 mod split;
 mod stats;
 mod summarize;
@@ -163,6 +164,8 @@ mod tests_restructure;
 mod tests_roc_analysis;
 #[cfg(test)]
 mod tests_session;
+#[cfg(test)]
+mod tests_spchart;
 #[cfg(test)]
 mod tests_survival;
 #[cfg(test)]
@@ -323,6 +326,10 @@ pub use report::{
 };
 pub use roc_analysis::{RocAnalysis, RocCriteria, RocDesign, RocPlot, RocPrint, RocSelect};
 pub use session_commands::{SETTINGS, SettingEffect};
+pub use spchart::{
+    CAPABILITY_SIGMA_STATISTICS, CapSigma, SPCHART_RULES, SPCHART_STATISTICS, Spchart, SpchartData,
+    SpchartKind, SpchartNormal, SpchartSize,
+};
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
 pub use summarize::{Summarize, SummarizeList, SummarizeMissing};
 pub use survival::{

@@ -885,9 +885,20 @@ fn lines(d: &mut Draw, chart: &Chart, top: f32) -> f32 {
             });
             d.line(upper, 1.5, colors[j]);
         } else {
-            d.line(upper.clone(), 2.0, colors[j]);
+            // a missing value breaks the line and has no point, such as the first moving range
+            let raw = &chart.series[j].values;
+            let shown: Vec<Option<[f32; 2]>> = (0..n)
+                .map(|i| {
+                    raw.get(i)
+                        .is_some_and(|v| v.is_finite())
+                        .then_some(upper[i])
+                })
+                .collect();
+            for run in shown.split(Option::is_none) {
+                d.line(run.iter().flatten().copied().collect(), 2.0, colors[j]);
+            }
             if n <= 40 {
-                for point in upper {
+                for point in shown.into_iter().flatten() {
                     d.shapes.push(Shape::Circle {
                         center: point,
                         radius: 3.0,

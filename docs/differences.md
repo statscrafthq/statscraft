@@ -1153,6 +1153,19 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - SDIFF without a period from PERIOD, TSET PERIOD or the DATE variables is left out with a warning.
 - Not supported yet: APPLY of a named model (APPLY alone uses the previous PPLOT) and TEMPLATE, each with an error.
 
+### SPCHART
+
+- Each control chart is chart data and a picture: a line chart of the process with its center line, upper and lower control limits and, on the first chart, the LSL and USL lines; a line that is the same at every point carries its value in its name. The points out of control are listed in the Rule Violations table; they are not drawn in another shape.
+- d2 and d3 are computed from their integrals for every subgroup size, and c4 exactly from the gamma function, also for 25 units or more where the manual allows an approximation.
+- Rules are checked on the first chart (X-bar, individuals, p, np, c or u) only. UCL and LCL flag points beyond the drawn control limits, whatever SIGMAS says; the zone rules (2 of 3, 4 of 5) use 1 and 2 sigmas of the chart. A pattern needs its full length of points, and its last point must itself lie in the zone, so 2 of 3 is marked at the second point beyond 2 sigma. Steps between equal values break a trend and an alternation.
+- With ID, a subgroup of units is named by the ID value of its first case.
+- MISSING=NOREPORT leaves out a case whose BY value is missing also when each case is a subgroup or a single value; REPORT keeps it as its own point. When each case is a subgroup, a missing value leaves the subgroup smaller, and MINSAMPLE then applies.
+- Without BY, the points are numbered by case number in the active dataset (within the split group), so a dropped subgroup leaves a gap in the numbers.
+- AZOUT, AZLOUT and AZUOUT count a value equal to a specification limit as outside, as the command description says (the formulas say strictly outside).
+- CPCHART is a histogram with one normal curve: BOTH draws the capability curve. The reference lines are not drawn; the footnote names the specification limits and target (SL) or the mean with the capability sigmas around it (SIGMAS). Without STATISTICS, the indices the chart would show go to the Process Statistics table: Cp, CpL, CpU, K, CpK, CR, Pp, PpL, PpU, PpK, PR, N, mean, standard deviation, capability sigma and the limits, with CpM, PpM and the target when TARGET is given.
+- A count above its subgroup size drops the subgroup of a p or np chart; c and u charts take any count of 0 or more.
+- Not supported yet: TEMPLATE, with an error.
+
 ### ROC
 
 - Weights count cases in every statistic, not only in the Case Processing Summary, and need not be whole numbers.

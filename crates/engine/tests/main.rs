@@ -88,6 +88,7 @@ mod roc_analysis;
 mod save_translate;
 mod scratch;
 mod settings;
+mod spchart;
 mod split_filter;
 mod star_join;
 mod statistics;

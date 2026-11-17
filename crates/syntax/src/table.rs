@@ -68,6 +68,7 @@ use crate::roc_analysis;
 use crate::save_translate;
 use crate::selection;
 use crate::session_commands;
+use crate::spchart;
 use crate::stats;
 use crate::summarize;
 use crate::survival;
@@ -3781,6 +3782,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  chart of the lower bounds of the area intervals.",
         example: "ROC ANALYSIS score_a score_b BY diseased (1) /DESIGN PAIR=TRUE /PRINT SE=TRUE CLASSIFIER=TRUE /PLOT CURVE=ROC(REFERENCE) PR.",
         parse: roc_analysis::roc_analysis,
+        name: "SPCHART",
+        summary: "Control charts (X-bar with R or s, individuals, p, np, c, u) and the process capability chart.",
+        syntax: spchart::SPCHART_SYNTAX,
+        example: "SPCHART /XR=fill_ml BY batch /RULES=ALL /STATISTICS=CP CPK PP PPK /LSL=495 /USL=505.",
+        parse: spchart::spchart,
     },
     CommandSpec {
         name: "KM",

@@ -82,6 +82,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Pplot(_)
         | Command::Roc(_)
         | Command::RocAnalysis(_)
+        | Command::Spchart(_)
         | Command::Mva(_)
         | Command::Hiloglinear(_)
         | Command::Probit(_)

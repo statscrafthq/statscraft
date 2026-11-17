@@ -290,7 +290,7 @@ fn chart_keyword(
 }
 
 /// Quoted lines of TITLE, SUBTITLE or FOOTNOTE, at most `most` of them.
-fn lines(p: &mut Parser, what: &str, most: usize) -> PResult<Vec<String>> {
+pub(crate) fn lines(p: &mut Parser, what: &str, most: usize) -> PResult<Vec<String>> {
     p.eat(Punct::Eq);
     let start = p.pos;
     let mut out = Vec::new();

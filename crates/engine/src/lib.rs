@@ -117,6 +117,7 @@ pub mod session;
 mod session_commands;
 mod shown;
 mod sort;
+mod spchart;
 mod spectra;
 mod split;
 mod star_join;
@@ -1269,6 +1270,7 @@ impl Engine {
             | Command::Pplot(_)
             | Command::Roc(_)
             | Command::RocAnalysis(_)
+            | Command::Spchart(_)
             | Command::Km(_)
             | Command::Survival(_)
             | Command::Glm(_)
@@ -1595,6 +1597,7 @@ impl Engine {
             Command::Pplot(command) => self.pplot(command),
             Command::Roc(command) => self.roc(command),
             Command::RocAnalysis(command) => self.roc_analysis(command),
+            Command::Spchart(command) => self.spchart(command),
             Command::Km(command) => self.km(command),
             Command::Survival(command) => self.life_tables(command),
             Command::Glm(command) => self.glm(command),
