@@ -32,6 +32,8 @@ pub fn body(
         Advanced::Mixed(d) => mixed(ui, d, picked),
         Advanced::Genlin(d) => crate::genlin_dialog_view::genlin(ui, d, picked),
         Advanced::Plan(d) => plan(ui, d, picked, folder),
+        Advanced::Sampling(d) => crate::cs_sample_dialog_view::sampling_plan(ui, d, picked, folder),
+        Advanced::Selection(d) => crate::cs_sample_dialog_view::select_sample(ui, d, folder),
         Advanced::Descriptives(d) => sample_descriptives(ui, d, picked, folder),
         Advanced::Tables(d) => sample_tables(ui, d, picked, folder),
         Advanced::Model(d) => crate::cs_model_dialog_view::sample_model(ui, d, picked, folder),

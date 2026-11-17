@@ -15,6 +15,7 @@ use crate::catpca_dialog::{Catpca, CatpcaVariable};
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
 use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::{CsOrdinal, Held, OddsRatio, SampleModel};
+use crate::cs_sample_dialog::{SampleSelection, SamplingPlan, SamplingStage};
 use crate::data_dialogs::{
     Aggregate, AggregateTo, Aggregated, ExportData, ImportData, Make, MergeFiles, Mrsets,
     Restructure, RestructureKind, SelectCases, SelectMode, SortCases, SortVariables, SplitFile,
@@ -353,6 +354,20 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             factors: v(&["region"]),
             ..GeneralLoglinear::new(true)
         }))),
+        // the sampling plan before the selection that reads it
+        Dialog::Advanced(Advanced::Sampling(SamplingPlan {
+            path: out.join("min_draw.json").to_string_lossy().into_owned(),
+            stages: vec![SamplingStage {
+                strata: v(&["region"]),
+                amount: s("2"),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Selection(SampleSelection {
+            plan: out.join("min_draw.json").to_string_lossy().into_owned(),
+            ..Default::default()
+        })),
         // the plan before the analyses that read it
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),
@@ -1435,6 +1450,62 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             time_expression: s("monthly_spend * LN(T_ + 1)"),
             ..Default::default()
         }))),
+        // the sampling plans before the selections that read them
+        Dialog::Advanced(Advanced::Sampling(SamplingPlan {
+            path: out.join("max_draw.json").to_string_lossy().into_owned(),
+            weight_name: s("draw_weight"),
+            stages: vec![
+                SamplingStage {
+                    label: s("Areas"),
+                    strata: v(&["region"]),
+                    clusters: v(&["resp_id"]),
+                    method: 4,
+                    amount: s("3"),
+                    mos_variable: s("age"),
+                    mos_min: s("1"),
+                    mos_max: s("100"),
+                    inclusion_name: s("p_first"),
+                    ..Default::default()
+                },
+                SamplingStage {
+                    method: 2,
+                    by_rate: true,
+                    amount: s("0.5"),
+                    min_size: s("1"),
+                    max_size: s("5"),
+                    ..Default::default()
+                },
+            ],
+        })),
+        Dialog::Advanced(Advanced::Selection(SampleSelection {
+            plan: out.join("max_draw.json").to_string_lossy().into_owned(),
+            seed_fixed: true,
+            seed: s("4711"),
+            to_file: true,
+            outfile: out.join("max_draw.sav").to_string_lossy().into_owned(),
+            rename: true,
+            joint_file: out.join("max_joint.sav").to_string_lossy().into_owned(),
+            counts: true,
+        })),
+        Dialog::Advanced(Advanced::Sampling(SamplingPlan {
+            path: out.join("max_draw2.json").to_string_lossy().into_owned(),
+            stages: vec![SamplingStage {
+                strata: v(&["region"]),
+                clusters: v(&["gender"]),
+                method: 5,
+                amount: s("2"),
+                mos_from_data: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Selection(SampleSelection {
+            plan: out.join("max_draw2.json").to_string_lossy().into_owned(),
+            // a plan that draws with replacement needs a file
+            to_file: true,
+            outfile: out.join("max_draw2.sav").to_string_lossy().into_owned(),
+            ..Default::default()
+        })),
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),
             weight: s("weight"),

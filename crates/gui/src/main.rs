@@ -21,6 +21,8 @@ mod cox_dialog;
 mod cox_dialog_view;
 mod cs_model_dialog;
 mod cs_model_dialog_view;
+mod cs_sample_dialog;
+mod cs_sample_dialog_view;
 mod data_dialogs;
 mod dialogs;
 mod editor;

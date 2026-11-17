@@ -18,6 +18,7 @@ use crate::catpca_dialog::Catpca;
 use crate::correspondence_dialog::Correspondence;
 use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::SampleModel;
+use crate::cs_sample_dialog::{SampleSelection, SamplingPlan};
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
 use crate::imputation_dialog::Imputation;
@@ -46,6 +47,8 @@ pub enum Advanced {
     // boxed: the largest dialog by far
     Genlin(Box<GeneralizedLinear>),
     Plan(SamplePlan),
+    Sampling(SamplingPlan),
+    Selection(SampleSelection),
     Descriptives(SampleDescriptives),
     Tables(SampleTables),
     // boxed: a large dialog
@@ -98,6 +101,8 @@ impl Advanced {
             Advanced::Mixed(_) => "Linear Mixed Models",
             Advanced::Genlin(_) => "Generalized Linear Models",
             Advanced::Plan(_) => "Complex Samples Analysis Plan",
+            Advanced::Sampling(_) => "Complex Samples Sampling Plan",
+            Advanced::Selection(_) => "Complex Samples Select a Sample",
             Advanced::Descriptives(_) => "Complex Samples Descriptives",
             Advanced::Tables(d) if d.crosstabs => "Complex Samples Crosstabs",
             Advanced::Tables(_) => "Complex Samples Frequencies",
@@ -142,6 +147,8 @@ impl Advanced {
             Advanced::Mixed(_) => Advanced::Mixed(Default::default()),
             Advanced::Genlin(_) => Advanced::Genlin(Default::default()),
             Advanced::Plan(_) => Advanced::Plan(Default::default()),
+            Advanced::Sampling(_) => Advanced::Sampling(Default::default()),
+            Advanced::Selection(_) => Advanced::Selection(Default::default()),
             Advanced::Descriptives(_) => Advanced::Descriptives(Default::default()),
             Advanced::Tables(d) => Advanced::Tables(SampleTables {
                 crosstabs: d.crosstabs,
@@ -197,6 +204,8 @@ impl Advanced {
                 .and_then(|()| d.syntax()),
             Advanced::Genlin(d) => data_checks(d, data).and_then(|string| d.syntax(string)),
             Advanced::Plan(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
+            Advanced::Sampling(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
+            Advanced::Selection(d) => d.syntax(),
             Advanced::Descriptives(d) => numeric(
                 data,
                 d.summary.iter().chain(&d.numerators).chain(&d.denominators),

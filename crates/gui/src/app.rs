@@ -1959,6 +1959,11 @@ impl App {
                             })
                         };
                         for (label, dialog) in [
+                            ("Sampling Plan...", Advanced::Sampling(Default::default())),
+                            (
+                                "Select a Sample...",
+                                Advanced::Selection(Default::default()),
+                            ),
                             ("Analysis Plan...", Advanced::Plan(Default::default())),
                             (
                                 "Descriptives...",
