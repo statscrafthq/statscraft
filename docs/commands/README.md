@@ -224,6 +224,7 @@ One page per supported command, generated from the same table that the parser an
 | [CSTABULATE](cstabulate.md) | One-way and two-way tables of a complex sample with design-based errors and adjusted tests. |
 | [CSGLM](csglm.md) | Linear regression, ANOVA and ANCOVA on a complex sample, with design-based standard errors and tests. |
 | [CSLOGISTIC](cslogistic.md) | Binary and multinomial logistic regression on a complex sample, with design-based standard errors and tests. |
+| [CSORDINAL](csordinal.md) | Ordinal regression (cumulative link model) on a complex sample, with design-based standard errors and tests. |
 
 ## Macros, files and session
 

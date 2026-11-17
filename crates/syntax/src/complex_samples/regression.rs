@@ -1,5 +1,5 @@
-//! Parsers of the complex samples regression commands: CSGLM (linear model) and CSLOGISTIC
-//! (binary and multinomial logistic model).
+//! Parsers of the complex samples regression commands: CSGLM (linear model), CSLOGISTIC
+//! (binary and multinomial logistic model) and CSORDINAL (cumulative link model).
 //!
 //! Rules from the Command Syntax Reference, in our words:
 //! - The variable list comes first: the dependent variable, for CSLOGISTIC optionally followed by
@@ -30,12 +30,17 @@
 //!   HISTORY[(n)] and CLASSTABLE; a PRINT shows only what it names, and NONE gives way to any
 //!   other keyword.
 //! - SAVE: CSGLM PRED[(name)] RESID[(name)]; CSLOGISTIC PREDPROB[(root[:n])] PREDVAL[(name)].
+//! - CSORDINAL: the dependent may be followed by (ASCENDING) or (DESCENDING), the order of its
+//!   categories; there is no INTERCEPT (the thresholds take its place). LINK FUNCTION=CAUCHIT |
+//!   CLOGLOG | LOGIT | NLOGLOG | PROBIT, CRITERIA also METHOD=NEWTON | FISHER[(n)], and the
+//!   CRITERIA, STATISTICS, TEST, DOMAIN, MISSING and PRINT of CSLOGISTIC.
 
 use super::{eat_assignment, error, once, plan_file, require_assignment};
 use crate::ast::{Command, Value, VarItem};
 use crate::glm::{LRow, Term, fraction, list_until, term};
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
+use crate::plum::PlumLink;
 use crate::procedures::at_end;
 
 /// A reference category: the lowest, the highest or a given value.
@@ -142,6 +147,9 @@ pub struct CsCriteria {
     pub mxiter: u32,
     pub mxstep: u32,
     pub pconverge: (f64, bool),
+    /// CSORDINAL METHOD: how many iterations use Fisher scoring before Newton-Raphson (0 is
+    /// NEWTON, u32::MAX is FISHER without a number).
+    pub fisher: u32,
 }
 
 impl Default for CsCriteria {
@@ -155,6 +163,7 @@ impl Default for CsCriteria {
             mxiter: 100,
             mxstep: 5,
             pconverge: (1e-6, true),
+            fisher: 0,
         }
     }
 }
@@ -181,10 +190,21 @@ pub enum CsModelSave {
     PredVal(Option<String>),
 }
 
-/// CSGLM or CSLOGISTIC.
+/// What only CSORDINAL has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CsOrdinal {
+    /// The categories of the dependent from the highest down.
+    pub descending: bool,
+    pub link: PlumLink,
+}
+
+/// CSGLM, CSLOGISTIC or CSORDINAL.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CsModel {
+    /// A categorical dependent: CSLOGISTIC and CSORDINAL.
     pub logistic: bool,
+    /// CSORDINAL.
+    pub ordinal: Option<CsOrdinal>,
     pub dependent: String,
     /// The reference category of the dependent variable (CSLOGISTIC).
     pub reference: CsReference,
@@ -211,7 +231,11 @@ pub struct CsModel {
 
 impl CsModel {
     pub fn name(&self) -> &'static str {
-        if self.logistic { "CSLOGISTIC" } else { "CSGLM" }
+        match (self.ordinal, self.logistic) {
+            (Some(_), _) => "CSORDINAL",
+            (None, true) => "CSLOGISTIC",
+            (None, false) => "CSGLM",
+        }
     }
 }
 
@@ -582,7 +606,7 @@ fn oddsratios(p: &mut Parser) -> PResult<CsOddsRatios> {
     Ok(o)
 }
 
-fn criteria(p: &mut Parser, c: &mut CsCriteria, logistic: bool) -> PResult<()> {
+fn criteria(p: &mut Parser, c: &mut CsCriteria, logistic: bool, ordinal: bool) -> PResult<()> {
     let start = p.pos;
     let mut seen = Vec::new();
     if at_end(p) {
@@ -616,8 +640,23 @@ fn criteria(p: &mut Parser, c: &mut CsCriteria, logistic: bool) -> PResult<()> {
         } else if logistic && eat_assignment(p, "PCONVERGE")? {
             once(p, at, &mut seen, "PCONVERGE")?;
             c.pconverge = convergence(p, "PCONVERGE")?;
+        } else if ordinal && eat_assignment(p, "METHOD")? {
+            once(p, at, &mut seen, "METHOD")?;
+            c.fisher = if p.eat_keyword("NEWTON") {
+                0
+            } else if p.eat_keyword("FISHER") {
+                if p.eat(Punct::LParen) {
+                    let n = whole(p, "FISHER", 0.0)?;
+                    p.expect(Punct::RParen)?;
+                    n
+                } else {
+                    u32::MAX
+                }
+            } else {
+                return Err(p.unexpected(&["NEWTON", "FISHER"]));
+            };
         } else if logistic {
-            return Err(p.unexpected(&[
+            let mut expected = vec![
                 "CHKSEP =",
                 "CILEVEL =",
                 "DF =",
@@ -626,7 +665,11 @@ fn criteria(p: &mut Parser, c: &mut CsCriteria, logistic: bool) -> PResult<()> {
                 "MXSTEP =",
                 "PCONVERGE =",
                 "SINGULAR =",
-            ]));
+            ];
+            if ordinal {
+                expected.insert(4, "METHOD =");
+            }
+            return Err(p.unexpected(&expected));
         } else {
             return Err(p.unexpected(&["CILEVEL =", "DF =", "SINGULAR ="]));
         }
@@ -840,11 +883,14 @@ fn save(p: &mut Parser, logistic: bool) -> PResult<Vec<CsModelSave>> {
     Ok(out)
 }
 
-fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
-    let command = if logistic { "CSLOGISTIC" } else { "CSGLM" };
+fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
     let dependent = p.name("the dependent variable")?;
     let mut c = CsModel {
         logistic,
+        ordinal: ordinal.then_some(CsOrdinal {
+            descending: false,
+            link: PlumLink::Logit,
+        }),
         dependent,
         reference: CsReference::High,
         factors: Vec::new(),
@@ -852,7 +898,8 @@ fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
         plan: String::new(),
         model: None,
         intercept: CsIntercept::Yes,
-        show_intercept: true,
+        // the intercept of CSORDINAL is a placeholder for its thresholds
+        show_intercept: !ordinal,
         custom: Vec::new(),
         emmeans: Vec::new(),
         oddsratios: Vec::new(),
@@ -870,7 +917,19 @@ fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
         },
         save: Vec::new(),
     };
-    if logistic && let Some(r) = reference(p)? {
+    let command = c.name();
+    if let Some(o) = &mut c.ordinal {
+        if p.eat(Punct::LParen) {
+            o.descending = if p.eat_keyword("DESCENDING") {
+                true
+            } else if p.eat_keyword("ASCENDING") {
+                false
+            } else {
+                return Err(p.unexpected(&["ASCENDING", "DESCENDING"]));
+            };
+            p.expect(Punct::RParen)?;
+        }
+    } else if logistic && let Some(r) = reference(p)? {
         c.reference = r;
     }
     if matches!(p.peek(), Some(TokenKind::Word(w))
@@ -907,7 +966,7 @@ fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
                 return Err(error(p, start, "MODEL needs at least one effect"));
             }
             c.model = Some(terms);
-        } else if p.eat_keyword("INTERCEPT") {
+        } else if !ordinal && p.eat_keyword("INTERCEPT") {
             once(p, start, &mut seen, "INTERCEPT")?;
             if at_end(p) {
                 return Err(error(p, start, "INTERCEPT needs INCLUDE= or SHOW="));
@@ -939,15 +998,30 @@ fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
                     return Err(p.unexpected(&["INCLUDE =", "SHOW ="]));
                 }
             }
-        } else if p.eat_keyword("CUSTOM") {
+        } else if !ordinal && p.eat_keyword("CUSTOM") {
             c.custom.push(custom(p)?);
         } else if !logistic && p.eat_keyword("EMMEANS") {
             c.emmeans.push(emmeans(p)?);
-        } else if logistic && p.eat_keyword("ODDSRATIOS") {
+        } else if logistic && !ordinal && p.eat_keyword("ODDSRATIOS") {
             c.oddsratios.push(oddsratios(p)?);
+        } else if let Some(o) = c.ordinal.as_mut().filter(|_| p.at_keyword("LINK")) {
+            p.pos += 1;
+            once(p, start, &mut seen, "LINK")?;
+            require_assignment(p, "FUNCTION")?;
+            const LINKS: [(&str, PlumLink); 5] = [
+                ("CAUCHIT", PlumLink::Cauchit),
+                ("CLOGLOG", PlumLink::Cloglog),
+                ("LOGIT", PlumLink::Logit),
+                ("NLOGLOG", PlumLink::Nloglog),
+                ("PROBIT", PlumLink::Probit),
+            ];
+            let Some(link) = pick(p, &LINKS)? else {
+                return Err(p.unexpected(&["CAUCHIT", "CLOGLOG", "LOGIT", "NLOGLOG", "PROBIT"]));
+            };
+            o.link = link;
         } else if p.eat_keyword("CRITERIA") {
             once(p, start, &mut seen, "CRITERIA")?;
-            criteria(p, &mut c.criteria, logistic)?;
+            criteria(p, &mut c.criteria, logistic, ordinal)?;
         } else if p.eat_keyword("STATISTICS") {
             once(p, start, &mut seen, "STATISTICS")?;
             c.statistics = Some(statistics(p, logistic)?);
@@ -1017,11 +1091,23 @@ fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
         } else if p.eat_keyword("PRINT") {
             once(p, start, &mut seen, "PRINT")?;
             c.print = print(p, logistic)?;
-        } else if p.eat_keyword("SAVE") {
+        } else if !ordinal && p.eat_keyword("SAVE") {
             once(p, start, &mut seen, "SAVE")?;
             c.save = save(p, logistic)?;
         } else if logistic && p.at_keyword("EMMEANS") {
             return Err(p.subcommand_error(command, &[]));
+        } else if ordinal {
+            return Err(p.subcommand_error(
+                command,
+                &[
+                    "JOINTPROB",
+                    "OUTFILE",
+                    "CUSTOM",
+                    "ODDSRATIOS",
+                    "NONPARALLEL",
+                    "SAVE",
+                ],
+            ));
         } else {
             return Err(p.subcommand_error(command, &["JOINTPROB", "OUTFILE"]));
         }
@@ -1052,9 +1138,13 @@ fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
 }
 
 pub(crate) fn csglm(p: &mut Parser) -> PResult<Command> {
-    model(p, false)
+    model(p, false, false)
 }
 
 pub(crate) fn cslogistic(p: &mut Parser) -> PResult<Command> {
-    model(p, true)
+    model(p, true, false)
+}
+
+pub(crate) fn csordinal(p: &mut Parser) -> PResult<Command> {
+    model(p, true, true)
 }

@@ -1203,6 +1203,14 @@ Not supported yet: pooled results of the other procedures (GENLIN and the other 
 - **Beyond the documentation:** keywords may be shortened as elsewhere in Statscraft, although the manual asks for them in full.
 - Not supported yet: JOINTPROB and the UNEQUAL_WOR estimator, OUTFILE, PRINT GEF, and the modified estimates of marginal means that skip empty cells (a mean that is not estimable is left empty). The check for separation looks for complete separation only.
 
+### Complex samples ordinal regression: CSORDINAL
+
+- **References.** R's survey package (`svyolr`, with a tight optimizer tolerance) gave the estimates for the logit and probit links; for the complementary log-log, negative log-log and Cauchit links the manual's weighted log likelihood was maximized in R directly. The standard errors are the manual's sandwich computed in R: the inverse Hessian (by Richardson extrapolation) on both sides of `svytotal`'s design covariance of the total of the case scores. `svyolr`'s own standard errors agree with these to about 1e-6, as its Hessian is numerical. Estimates agree to about 1e-8 and standard errors to about 1e-9. Degrees of freedom, the Wald F, design effects and the cases left out work as in CSGLM and CSLOGISTIC.
+- **Signs.** The thresholds and coefficients follow the manual's model, link(P(Y <= k)) = threshold - x'b, which is also R's (`zeta` and the coefficients of `svyolr`).
+- **Choices where the manual is silent.** The covariance uses the observed information at the estimates whichever METHOD found them; FISHER without a number scores until convergence and then finishes with Newton-Raphson, as FISHER(n) does after its n steps. A Newton-Raphson step that does not climb (the observed information not positive definite) is replaced by a scoring step. The Tests of Model Effects have a (Corrected Model) row that tests all coefficients together and no row for the thresholds. Thresholds are listed first in the Parameter Estimates and the covariance tables, labelled with the category they close. STATISTICS EXP with a link other than logit is left out with a warning, as the manual allows it for the logit link only. CLASSTABLE puts each case in its most probable category (the first on a tie) and sums the weights.
+- **Beyond the documentation:** keywords may be shortened as elsewhere in Statscraft, although the manual asks for them in full.
+- Not supported yet: CUSTOM, ODDSRATIOS, NONPARALLEL, SAVE, JOINTPROB and the UNEQUAL_WOR estimator, OUTFILE and PRINT GEF; each stops with an error naming it.
+
 ## Custom tables and multiple response
 
 ### CTABLES
@@ -1373,7 +1381,7 @@ Where the documentation is silent:
   - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - LOGLINEAR, the older loglinear command with contrasts, is not supported; GENLOG and HILOGLINEAR cover its models.
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
-  - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES, CSTABULATE, CSGLM and CSLOGISTIC have no JOINTPROB and no UNEQUAL_WOR estimator; CSGLM and CSLOGISTIC have no OUTFILE or PRINT GEF.
+  - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES, CSTABULATE, CSGLM, CSLOGISTIC and CSORDINAL have no JOINTPROB and no UNEQUAL_WOR estimator; CSGLM, CSLOGISTIC and CSORDINAL have no OUTFILE or PRINT GEF, and CSORDINAL no CUSTOM, ODDSRATIOS, NONPARALLEL or SAVE.
   - UNIANOVA and GLM have no RANDOM, TEST, ROBUST, OUTFILE, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF and TEST(LMATRIX) or the heteroskedasticity tests, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).

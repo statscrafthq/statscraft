@@ -1,11 +1,12 @@
-//! CSGLM and CSLOGISTIC on the invented household survey of tests/fixtures/cs_generate.py: four
-//! districts (strata), villages drawn in each (clusters), households drawn in each village, and
-//! a weight.
+//! CSGLM, CSLOGISTIC and CSORDINAL on the invented household survey of
+//! tests/fixtures/cs_generate.py: four districts (strata), villages drawn in each (clusters),
+//! households drawn in each village, and a weight.
 //!
 //! The expected numbers come from a general statistics package's survey library, used as a black
 //! box on the same file: survey-weighted linear and binary logistic fits with their design-based
 //! covariance matrices, and design covariances of totals. The multinomial model was fitted there
 //! by solving the weighted score equations and forming the sandwich from those covariances.
+//! CSORDINAL: see the comment of its first test.
 //! Where the manual defines a number differently from the package (the df of the t and F tests,
 //! the simple random sampling variance behind design effects and the adjusted tests, the Wald F)
 //! the expected value was computed from the package's estimates and covariances with the
@@ -694,6 +695,234 @@ fn model_errors() {
         (
             "CSLOGISTIC online BY heat town /PLAN FILE='wr.json' /MODEL heat /ODDSRATIOS FACTOR=[town].",
             "in no effect",
+        ),
+    ];
+    for (syntax, expected) in cases {
+        let error = run_error(&format!("{d}{syntax}\n"));
+        assert!(error.contains(expected), "{syntax}: {error}");
+    }
+}
+
+// CSORDINAL: heat (1, 2, 3) as an ordered response, user-missing 9 out of the model but in the
+// design. The expected estimates come from the survey library's svyolr (fitted with a tight
+// optimizer tolerance) for the logit and probit links, and for the other links from maximizing
+// the manual's weighted log likelihood in the same package. The standard errors come from the
+// manual's sandwich computed there: the package's design covariance of the total of the case
+// scores (svytotal) between inverse Hessians taken by Richardson extrapolation (numDeriv);
+// svyolr's own standard errors agree with them to about 1e-6. The pseudo R squares, the Wald F
+// and the design effects use the manual's formulas on those numbers.
+
+const ORDINAL: &str = "CSORDINAL heat BY town WITH members /PLAN FILE='wr.json'";
+
+#[test]
+fn csordinal_logit_estimates_design_effects_and_tests() {
+    let source = format!(
+        "{}{ORDINAL} /STATISTICS PARAMETER SE CINTERVAL TTEST DEFF EXP
+           /PRINT SUMMARY HISTORY COVB CLASSTABLE.
+         {ORDINAL} /CRITERIA METHOD=FISHER /PRINT NONE /STATISTICS PARAMETER.\n",
+        data("ordinal")
+    );
+    let (_, tables) = run(&source);
+    let p = find(&tables, "Parameter Estimates", 0);
+    checks(
+        p,
+        &[
+            ("Threshold / [heat=1]", "Estimate", -0.2696434311753),
+            ("Threshold / [heat=1]", "Std. Error", 0.6908148018072),
+            ("Threshold / [heat=1]", "Design Effect", 1.516999593262),
+            ("Threshold / [heat=2]", "Estimate", 1.1674668789298),
+            ("Threshold / [heat=2]", "Std. Error", 0.8339282328597),
+            ("Threshold / [heat=2]", "Design Effect", 1.862936327308),
+            ("Location / [town=1]", "Estimate", 1.3593620052443),
+            ("Location / [town=1]", "Std. Error", 0.4767017577092),
+            ("Location / [town=1]", "Design Effect", 1.452386656131),
+            ("Location / [town=1]", T, 1.3593620052443 / 0.4767017577092),
+            ("Location / [town=1]", "Exp(B)", 1.3593620052443_f64.exp()),
+            ("Location / members", "Estimate", -0.1471277610708),
+            ("Location / members", "Std. Error", 0.2153695733205),
+            ("Location / members", "Design Effect", 1.802547829599),
+            (
+                "Location / members",
+                LOWER,
+                -0.1471277610708 - 2.119905299221 * 0.2153695733205,
+            ),
+        ],
+    );
+    assert!(matches!(
+        cell(p, "Location / [town=2] (redundant)", "Estimate"),
+        Cell::Number(v) if *v == 0.0
+    ));
+    // -2 log likelihoods 24977.39769894 (model) and 26487.89561452 (thresholds only), N the
+    // summed weights 12412.2738
+    checks(
+        find(&tables, "Pseudo R Squares", 0),
+        &[
+            ("", "Cox and Snell", 0.11458063961746567),
+            ("", "Nagelkerke", 0.1299633497714196),
+            ("", "McFadden", 0.05702596905252011),
+        ],
+    );
+    let history = find(&tables, "Iteration History", 0);
+    checks(
+        history,
+        &[("0", "-2 Log Pseudo Likelihood", 26487.89561452)],
+    );
+    let last = history.rows.last().unwrap();
+    assert!(matches!(last[1], Cell::Number(v) if (v - 24977.39769894).abs() < 1e-6));
+    // Wald X2 of both coefficients 11.94322029468, F = (16 - 2 + 1) / (2 16) X2
+    checks(
+        find(&tables, "Tests of Model Effects", 0),
+        &[
+            ("(Corrected Model)", "Wald F", 15.0 / 32.0 * 11.94322029468),
+            ("(Corrected Model)", "df2", 15.0),
+            (
+                "town",
+                "Wald F",
+                (1.3593620052443_f64 / 0.4767017577092).powi(2),
+            ),
+        ],
+    );
+    let covb = find(&tables, "Covariances of Parameter Estimates", 0);
+    checks(
+        covb,
+        &[(
+            "Threshold [heat=2]",
+            "Threshold [heat=2]",
+            0.8339282328597_f64.powi(2),
+        )],
+    );
+    assert_eq!(covb.rows.len(), 4);
+    let class = find(&tables, "Classification", 0);
+    assert_eq!(class.rows.len(), 4);
+    // Fisher scoring until convergence and then Newton-Raphson reach the same estimates
+    checks(
+        find(&tables, "Parameter Estimates", 1),
+        &[("Location / [town=1]", "Estimate", 1.3593620052443)],
+    );
+}
+
+#[test]
+fn csordinal_other_links_descending_domain_and_two_stages() {
+    let source = format!(
+        "{}CSPLAN ANALYSIS /PLAN FILE='two.json' /PLANVARS ANALYSISWEIGHT=w
+           /DESIGN STRATA=district CLUSTER=village /ESTIMATOR TYPE=EQUAL_WOR /POPSIZE VARIABLE=nvill
+           /DESIGN CLUSTER=hh /ESTIMATOR TYPE=EQUAL_WOR /POPSIZE VARIABLE=nhh.
+         CSORDINAL heat WITH members /PLAN FILE='wr.json' /LINK FUNCTION=CLOGLOG
+           /STATISTICS PARAMETER SE /PRINT NONE.
+         CSORDINAL heat BY town /PLAN FILE='wr.json' /LINK FUNCTION=NLOGLOG
+           /STATISTICS PARAMETER SE /PRINT NONE.
+         CSORDINAL heat WITH members /PLAN FILE='wr.json' /LINK FUNCTION=CAUCHIT
+           /STATISTICS PARAMETER SE /PRINT NONE.
+         CSORDINAL heat (DESCENDING) BY town WITH members /PLAN FILE='two.json'
+           /LINK FUNCTION=PROBIT /DOMAIN VARIABLE=online(1) /CRITERIA METHOD=FISHER(3)
+           /STATISTICS PARAMETER SE EXP /PRINT SUMMARY.\n",
+        data("ordinal-links")
+    );
+    let (engine, tables) = run(&source);
+    // the categories from the highest down: thresholds at 3 and 2
+    let p = find(&tables, "Parameter Estimates", 3);
+    checks(
+        p,
+        &[
+            ("Threshold / [heat=3]", "Estimate", -1.42250360876398),
+            ("Threshold / [heat=3]", "Std. Error", 0.7644948795249),
+            ("Threshold / [heat=2]", "Estimate", -0.30888310400079),
+            ("Threshold / [heat=2]", "Std. Error", 0.6313620557213),
+            ("Location / [town=1]", "Estimate", -1.48907406618779),
+            ("Location / [town=1]", "Std. Error", 0.3319895444865),
+            ("Location / members", "Estimate", 0.04545198916347),
+            ("Location / members", "Std. Error", 0.2112081273894),
+        ],
+    );
+    // EXP needs the logit link
+    assert!(!p.column_titles().iter().any(|t| t == "Exp(B)"));
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("EXP needs the logit link"))
+    );
+    // -2 log likelihoods 9104.691713765 and 11013.12000468 over the domain's 5177.6656
+    checks(
+        find(&tables, "Pseudo R Squares", 0),
+        &[
+            ("", "Cox and Snell", 0.30829004870976173),
+            ("", "Nagelkerke", 0.35000709915821976),
+            ("", "McFadden", 0.17328679702972616),
+        ],
+    );
+    checks(
+        find(&tables, "Tests of Model Effects", 3),
+        &[("(Corrected Model)", "Wald F", 15.0 / 32.0 * 22.25532996719)],
+    );
+    checks(
+        find(&tables, "Parameter Estimates", 0),
+        &[
+            ("Threshold / [heat=1]", "Estimate", -1.1534281878369),
+            ("Threshold / [heat=1]", "Std. Error", 0.4170797852392),
+            ("Threshold / [heat=2]", "Estimate", -0.2880558362289),
+            ("Location / members", "Estimate", -0.2245628128587),
+            ("Location / members", "Std. Error", 0.1268759546030),
+        ],
+    );
+    checks(
+        find(&tables, "Parameter Estimates", 1),
+        &[
+            ("Threshold / [heat=1]", "Estimate", 0.5135886830021),
+            ("Threshold / [heat=2]", "Std. Error", 0.2550921329121),
+            ("Location / [town=1]", "Estimate", 1.0405024013230),
+            ("Location / [town=1]", "Std. Error", 0.2881318040469),
+        ],
+    );
+    checks(
+        find(&tables, "Parameter Estimates", 2),
+        &[
+            ("Threshold / [heat=1]", "Estimate", -0.5861347774668),
+            ("Threshold / [heat=2]", "Estimate", 0.5604389820631),
+            ("Threshold / [heat=2]", "Std. Error", 0.7997897850824),
+            ("Location / members", "Std. Error", 0.1957400692590),
+        ],
+    );
+}
+
+#[test]
+fn csordinal_thresholds_only_and_errors() {
+    let d = data("ordinal-errors");
+    let (_, tables) = run(&format!(
+        "{d}CSORDINAL heat /PLAN FILE='wr.json' /STATISTICS PARAMETER /PRINT SUMMARY.\n"
+    ));
+    // without predictors the start is the fit: the thresholds are the logits of the weighted
+    // cumulative shares of the categories (weights summed by hand from the data file), and the
+    // pseudo R squares are 0
+    let p = find(&tables, "Parameter Estimates", 0);
+    let logit = |s: f64| (s / (1.0 - s)).ln();
+    checks(
+        p,
+        &[
+            (
+                "Threshold / [heat=1]",
+                "Estimate",
+                logit(5591.4081 / 12412.2738),
+            ),
+            (
+                "Threshold / [heat=2]",
+                "Estimate",
+                logit(9302.0389 / 12412.2738),
+            ),
+        ],
+    );
+    assert!(matches!(
+        cell(find(&tables, "Pseudo R Squares", 0), "", "McFadden"),
+        Cell::Number(v) if v.abs() < 1e-12
+    ));
+    let cases = [
+        (
+            "CSORDINAL heat WITH members /PLAN FILE='wr.json' /DOMAIN VARIABLE=members(2).",
+            "in the model",
+        ),
+        (
+            "COMPUTE one = 1.\nCSORDINAL one WITH members /PLAN FILE='wr.json'.",
+            "CSORDINAL: the dependent variable one has fewer than two categories",
         ),
     ];
     for (syntax, expected) in cases {

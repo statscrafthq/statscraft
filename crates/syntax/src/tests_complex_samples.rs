@@ -1,4 +1,4 @@
-//! Parser tests of CSPLAN, CSDESCRIPTIVES and CSTABULATE.
+//! Parser tests of CSPLAN, CSDESCRIPTIVES, CSTABULATE and the complex samples models.
 
 use super::*;
 
@@ -421,4 +421,80 @@ fn model_syntax_errors() {
         let message = err(source);
         assert!(message.contains(expected), "{source}: {message}");
     }
+}
+
+#[test]
+fn csordinal_subcommands_and_defaults() {
+    let m = model(
+        "CSORDINAL grade (DESCENDING) BY school WITH hours /PLAN FILE='p.json' /MODEL school hours
+           /LINK FUNCTION=CLOGLOG /CRITERIA METHOD=FISHER(4) MXITER=50 CHKSEP=0
+           /STATISTICS PARAMETER EXP SE /TEST TYPE=ADJF /DOMAIN VARIABLE=area(2)
+           /MISSING CLASSMISSING=INCLUDE /PRINT HISTORY(2) CLASSTABLE.",
+    );
+    assert_eq!(m.name(), "CSORDINAL");
+    assert!(m.logistic && !m.show_intercept && m.include);
+    assert_eq!(
+        m.ordinal,
+        Some(CsOrdinal {
+            descending: true,
+            link: PlumLink::Cloglog,
+        })
+    );
+    assert_eq!(m.criteria.fisher, 4);
+    assert_eq!(m.criteria.mxiter, 50);
+    assert_eq!(m.model.as_ref().map(Vec::len), Some(2));
+    assert!(m.statistics.is_some_and(|s| s.exp && s.se && !s.ttest));
+    assert_eq!(m.print.history, Some(2));
+    assert!(m.print.classtable && !m.print.summary);
+    // the defaults: ascending, logit, Newton-Raphson
+    let m = model("CSORDINAL grade /PLAN FILE='p.json' /CRITERIA METHOD=FISHER.");
+    assert_eq!(
+        m.ordinal,
+        Some(CsOrdinal {
+            descending: false,
+            link: PlumLink::Logit,
+        })
+    );
+    assert_eq!(m.criteria.fisher, u32::MAX);
+    assert!(m.print.sampleinfo && m.print.variableinfo && m.print.summary);
+    let m = model("CSORDINAL grade (ASCENDING) /PLAN FILE='p.json' /CRITERIA METHOD=NEWTON.");
+    assert_eq!(m.criteria.fisher, 0);
+}
+
+#[test]
+fn csordinal_syntax_errors() {
+    let base = "CSORDINAL y BY a WITH x /PLAN FILE='p'";
+    for sub in [
+        "CUSTOM LMATRIX=a 1 -1",
+        "ODDSRATIOS FACTOR=[a]",
+        "NONPARALLEL TEST",
+        "SAVE PREDVAL",
+        "JOINTPROB FILE='j'",
+        "OUTFILE COVB='c.sav'",
+    ] {
+        let message = err(&format!("{base} /{sub}."));
+        let name = sub.split(' ').next().unwrap();
+        assert!(
+            message.contains(&format!(
+                "subcommand {name} of CSORDINAL is not supported yet"
+            )),
+            "{sub}: {message}"
+        );
+    }
+    let cases = [
+        ("/INTERCEPT INCLUDE=NO", "unknown subcommand INTERCEPT"),
+        ("/LINK FUNCTION=LOGLOG", "unexpected"),
+        ("/LINK LOGIT", "unexpected word LOGIT"),
+        ("/LINK FUNCTION=PROBIT /LINK FUNCTION=LOGIT", "only once"),
+        ("/CRITERIA METHOD=FISHER(-1)", "whole number"),
+        ("/PRINT GEF", "not supported yet"),
+    ];
+    for (rest, expected) in cases {
+        let message = err(&format!("{base} {rest}."));
+        assert!(message.contains(expected), "{rest}: {message}");
+    }
+    let message = err("CSORDINAL y (LOW) /PLAN FILE='p'.");
+    assert!(message.contains("unexpected word LOW"), "{message}");
+    assert!(err("CSLOGISTIC y /PLAN FILE='p' /CRITERIA METHOD=NEWTON.").contains("unexpected"));
+    assert!(err("CSLOGISTIC y /PLAN FILE='p' /LINK FUNCTION=LOGIT.").contains("unknown"));
 }

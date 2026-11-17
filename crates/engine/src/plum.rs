@@ -40,7 +40,7 @@ use statscraft_syntax::{CustomTest, Plum, PlumLink, PlumSave, Term};
 use std::f64::consts::PI;
 
 /// The inverse link F, its density f and the derivative of the density.
-fn cdf(link: PlumLink, x: f64) -> f64 {
+pub(crate) fn cdf(link: PlumLink, x: f64) -> f64 {
     match link {
         PlumLink::Logit => 1.0 / (1.0 + (-x).exp()),
         PlumLink::Probit => normal_cdf(x),
@@ -75,7 +75,7 @@ fn pdf_slope(link: PlumLink, x: f64) -> f64 {
 }
 
 /// link(p), the inverse of `cdf`.
-fn quantile(link: PlumLink, p: f64) -> f64 {
+pub(crate) fn quantile(link: PlumLink, p: f64) -> f64 {
     match link {
         PlumLink::Logit => (p / (1.0 - p)).ln(),
         PlumLink::Probit => normal_quantile(p),
@@ -85,7 +85,7 @@ fn quantile(link: PlumLink, p: f64) -> f64 {
     }
 }
 
-fn link_name(link: PlumLink) -> &'static str {
+pub(crate) fn link_name(link: PlumLink) -> &'static str {
     match link {
         PlumLink::Logit => "Logit",
         PlumLink::Probit => "Probit",
@@ -97,23 +97,23 @@ fn link_name(link: PlumLink) -> &'static str {
 
 /// A cumulative link model on pooled counts. The parameters are the J-1 thresholds, the
 /// location parameters (one set, or one per threshold when not parallel) and the scale ones.
-struct Model<'a> {
-    link: PlumLink,
+pub(crate) struct Model<'a> {
+    pub(crate) link: PlumLink,
     /// The count of each category in each subpopulation.
-    counts: &'a [Vec<f64>],
-    x: &'a [Vec<f64>],
-    z: &'a [Vec<f64>],
-    parallel: bool,
-    scale: bool,
+    pub(crate) counts: &'a [Vec<f64>],
+    pub(crate) x: &'a [Vec<f64>],
+    pub(crate) z: &'a [Vec<f64>],
+    pub(crate) parallel: bool,
+    pub(crate) scale: bool,
 }
 
-struct Eval {
-    l: f64,
-    gradient: Vec<f64>,
+pub(crate) struct Eval {
+    pub(crate) l: f64,
+    pub(crate) gradient: Vec<f64>,
     /// The second derivative of l.
-    hessian: Matrix,
+    pub(crate) hessian: Matrix,
     /// The expected information, minus the expected second derivative.
-    information: Matrix,
+    pub(crate) information: Matrix,
 }
 
 impl Model<'_> {
@@ -198,13 +198,13 @@ impl Model<'_> {
     }
 
     /// The cumulative probabilities of subpopulation i, J-1 of them.
-    fn cumulative(&self, b: &[f64], i: usize) -> Vec<f64> {
+    pub(crate) fn cumulative(&self, b: &[f64], i: usize) -> Vec<f64> {
         let (eta, _, _) = self.predictors(b, i);
         eta.iter().map(|&e| cdf(self.link, e)).collect()
     }
 
     /// The log-likelihood with its derivatives; None where a cell with cases has no probability.
-    fn eval(&self, b: &[f64]) -> Option<Eval> {
+    pub(crate) fn eval(&self, b: &[f64]) -> Option<Eval> {
         let (k, n) = (self.k(), self.size());
         let mut l = 0.0;
         let mut gradient = vec![0.0; n];
@@ -324,7 +324,7 @@ fn order_thresholds(b: &mut [f64], k: usize) {
     }
 }
 
-fn solve(a: &Matrix, v: &[f64]) -> Option<Vec<f64>> {
+pub(crate) fn solve(a: &Matrix, v: &[f64]) -> Option<Vec<f64>> {
     let (inv, _) = inverse(a)?;
     Some(
         inv.iter()
@@ -333,7 +333,7 @@ fn solve(a: &Matrix, v: &[f64]) -> Option<Vec<f64>> {
     )
 }
 
-fn negated(m: &Matrix) -> Matrix {
+pub(crate) fn negated(m: &Matrix) -> Matrix {
     m.iter().map(|r| r.iter().map(|v| -v).collect()).collect()
 }
 
@@ -1484,7 +1484,7 @@ fn percent(level: f64) -> String {
 }
 
 /// The category probabilities from the J-1 cumulative ones.
-fn cell_probabilities(gamma: &[f64]) -> Vec<f64> {
+pub(crate) fn cell_probabilities(gamma: &[f64]) -> Vec<f64> {
     let mut out = Vec::with_capacity(gamma.len() + 1);
     let mut lower = 0.0;
     for &g in gamma.iter().chain(std::iter::once(&1.0)) {

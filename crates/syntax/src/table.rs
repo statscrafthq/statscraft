@@ -3795,6 +3795,39 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: complex_samples::cslogistic,
     },
     CommandSpec {
+        name: "CSORDINAL",
+        summary: "Ordinal regression (cumulative link model) on a complex sample, with design-based standard errors and tests.",
+        syntax: "CSORDINAL dependent [(ASCENDING | DESCENDING)] [BY factors] [WITH covariates] /PLAN FILE='file'\n\
+                 \x20  [/MODEL effects] [/LINK FUNCTION=LOGIT | PROBIT | CLOGLOG | NLOGLOG | CAUCHIT]\n\
+                 \x20  [/CRITERIA [CHKSEP=20] [CILEVEL=95] [DF=n] [LCONVERGE=[0 RELATIVE | ABSOLUTE]]\n\
+                 \x20             [METHOD=NEWTON | FISHER[(n)]] [MXITER=100] [MXSTEP=5]\n\
+                 \x20             [PCONVERGE=[1E-6 RELATIVE | ABSOLUTE]] [SINGULAR=1E-12]]\n\
+                 \x20  [/STATISTICS [PARAMETER] [EXP] [SE] [TTEST] [CINTERVAL] [DEFF] [DEFFSQRT]]\n\
+                 \x20  [/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
+                 \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
+                 \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]\n\
+                 \x20          [CLASSTABLE] [NONE]].\n\
+                 The categories of the dependent variable, sorted up (or down with DESCENDING), are ordered\n\
+                 1 to K. For each k below K the model says link(P(Y <= k)) = threshold_k - x'b: one\n\
+                 threshold per cut point and one set of coefficients b for all of them, so a positive\n\
+                 coefficient moves cases toward the higher categories. LOGIT is the default link. The\n\
+                 estimates maximize the weighted log likelihood by Newton-Raphson with step-halving;\n\
+                 METHOD=FISHER(n) takes n Fisher scoring steps first (FISHER alone: until convergence),\n\
+                 then Newton-Raphson. The start is b = 0 with each threshold at the link of the weighted\n\
+                 cumulative share of its category. The covariance is a sandwich: the inverse observed\n\
+                 information on both sides of the design covariance of the score total. Design, df,\n\
+                 domains and TEST work as in CSGLM; the Tests of Model Effects test the coefficients of\n\
+                 each effect (and all of them in the corrected model). The model summary gives the pseudo\n\
+                 R squares of Cox and Snell, Nagelkerke and McFadden against the thresholds-only fit,\n\
+                 with the summed weights as N. EXP needs the logit link. CLASSTABLE puts each case in its\n\
+                 most probable category and sums the weights. Without STATISTICS no parameter table is\n\
+                 shown. Not supported yet: CUSTOM, ODDSRATIOS, NONPARALLEL, SAVE, JOINTPROB, OUTFILE,\n\
+                 PRINT GEF and the UNEQUAL_WOR estimator.",
+        example: "CSORDINAL rating BY region WITH age /PLAN FILE='poll_plan.json' /LINK FUNCTION=PROBIT /STATISTICS PARAMETER SE CINTERVAL TTEST /PRINT SUMMARY HISTORY.",
+        parse: complex_samples::csordinal,
+    },
+    CommandSpec {
         name: "REPORT",
         summary: "Case listings and summary statistics by break groups, laid out as a report.",
         syntax: "REPORT [FORMAT=[MANUAL | AUTOMATIC] [NOLIST | LIST[(n)]] [ALIGN(LEFT | CENTER | RIGHT)] [TSPACE(1)]\n\

@@ -1,5 +1,5 @@
-//! CSGLM and CSLOGISTIC: linear and logistic (binary and multinomial) models on a complex
-//! sample, with design-based (Taylor linearization) variances.
+//! CSGLM, CSLOGISTIC and CSORDINAL: linear, logistic (binary and multinomial) and cumulative
+//! link models on a complex sample, with design-based (Taylor linearization) variances.
 //!
 //! Rules from the Command Syntax Reference and the Algorithms manual, in our words:
 //! - Cases: the design cases (see the parent module) whose dependent, factors and covariates are
@@ -45,6 +45,9 @@
 //! - Odds ratios exp((x1 - x2)' b_k) with the interval from (x1 - x2)' b_k +- t SE; x1 and x2
 //!   differ in the factor level or the covariate change, the other variables at CONTROL
 //!   (factors at their highest level, covariates at their weighted means by default).
+//! - CSORDINAL (the fit in `ordinal`): the design has its intercept only to find the redundant
+//!   columns; the K - 1 thresholds take its place and sit after the regression parameters, shown
+//!   first. Effects are tested on their regression parameters; the corrected model tests all.
 
 use super::{Design, keys_of, numbers};
 use crate::contrast::contrast_rows;
@@ -58,14 +61,17 @@ use crate::glm::{
 };
 use crate::matrix::{Matrix, inverse, multiply, transpose};
 use crate::npar_tests::text;
+use crate::plum::link_name;
 use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Value as DataValue, Variable};
 use statscraft_syntax::{
     Contrast, CsContrast, CsControl, CsIntercept, CsModel, CsModelSave, CsModelStatistics,
-    CsPadjust, CsReference, CsTestType, LRow, Term, Value,
+    CsPadjust, CsReference, CsTestType, LRow, PlumLink, Term, Value,
 };
+
+mod ordinal;
 
 /// The parameters of the model with their covariances; with several logits, logit by logit.
 struct Estimates {
@@ -361,13 +367,15 @@ impl LogitModel<'_> {
 
 /// The inverse of the information matrix, or a generalized inverse when it is singular (with
 /// one warning however often that happens).
-fn information_inverse(info: &Matrix, warnings: &mut Vec<String>) -> Matrix {
+fn information_inverse(name: &str, info: &Matrix, warnings: &mut Vec<String>) -> Matrix {
     match inverse(info) {
         Some((m, _)) => m,
         None => {
-            const NOTE: &str = "CSLOGISTIC: the information matrix is singular (perhaps separation); a generalized inverse is used and the estimates and standard errors may not be reliable";
-            if !warnings.iter().any(|w| w == NOTE) {
-                warnings.push(NOTE.into());
+            let note = format!(
+                "{name}: the information matrix is singular (perhaps separation); a generalized inverse is used and the estimates and standard errors may not be reliable"
+            );
+            if !warnings.contains(&note) {
+                warnings.push(note);
             }
             ginverse(info, 1e-12).0
         }
@@ -400,7 +408,7 @@ fn fit_logistic(
     let mut iteration = 0;
     while iteration < c.mxiter as usize && !b.is_empty() {
         let (g, info) = m.derivatives(&b);
-        let inv = information_inverse(&info, warnings);
+        let inv = information_inverse("CSLOGISTIC", &info, warnings);
         let step: Vec<f64> = inv
             .iter()
             .map(|row| row.iter().zip(&g).map(|(a, v)| a * v).sum())
@@ -727,14 +735,17 @@ impl Engine {
         let labels = Shown::labels(shown.currencies.clone());
         let w_rows: Vec<f64> = rows.iter().map(|&i| design.w[i]).collect();
         // the logistic categories, the reference and the category of every row
-        let categories = if c.logistic {
+        let mut categories = if c.logistic {
             sorted_levels(&dep_keys)
         } else {
             Vec::new()
         };
+        if c.ordinal.is_some_and(|o| o.descending) {
+            categories.reverse();
+        }
         if c.logistic && categories.len() < 2 {
             return Err(Error(format!(
-                "CSLOGISTIC: the dependent variable {dependent} has fewer than two categories among the cases analyzed"
+                "{name}: the dependent variable {dependent} has fewer than two categories among the cases analyzed"
             )));
         }
         let base = match &c.reference {
@@ -890,7 +901,58 @@ impl Engine {
         let names = parameter_names(&d, &fit);
         let mut logistic: Option<Logistic> = None;
         let others: Vec<usize> = (0..categories.len()).filter(|&k| k != base).collect();
-        let est = if !c.logistic {
+        let est = if let Some(o) = c.ordinal {
+            // the regression columns: the non-redundant ones but the intercept
+            let cols: Vec<usize> = (1..p).filter(|&j| !fit.redundant[j]).collect();
+            let x: Vec<Vec<f64>> = fit
+                .x
+                .iter()
+                .map(|row| cols.iter().map(|&j| row[j]).collect())
+                .collect();
+            let k = categories.len();
+            let result = ordinal::fit(o.link, &x, &w_rows, &category_of, k, &c.criteria, warnings);
+            let size = result.b.len();
+            let mut us = vec![vec![0.0; n]; size];
+            for (r, &i) in rows.iter().enumerate() {
+                for (u, s) in us.iter_mut().zip(&result.scores[r]) {
+                    u[i] = *s;
+                }
+            }
+            let jinv = information_inverse(name, &result.information, warnings);
+            let sandwich = |m: &Matrix| -> Matrix { multiply(&multiply(&jinv, m), &jinv) };
+            let v_small = sandwich(&design.covariance(&us));
+            let vs_small = srs_of(&us).map(|m| sandwich(&m));
+            // the thresholds go after the p columns of the design
+            let full = p + k - 1;
+            let index = |a: usize| if a < k - 1 { p + a } else { cols[a - (k - 1)] };
+            let expand = |m: &Matrix| -> Matrix {
+                let mut out = vec![vec![0.0; full]; full];
+                for a in 0..size {
+                    for bb in 0..size {
+                        out[index(a)][index(bb)] = m[a][bb];
+                    }
+                }
+                out
+            };
+            let mut b = vec![0.0; full];
+            for a in 0..size {
+                b[index(a)] = result.b[a];
+            }
+            let v = expand(&v_small);
+            let vs = vs_small.as_ref().map(expand);
+            logistic = Some(result.fit);
+            Estimates {
+                b,
+                v,
+                vs,
+                // the intercept column has no parameter of its own
+                redundant: (0..full)
+                    .map(|a| a == 0 || (a < p && fit.redundant[a]))
+                    .collect(),
+                p,
+                logits: 1,
+            }
+        } else if !c.logistic {
             let b: Vec<f64> = (0..p).map(|j| fit.b[j][0]).collect();
             let mut us = vec![vec![0.0; n]; p];
             for (r, &i) in rows.iter().enumerate() {
@@ -935,7 +997,7 @@ impl Engine {
                 }
             }
             let (_, info) = model.derivatives(&small);
-            let jinv = information_inverse(&info, warnings);
+            let jinv = information_inverse("CSLOGISTIC", &info, warnings);
             let sandwich = |m: &Matrix| -> Matrix { multiply(&multiply(&jinv, m), &jinv) };
             let v_small = sandwich(&design.covariance(&us));
             let vs_small = srs_of(&us).map(|m| sandwich(&m));
@@ -969,8 +1031,23 @@ impl Engine {
         let category_text = |k: usize| shown.value(&dep_var, &categories[k]);
         // a label for each logit and each parameter
         let logit_labels: Vec<String> = others.iter().map(|&k| category_text(k)).collect();
+        // the order of the parameters in the tables: thresholds first
+        let order: Vec<usize> = if c.ordinal.is_some() {
+            (p..est.len()).chain(1..p).collect()
+        } else {
+            (0..est.len()).collect()
+        };
+        let threshold_name = |a: usize| {
+            format!(
+                "[{}={}]",
+                dependent,
+                key_value_text(&dep_var, &categories[a - p])
+            )
+        };
         let param_label = |a: usize| -> String {
-            if c.logistic && est.logits > 1 {
+            if a >= est.logits * p {
+                format!("Threshold {}", threshold_name(a))
+            } else if c.logistic && est.logits > 1 {
                 format!("{}: {}", logit_labels[a / p], names[a % p])
             } else {
                 names[a % p].clone()
@@ -978,14 +1055,18 @@ impl Engine {
         };
         let dep_text = shown.variable(&dep_var);
         let mut caption_base = format!("Dependent Variable: {dep_text}");
-        if c.logistic {
+        if let Some(o) = c.ordinal {
+            caption_base.push_str(&format!(". Link Function: {}", link_name(o.link)));
+        } else if c.logistic {
             caption_base.push_str(&format!(" (reference category: {})", category_text(base)));
         }
         let model_text = fit
             .effects
             .iter()
             .map(|e| {
-                if e.is_intercept() {
+                if e.is_intercept() && c.ordinal.is_some() {
+                    "(Threshold)".to_string()
+                } else if e.is_intercept() {
                     "(Intercept)".to_string()
                 } else {
                     e.label.clone()
@@ -1140,7 +1221,11 @@ impl Engine {
         if let (Some(every), Some(lg)) = (c.print.history, &logistic) {
             let every = every.max(1) as usize;
             let last = lg.history.len() - 1;
-            let cols_used: Vec<usize> = (0..est.len()).filter(|&a| !est.redundant[a]).collect();
+            let cols_used: Vec<usize> = order
+                .iter()
+                .copied()
+                .filter(|&a| !est.redundant[a])
+                .collect();
             let mut cols = plain(&["Iteration", "-2 Log Pseudo Likelihood", "Step-halving"]);
             cols.extend(
                 cols_used
@@ -1278,6 +1363,14 @@ impl Engine {
             }),
             None => None,
         };
+        let stats = stats.map(|mut s| {
+            if s.exp && c.ordinal.is_some_and(|o| o.link != PlumLink::Logit) {
+                warnings
+                    .push("CSORDINAL: STATISTICS EXP needs the logit link and is left out".into());
+                s.exp = false;
+            }
+            s
+        });
         if let Some(s) = stats {
             let headers = if c.logistic { 2 } else { 1 };
             let mut cols = if c.logistic {
@@ -1316,30 +1409,40 @@ impl Engine {
             }
             let mut out = Vec::new();
             let mut redundant_seen = false;
-            let mut last_logit = None;
-            for a in 0..est.len() {
+            let mut last_group = None;
+            for &a in &order {
+                let threshold = a >= est.logits * p;
                 let j = a % p;
-                let is_intercept = fit
-                    .effects
-                    .iter()
-                    .any(|e| e.is_intercept() && e.range().contains(&j));
+                let is_intercept = !threshold
+                    && fit
+                        .effects
+                        .iter()
+                        .any(|e| e.is_intercept() && e.range().contains(&j));
                 if is_intercept && !show_intercept {
                     continue;
                 }
                 let mut row = Vec::new();
                 if c.logistic {
-                    let first = last_logit != Some(a / p);
-                    last_logit = Some(a / p);
-                    row.push(text(if first {
-                        logit_labels[a / p].clone()
-                    } else {
-                        String::new()
-                    }));
+                    // the thresholds, the logit or the location parameters
+                    let group = (threshold, a / p);
+                    let label = match (threshold, c.ordinal.is_some()) {
+                        (true, _) => "Threshold".to_string(),
+                        (false, true) => "Location".to_string(),
+                        (false, false) => logit_labels[a / p].clone(),
+                    };
+                    let first = last_group != Some(group);
+                    last_group = Some(group);
+                    row.push(text(if first { label } else { String::new() }));
                 }
+                let name_of = if threshold {
+                    threshold_name(a)
+                } else {
+                    names[j].clone()
+                };
                 let b = est.b[a];
                 if est.redundant[a] {
                     redundant_seen = true;
-                    row.push(text(format!("{} (redundant)", names[j])));
+                    row.push(text(format!("{name_of} (redundant)")));
                     let width = cols.len() - headers;
                     if s.parameter {
                         row.push(Cell::Number(0.0));
@@ -1350,7 +1453,7 @@ impl Engine {
                     out.push(row);
                     continue;
                 }
-                row.push(text(names[j].clone()));
+                row.push(text(name_of));
                 let se = est.v[a][a].max(0.0).sqrt();
                 let lo = b - tq * se;
                 let hi = b + tq * se;
@@ -1403,8 +1506,13 @@ impl Engine {
 
         // Covariances and correlations of the parameter estimates
         // SHOW=NO leaves the intercept out of these tables too
-        let used: Vec<usize> = (0..est.len())
-            .filter(|&a| !est.redundant[a] && (show_intercept || !(intercept && a % p == 0)))
+        let used: Vec<usize> = order
+            .iter()
+            .copied()
+            .filter(|&a| {
+                !est.redundant[a]
+                    && (show_intercept || !(intercept && a < est.logits * p && a % p == 0))
+            })
             .collect();
         for (wanted, title) in [
             (c.print.covb, "Covariances of Parameter Estimates"),
@@ -2063,13 +2171,13 @@ impl Engine {
         if c.print.lmatrix {
             for (label, l) in &lmatrices {
                 let mut cols = plain(&["Contrast"]);
-                cols.extend((0..est.len()).map(|a| (String::new(), param_label(a))));
+                cols.extend(order.iter().map(|&a| (String::new(), param_label(a))));
                 let out = l
                     .iter()
                     .enumerate()
                     .map(|(i, row)| {
                         let mut cells = vec![text(format!("L{}", i + 1))];
-                        cells.extend(row.iter().map(|v| Cell::Number(*v)));
+                        cells.extend(order.iter().map(|&a| Cell::Number(row[a])));
                         cells
                     })
                     .collect();

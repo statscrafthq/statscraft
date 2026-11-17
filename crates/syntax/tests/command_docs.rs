@@ -206,6 +206,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "CSTABULATE",
             "CSGLM",
             "CSLOGISTIC",
+            "CSORDINAL",
         ],
     ),
     (
