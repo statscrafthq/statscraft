@@ -3644,8 +3644,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "CSPLAN",
-        summary: "Write or show an analysis plan of a complex sample: strata, clusters, weight and estimator per stage.",
-        syntax: "CSPLAN ANALYSIS /PLAN FILE='file' /PLANVARS ANALYSISWEIGHT=var [/SRSESTIMATOR TYPE=WOR | WR]\n\
+        summary: "Write or show the plan of a complex sample: how to draw it, or how to analyze it.",
+        syntax: "CSPLAN SAMPLE /PLAN FILE='file' [/PLANVARS [SAMPLEWEIGHT=var] [PREVIOUSWEIGHT=var]]\n\
+                 \x20  [/PRINT [PLAN] [MATRIX]]\n\
+                 \x20  /DESIGN [STAGELABEL='label'] [STRATA=vars] [CLUSTER=vars]\n\
+                 \x20  /METHOD TYPE=SIMPLE_WOR | SIMPLE_WR | SIMPLE_SYSTEMATIC | SIMPLE_CHROMY [ESTIMATION=DEFAULT | WR]\n\
+                 \x20  /SIZE VALUE=n | VARIABLE=var | MATRIX=vars; categories n; ...\n\
+                 \x20  | /RATE VALUE=f | VARIABLE=var | MATRIX=vars; categories f; ... [MINSIZE=n] [MAXSIZE=n]\n\
+                 \x20  [/STAGEVARS [INCLPROB[(var)]] [CUMWEIGHT[(var)]] [INDEX[(var)]] [POPSIZE[(var)]]\n\
+                 \x20             [SAMPSIZE[(var)]] [RATE[(var)]] [WEIGHT[(var)]]]\n\
+                 \x20  [/DESIGN ... /METHOD ... (a second and a third stage)].\n\
+                 CSPLAN ANALYSIS /PLAN FILE='file' /PLANVARS ANALYSISWEIGHT=var [/SRSESTIMATOR TYPE=WOR | WR]\n\
                  \x20  [/PRINT [PLAN] [MATRIX]]\n\
                  \x20  /DESIGN [STAGELABEL='label'] [STRATA=vars] [CLUSTER=vars]\n\
                  \x20  /ESTIMATOR TYPE=EQUAL_WOR | UNEQUAL_WOR | WR\n\
@@ -3654,19 +3663,66 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/DESIGN ... /ESTIMATOR ... (a second and a third stage)].\n\
                  CSPLAN VIEW /PLAN FILE='file' [/PRINT [PLAN] [MATRIX]].\n\
                  The plan is a small JSON file that the other CS commands read; CSPLAN does not read\n\
-                 the data. Each DESIGN starts a stage; the ESTIMATOR, POPSIZE and INCLPROB after it belong\n\
-                 to that stage. WR treats the units of the stage as drawn with replacement and ends the\n\
-                 design: later stages add nothing to the variance. EQUAL_WOR treats them as drawn without\n\
-                 replacement with equal chances and needs either the population size of each stratum\n\
-                 (POPSIZE, whole numbers) or the share of units drawn (INCLPROB, above 0 and at most 1), as\n\
-                 one value, a variable that holds it, or a matrix with one row per stratum; it brings the\n\
-                 finite population correction. A stage followed by another needs CLUSTER. SRSESTIMATOR picks\n\
-                 the simple random sampling variance that design effects compare with: WOR (the default)\n\
-                 includes the finite population correction, WR does not. PRINT PLAN (the default) shows the\n\
-                 plan, MATRIX the matrix rows. Not supported yet: CSPLAN SAMPLE and the UNEQUAL_WOR\n\
-                 estimator in analysis.",
-        example: "CSPLAN ANALYSIS /PLAN FILE='farms_plan.json' /PLANVARS ANALYSISWEIGHT=wt /DESIGN STRATA=county CLUSTER=parish /ESTIMATOR TYPE=WR.",
+                 the data. Each DESIGN starts a stage, and the subcommands after it belong to that stage.\n\
+                 A stage followed by another needs CLUSTER.\n\
+                 SAMPLE plans are carried out by CSSELECT. Per stage, METHOD says how units are drawn inside\n\
+                 each stratum: SIMPLE_WOR at random without replacement, SIMPLE_WR with replacement (last\n\
+                 stage only), SIMPLE_SYSTEMATIC every N/n-th unit from a random start, SIMPLE_CHROMY\n\
+                 sequentially with Chromy's method. SIZE gives the number of units per stratum, RATE the\n\
+                 share (n is the share times the population rounded, then raised to MINSIZE or lowered to\n\
+                 MAXSIZE); either one as a value, a variable that holds it, or a matrix with a row per\n\
+                 stratum. STAGEVARS renames the variables CSSELECT writes and asks for more: the inclusion\n\
+                 probability and the cumulative weight are always written (InclusionProbability_1_ and\n\
+                 SampleWeightCumulative_1_ for stage 1), the duplicate index for a stage drawn with\n\
+                 replacement, and on request the population size, sample size, rate and weight of the stage.\n\
+                 The final weight (SAMPLEWEIGHT, default SampleWeight_Final_) multiplies the stage weights and\n\
+                 PREVIOUSWEIGHT. A sample plan is an analysis plan too: SIMPLE_WOR stages are analyzed as\n\
+                 EQUAL_WOR with the inclusion probability variable, the others as WR (and every stage as WR\n\
+                 with ESTIMATION=WR, first stage only), so CSDESCRIPTIVES can read the plan of a drawn sample.\n\
+                 ANALYSIS plans describe a sample drawn elsewhere. WR treats the units of the stage as drawn\n\
+                 with replacement and ends the design: later stages add nothing to the variance. EQUAL_WOR\n\
+                 treats them as drawn without replacement with equal chances and needs either the population\n\
+                 size of each stratum (POPSIZE, whole numbers) or the share of units drawn (INCLPROB, above 0\n\
+                 and at most 1); it brings the finite population correction. SRSESTIMATOR picks the simple\n\
+                 random sampling variance that design effects compare with: WOR (the default) includes the\n\
+                 finite population correction, WR does not.\n\
+                 PRINT PLAN (the default) shows the plan, MATRIX the matrix rows. Not supported yet: the\n\
+                 methods proportional to size (PPS_..., and so MOS, which is ignored with a warning) and the\n\
+                 UNEQUAL_WOR estimator in analysis.",
+        example: "CSPLAN SAMPLE /PLAN FILE='orchards_draw.json' /DESIGN STRATA=valley CLUSTER=orchard /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=3 /DESIGN /METHOD TYPE=SIMPLE_SYSTEMATIC /RATE VALUE=0.25 MINSIZE=2.",
         parse: complex_samples::csplan,
+    },
+    CommandSpec {
+        name: "CSSELECT",
+        summary: "Draw a complex sample from the active dataset by a plan written by CSPLAN SAMPLE.",
+        syntax: "CSSELECT /PLAN FILE='file' [/CRITERIA [STAGES=n [n [n]]] [SEED=RANDOM | n]]\n\
+                 \x20  [/CLASSMISSING EXCLUDE | INCLUDE] [/DATA [RENAMEVARS] [PRESORTED]]\n\
+                 \x20  [/SAMPLEFILE OUTFILE='file' | dataset [KEEP=vars] [DROP=vars]]\n\
+                 \x20  [/JOINTPROB OUTFILE='file'] [/PRINT [SELECTION] [CPS]].\n\
+                 The active dataset is the frame. Stage by stage, the units (cases, or the combinations of\n\
+                 the CLUSTER values) are drawn inside each stratum; a later stage draws only inside the units\n\
+                 the earlier one selected. STAGES runs part of the plan: a later stage then needs the\n\
+                 cumulative weight variable of the stage before it in the data. A case with a missing\n\
+                 stratum or cluster (user-missing ones count under CLASSMISSING=INCLUDE), or a missing size,\n\
+                 rate or previous weight, is not part of the frame. FILTER and USE limit the frame; WEIGHT\n\
+                 and SPLIT FILE are ignored with a warning.\n\
+                 SEED=n makes the draw repeatable and leaves the session's generator alone. Without it the\n\
+                 seed comes from the session's generator when SET SEED was given in the session, so the\n\
+                 same syntax draws the same sample again; otherwise from the clock.\n\
+                 Without SAMPLEFILE the new variables join the active dataset, which keeps every\n\
+                 case: a case outside the sample has missing weights. SAMPLEFILE writes the selected cases\n\
+                 only, with the variables KEEP and DROP leave (applied in their order) and the new ones; a\n\
+                 unit drawn several times with replacement appears once per draw, numbered by the index\n\
+                 variable. A plan that draws with replacement needs SAMPLEFILE. A new variable whose name\n\
+                 already exists is an error; with RENAMEVARS the existing variable is renamed to the first\n\
+                 free name of the form name_1, name_2, ... with a warning.\n\
+                 Stage inclusion probabilities are n/N (with replacement 1 - (1 - 1/N)^n) and stage weights\n\
+                 N/n per draw. PRINT SELECTION (the default) shows per stage and stratum the population size,\n\
+                 the sample size and the rate; CPS counts the cases. JOINTPROB is for the methods\n\
+                 proportional to size, not supported yet, and is ignored with a warning. Not supported yet:\n\
+                 SELECTRULE.",
+        example: "CSSELECT /PLAN FILE='orchards_draw.json' /CRITERIA SEED=4711 /SAMPLEFILE OUTFILE='orchards_sample.sav' DROP=notes /PRINT SELECTION CPS.",
+        parse: complex_samples::csselect,
     },
     CommandSpec {
         name: "CSDESCRIPTIVES",

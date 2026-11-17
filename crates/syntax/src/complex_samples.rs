@@ -1,5 +1,5 @@
-//! Parsers of the complex samples commands: CSPLAN (analysis plans), CSDESCRIPTIVES and
-//! CSTABULATE.
+//! Parsers of the complex samples commands: CSPLAN (analysis and sample plans), CSDESCRIPTIVES
+//! and CSTABULATE. CSPLAN SAMPLE's own subcommands and CSSELECT are in `sampling`.
 //!
 //! Rules from the Command Syntax Reference, in our words:
 //! - CSPLAN ANALYSIS writes a plan: PLAN FILE, PLANVARS ANALYSISWEIGHT (required), an optional
@@ -29,7 +29,11 @@ use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
 
 mod regression;
+mod sampling;
 pub use regression::*;
+pub(crate) use sampling::csselect;
+pub use sampling::{CsMethod, CsSampling, CsStageVars, Csselect};
+use sampling::{analysis_side, check_sample, new_sampling, stage_subcommand};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CsEstimator {
@@ -69,11 +73,15 @@ pub struct CsStage {
     pub estimator: CsEstimator,
     pub popsize: Option<CsRate>,
     pub inclprob: Option<CsRate>,
+    /// How CSSELECT draws the stage, in a sample design; there `estimator` is the default one
+    /// the method implies.
+    pub sample: Option<CsSampling>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CsplanMode {
     Analysis,
+    Sample,
     View,
 }
 
@@ -81,8 +89,10 @@ pub enum CsplanMode {
 pub struct Csplan {
     pub mode: CsplanMode,
     pub file: String,
-    /// ANALYSISWEIGHT; None only for VIEW.
+    /// ANALYSISWEIGHT, or in a sample design SAMPLEWEIGHT (None for the default name).
     pub weight: Option<String>,
+    /// PREVIOUSWEIGHT of a sample design.
+    pub previous_weight: Option<String>,
     /// SRSESTIMATOR TYPE=WR: design effects compare with sampling with replacement.
     pub srs_wr: bool,
     pub print_plan: bool,
@@ -233,25 +243,26 @@ fn once(p: &Parser, start: usize, seen: &mut Vec<&'static str>, name: &'static s
 fn rate(p: &mut Parser, what: &str) -> PResult<CsRate> {
     let start = p.pos;
     let check = |p: &Parser, v: f64| -> PResult<f64> {
-        let ok = if what == "POPSIZE" {
-            v >= 1.0 && v.fract() == 0.0
-        } else {
-            v > 0.0 && v <= 1.0
+        let (ok, rule) = match what {
+            "POPSIZE" => (
+                v >= 1.0 && v.fract() == 0.0,
+                "a population size is a positive whole number",
+            ),
+            "SIZE" => (
+                v >= 1.0 && v.fract() == 0.0,
+                "a sample size is a positive whole number",
+            ),
+            // at most 1 without replacement, checked once the method is known
+            "RATE" => (v > 0.0, "a sampling rate is above 0"),
+            _ => (
+                v > 0.0 && v <= 1.0,
+                "an inclusion probability is above 0 and at most 1",
+            ),
         };
         if ok {
             Ok(v)
-        } else if what == "POPSIZE" {
-            Err(error(
-                p,
-                start,
-                format!("a population size is a positive whole number, got {v}"),
-            ))
         } else {
-            Err(error(
-                p,
-                start,
-                format!("an inclusion probability is above 0 and at most 1, got {v}"),
-            ))
+            Err(error(p, start, format!("{rule}, got {v}")))
         }
     };
     if eat_assignment(p, "VALUE")? {
@@ -306,6 +317,7 @@ fn design(p: &mut Parser) -> PResult<CsStage> {
         estimator: CsEstimator::Wr,
         popsize: None,
         inclprob: None,
+        sample: None,
     };
     let mut seen = Vec::new();
     while !at_end(p) {
@@ -329,8 +341,16 @@ fn design(p: &mut Parser) -> PResult<CsStage> {
 /// Checks a finished plan: estimators, clusters, roles and matrix variables.
 fn check_plan(p: &Parser, plan: &mut Csplan, estimators: &[bool]) -> PResult<()> {
     let end = p.pos;
+    let command = match plan.mode {
+        CsplanMode::Sample => "CSPLAN SAMPLE",
+        _ => "CSPLAN ANALYSIS",
+    };
     if plan.stages.is_empty() {
-        return Err(error(p, end, "CSPLAN ANALYSIS needs a DESIGN subcommand"));
+        return Err(error(
+            p,
+            end,
+            format!("{command} needs a DESIGN subcommand"),
+        ));
     }
     let Some(weight) = &plan.weight else {
         return Err(error(
@@ -340,6 +360,16 @@ fn check_plan(p: &Parser, plan: &mut Csplan, estimators: &[bool]) -> PResult<()>
         ));
     };
     let mut roles: Vec<String> = vec![weight.to_uppercase()];
+    if let Some(previous) = &plan.previous_weight {
+        if roles.contains(&previous.to_uppercase()) {
+            return Err(error(
+                p,
+                end,
+                format!("{previous} has more than one role in the plan"),
+            ));
+        }
+        roles.push(previous.to_uppercase());
+    }
     // the strata and clusters of the earlier stages, which a MATRIX may name
     let mut earlier: Vec<String> = Vec::new();
     let last = plan.stages.len() - 1;
@@ -410,7 +440,11 @@ fn check_plan(p: &Parser, plan: &mut Csplan, estimators: &[bool]) -> PResult<()>
                 .chain(&stage.clusters)
                 .map(|v| v.to_uppercase()),
         );
-        for rate in stage.popsize.iter().chain(&stage.inclprob) {
+        let sample = stage.sample.as_ref();
+        let sizes = sample
+            .into_iter()
+            .flat_map(|s| s.size.iter().chain(&s.rate));
+        for rate in stage.popsize.iter().chain(&stage.inclprob).chain(sizes) {
             match rate {
                 CsRate::Matrix { variables, .. } => {
                     if let Some(v) = variables
@@ -440,22 +474,29 @@ fn check_plan(p: &Parser, plan: &mut Csplan, estimators: &[bool]) -> PResult<()>
                 CsRate::Value(_) => {}
             }
         }
+        // the variables CSSELECT writes need names of their own too
+        for name in sample.iter().flat_map(|s| s.vars.names()) {
+            let upper = name.to_uppercase();
+            if roles.contains(&upper) {
+                return Err(error(
+                    p,
+                    end,
+                    format!("{name} has more than one role in the plan"),
+                ));
+            }
+            roles.push(upper);
+        }
     }
     Ok(())
 }
 
 pub(crate) fn csplan(p: &mut Parser) -> PResult<Command> {
-    let start = p.pos;
     let mode = if p.eat_keyword("ANALYSIS") {
         CsplanMode::Analysis
     } else if p.eat_keyword("VIEW") {
         CsplanMode::View
     } else if p.eat_keyword("SAMPLE") {
-        return Err(error(
-            p,
-            start,
-            "CSPLAN SAMPLE (sample designs for drawing samples) is not supported yet; CSPLAN ANALYSIS and VIEW are",
-        ));
+        CsplanMode::Sample
     } else {
         return Err(p.unexpected(&["ANALYSIS", "VIEW", "SAMPLE"]));
     };
@@ -463,6 +504,7 @@ pub(crate) fn csplan(p: &mut Parser) -> PResult<Command> {
         mode,
         file: String::new(),
         weight: None,
+        previous_weight: None,
         srs_wr: false,
         print_plan: true,
         print_matrix: false,
@@ -500,24 +542,56 @@ pub(crate) fn csplan(p: &mut Parser) -> PResult<Command> {
             if mode == CsplanMode::View {
                 return Err(error(p, start, "CSPLAN VIEW takes only PLAN and PRINT"));
             }
+            if at_end(p) {
+                return Err(error(p, start, "PLANVARS needs a weight variable"));
+            }
+            let sample = mode == CsplanMode::Sample;
+            let mut keys = Vec::new();
             while !at_end(p) {
+                let at = p.pos;
                 if eat_assignment(p, "ANALYSISWEIGHT")? {
-                    plan.weight = Some(p.name("the weight variable")?);
-                } else if eat_assignment(p, "SAMPLEWEIGHT")? || eat_assignment(p, "PREVIOUSWEIGHT")?
+                    once(p, at, &mut keys, "ANALYSISWEIGHT")?;
+                    let name = p.name("the weight variable")?;
+                    if sample {
+                        plan.ignored
+                            .push("ANALYSISWEIGHT belongs to analysis plans and is ignored".into());
+                    } else {
+                        plan.weight = Some(name);
+                    }
+                } else if let Some(key) = ["SAMPLEWEIGHT", "PREVIOUSWEIGHT"]
+                    .into_iter()
+                    .find(|k| matches!(eat_assignment(p, k), Ok(true)))
                 {
-                    p.name("a variable name")?;
-                    plan.ignored.push(
-                        "SAMPLEWEIGHT and PREVIOUSWEIGHT belong to sample designs and are ignored"
-                            .into(),
-                    );
+                    once(p, at, &mut keys, key)?;
+                    let name = p.name("a variable name")?;
+                    if !sample {
+                        plan.ignored.push(format!(
+                            "{key} belongs to sample plans (CSPLAN SAMPLE) and is ignored"
+                        ));
+                    } else if key == "SAMPLEWEIGHT" {
+                        plan.weight = Some(name);
+                    } else {
+                        plan.previous_weight = Some(name);
+                    }
                 } else {
-                    return Err(p.unexpected(&["ANALYSISWEIGHT ="]));
+                    return Err(p.unexpected(&[
+                        "ANALYSISWEIGHT =",
+                        "SAMPLEWEIGHT =",
+                        "PREVIOUSWEIGHT =",
+                    ]));
                 }
             }
         } else if p.eat_keyword("SRSESTIMATOR") {
             once(p, start, &mut seen, "SRSESTIMATOR")?;
             if mode == CsplanMode::View {
                 return Err(error(p, start, "CSPLAN VIEW takes only PLAN and PRINT"));
+            }
+            if mode == CsplanMode::Sample {
+                return Err(error(
+                    p,
+                    start,
+                    "SRSESTIMATOR belongs to analysis plans (CSPLAN ANALYSIS)",
+                ));
             }
             require_assignment(p, "TYPE")?;
             if p.eat_keyword("WOR") {
@@ -557,9 +631,22 @@ pub(crate) fn csplan(p: &mut Parser) -> PResult<Command> {
                     "a plan has at most three stages (DESIGN subcommands)",
                 ));
             }
-            plan.stages.push(design(p)?);
+            let mut stage = design(p)?;
+            if mode == CsplanMode::Sample {
+                stage.sample = Some(new_sampling(plan.stages.len() + 1));
+            }
+            plan.stages.push(stage);
             estimators.push(false);
             stage_seen.clear();
+        } else if let Some(name) = ["ESTIMATOR", "POPSIZE", "INCLPROB"]
+            .into_iter()
+            .find(|k| mode == CsplanMode::Sample && p.at_keyword(k))
+        {
+            return Err(error(
+                p,
+                start,
+                format!("{name} belongs to analysis plans (CSPLAN ANALYSIS), not to CSPLAN SAMPLE"),
+            ));
         } else if p.eat_keyword("ESTIMATOR") {
             stage_only(p, &plan, "ESTIMATOR")?;
             once(p, start, &mut stage_seen, "ESTIMATOR")?;
@@ -601,13 +688,27 @@ pub(crate) fn csplan(p: &mut Parser) -> PResult<Command> {
             .find(|k| p.at_keyword(k))
         {
             p.pos += 1;
-            return Err(error(
+            stage_only(p, &plan, name)?;
+            if mode != CsplanMode::Sample {
+                return Err(error(
+                    p,
+                    start,
+                    format!(
+                        "{name} belongs to sample plans (CSPLAN SAMPLE), not to CSPLAN ANALYSIS"
+                    ),
+                ));
+            }
+            once(p, start, &mut stage_seen, name)?;
+            let number = plan.stages.len();
+            stage_subcommand(
                 p,
                 start,
-                format!(
-                    "{name} belongs to sample designs (CSPLAN SAMPLE), which are not supported yet"
-                ),
-            ));
+                name,
+                plan.stages.last_mut().expect("checked"),
+                number,
+                estimators.last_mut().expect("checked"),
+                &mut plan.ignored,
+            )?;
         } else {
             return Err(p.subcommand_error("CSPLAN", &[]));
         }
@@ -619,8 +720,20 @@ pub(crate) fn csplan(p: &mut Parser) -> PResult<Command> {
     if plan.file.is_empty() {
         return Err(error(p, p.pos, "CSPLAN needs PLAN FILE='name'"));
     }
-    if mode == CsplanMode::Analysis {
-        check_plan(p, &mut plan, &estimators)?;
+    match mode {
+        CsplanMode::Analysis => check_plan(p, &mut plan, &estimators)?,
+        CsplanMode::Sample => {
+            if plan.weight.is_none() {
+                plan.weight = Some("SampleWeight_Final_".into());
+            }
+            if plan.stages.is_empty() {
+                return Err(error(p, p.pos, "CSPLAN SAMPLE needs a DESIGN subcommand"));
+            }
+            check_sample(p, &mut plan, &estimators)?;
+            check_plan(p, &mut plan, &estimators)?;
+            analysis_side(&mut plan);
+        }
+        CsplanMode::View => {}
     }
     Ok(Command::Csplan(Box::new(plan)))
 }
@@ -859,7 +972,7 @@ pub(crate) fn csdescriptives(p: &mut Parser) -> PResult<Command> {
     Ok(Command::Csdescriptives(Box::new(c)))
 }
 
-/// A RATIO variable list: it ends before the next keyword (shortened or not) and its '='.
+/// A RATIO (or SAMPLEFILE KEEP and DROP) variable list: it ends before the next keyword (shortened or not) and its '='.
 fn ratio_list(p: &mut Parser) -> PResult<Vec<VarItem>> {
     let mut items = Vec::new();
     while let Some(TokenKind::Word(_)) = p.peek() {

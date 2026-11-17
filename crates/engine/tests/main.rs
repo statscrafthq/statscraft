@@ -17,6 +17,7 @@ mod complex_samples;
 mod correspondence;
 mod coxreg;
 mod cs_regression;
+mod cs_sampling;
 mod ctables;
 mod ctables_categories;
 mod ctables_mrsets;

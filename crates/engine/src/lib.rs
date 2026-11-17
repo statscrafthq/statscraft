@@ -1191,6 +1191,10 @@ impl Engine {
                 }
                 return self.procedure(command);
             }
+            Command::Csselect(c) => {
+                self.csselect_names(c)?;
+                return self.procedure(command);
+            }
             Command::Codebook(command) => return self.codebook(command),
             Command::CompareDatasets(command) => {
                 self.begin_pass()?;
@@ -1476,6 +1480,7 @@ impl Engine {
             Command::Glm(command) => self.glm(command),
             Command::Mixed(command) => self.mixed_model(command),
             Command::Csdescriptives(command) => self.csdescriptives(command),
+            Command::Csselect(command) => self.csselect(command),
             Command::Cstabulate(command) => self.cstabulate(command),
             Command::CsModel(command) => self.cs_model(command),
             Command::Cluster(command) => self.cluster(command),

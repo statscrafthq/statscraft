@@ -250,6 +250,7 @@ impl Engine {
                 | Command::MultipleCorrespondence(_)
                 | Command::Catpca(_)
                 | Command::Csdescriptives(_)
+                | Command::Csselect(_)
                 | Command::Cstabulate(_)
                 | Command::CsModel(_)
         );

@@ -202,6 +202,7 @@ const AREAS: &[(&str, &[&str])] = &[
         "Complex samples",
         &[
             "CSPLAN",
+            "CSSELECT",
             "CSDESCRIPTIVES",
             "CSTABULATE",
             "CSGLM",

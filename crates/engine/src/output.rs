@@ -72,6 +72,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Detectanomaly(_)
         | Command::Tree(_)
         | Command::Csdescriptives(_)
+        | Command::Csselect(_)
         | Command::Cstabulate(_)
         | Command::CsModel(_)
         | Command::Graph(_)

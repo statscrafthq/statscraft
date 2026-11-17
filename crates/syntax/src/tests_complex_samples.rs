@@ -111,8 +111,10 @@ fn csplan_rules_give_errors() {
         .contains("not a stratum variable")
     );
     assert!(err(&format!("{base} /DESIGN /ESTIMATOR TYPE=UNEQUAL_WOR.")).contains("needs CLUSTER"));
-    assert!(err(&format!("{base} /DESIGN /METHOD TYPE=SIMPLE_WOR.")).contains("not supported yet"));
-    assert!(err("CSPLAN SAMPLE /PLAN FILE='a'.").contains("not supported yet"));
+    assert!(
+        err(&format!("{base} /DESIGN /METHOD TYPE=SIMPLE_WOR."))
+            .contains("belongs to sample plans")
+    );
     assert!(
         err(&format!(
             "{base} /DESIGN CLUSTER=v /ESTIMATOR TYPE=EQUAL_WOR /POPSIZE VARIABLE=psz
@@ -126,6 +128,189 @@ fn csplan_rules_give_errors() {
     );
     assert!(err(&format!("{base} /ESTIMATOR TYPE=WR.")).contains("give DESIGN first"));
     assert!(err("CSPLAN ANALYSIS /PLAN FILE 'a'.").contains("unexpected string"));
+}
+
+fn sample(source: &str) -> Csplan {
+    let p = plan(source);
+    assert_eq!(p.mode, CsplanMode::Sample);
+    p
+}
+
+#[test]
+fn csplan_sample_two_stages_with_defaults_and_analysis_side() {
+    let p = sample(
+        "CSPLAN SAMPLE /PLAN FILE='mills.json' /PLANVARS PREVIOUSWEIGHT=w0 /PRINT MATRIX
+           /DESIGN STAGELABEL='mills' STRATA=river CLUSTER=mill /METHOD TYPE=SIMPLE_WOR
+           /SIZE MATRIX=river; 'north' 2; 'south' 3
+           /STAGEVARS POPSIZE WEIGHT(mill_w) INCLPROB(p_mill)
+           /DESIGN CLUSTER=sack /METHOD TYPE=SIMPLE_SYSTEMATIC /RATE VALUE=0.2 MINSIZE=1 MAXSIZE=4
+           /DESIGN /METHOD TYPE=SIMPLE_WR /SIZE VARIABLE=k.",
+    );
+    assert_eq!(p.weight.as_deref(), Some("SampleWeight_Final_"));
+    assert_eq!(p.previous_weight.as_deref(), Some("w0"));
+    assert!(!p.print_plan && p.print_matrix);
+    let first = p.stages[0].sample.as_ref().unwrap();
+    assert_eq!(first.method, CsMethod::SimpleWor);
+    assert_eq!(first.vars.inclprob, "p_mill");
+    assert_eq!(first.vars.cumweight, "SampleWeightCumulative_1_");
+    assert_eq!(first.vars.popsize.as_deref(), Some("PopulationSize_1_"));
+    assert_eq!(first.vars.weight.as_deref(), Some("mill_w"));
+    assert_eq!(first.vars.index, None);
+    // SIMPLE_WOR is analyzed as EQUAL_WOR with the inclusion probability CSSELECT writes
+    assert_eq!(p.stages[0].estimator, CsEstimator::EqualWor);
+    assert_eq!(
+        p.stages[0].inclprob,
+        Some(CsRate::Variable("p_mill".into()))
+    );
+    let second = p.stages[1].sample.as_ref().unwrap();
+    assert_eq!(second.rate, Some(CsRate::Value(0.2)));
+    assert_eq!((second.minsize, second.maxsize), (Some(1.0), Some(4.0)));
+    assert_eq!(p.stages[1].estimator, CsEstimator::Wr);
+    assert_eq!(p.stages[1].inclprob, None);
+    let third = p.stages[2].sample.as_ref().unwrap();
+    assert_eq!(third.size, Some(CsRate::Variable("k".into())));
+    assert_eq!(third.vars.index.as_deref(), Some("Index_3_"));
+}
+
+#[test]
+fn csplan_sample_notes_and_estimation_wr() {
+    let p = sample(
+        "CSPLAN SAMPLE /PLAN FILE='a' /PLANVARS ANALYSISWEIGHT=w SAMPLEWEIGHT=fw
+           /DESIGN /METHOD TYPE=SIMPLE_WOR ESTIMATION=WR /MOS VARIABLE=m /SIZE VALUE=4
+           /STAGEVARS INDEX.",
+    );
+    assert_eq!(p.weight.as_deref(), Some("fw"));
+    assert_eq!(p.stages[0].estimator, CsEstimator::Wr);
+    assert_eq!(p.stages[0].sample.as_ref().unwrap().vars.index, None);
+    assert_eq!(p.ignored.len(), 3, "{:?}", p.ignored);
+}
+
+#[test]
+fn csplan_sample_rules_give_errors() {
+    let base = "CSPLAN SAMPLE /PLAN FILE='a'";
+    let cases = [
+        ("/DESIGN /METHOD TYPE=PPS_WOR /SIZE VALUE=2", "PPS_WOR"),
+        ("/DESIGN /SIZE VALUE=2", "needs a METHOD"),
+        ("/DESIGN /METHOD TYPE=SIMPLE_WOR", "needs SIZE or RATE"),
+        (
+            "/DESIGN /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=2 /RATE VALUE=0.1",
+            "cannot both",
+        ),
+        (
+            "/DESIGN /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=2.5",
+            "whole number",
+        ),
+        (
+            "/DESIGN /METHOD TYPE=SIMPLE_WOR /RATE VALUE=1.5",
+            "at most 1",
+        ),
+        (
+            "/DESIGN /METHOD TYPE=SIMPLE_WOR /RATE VALUE=0.5 MINSIZE=5 MAXSIZE=2",
+            "MINSIZE is above",
+        ),
+        (
+            "/DESIGN CLUSTER=c /METHOD TYPE=SIMPLE_WR /SIZE VALUE=2 /DESIGN /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=1",
+            "only the last stage",
+        ),
+        (
+            "/DESIGN CLUSTER=c /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=2 /DESIGN /METHOD TYPE=SIMPLE_WOR ESTIMATION=WR /SIZE VALUE=1",
+            "first stage",
+        ),
+        (
+            "/DESIGN /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=2 /DESIGN /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=1",
+            "needs CLUSTER",
+        ),
+        (
+            "/DESIGN /METHOD TYPE=SIMPLE_WOR /ESTIMATOR TYPE=WR",
+            "analysis plans",
+        ),
+        (
+            "/SRSESTIMATOR TYPE=WR /DESIGN /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=1",
+            "analysis plans",
+        ),
+        (
+            "/DESIGN STRATA=r /METHOD TYPE=SIMPLE_WOR /SIZE MATRIX=q; 1 2",
+            "not a stratum variable",
+        ),
+        (
+            "/DESIGN STRATA=r /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=1 /STAGEVARS WEIGHT(r)",
+            "more than one role",
+        ),
+        (
+            "/DESIGN /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=1 /STAGEVARS RATE RATE",
+            "only once",
+        ),
+        (
+            "/DESIGN /METHOD TYPE=SIMPLE_WOR /SIZE VALUE=1 /METHOD TYPE=SIMPLE_WR",
+            "only once",
+        ),
+        ("/DESIGN /METHOD TYPE=SIMPLE /SIZE VALUE=1", "unexpected"),
+    ];
+    for (rest, expected) in cases {
+        let message = err(&format!("{base} {rest}."));
+        assert!(message.contains(expected), "{rest}: {message}");
+    }
+    assert!(err("CSPLAN SAMPLE /PLAN FILE='a'.").contains("needs a DESIGN"));
+}
+
+fn select(source: &str) -> Csselect {
+    match one(source) {
+        Command::Csselect(c) => *c,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn csselect_parses_every_subcommand() {
+    let c = select(
+        "CSSELECT /PLAN FILE='mills.json' /CRITERIA STAGES=2 3 SEED=4242 /CLASSMISSING INCLUDE
+           /DATA RENAMEVARS PRESORTED /SAMPLEFILE OUTFILE='drawn.sav' DROP=notes KEEP=ALL
+           /JOINTPROB OUTFILE='joint.sav' /PRINT CPS.",
+    );
+    assert_eq!(c.plan, "mills.json");
+    assert_eq!(c.stages, [2, 3]);
+    assert_eq!(c.seed, Some(4242));
+    assert!(c.include && c.renamevars);
+    assert_eq!(c.samplefile.as_deref(), Some("drawn.sav"));
+    assert_eq!(c.subsets.len(), 2);
+    assert!(!c.subsets[0].0 && c.subsets[1].0);
+    assert_eq!(c.jointprob.as_deref(), Some("joint.sav"));
+    assert!(!c.print_selection && c.print_cps);
+    let d = select("CSSELECT /PLAN FILE='p' /CRITERIA SEED=RANDOM.");
+    assert!(d.seed.is_none() && d.stages.is_empty() && d.print_selection);
+}
+
+#[test]
+fn csselect_rules_give_errors() {
+    let cases = [
+        ("CSSELECT /CRITERIA SEED=3.", "needs PLAN"),
+        (
+            "CSSELECT /PLAN FILE='p' /CRITERIA STAGES=1 3.",
+            "consecutive",
+        ),
+        (
+            "CSSELECT /PLAN FILE='p' /CRITERIA SEED=0.",
+            "positive whole number",
+        ),
+        (
+            "CSSELECT /PLAN FILE='p' /SELECTRULE OUTFILE='r.txt'.",
+            "not supported yet",
+        ),
+        ("CSSELECT /PLAN FILE='p' /PRINT.", "needs SELECTION or CPS"),
+        (
+            "CSSELECT /PLAN FILE='p' /SAMPLEFILE KEEP=a.",
+            "needs OUTFILE",
+        ),
+        (
+            "CSSELECT /PLAN FILE='p' /SAMPLEFILE OUTFILE='x' /JOINTPROB OUTFILE='x'.",
+            "same file",
+        ),
+        ("CSSELECT /PLAN FILE='p' /PLAN FILE='q'.", "only once"),
+    ];
+    for (source, expected) in cases {
+        let message = err(source);
+        assert!(message.contains(expected), "{source}: {message}");
+    }
 }
 
 #[test]

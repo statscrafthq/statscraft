@@ -1,9 +1,11 @@
-//! Complex samples: CSPLAN analysis plans, CSDESCRIPTIVES and CSTABULATE.
+//! Complex samples: CSPLAN plans, CSDESCRIPTIVES and CSTABULATE; CSSELECT is in `sampling`.
 //!
 //! Rules from the Command Syntax Reference and the Algorithms manual, in our words:
 //! - The plan is a JSON file of our own (format "statscraft-analysis-plan", version 1) with the
 //!   analysis weight, the simple random sampling estimator for design effects and one to three
-//!   stages of strata, clusters, estimator and population size or inclusion probability.
+//!   stages of strata, clusters, estimator and population size or inclusion probability. A plan
+//!   of kind "sample" (CSPLAN SAMPLE; plans without a kind are "analysis") also keeps, per stage,
+//!   how CSSELECT draws it, and its analysis side reads the variables CSSELECT writes.
 //! - A case belongs to the design when its weight, strata, clusters and rate variables are all
 //!   valid (user-missing strata and clusters count as valid under CLASSMISSING=INCLUDE).
 //! - Every estimate is a total or a ratio of totals. With z_i = w_i u_i, the variance of the
@@ -42,14 +44,26 @@ use statscraft_syntax::{
 use std::collections::HashMap;
 
 mod regression;
+mod sampling;
 
 const FORMAT: &str = "statscraft-analysis-plan";
+
+fn analysis_kind() -> String {
+    "analysis".into()
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct PlanFile {
     format: String,
     version: u32,
+    /// "analysis" or "sample".
+    #[serde(default = "analysis_kind")]
+    kind: String,
+    /// The analysis weight; in a sample plan also the final weight CSSELECT writes.
     weight: String,
+    /// A sample plan's weight from an earlier selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    previous_weight: Option<String>,
     /// "WOR" or "WR".
     srs_estimator: String,
     stages: Vec<PlanStage>,
@@ -69,6 +83,44 @@ struct PlanStage {
     popsize: Option<PlanRate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     inclprob: Option<PlanRate>,
+    /// How CSSELECT draws the stage, in a sample plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sample: Option<PlanSampling>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct PlanSampling {
+    /// SIMPLE_WOR, SIMPLE_WR, SIMPLE_SYSTEMATIC or SIMPLE_CHROMY.
+    method: String,
+    /// ESTIMATION=WR
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    estimation_wr: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    size: Option<PlanRate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rate: Option<PlanRate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    minsize: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    maxsize: Option<f64>,
+    variables: PlanStageVars,
+}
+
+/// The names of the variables CSSELECT writes for a stage.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct PlanStageVars {
+    inclprob: String,
+    cumweight: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    index: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    popsize: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sampsize: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    weight: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -139,7 +191,13 @@ fn plan_of(command: &Csplan) -> PlanFile {
     PlanFile {
         format: FORMAT.into(),
         version: 1,
+        kind: match command.mode {
+            CsplanMode::Sample => "sample",
+            _ => "analysis",
+        }
+        .into(),
         weight: command.weight.clone().unwrap_or_default(),
+        previous_weight: command.previous_weight.clone(),
         srs_estimator: if command.srs_wr { "WR" } else { "WOR" }.into(),
         stages: command
             .stages
@@ -151,6 +209,23 @@ fn plan_of(command: &Csplan) -> PlanFile {
                 estimator: s.estimator.keyword().into(),
                 popsize: s.popsize.as_ref().map(plan_rate),
                 inclprob: s.inclprob.as_ref().map(plan_rate),
+                sample: s.sample.as_ref().map(|d| PlanSampling {
+                    method: d.method.keyword().into(),
+                    estimation_wr: d.estimation_wr,
+                    size: d.size.as_ref().map(plan_rate),
+                    rate: d.rate.as_ref().map(plan_rate),
+                    minsize: d.minsize,
+                    maxsize: d.maxsize,
+                    variables: PlanStageVars {
+                        inclprob: d.vars.inclprob.clone(),
+                        cumweight: d.vars.cumweight.clone(),
+                        index: d.vars.index.clone(),
+                        popsize: d.vars.popsize.clone(),
+                        sampsize: d.vars.sampsize.clone(),
+                        rate: d.vars.rate.clone(),
+                        weight: d.vars.weight.clone(),
+                    },
+                }),
             })
             .collect(),
     }
@@ -174,9 +249,88 @@ fn rate_text(rate: &PlanRate) -> String {
     }
 }
 
+fn method_text(method: &str) -> &'static str {
+    match method {
+        "SIMPLE_WOR" => "Simple random, without replacement",
+        "SIMPLE_WR" => "Simple random, with replacement",
+        "SIMPLE_SYSTEMATIC" => "Systematic",
+        "SIMPLE_CHROMY" => "Chromy sequential",
+        _ => "Unknown",
+    }
+}
+
+fn none(list: &[String]) -> String {
+    if list.is_empty() {
+        "None".to_string()
+    } else {
+        list.join(", ")
+    }
+}
+
+/// The sampling side of a sample plan.
+fn sample_table(plan: &PlanFile, file: &str) -> Table {
+    let mut rows = vec![
+        vec![text("Plan"), text("File"), text(file)],
+        vec![text(""), text("Final sample weight"), text(&plan.weight)],
+    ];
+    if let Some(previous) = &plan.previous_weight {
+        rows.push(vec![text(""), text("Previous weight"), text(previous)]);
+    }
+    for (s, stage) in plan.stages.iter().enumerate() {
+        let Some(d) = &stage.sample else { continue };
+        let name = format!("Stage {}", s + 1);
+        let label = stage.label.clone().unwrap_or_else(|| name.clone());
+        rows.push(vec![text(&name), text("Label"), text(label)]);
+        rows.push(vec![text(""), text("Strata"), text(none(&stage.strata))]);
+        rows.push(vec![
+            text(""),
+            text("Clusters"),
+            text(none(&stage.clusters)),
+        ]);
+        rows.push(vec![text(""), text("Method"), text(method_text(&d.method))]);
+        if let Some(size) = &d.size {
+            rows.push(vec![text(""), text("Sample size"), text(rate_text(size))]);
+        }
+        if let Some(rate) = &d.rate {
+            rows.push(vec![text(""), text("Sampling rate"), text(rate_text(rate))]);
+        }
+        for (what, bound) in [("Minimum size", d.minsize), ("Maximum size", d.maxsize)] {
+            if let Some(v) = bound {
+                rows.push(vec![text(""), text(what), Cell::Number(v)]);
+            }
+        }
+        let v = &d.variables;
+        let written: Vec<&str> = [Some(&v.inclprob), Some(&v.cumweight)]
+            .into_iter()
+            .chain([&v.index, &v.popsize, &v.sampsize, &v.rate, &v.weight].map(Option::as_ref))
+            .flatten()
+            .map(String::as_str)
+            .collect();
+        rows.push(vec![
+            text(""),
+            text("Variables written"),
+            text(written.join(", ")),
+        ]);
+    }
+    table(
+        "Sample Plan",
+        2,
+        vec![
+            (String::new(), String::new()),
+            (String::new(), String::new()),
+            (String::new(), "Value".into()),
+        ],
+        rows,
+        None,
+    )
+}
+
 /// The tables PRINT asks for.
 fn plan_tables(plan: &PlanFile, file: &str, print_plan: bool, print_matrix: bool) -> Vec<Table> {
     let mut out = Vec::new();
+    if print_plan && plan.kind == "sample" {
+        out.push(sample_table(plan, file));
+    }
     if print_plan {
         let mut rows = vec![
             vec![text("Plan"), text("File"), text(file)],
@@ -192,13 +346,6 @@ fn plan_tables(plan: &PlanFile, file: &str, print_plan: bool, print_matrix: bool
             ],
         ];
         for (s, stage) in plan.stages.iter().enumerate() {
-            let none = |list: &[String]| {
-                if list.is_empty() {
-                    "None".to_string()
-                } else {
-                    list.join(", ")
-                }
-            };
             let name = format!("Stage {}", s + 1);
             rows.push(vec![
                 text(&name),
@@ -246,9 +393,12 @@ fn plan_tables(plan: &PlanFile, file: &str, print_plan: bool, print_matrix: bool
     if print_matrix {
         let mut rows = Vec::new();
         for (s, stage) in plan.stages.iter().enumerate() {
+            let d = stage.sample.as_ref();
             for (kind, rate) in [
                 ("Population size", &stage.popsize),
                 ("Inclusion probability", &stage.inclprob),
+                ("Sample size", d.map_or(&None, |d| &d.size)),
+                ("Sampling rate", d.map_or(&None, |d| &d.rate)),
             ] {
                 if let Some(PlanRate::Matrix {
                     variables,
@@ -978,14 +1128,21 @@ impl Engine {
             .map_err(|e| Error(format!("cannot read the plan {}: {e}", path.display())))?;
         let plan: PlanFile = serde_json::from_str(&content).map_err(|e| {
             Error(format!(
-                "{} is not a Statscraft analysis plan (written by CSPLAN ANALYSIS): {e}",
+                "{} is not a Statscraft plan (written by CSPLAN): {e}",
                 path.display()
             ))
         })?;
         if plan.format != FORMAT || plan.version != 1 {
             return Err(Error(format!(
-                "{} is not a Statscraft analysis plan of version 1",
+                "{} is not a Statscraft plan of version 1",
                 path.display()
+            )));
+        }
+        if plan.kind != "analysis" && plan.kind != "sample" {
+            return Err(Error(format!(
+                "the plan {} has an unknown kind {}",
+                path.display(),
+                plan.kind
             )));
         }
         if plan.stages.is_empty() || plan.stages.len() > 3 {
@@ -1009,7 +1166,7 @@ impl Engine {
     pub(crate) fn csplan(&mut self, command: &Csplan) -> Result<Vec<Table>, Error> {
         let plan = match command.mode {
             CsplanMode::View => self.read_plan(&command.file)?,
-            CsplanMode::Analysis => {
+            CsplanMode::Analysis | CsplanMode::Sample => {
                 let plan = plan_of(command);
                 let path = self.path(&command.file);
                 let json = serde_json::to_string_pretty(&plan).expect("a plan serializes");

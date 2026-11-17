@@ -298,6 +298,11 @@ impl Engine {
             .is_some_and(|a| a.eq_ignore_ascii_case(name))
     }
 
+    /// Whether SET SEED was given in this session (kept with the settings).
+    pub(crate) fn seed_was_set(&self) -> bool {
+        self.session.settings.contains_key("SEED")
+    }
+
     /// Whether `name` is the name of a dataset, open or only declared.
     pub(crate) fn is_dataset_name(&self, name: &str) -> bool {
         self.is_active_name(name) || self.find_dataset(name).is_some()
