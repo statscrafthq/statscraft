@@ -61,7 +61,7 @@ use crate::glm::{
 };
 use crate::matrix::{Matrix, inverse, multiply, transpose};
 use crate::npar_tests::text;
-use crate::plum::link_name;
+use crate::plum::{cdf, cell_probabilities, link_name};
 use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
@@ -515,7 +515,9 @@ impl Engine {
         for s in &c.save {
             if let CsModelSave::Pred(Some(n))
             | CsModelSave::Resid(Some(n))
-            | CsModelSave::PredVal(Some(n)) = s
+            | CsModelSave::PredVal(Some(n))
+            | CsModelSave::PredValProb(Some(n))
+            | CsModelSave::ObsValProb(Some(n)) = s
                 && data.variable_index(n).is_some()
             {
                 return Err(Error(format!(
@@ -900,6 +902,9 @@ impl Engine {
         };
         let names = parameter_names(&d, &fit);
         let mut logistic: Option<Logistic> = None;
+        // CSORDINAL NONPARALLEL: the general model's estimates (thresholds, then the coefficients
+        // of each threshold over `cols`) and its regression columns
+        let mut general: Option<(Estimates, Vec<usize>)> = None;
         let others: Vec<usize> = (0..categories.len()).filter(|&k| k != base).collect();
         let est = if let Some(o) = c.ordinal {
             // the regression columns: the non-redundant ones but the intercept
@@ -910,18 +915,64 @@ impl Engine {
                 .map(|row| cols.iter().map(|&j| row[j]).collect())
                 .collect();
             let k = categories.len();
-            let result = ordinal::fit(o.link, &x, &w_rows, &category_of, k, &c.criteria, warnings);
+            let fit_of = |start: Option<&[f64]>, warnings: &mut Vec<String>| {
+                ordinal::fit(
+                    o.link,
+                    &x,
+                    &w_rows,
+                    &category_of,
+                    k,
+                    &c.criteria,
+                    start,
+                    warnings,
+                )
+            };
+            // the design covariance of a fit's estimates, and the SRS one
+            let sandwich_of = |r: &ordinal::Ordinal, warnings: &mut Vec<String>| {
+                let mut us = vec![vec![0.0; n]; r.b.len()];
+                for (row, &i) in rows.iter().enumerate() {
+                    for (u, s) in us.iter_mut().zip(&r.scores[row]) {
+                        u[i] = *s;
+                    }
+                }
+                let jinv = information_inverse(name, &r.information, warnings);
+                let sandwich = |m: &Matrix| -> Matrix { multiply(&multiply(&jinv, m), &jinv) };
+                (
+                    sandwich(&design.covariance(&us)),
+                    srs_of(&us).map(|m| sandwich(&m)),
+                )
+            };
+            let result = fit_of(None, warnings);
             let size = result.b.len();
-            let mut us = vec![vec![0.0; n]; size];
-            for (r, &i) in rows.iter().enumerate() {
-                for (u, s) in us.iter_mut().zip(&result.scores[r]) {
-                    u[i] = *s;
+            let (v_small, vs_small) = sandwich_of(&result, warnings);
+            if o.nonparallel.is_some() {
+                if k < 3 || cols.is_empty() {
+                    warnings.push(
+                        "CSORDINAL NONPARALLEL: the general model needs at least three categories and a coefficient; it is left out".into(),
+                    );
+                } else {
+                    // the general model starts at the model's estimates, its coefficients
+                    // repeated for every threshold
+                    let mut start = result.b[..k - 1].to_vec();
+                    for _ in 0..k - 1 {
+                        start.extend_from_slice(&result.b[k - 1..]);
+                    }
+                    let g = fit_of(Some(&start), warnings);
+                    let (v, vs) = sandwich_of(&g, warnings);
+                    let len = g.b.len();
+                    general = Some((
+                        Estimates {
+                            b: g.b,
+                            v,
+                            vs,
+                            redundant: vec![false; len],
+                            p: len,
+                            logits: 1,
+                        },
+                        cols.clone(),
+                    ));
                 }
             }
-            let jinv = information_inverse(name, &result.information, warnings);
-            let sandwich = |m: &Matrix| -> Matrix { multiply(&multiply(&jinv, m), &jinv) };
-            let v_small = sandwich(&design.covariance(&us));
-            let vs_small = srs_of(&us).map(|m| sandwich(&m));
             // the thresholds go after the p columns of the design
             let full = p + k - 1;
             let index = |a: usize| if a < k - 1 { p + a } else { cols[a - (k - 1)] };
@@ -1311,7 +1362,15 @@ impl Engine {
                 .filter(|e| !e.is_intercept())
                 .flat_map(|e| e.range())
                 .filter(|&j| !fit.redundant[j])
-                .map(|j| h[j].clone())
+                .map(|j| {
+                    // row j of H is exactly 1 at j and 0 at the other non-redundant columns
+                    (0..p)
+                        .map(|c| match fit.redundant[c] {
+                            false => f64::from(u8::from(c == j)),
+                            true => h[j][c],
+                        })
+                        .collect()
+                })
                 .collect();
             if !non_intercept.is_empty() {
                 let label = if intercept {
@@ -1333,6 +1392,16 @@ impl Engine {
                 sources.push((label, fit.type34(e, false)));
             }
             for (label, l_star) in sources {
+                // the coefficients are whole numbers for factor columns (the weight of a column
+                // in a redundant one, or the elimination of Type III); rounding residue goes
+                let snap = |v: f64| match v.round() {
+                    r if (v - r).abs() <= 1e-9 => r + 0.0,
+                    _ => v,
+                };
+                let l_star: Matrix = l_star
+                    .iter()
+                    .map(|row| row.iter().map(|&v| snap(v)).collect())
+                    .collect();
                 let l = blocks(&l_star);
                 let w = wald(&est, &l, &vec![0.0; l.len()]);
                 let mut row = vec![text(label.clone())];
@@ -1542,13 +1611,125 @@ impl Engine {
             tables.push(table(title, 1, cols, out, Some(caption.clone())));
         }
 
+        // NONPARALLEL: the test of parallel lines and the general model
+        if let (Some((g, gcols)), Some(np)) = (&general, c.ordinal.and_then(|o| o.nonparallel)) {
+            let k = categories.len();
+            let q = gcols.len();
+            // the coefficient of design column gcols[s] for threshold j
+            let at = |j: usize, s: usize| k - 1 + j * q + s;
+            if np.test {
+                // each coefficient of the first threshold against the same one of every later
+                // threshold
+                let mut l: Matrix = Vec::new();
+                for s in 0..q {
+                    for j in 1..k - 1 {
+                        let mut row = vec![0.0; g.len()];
+                        row[at(0, s)] = 1.0;
+                        row[at(j, s)] = -1.0;
+                        l.push(row);
+                    }
+                }
+                let w = wald(g, &l, &vec![0.0; l.len()]);
+                let mut row = vec![text("General Model")];
+                row.extend(test_cells(c.test, w.as_ref(), df, None));
+                let mut cols = plain(&[""]);
+                cols.extend(test_columns(c.test));
+                tables.push(table(
+                    "Test of Parallel Lines",
+                    1,
+                    cols,
+                    vec![row],
+                    Some(format!(
+                        "{caption} The general model gives every threshold its own location parameters; the test asks whether they are equal."
+                    )),
+                ));
+            }
+            let location = |j: usize| format!("Location for {}", threshold_name(p + j));
+            if np.parameter {
+                let mut out = Vec::new();
+                let mut push = |group: String, label: String, a: Option<usize>| {
+                    let mut row = vec![text(group)];
+                    match a {
+                        Some(a) => row.extend([
+                            text(label),
+                            number(Some(g.b[a])),
+                            number(Some(g.v[a][a].max(0.0).sqrt())),
+                        ]),
+                        None => row.extend([
+                            text(format!("{label} (redundant)")),
+                            Cell::Number(0.0),
+                            Cell::Empty,
+                        ]),
+                    }
+                    out.push(row);
+                };
+                for j in 0..k - 1 {
+                    let group = if j == 0 { "Threshold" } else { "" };
+                    push(group.into(), threshold_name(p + j), Some(j));
+                }
+                for j in 0..k - 1 {
+                    for (col, name) in names.iter().enumerate().skip(1) {
+                        let group = if col == 1 { location(j) } else { String::new() };
+                        let a = gcols.iter().position(|&c| c == col).map(|s| at(j, s));
+                        push(group, name.clone(), a);
+                    }
+                }
+                tables.push(table(
+                    "Parameter Estimates of the General Model",
+                    2,
+                    plain(&["", "Parameter", "Estimate", "Std. Error"]),
+                    out,
+                    Some(caption.clone()),
+                ));
+            }
+            if np.covb {
+                let label = |a: usize| {
+                    if a < k - 1 {
+                        format!("Threshold {}", threshold_name(p + a))
+                    } else {
+                        let (j, s) = ((a - (k - 1)) / q, (a - (k - 1)) % q);
+                        format!("{}: {}", location(j), names[gcols[s]])
+                    }
+                };
+                let mut cols = plain(&["Parameter"]);
+                cols.extend((0..g.len()).map(|a| (String::new(), label(a))));
+                let out = (0..g.len())
+                    .map(|a| {
+                        let mut row = vec![text(label(a))];
+                        row.extend(g.v[a].iter().map(|v| number(Some(*v))));
+                        row
+                    })
+                    .collect();
+                tables.push(table(
+                    "Covariances of the General Model Parameters",
+                    1,
+                    cols,
+                    out,
+                    Some(caption.clone()),
+                ));
+            }
+        }
+
+        // the predicted category: the most probable one; on a tie the first, for CSORDINAL the
+        // one with the larger summed weight, then the larger count, then the first
+        let mut tally = vec![(0.0, 0usize); categories.len()];
+        for (r, &y) in category_of.iter().enumerate() {
+            tally[y].0 += w_rows[r];
+            tally[y].1 += 1;
+        }
+        let predicted = |probs: &[f64]| -> usize {
+            (0..probs.len()).fold(0, |m, j| {
+                let tie = probs[j] == probs[m] && c.ordinal.is_some() && tally[j] > tally[m];
+                if probs[j] > probs[m] || tie { j } else { m }
+            })
+        };
+
         // Classification
         if let (true, Some(lg)) = (c.print.classtable, &logistic) {
             let k = categories.len();
             let mut counts = vec![vec![0.0; k]; k];
             for (r, probs) in lg.probs.iter().enumerate() {
-                let best = (0..k).fold(0, |m, j| if probs[j] > probs[m] { j } else { m });
-                counts[category_of[r]][best] += w_rows[r];
+                counts[category_of[r]][predicted(probs)] += w_rows[r];
             }
             let total: f64 = counts.iter().flatten().sum();
             let mut cols = plain(&["Observed"]);
@@ -1584,9 +1765,28 @@ impl Engine {
             ));
         }
 
-        // Odds Ratios
+        // the design row of a pattern of factor levels and covariate values, and whether every
+        // effect has a column for it
+        let row_of = |lv: &[usize], cv: &[f64]| -> (Vec<f64>, bool) {
+            let mut x = vec![0.0; p];
+            let mut complete = true;
+            for e in &fit.effects {
+                let cell: Vec<usize> = e.factors.iter().map(|&f| lv[f]).collect();
+                match e.cells.iter().position(|c| *c == cell) {
+                    Some(k) => x[e.start + k] = e.covariates.iter().map(|&k| cv[k]).product(),
+                    None => complete = false,
+                }
+            }
+            (x, complete)
+        };
+
+        // Odds Ratios; CSORDINAL has them for the logit link only
         let control_default = |f: usize| levels[f].len() - 1;
-        for o in &c.oddsratios {
+        let odds = c.ordinal.is_none_or(|o| o.link == PlumLink::Logit);
+        if !odds && !c.oddsratios.is_empty() {
+            warnings.push("CSORDINAL: ODDSRATIOS needs the logit link and is left out".into());
+        }
+        for o in c.oddsratios.iter().filter(|_| odds) {
             let factor_index =
                 |n: &str| factor_names.iter().position(|f| f.eq_ignore_ascii_case(n));
             let cov_index = |n: &str| {
@@ -1604,13 +1804,14 @@ impl Engine {
                     fixed_levels[f] = match value {
                         CsControl::Low => 0,
                         CsControl::High => control_default(f),
-                        CsControl::Value(v) => level_of(&factor_vars[f], &levels[f], v).unwrap_or_else(|| {
-                            warnings.push(format!(
-                                "CSLOGISTIC ODDSRATIOS: {n} has no level {}; its highest level is used",
+                        CsControl::Value(v) => level_of(&factor_vars[f], &levels[f], v)
+                            .unwrap_or_else(|| {
+                                warnings.push(format!(
+                                "{name} ODDSRATIOS: {n} has no level {}; its highest level is used",
                                 value_text(v)
                             ));
-                            control_default(f)
-                        }),
+                                control_default(f)
+                            }),
                         CsControl::Mean => {
                             return Err(Error(format!(
                                 "ODDSRATIOS CONTROL: {n} is a factor; give LOW, HIGH or a value"
@@ -1633,17 +1834,6 @@ impl Engine {
                     )));
                 }
             }
-            // the design row of a pattern of factor levels and covariate values
-            let row_of = |lv: &[usize], cv: &[f64]| -> Vec<f64> {
-                let mut x = vec![0.0; p];
-                for e in &fit.effects {
-                    let cell: Vec<usize> = e.factors.iter().map(|&f| lv[f]).collect();
-                    if let Some(k) = e.cells.iter().position(|c| *c == cell) {
-                        x[e.start + k] = e.covariates.iter().map(|&k| cv[k]).product();
-                    }
-                }
-                x
-            };
             // (label, x1 - x2)
             let mut pairs: Vec<(String, Vec<f64>)> = Vec::new();
             for (n, reference) in &o.factors {
@@ -1657,7 +1847,7 @@ impl Engine {
                     CsReference::High => control_default(f),
                     CsReference::Value(v) => level_of(&factor_vars[f], &levels[f], v).unwrap_or_else(|| {
                         warnings.push(format!(
-                            "CSLOGISTIC ODDSRATIOS: {n} has no level {}; its highest level is the reference",
+                            "{name} ODDSRATIOS: {n} has no level {}; its highest level is the reference",
                             value_text(v)
                         ));
                         control_default(f)
@@ -1666,7 +1856,7 @@ impl Engine {
                 let text_of = |l: usize| shown.value(&factor_vars[f], &levels[f][l]);
                 if levels[f].len() < 2 {
                     warnings.push(format!(
-                        "CSLOGISTIC ODDSRATIOS: {n} has one level among the cases analyzed, so it has no odds ratios"
+                        "{name} ODDSRATIOS: {n} has one level among the cases analyzed, so it has no odds ratios"
                     ));
                 }
                 for l in (0..levels[f].len()).filter(|&l| l != r) {
@@ -1674,8 +1864,8 @@ impl Engine {
                     a[f] = l;
                     let mut b = fixed_levels.clone();
                     b[f] = r;
-                    let x1 = row_of(&a, &fixed_covs);
-                    let x2 = row_of(&b, &fixed_covs);
+                    let x1 = row_of(&a, &fixed_covs).0;
+                    let x2 = row_of(&b, &fixed_covs).0;
                     pairs.push((
                         format!(
                             "{} {} vs. {}",
@@ -1696,8 +1886,8 @@ impl Engine {
                 for change in changes {
                     let mut moved = fixed_covs.clone();
                     moved[k] += change;
-                    let x1 = row_of(&fixed_levels, &moved);
-                    let x2 = row_of(&fixed_levels, &fixed_covs);
+                    let x1 = row_of(&fixed_levels, &moved).0;
+                    let x2 = row_of(&fixed_levels, &fixed_covs).0;
                     pairs.push((
                         format!("{} up by {change}", covariate_texts[k]),
                         x1.iter().zip(&x2).map(|(a, b)| a - b).collect(),
@@ -1713,28 +1903,43 @@ impl Engine {
             }
             let mut out = Vec::new();
             let estimable: Vec<bool> = pairs.iter().map(|(_, d)| fit.estimable(d, &h)).collect();
-            for (l, label_l) in logit_labels.iter().enumerate() {
+            // CSLOGISTIC: a row per logit; CSORDINAL: one cumulative odds ratio, exp(-b'(x1 - x2))
+            let (groups, sign) = match c.ordinal {
+                Some(_) => (vec![None], -1.0),
+                None => (logit_labels.iter().map(Some).collect(), 1.0),
+            };
+            for (l, label_l) in groups.iter().enumerate() {
                 for (k, (label, diff)) in pairs.iter().enumerate() {
                     let ok = estimable[k];
                     // a comparison through a cell without cases is not estimable: no value
                     let row_l = est.spread(diff, l);
-                    let cc = est.estimate(&row_l);
+                    let cc = sign * est.estimate(&row_l);
                     let se = est.quad(&est.v, &row_l).max(0.0).sqrt();
                     let shown_value = |v: f64| number(ok.then(|| v.exp()));
-                    out.push(vec![
-                        text(if k == 0 {
-                            label_l.clone()
+                    let mut row = Vec::new();
+                    if let Some(label_l) = label_l {
+                        row.push(text(if k == 0 {
+                            (*label_l).clone()
                         } else {
                             String::new()
-                        }),
+                        }));
+                    }
+                    row.extend([
                         text(label.clone()),
                         shown_value(cc),
                         shown_value(cc - tq * se),
                         shown_value(cc + tq * se),
                     ]);
+                    out.push(row);
                 }
             }
-            let mut cols = plain(&["", "Comparison", "Odds Ratio"]);
+            let (title, mut cols) = match c.ordinal {
+                Some(_) => (
+                    "Cumulative Odds Ratios",
+                    plain(&["Comparison", "Cumulative Odds Ratio"]),
+                ),
+                None => ("Odds Ratios", plain(&["", "Comparison", "Odds Ratio"])),
+            };
             cols.push((ci_group.clone(), "Lower".into()));
             cols.push((ci_group.clone(), "Upper".into()));
             let mut held: Vec<String> = factor_vars
@@ -1764,7 +1969,8 @@ impl Engine {
                 cap.push('.');
             }
             if !out.is_empty() {
-                tables.push(table("Odds Ratios", 2, cols, out, Some(cap)));
+                let headers = if c.ordinal.is_some() { 1 } else { 2 };
+                tables.push(table(title, headers, cols, out, Some(cap)));
             }
         }
 
@@ -1804,6 +2010,20 @@ impl Engine {
                 .map(|(_, p)| p)
         };
         let has_intercept_column = fit.effects.first().is_some_and(|e| e.is_intercept());
+        // the thresholds of CSORDINAL (after the p columns of the design)
+        let thresholds = est.len() - est.logits * p;
+        // whether a row over every parameter is estimable; with thresholds, a shift of all of
+        // them offsets one of the intercept, so the row is estimable when its regression part
+        // is, with minus the sum of its threshold coefficients on the intercept
+        let estimable_full = |full: &[f64]| -> bool {
+            if thresholds > 0 {
+                let mut block = full[..p].to_vec();
+                block[0] = -full[p..].iter().sum::<f64>();
+                fit.estimable(&block, &h)
+            } else {
+                (0..est.logits).all(|l| fit.estimable(&full[l * p..(l + 1) * p], &h))
+            }
+        };
         for (number_of, custom) in c.custom.iter().enumerate() {
             let what = format!("CUSTOM {}", number_of + 1);
             // (label, full row, K value)
@@ -1838,29 +2058,60 @@ impl Engine {
                     )));
                 }
                 let label = format!("Contrast {}", i + 1);
+                let not_estimable = || {
+                    Error(format!(
+                        "{what}: row {} of the L matrix is not estimable",
+                        i + 1
+                    ))
+                };
                 if all {
-                    // several ALL lists in one row add up
+                    // several ALL lists in one row add up; CSORDINAL lists the thresholds first
+                    // and has no intercept
+                    let wanted = est.len() - usize::from(thresholds > 0);
+                    let at = |j: usize| match thresholds {
+                        0 => j,
+                        t if j < t => p + j,
+                        t => j - t + 1,
+                    };
                     let mut values = vec![0.0; est.len()];
                     for (_, list) in row {
-                        if list.len() != est.len() {
+                        if list.len() != wanted {
                             return Err(Error(format!(
-                                "{what} gives {} coefficients after ALL where the model has {} parameters",
+                                "{what} gives {} coefficients after ALL where the model has {wanted} parameters",
                                 list.len(),
-                                est.len()
                             )));
                         }
-                        for (v, x) in values.iter_mut().zip(list) {
-                            *v += x;
+                        for (j, x) in list.iter().enumerate() {
+                            values[at(j)] += x;
                         }
                     }
-                    for l in 0..est.logits {
-                        let block = &values[l * p..(l + 1) * p];
-                        if !fit.estimable(block, &h) {
+                    if !estimable_full(&values) {
+                        return Err(not_estimable());
+                    }
+                    expanded.push((label, values, k_values[i]));
+                } else if thresholds > 0 {
+                    // the leading numbers are the threshold coefficients
+                    let (lead, effects): (LRow, LRow) = row
+                        .iter()
+                        .cloned()
+                        .partition(|(e, _)| e.as_ref().is_some_and(|t| t.variables.is_empty()));
+                    let mut values = vec![0.0; est.len()];
+                    if !effects.is_empty() {
+                        values[..p].copy_from_slice(&l_row(&d, &fit, &effects, &what)?);
+                    }
+                    for (_, list) in &lead {
+                        if list.len() != thresholds {
                             return Err(Error(format!(
-                                "{what}: row {} of the L matrix is not estimable",
-                                i + 1
+                                "{what} gives {} threshold coefficients where the model has {thresholds} thresholds",
+                                list.len()
                             )));
                         }
+                        for (j, x) in list.iter().enumerate() {
+                            values[p + j] += x;
+                        }
+                    }
+                    if !estimable_full(&values) {
+                        return Err(not_estimable());
                     }
                     expanded.push((label, values, k_values[i]));
                 } else {
@@ -1870,10 +2121,7 @@ impl Engine {
                         l_row(&d, &fit, row, &what)?
                     };
                     if !fit.estimable(&l_star, &h) {
-                        return Err(Error(format!(
-                            "{what}: row {} of the L matrix is not estimable",
-                            i + 1
-                        )));
+                        return Err(not_estimable());
                     }
                     // one row per logit (CSLOGISTIC); CSGLM has no logit labels
                     for (l, logit) in logit_labels.iter().enumerate() {
@@ -2194,77 +2442,155 @@ impl Engine {
         // SAVE
         let cases = data.case_count();
         let mut saved = Vec::new();
-        let put = |values: Vec<f64>| -> Vec<Option<f64>> {
+        let put = |values: Vec<(usize, f64)>| -> Vec<Option<f64>> {
             let mut column = vec![None; cases];
-            for (r, v) in values.into_iter().enumerate() {
-                column[d.case[r]] = v.is_finite().then_some(v);
+            for (case, v) in values {
+                column[case] = v.is_finite().then_some(v);
             }
             column
+        };
+        // (case, probabilities, observed category) of every case with saved probabilities: the
+        // analysis cases, and for CSORDINAL also the domain's cases whose dependent is missing
+        // but whose predictors all have parameters
+        let predictions: Vec<(usize, Vec<f64>, Option<usize>)> = match (c.ordinal, &logistic) {
+            _ if c.save.is_empty() => Vec::new(),
+            (Some(o), _) => {
+                let mut row_at = vec![None; n];
+                for (r, &i) in rows.iter().enumerate() {
+                    row_at[i] = Some(r);
+                }
+                (0..n)
+                    .filter(|&i| in_domain[i])
+                    .filter_map(|i| {
+                        let lv: Option<Vec<usize>> = factor_keys
+                            .iter()
+                            .zip(&levels)
+                            .map(|(k, ls)| {
+                                let key = k[i].as_ref()?;
+                                ls.iter().position(|l| l.compare(key).is_eq())
+                            })
+                            .collect();
+                        let cv: Option<Vec<f64>> = cov_values.iter().map(|v| v[i]).collect();
+                        let (x, complete) = row_of(&lv?, &cv?);
+                        if !complete {
+                            return None;
+                        }
+                        let xb: f64 = (1..p).map(|j| x[j] * est.b[j]).sum();
+                        let gamma: Vec<f64> = (0..thresholds)
+                            .map(|t| cdf(o.link, est.b[p + t] - xb))
+                            .collect();
+                        Some((
+                            design.rows[i],
+                            cell_probabilities(&gamma),
+                            row_at[i].map(|r| category_of[r]),
+                        ))
+                    })
+                    .collect()
+            }
+            (None, Some(lg)) => lg
+                .probs
+                .iter()
+                .enumerate()
+                .map(|(r, probs)| (d.case[r], probs.clone(), Some(category_of[r])))
+                .collect(),
+            (None, None) => Vec::new(),
+        };
+        let numeric = |values: Vec<(usize, f64)>, name: Option<String>, root: &str, label| Saved {
+            name,
+            root: root.into(),
+            label,
+            numbers: Some(put(values)),
+            texts: None,
+            category: None,
         };
         for s in &c.save {
             match s {
                 CsModelSave::Pred(given) | CsModelSave::Resid(given) => {
-                    let pred: Vec<f64> = (0..rows.len())
-                        .map(|r| fit.x[r].iter().zip(&est.b).map(|(a, b)| a * b).sum())
-                        .collect();
                     let is_pred = matches!(s, CsModelSave::Pred(_));
-                    let values = if is_pred {
-                        pred
+                    let values = (0..rows.len())
+                        .map(|r| {
+                            let pred: f64 = fit.x[r].iter().zip(&est.b).map(|(a, b)| a * b).sum();
+                            (d.case[r], if is_pred { pred } else { d.y[r][0] - pred })
+                        })
+                        .collect();
+                    let (root, what) = if is_pred {
+                        ("Predicted", "Predicted Value")
                     } else {
-                        pred.iter()
-                            .enumerate()
-                            .map(|(r, v)| d.y[r][0] - v)
-                            .collect()
+                        ("Residual", "Residual")
                     };
-                    saved.push(Saved {
-                        name: given.clone(),
-                        root: if is_pred { "Predicted" } else { "Residual" }.into(),
-                        label: format!(
-                            "{} for {dependent}",
-                            if is_pred {
-                                "Predicted Value"
-                            } else {
-                                "Residual"
-                            }
-                        ),
-                        numbers: Some(put(values)),
-                        texts: None,
-                        category: None,
-                    });
+                    saved.push(numeric(
+                        values,
+                        given.clone(),
+                        root,
+                        format!("{what} for {dependent}"),
+                    ));
                 }
-                CsModelSave::PredProb(root, count) => {
-                    let lg = logistic.as_ref().expect("logistic");
-                    let root = root
-                        .clone()
-                        .unwrap_or_else(|| "PredictedProbability".into());
+                CsModelSave::PredProb(root, count) | CsModelSave::CumProb(root, count) => {
+                    let cumulative = matches!(s, CsModelSave::CumProb(..));
+                    let root = root.clone().unwrap_or_else(|| {
+                        if cumulative {
+                            "CumulativeProbability"
+                        } else {
+                            "PredictedProbability"
+                        }
+                        .into()
+                    });
                     for k in 0..categories.len().min(*count as usize) {
-                        let values = lg.probs.iter().map(|p| p[k]).collect();
-                        saved.push(Saved {
-                            name: None,
-                            root: format!("{root}_{}", k + 1),
-                            category: None,
-                            label: format!(
+                        let first = if cumulative { 0 } else { k };
+                        let values = predictions
+                            .iter()
+                            .map(|(case, probs, _)| (*case, probs[first..=k].iter().sum()))
+                            .collect();
+                        let label = if cumulative {
+                            format!(
+                                "Predicted cumulative probability of {dependent} through {}",
+                                category_text(k)
+                            )
+                        } else {
+                            format!(
                                 "Predicted probability of {dependent} = {}",
                                 category_text(k)
-                            ),
-                            numbers: Some(put(values)),
-                            texts: None,
-                        });
+                            )
+                        };
+                        saved.push(numeric(values, None, &format!("{root}_{}", k + 1), label));
                     }
                 }
-                CsModelSave::PredVal(given) => {
-                    let lg = logistic.as_ref().expect("logistic");
-                    let best: Vec<usize> = lg
-                        .probs
+                CsModelSave::PredValProb(given) | CsModelSave::ObsValProb(given) => {
+                    let observed = matches!(s, CsModelSave::ObsValProb(_));
+                    let values = predictions
                         .iter()
-                        .map(|p| (0..p.len()).fold(0, |m, j| if p[j] > p[m] { j } else { m }))
+                        .filter_map(|(case, probs, y)| {
+                            let k = if observed { (*y)? } else { predicted(probs) };
+                            Some((*case, probs[k]))
+                        })
+                        .collect();
+                    let (root, which) = if observed {
+                        ("ObservedValueProbability", "observed")
+                    } else {
+                        ("PredictedValueProbability", "predicted")
+                    };
+                    saved.push(numeric(
+                        values,
+                        given.clone(),
+                        root,
+                        format!("Probability of the {which} category of {dependent}"),
+                    ));
+                }
+                CsModelSave::PredVal(given) => {
+                    let best: Vec<(usize, usize)> = predictions
+                        .iter()
+                        .map(|(case, probs, _)| (*case, predicted(probs)))
                         .collect();
                     let label = format!("Predicted value of {dependent}");
+                    let category = Some((
+                        dep_var.format().to_string(),
+                        dep_var.value_labels().to_vec(),
+                    ));
                     if let Some(width) = dep_var.string_width() {
                         let mut texts = vec![String::new(); cases];
-                        for (r, &k) in best.iter().enumerate() {
+                        for &(case, k) in &best {
                             if let Key::Text(t) = &categories[k] {
-                                texts[d.case[r]] = t.clone();
+                                texts[case] = t.clone();
                             }
                         }
                         saved.push(Saved {
@@ -2273,17 +2599,14 @@ impl Engine {
                             label,
                             numbers: None,
                             texts: Some((width, texts)),
-                            category: Some((
-                                dep_var.format().to_string(),
-                                dep_var.value_labels().to_vec(),
-                            )),
+                            category,
                         });
                     } else {
                         let values = best
                             .iter()
-                            .map(|&k| match categories[k] {
-                                Key::Number(v) => v,
-                                Key::Text(_) => f64::NAN,
+                            .map(|&(case, k)| match categories[k] {
+                                Key::Number(v) => (case, v),
+                                Key::Text(_) => (case, f64::NAN),
                             })
                             .collect();
                         saved.push(Saved {
@@ -2292,10 +2615,7 @@ impl Engine {
                             label,
                             numbers: Some(put(values)),
                             texts: None,
-                            category: Some((
-                                dep_var.format().to_string(),
-                                dep_var.value_labels().to_vec(),
-                            )),
+                            category,
                         });
                     }
                 }

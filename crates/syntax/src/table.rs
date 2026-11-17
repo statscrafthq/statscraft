@@ -3807,7 +3807,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
                  \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]\n\
-                 \x20          [CLASSTABLE] [NONE]].\n\
+                 \x20          [CLASSTABLE] [NONE]]\n\
+                 \x20  [/CUSTOM [LABEL='text'] LMATRIX=[thresholds] effect coefficients ... [; ...]\n\
+                 \x20           | ALL coefficients [; ...] [KMATRIX=value [; value ...]]] ...\n\
+                 \x20  [/ODDSRATIOS FACTOR=[factor(LOW | HIGH | value) ...] | COVARIATE=[covariate(changes) ...]\n\
+                 \x20               [CONTROL=[factor(LOW | HIGH | value) covariate(MEAN | value) ...]]] ...\n\
+                 \x20  [/NONPARALLEL [TEST] [PARAMETER] [COVB]]\n\
+                 \x20  [/SAVE [CUMPROB[(root[:n])]] [PREDPROB[(root[:n])]] [PREDVAL[(name)]]\n\
+                 \x20         [PREDVALPROB[(name)]] [OBSVALPROB[(name)]]].\n\
                  The categories of the dependent variable, sorted up (or down with DESCENDING), are ordered\n\
                  1 to K. For each k below K the model says link(P(Y <= k)) = threshold_k - x'b: one\n\
                  threshold per cut point and one set of coefficients b for all of them, so a positive\n\
@@ -3822,8 +3829,22 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  R squares of Cox and Snell, Nagelkerke and McFadden against the thresholds-only fit,\n\
                  with the summed weights as N. EXP needs the logit link. CLASSTABLE puts each case in its\n\
                  most probable category and sums the weights. Without STATISTICS no parameter table is\n\
-                 shown. Not supported yet: CUSTOM, ODDSRATIOS, NONPARALLEL, SAVE, JOINTPROB, OUTFILE,\n\
-                 PRINT GEF and the UNEQUAL_WOR estimator.",
+                 shown. A CUSTOM row may open with one coefficient per threshold before its effects; ALL\n\
+                 takes the thresholds first, then every design column but the intercept. Moving all\n\
+                 thresholds together is the same as moving the intercept, so a row is tested only when its\n\
+                 coefficients pass as estimable with minus their threshold sum on the intercept: a lone\n\
+                 threshold is not testable once there are factors. ODDSRATIOS (logit link only) gives one\n\
+                 cumulative odds ratio per comparison, exp(-b'(x1 - x2)), x1 the compared level or the\n\
+                 covariate raised by the change; other variables sit at their CONTROL values (factors at\n\
+                 the highest level, covariates at the mean by default). NONPARALLEL refits the model with\n\
+                 a set of coefficients per threshold, starting from the estimates; TEST is the Wald test\n\
+                 that each coefficient is the same for every threshold, PARAMETER and COVB show that\n\
+                 model. SAVE writes cumulative and category probabilities, the most probable category and\n\
+                 its probability, and the probability of the observed category; a domain case whose\n\
+                 dependent is missing still gets predictions when every predictor has a parameter. Default\n\
+                 names: CumulativeProbability_k, PredictedProbability_k, PredictedValue,\n\
+                 PredictedValueProbability, ObservedValueProbability, with a suffix when taken. Not\n\
+                 supported yet: JOINTPROB, OUTFILE, PRINT GEF and the UNEQUAL_WOR estimator.",
         example: "CSORDINAL rating BY region WITH age /PLAN FILE='poll_plan.json' /LINK FUNCTION=PROBIT /STATISTICS PARAMETER SE CINTERVAL TTEST /PRINT SUMMARY HISTORY.",
         parse: complex_samples::csordinal,
     },

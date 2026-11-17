@@ -33,7 +33,10 @@
 //! - CSORDINAL: the dependent may be followed by (ASCENDING) or (DESCENDING), the order of its
 //!   categories; there is no INTERCEPT (the thresholds take its place). LINK FUNCTION=CAUCHIT |
 //!   CLOGLOG | LOGIT | NLOGLOG | PROBIT, CRITERIA also METHOD=NEWTON | FISHER[(n)], and the
-//!   CRITERIA, STATISTICS, TEST, DOMAIN, MISSING and PRINT of CSLOGISTIC.
+//!   CRITERIA, STATISTICS, TEST, DOMAIN, MISSING, PRINT and ODDSRATIOS of CSLOGISTIC. A CUSTOM
+//!   row may start with the K - 1 threshold coefficients; ALL lists the thresholds first; LMATRIX
+//!   is required. NONPARALLEL TEST PARAMETER COVB. SAVE CUMPROB[(root[:n])] PREDPROB[(root[:n])]
+//!   PREDVAL[(name)] PREDVALPROB[(name)] OBSVALPROB[(name)].
 
 use super::{eat_assignment, error, once, plan_file, require_assignment};
 use crate::ast::{Command, Value, VarItem};
@@ -188,6 +191,20 @@ pub enum CsModelSave {
     /// The root name and how many categories get a variable.
     PredProb(Option<String>, u32),
     PredVal(Option<String>),
+    /// CSORDINAL: cumulative probabilities, like PredProb.
+    CumProb(Option<String>, u32),
+    /// CSORDINAL: the probability of the predicted category.
+    PredValProb(Option<String>),
+    /// CSORDINAL: the probability of the observed category.
+    ObsValProb(Option<String>),
+}
+
+/// CSORDINAL NONPARALLEL: the model with a set of coefficients per threshold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CsNonparallel {
+    pub test: bool,
+    pub parameter: bool,
+    pub covb: bool,
 }
 
 /// What only CSORDINAL has.
@@ -196,6 +213,7 @@ pub struct CsOrdinal {
     /// The categories of the dependent from the highest down.
     pub descending: bool,
     pub link: PlumLink,
+    pub nonparallel: Option<CsNonparallel>,
 }
 
 /// CSGLM, CSLOGISTIC or CSORDINAL.
@@ -319,7 +337,8 @@ fn convergence(p: &mut Parser, what: &str) -> PResult<(f64, bool)> {
 }
 
 /// The LMATRIX rows, up to the next `KEYWORD =` or the end of the subcommand.
-fn lmatrix(p: &mut Parser) -> PResult<Vec<LRow>> {
+/// For CSORDINAL a row may start with several numbers: the threshold coefficients.
+fn lmatrix(p: &mut Parser, ordinal: bool) -> PResult<Vec<LRow>> {
     let mut rows = Vec::new();
     let mut row: LRow = Vec::new();
     let at_keyword = |p: &Parser| {
@@ -340,7 +359,12 @@ fn lmatrix(p: &mut Parser) -> PResult<Vec<LRow>> {
             let Some(v) = fraction(p)? else {
                 return Err(p.unexpected(&["a coefficient"]));
             };
-            if matches!(p.peek(), Some(TokenKind::Number(_))) || p.at(Punct::Minus) {
+            let mut values = vec![v];
+            while ordinal && let Some(v) = fraction(p)? {
+                values.push(v);
+                p.eat(Punct::Comma);
+            }
+            if !ordinal && (matches!(p.peek(), Some(TokenKind::Number(_))) || p.at(Punct::Minus)) {
                 return Err(error(
                     p,
                     start,
@@ -352,7 +376,7 @@ fn lmatrix(p: &mut Parser) -> PResult<Vec<LRow>> {
                     variables: Vec::new(),
                     label: "Intercept".into(),
                 }),
-                vec![v],
+                values,
             ));
             continue;
         } else if p.eat_word("ALL") {
@@ -379,7 +403,7 @@ fn lmatrix(p: &mut Parser) -> PResult<Vec<LRow>> {
     Ok(rows)
 }
 
-fn custom(p: &mut Parser) -> PResult<CsCustom> {
+fn custom(p: &mut Parser, ordinal: bool) -> PResult<CsCustom> {
     let start = p.pos;
     let mut c = CsCustom {
         label: None,
@@ -394,7 +418,7 @@ fn custom(p: &mut Parser) -> PResult<CsCustom> {
             c.label = Some(p.string("a quoted label")?);
         } else if eat_assignment(p, "LMATRIX")? {
             once(p, at, &mut seen, "LMATRIX")?;
-            c.rows = lmatrix(p)?;
+            c.rows = lmatrix(p, ordinal)?;
         } else if eat_assignment(p, "KMATRIX")? {
             once(p, at, &mut seen, "KMATRIX")?;
             let mut k = Vec::new();
@@ -414,6 +438,9 @@ fn custom(p: &mut Parser) -> PResult<CsCustom> {
     }
     if c.rows.is_empty() && c.k.is_none() {
         return Err(error(p, start, "CUSTOM needs LMATRIX= or KMATRIX="));
+    }
+    if ordinal && c.rows.is_empty() {
+        return Err(error(p, start, "CSORDINAL CUSTOM needs LMATRIX="));
     }
     if let Some(k) = &c.k
         && !c.rows.is_empty()
@@ -827,14 +854,22 @@ fn save_name(p: &mut Parser) -> PResult<Option<String>> {
     Ok(Some(name))
 }
 
-fn save(p: &mut Parser, logistic: bool) -> PResult<Vec<CsModelSave>> {
+fn save(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Vec<CsModelSave>> {
     let start = p.pos;
     let mut out = Vec::new();
     let mut seen = Vec::new();
     if at_end(p) {
         return Err(error(p, start, "SAVE needs at least one keyword"));
     }
-    let keywords: &[&'static str] = if logistic {
+    let keywords: &[&'static str] = if ordinal {
+        &[
+            "CUMPROB",
+            "PREDPROB",
+            "PREDVAL",
+            "PREDVALPROB",
+            "OBSVALPROB",
+        ]
+    } else if logistic {
         &["PREDPROB", "PREDVAL"]
     } else {
         &["PRED", "RESID"]
@@ -850,7 +885,11 @@ fn save(p: &mut Parser, logistic: bool) -> PResult<Vec<CsModelSave>> {
             out.push(CsModelSave::Pred(save_name(p)?));
         } else if keyword == "RESID" {
             out.push(CsModelSave::Resid(save_name(p)?));
-        } else if keyword == "PREDPROB" {
+        } else if keyword == "PREDVALPROB" {
+            out.push(CsModelSave::PredValProb(save_name(p)?));
+        } else if keyword == "OBSVALPROB" {
+            out.push(CsModelSave::ObsValProb(save_name(p)?));
+        } else if keyword == "PREDPROB" || keyword == "CUMPROB" {
             let (mut root, mut count) = (None, 25);
             if p.eat(Punct::LParen) {
                 if !p.at(Punct::Colon) {
@@ -861,7 +900,11 @@ fn save(p: &mut Parser, logistic: bool) -> PResult<Vec<CsModelSave>> {
                 }
                 p.expect(Punct::RParen)?;
             }
-            out.push(CsModelSave::PredProb(root, count));
+            out.push(if keyword == "CUMPROB" {
+                CsModelSave::CumProb(root, count)
+            } else {
+                CsModelSave::PredProb(root, count)
+            });
         } else {
             out.push(CsModelSave::PredVal(save_name(p)?));
         }
@@ -871,10 +914,12 @@ fn save(p: &mut Parser, logistic: bool) -> PResult<Vec<CsModelSave>> {
         .iter()
         .filter_map(|s| match s {
             // a PREDPROB root gets suffixes, so it cannot clash
-            CsModelSave::Pred(n) | CsModelSave::Resid(n) | CsModelSave::PredVal(n) => {
-                n.as_ref().map(|n| n.to_uppercase())
-            }
-            CsModelSave::PredProb(..) => None,
+            CsModelSave::Pred(n)
+            | CsModelSave::Resid(n)
+            | CsModelSave::PredVal(n)
+            | CsModelSave::PredValProb(n)
+            | CsModelSave::ObsValProb(n) => n.as_ref().map(|n| n.to_uppercase()),
+            CsModelSave::PredProb(..) | CsModelSave::CumProb(..) => None,
         })
         .collect();
     if let Some(i) = (1..names.len()).find(|&i| names[..i].contains(&names[i])) {
@@ -890,6 +935,7 @@ fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
         ordinal: ordinal.then_some(CsOrdinal {
             descending: false,
             link: PlumLink::Logit,
+            nonparallel: None,
         }),
         dependent,
         reference: CsReference::High,
@@ -998,11 +1044,11 @@ fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
                     return Err(p.unexpected(&["INCLUDE =", "SHOW ="]));
                 }
             }
-        } else if !ordinal && p.eat_keyword("CUSTOM") {
-            c.custom.push(custom(p)?);
+        } else if p.eat_keyword("CUSTOM") {
+            c.custom.push(custom(p, ordinal)?);
         } else if !logistic && p.eat_keyword("EMMEANS") {
             c.emmeans.push(emmeans(p)?);
-        } else if logistic && !ordinal && p.eat_keyword("ODDSRATIOS") {
+        } else if logistic && p.eat_keyword("ODDSRATIOS") {
             c.oddsratios.push(oddsratios(p)?);
         } else if let Some(o) = c.ordinal.as_mut().filter(|_| p.at_keyword("LINK")) {
             p.pos += 1;
@@ -1019,6 +1065,27 @@ fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
                 return Err(p.unexpected(&["CAUCHIT", "CLOGLOG", "LOGIT", "NLOGLOG", "PROBIT"]));
             };
             o.link = link;
+        } else if let Some(o) = c.ordinal.as_mut().filter(|_| p.at_keyword("NONPARALLEL")) {
+            p.pos += 1;
+            once(p, start, &mut seen, "NONPARALLEL")?;
+            if at_end(p) {
+                return Err(error(p, start, "NONPARALLEL needs TEST, PARAMETER or COVB"));
+            }
+            let mut n = CsNonparallel::default();
+            let mut inner = Vec::new();
+            while !at_end(p) {
+                if flag(p, &mut inner, "TEST")? {
+                    n.test = true;
+                } else if flag(p, &mut inner, "PARAMETER")? {
+                    n.parameter = true;
+                } else if flag(p, &mut inner, "COVB")? {
+                    n.covb = true;
+                } else {
+                    return Err(p.unexpected(&["TEST", "PARAMETER", "COVB"]));
+                }
+                p.eat(Punct::Comma);
+            }
+            o.nonparallel = Some(n);
         } else if p.eat_keyword("CRITERIA") {
             once(p, start, &mut seen, "CRITERIA")?;
             criteria(p, &mut c.criteria, logistic, ordinal)?;
@@ -1091,23 +1158,11 @@ fn model(p: &mut Parser, logistic: bool, ordinal: bool) -> PResult<Command> {
         } else if p.eat_keyword("PRINT") {
             once(p, start, &mut seen, "PRINT")?;
             c.print = print(p, logistic)?;
-        } else if !ordinal && p.eat_keyword("SAVE") {
+        } else if p.eat_keyword("SAVE") {
             once(p, start, &mut seen, "SAVE")?;
-            c.save = save(p, logistic)?;
+            c.save = save(p, logistic, ordinal)?;
         } else if logistic && p.at_keyword("EMMEANS") {
             return Err(p.subcommand_error(command, &[]));
-        } else if ordinal {
-            return Err(p.subcommand_error(
-                command,
-                &[
-                    "JOINTPROB",
-                    "OUTFILE",
-                    "CUSTOM",
-                    "ODDSRATIOS",
-                    "NONPARALLEL",
-                    "SAVE",
-                ],
-            ));
         } else {
             return Err(p.subcommand_error(command, &["JOINTPROB", "OUTFILE"]));
         }

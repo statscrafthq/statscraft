@@ -368,6 +368,21 @@ fn csglm_custom_tests_and_estimated_marginal_means() {
     );
     assert_eq!(l.rows[0][2], Cell::Number(1.0));
     assert_eq!(l.rows[0][3], Cell::Number(-1.0));
+    // the rows of the model effects but the intercept's are whole numbers here (factor columns and covariates), with
+    // no rounding residue and no negative zero
+    for nth in [0, 2, 3, 4] {
+        for row in &find(&tables, "Contrast Coefficients (L Matrix)", nth).rows {
+            for cell in &row[1..] {
+                let Cell::Number(v) = cell else {
+                    panic!("{cell:?}")
+                };
+                assert!(
+                    *v == v.round() && !(*v == 0.0 && v.is_sign_negative()),
+                    "{v}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -928,5 +943,211 @@ fn csordinal_thresholds_only_and_errors() {
     for (syntax, expected) in cases {
         let error = run_error(&format!("{d}{syntax}\n"));
         assert!(error.contains(expected), "{syntax}: {error}");
+    }
+}
+
+// CSORDINAL CUSTOM, ODDSRATIOS, NONPARALLEL and SAVE on the logit model of the first CSORDINAL
+// test. Expected numbers computed in R as a black box: the model and the general model of
+// NONPARALLEL (a set of coefficients per threshold) were solved there by Newton-Raphson on the
+// analytic weighted score, starting from svyolr's fit; each covariance is the manual's
+// sandwich, the inverse of the score's derivative (numDeriv's Jacobian) on both sides of
+// svytotal's design covariance of the total of the case scores. From those: the custom rows
+// (L b, the standard error from L V L', the Wald F and its p value by the manual's formula on
+// df 16), the cumulative odds ratios exp(-b'(x1 - x2)) with their intervals, the test of
+// parallel lines (the manual's Wald F of the first threshold's coefficients against the
+// second's) and the predicted probabilities, which agree with svyolr's own predictions to
+// about 1e-10.
+
+#[test]
+fn csordinal_custom_odds_ratios_and_parallel_lines() {
+    let source = format!(
+        "{}{ORDINAL} /PRINT LMATRIX
+           /CUSTOM LABEL='mixed' LMATRIX=1 0 town 0 -1; ALL 0 1 0 -1 1; town 1 -1
+             KMATRIX=0; 0.5; 1
+           /ODDSRATIOS FACTOR=[town] /ODDSRATIOS COVARIATE=[members(1 2)] CONTROL=[town(1)]
+           /NONPARALLEL TEST PARAMETER COVB.
+         CSORDINAL online WITH members /PLAN FILE='wr.json' /NONPARALLEL TEST /PRINT NONE.
+         {ORDINAL} /LINK FUNCTION=PROBIT /ODDSRATIOS FACTOR=[town] /PRINT NONE.\n",
+        data("ordinal-more")
+    );
+    let (engine, tables) = run(&source);
+    let custom = find(&tables, "Custom Hypothesis Tests", 0);
+    checks(
+        custom,
+        &[
+            // the first threshold minus the coefficient of town 2: the redundant 0
+            ("Contrast 1", "Estimate", -0.269643433175177),
+            ("Contrast 1", "Std. Error", 0.690814802038338),
+            ("Contrast 1", "Sig.", 0.701442580932823),
+            ("Contrast 2", "Estimate", 1.02033911546399),
+            ("Contrast 2", "Std. Error", 1.03747588891698),
+            ("Contrast 2", UPPER, 2.71968975019339),
+            ("Contrast 2", "Wald F", 0.251545715098574),
+            (
+                "Contrast 3",
+                "Difference (Estimate - Hypothesized)",
+                0.35936200411303,
+            ),
+            ("Overall Test", "Wald F", 5.78440925258547),
+            ("Overall Test", "df2", 14.0),
+            ("Overall Test", "Sig.", 0.00867387624830421),
+        ],
+    );
+    // the L matrix of CUSTOM: thresholds first, as in the parameter tables
+    let l = find(&tables, "Contrast Coefficients (L Matrix)", 3);
+    assert!(l.caption.as_deref().unwrap().starts_with("mixed."));
+    let numbers = |row: usize| -> Vec<f64> {
+        l.rows[row][1..]
+            .iter()
+            .map(|c| match c {
+                Cell::Number(v) => *v,
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    };
+    assert_eq!(numbers(0), [1.0, 0.0, 0.0, -1.0, 0.0]);
+    assert_eq!(numbers(1), [0.0, 1.0, 0.0, -1.0, 1.0]);
+    let odds = find(&tables, "Cumulative Odds Ratios", 0);
+    checks(
+        odds,
+        &[
+            ("town 1 vs. 2", "Cumulative Odds Ratio", 0.25682457772015),
+            ("town 1 vs. 2", LOWER, 0.0934877762564426),
+            ("town 1 vs. 2", UPPER, 0.705534630968272),
+        ],
+    );
+    checks(
+        find(&tables, "Cumulative Odds Ratios", 1),
+        &[
+            ("members up by 1", "Cumulative Odds Ratio", 1.15850196562506),
+            ("members up by 2", "Cumulative Odds Ratio", 1.34212680435714),
+            ("members up by 2", LOWER, 0.538552293958302),
+            ("members up by 2", UPPER, 3.34471578560089),
+        ],
+    );
+    checks(
+        find(&tables, "Test of Parallel Lines", 0),
+        &[
+            ("General Model", "df1", 2.0),
+            ("General Model", "df2", 15.0),
+            ("General Model", "Wald F", 3.32307832986172),
+            ("General Model", "Sig.", 0.0638746397289869),
+        ],
+    );
+    checks(
+        find(&tables, "Parameter Estimates of the General Model", 0),
+        &[
+            ("Threshold / [heat=1]", "Estimate", 0.216397818552745),
+            ("Threshold / [heat=2]", "Std. Error", 0.852635318751315),
+            (
+                "Location for [heat=1] / [town=1]",
+                "Estimate",
+                1.81904756480982,
+            ),
+            (
+                "Location for [heat=1] / [town=1]",
+                "Std. Error",
+                0.592336497925993,
+            ),
+            (
+                "Location for [heat=2] / members",
+                "Estimate",
+                -0.464548234128125,
+            ),
+            (
+                "Location for [heat=2] / members",
+                "Std. Error",
+                0.258544496627485,
+            ),
+        ],
+    );
+    checks(
+        find(&tables, "Covariances of the General Model Parameters", 0),
+        &[(
+            "Location for [heat=1]: [town=1]",
+            "Location for [heat=2]: [town=1]",
+            0.243773350354408,
+        )],
+    );
+    // odds ratios need the logit link; the general model needs three categories
+    assert_eq!(
+        tables
+            .iter()
+            .filter(|t| t.title == "Cumulative Odds Ratios")
+            .count(),
+        2
+    );
+    assert_eq!(
+        tables
+            .iter()
+            .filter(|t| t.title == "Test of Parallel Lines")
+            .count(),
+        1
+    );
+    let warned = |engine: &Engine, text: &str| engine.warnings().iter().any(|w| w.contains(text));
+    assert!(warned(&engine, "ODDSRATIOS needs the logit link"));
+    let (engine, _) = run(&format!(
+        "{}CSORDINAL online WITH members /PLAN FILE='wr.json' /NONPARALLEL TEST /PRINT NONE.\n",
+        data("ordinal-binary")
+    ));
+    assert!(warned(&engine, "at least three categories"));
+}
+
+#[test]
+fn csordinal_save_and_custom_errors() {
+    let d = data("ordinal-save");
+    let (engine, _) = run(&format!(
+        "{d}{ORDINAL} /PRINT NONE
+           /SAVE CUMPROB PREDPROB(p:2) PREDVAL PREDVALPROB(best) OBSVALPROB.
+         {ORDINAL} /PRINT NONE /DOMAIN VARIABLE=online(1) /SAVE CUMPROB(:1) PREDVAL(inside).\n"
+    ));
+    let close = |v: Option<f64>, expected: f64| {
+        assert!(
+            v.is_some_and(|v| (v - expected).abs() < 1e-8),
+            "{v:?} != {expected}"
+        )
+    };
+    // case 1: town 2, 4 members, heat 1; case 6: town 2, 1 member, heat missing (9), still
+    // predicted; case 55: town 1, 3 members, heat 1, most likely heat 3
+    let at = |name: &str, case: usize| column(&engine, name)[case - 1];
+    close(at("CumulativeProbability_1", 1), 0.579048256039622);
+    close(
+        at("CumulativeProbability_2", 1),
+        0.579048256039622 + 0.273656951513346,
+    );
+    close(at("CumulativeProbability_3", 1), 1.0);
+    close(at("p_2", 6), 0.318871652921578);
+    assert!(engine.dataset().unwrap().variable("p_3").is_err());
+    close(at("PredictedValue", 6), 1.0);
+    close(at("best", 6), 0.469409336584355);
+    assert_eq!(at("ObservedValueProbability", 6), None);
+    close(at("PredictedValue", 55), 3.0);
+    close(at("best", 55), 0.437949484955945);
+    close(at("ObservedValueProbability", 55), 0.233684481611143);
+    close(at("p_1", 55), 0.233684481611143);
+    // a taken default name gets a suffix; outside the domain nothing is saved
+    assert_eq!(at("CumulativeProbability_1_1", 55), None);
+    assert!(at("CumulativeProbability_1_1", 74).is_some());
+    assert_eq!(at("inside", 55), None);
+    assert!(at("inside", 74).is_some());
+
+    let cases = [
+        (
+            "/CUSTOM LMATRIX=1 0",
+            "CUSTOM 1: row 1 of the L matrix is not estimable",
+        ),
+        (
+            "/CUSTOM LMATRIX=1 0 0 town 1 -1",
+            "gives 3 threshold coefficients where the model has 2 thresholds",
+        ),
+        (
+            "/CUSTOM LMATRIX=ALL 0 0 1 -1",
+            "gives 4 coefficients after ALL where the model has 5 parameters",
+        ),
+        ("/SAVE PREDVAL(town)", "variable town already exists"),
+    ];
+    for (rest, expected) in cases {
+        let error = run_error(&format!("{d}{ORDINAL} {rest}.\n"));
+        assert!(error.contains(expected), "{rest}: {error}");
     }
 }

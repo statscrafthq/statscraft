@@ -12,6 +12,8 @@
 //!   still scoring goes on with Newton-Raphson.
 //! - The score of case i is the derivative of log P(y_i) at the estimates, unweighted; the
 //!   covariance uses the observed information at the estimates.
+//! - NONPARALLEL fits the general model, link(P(Y <= k | x)) = theta_k - x'b_k with a set of
+//!   coefficients per threshold, the same way, starting at the estimates of the model.
 
 use super::{Logistic, information_inverse};
 use crate::matrix::Matrix;
@@ -28,7 +30,9 @@ pub(super) struct Ordinal {
 }
 
 /// Fits the model to rows `x` (the non-redundant regression columns) with weights `w` and
-/// categories `y` in 0..k.
+/// categories `y` in 0..k. With `general`, the start of the general model (thresholds, then the
+/// coefficients of each threshold in turn), that model is fitted instead.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn fit(
     link: PlumLink,
     x: &[Vec<f64>],
@@ -36,8 +40,14 @@ pub(super) fn fit(
     y: &[usize],
     k: usize,
     c: &CsCriteria,
+    general: Option<&[f64]>,
     warnings: &mut Vec<String>,
 ) -> Ordinal {
+    let who = if general.is_some() {
+        "CSORDINAL NONPARALLEL (the general model)"
+    } else {
+        "CSORDINAL"
+    };
     let one_hot = |r: usize, value: f64| -> Vec<f64> {
         let mut v = vec![0.0; k];
         v[y[r]] = value;
@@ -49,7 +59,7 @@ pub(super) fn fit(
         counts: &counts,
         x,
         z: &[],
-        parallel: true,
+        parallel: general.is_none(),
         scale: false,
     };
     let mut totals = vec![0.0; k];
@@ -63,7 +73,11 @@ pub(super) fn fit(
         cumulative += totals[j];
         b[j] = quantile(link, cumulative / all);
     }
-    // every category has weight, so the start gives each case a positive probability
+    if let Some(start) = general {
+        b = start.to_vec();
+    }
+    // every category has weight, so the start gives each case a positive probability (the
+    // general model starts at a fit that does)
     let mut eval = model.eval(&b).expect("the start fits every case");
     let ll0 = eval.l;
     let mut history = vec![(0, -2.0 * eval.l, 0, b.clone())];
@@ -84,7 +98,7 @@ pub(super) fn fit(
                     > 0.0
             });
         let step = newton.unwrap_or_else(|| {
-            let inv = information_inverse("CSORDINAL", &eval.information, warnings);
+            let inv = information_inverse(who, &eval.information, warnings);
             inv.iter()
                 .map(|row| row.iter().zip(&eval.gradient).map(|(a, g)| a * g).sum())
                 .collect()
@@ -104,7 +118,7 @@ pub(super) fn fit(
         iteration += 1;
         let Some((candidate, next, halvings)) = accepted else {
             warnings.push(format!(
-                "CSORDINAL: the log pseudo-likelihood did not increase with any of the {} step sizes (MXSTEP) at iteration {iteration}; the estimates before it are shown",
+                "{who}: the log pseudo-likelihood did not increase with any of the {} step sizes (MXSTEP) at iteration {iteration}; the estimates before it are shown",
                 c.mxstep
             ));
             break;
@@ -140,13 +154,13 @@ pub(super) fn fit(
             && (0..x.len()).all(|r| probabilities(&model, &b, r)[y[r]] > 1.0 - 1e-8)
         {
             warnings.push(format!(
-                "CSORDINAL: complete separation at iteration {iteration}: every case is predicted with certainty, so the estimates are not reliable"
+                "{who}: complete separation at iteration {iteration}: every case is predicted with certainty, so the estimates are not reliable"
             ));
             break;
         }
         if iteration == c.mxiter as usize && !converged {
             warnings.push(format!(
-                "CSORDINAL: the estimates did not converge within {} iterations (MXITER)",
+                "{who}: the estimates did not converge within {} iterations (MXITER)",
                 c.mxiter
             ));
         }
@@ -159,7 +173,7 @@ pub(super) fn fit(
                 counts: &unweighted,
                 x: &x[r..=r],
                 z: &[],
-                parallel: true,
+                parallel: general.is_none(),
                 scale: false,
             };
             single

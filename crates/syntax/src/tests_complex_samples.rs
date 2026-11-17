@@ -438,6 +438,7 @@ fn csordinal_subcommands_and_defaults() {
         Some(CsOrdinal {
             descending: true,
             link: PlumLink::Cloglog,
+            nonparallel: None,
         })
     );
     assert_eq!(m.criteria.fisher, 4);
@@ -453,6 +454,7 @@ fn csordinal_subcommands_and_defaults() {
         Some(CsOrdinal {
             descending: false,
             link: PlumLink::Logit,
+            nonparallel: None,
         })
     );
     assert_eq!(m.criteria.fisher, u32::MAX);
@@ -464,14 +466,7 @@ fn csordinal_subcommands_and_defaults() {
 #[test]
 fn csordinal_syntax_errors() {
     let base = "CSORDINAL y BY a WITH x /PLAN FILE='p'";
-    for sub in [
-        "CUSTOM LMATRIX=a 1 -1",
-        "ODDSRATIOS FACTOR=[a]",
-        "NONPARALLEL TEST",
-        "SAVE PREDVAL",
-        "JOINTPROB FILE='j'",
-        "OUTFILE COVB='c.sav'",
-    ] {
+    for sub in ["JOINTPROB FILE='j'", "OUTFILE COVB='c.sav'"] {
         let message = err(&format!("{base} /{sub}."));
         let name = sub.split(' ').next().unwrap();
         assert!(
@@ -488,6 +483,13 @@ fn csordinal_syntax_errors() {
         ("/LINK FUNCTION=PROBIT /LINK FUNCTION=LOGIT", "only once"),
         ("/CRITERIA METHOD=FISHER(-1)", "whole number"),
         ("/PRINT GEF", "not supported yet"),
+        ("/CUSTOM KMATRIX=1", "CSORDINAL CUSTOM needs LMATRIX="),
+        ("/NONPARALLEL", "needs TEST, PARAMETER or COVB"),
+        ("/NONPARALLEL TEST TEST", "only once"),
+        ("/NONPARALLEL TEST /NONPARALLEL COVB", "only once"),
+        ("/SAVE PRED", "short for more than one keyword"),
+        ("/SAVE RESID", "unexpected"),
+        ("/SAVE PREDVAL(v) OBSVALPROB(v)", "SAVE names V twice"),
     ];
     for (rest, expected) in cases {
         let message = err(&format!("{base} {rest}."));
@@ -497,4 +499,50 @@ fn csordinal_syntax_errors() {
     assert!(message.contains("unexpected word LOW"), "{message}");
     assert!(err("CSLOGISTIC y /PLAN FILE='p' /CRITERIA METHOD=NEWTON.").contains("unexpected"));
     assert!(err("CSLOGISTIC y /PLAN FILE='p' /LINK FUNCTION=LOGIT.").contains("unknown"));
+}
+
+#[test]
+fn csordinal_custom_oddsratios_nonparallel_and_save() {
+    let m = model(
+        "CSORDINAL y BY a WITH x /PLAN FILE='p'
+           /CUSTOM LABEL='t' LMATRIX=1 0 a 0 -1; a 1 -1; ALL 0 1/2 0 0 1 KMATRIX=0; 1; 2
+           /ODDSRATIOS FACTOR=[a(LOW)] CONTROL=[x(2)] /ODDSRATIOS COVARIATE=[x(1 5)]
+           /NONPARALLEL PARAMETER, COVB
+           /SAVE CUMPROB(cp:2) PREDPROB PREDVAL(pv) PREDVALPROB OBSVALPROB(ov).",
+    );
+    let custom = &m.custom[0];
+    assert_eq!(custom.rows.len(), 3);
+    // the leading numbers of a row are the threshold coefficients
+    let (lead, values) = &custom.rows[0][0];
+    assert!(lead.as_ref().is_some_and(|t| t.variables.is_empty()));
+    assert_eq!(values, &vec![1.0, 0.0]);
+    assert_eq!(custom.rows[2][0].1, vec![0.0, 0.5, 0.0, 0.0, 1.0]);
+    assert_eq!(custom.k, Some(vec![0.0, 1.0, 2.0]));
+    assert_eq!(m.oddsratios.len(), 2);
+    assert_eq!(
+        m.ordinal.and_then(|o| o.nonparallel),
+        Some(CsNonparallel {
+            test: false,
+            parameter: true,
+            covb: true,
+        })
+    );
+    assert_eq!(
+        m.save,
+        vec![
+            CsModelSave::CumProb(Some("cp".into()), 2),
+            CsModelSave::PredProb(None, 25),
+            CsModelSave::PredVal(Some("pv".into())),
+            CsModelSave::PredValProb(None),
+            CsModelSave::ObsValProb(Some("ov".into())),
+        ]
+    );
+    // CSLOGISTIC keeps one intercept coefficient and its SAVE keywords
+    let message = err("CSLOGISTIC y BY a /PLAN FILE='p' /CUSTOM LMATRIX=1 0 a 1 -1.");
+    assert!(
+        message.contains("one coefficient for the intercept"),
+        "{message}"
+    );
+    assert!(err("CSLOGISTIC y /PLAN FILE='p' /SAVE CUMPROB.").contains("unexpected"));
+    assert!(err("CSLOGISTIC y /PLAN FILE='p' /NONPARALLEL TEST.").contains("unknown"));
 }

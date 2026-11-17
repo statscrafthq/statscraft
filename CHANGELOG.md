@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+- CSORDINAL: CUSTOM (with threshold coefficients), ODDSRATIOS (cumulative odds ratios, logit link), NONPARALLEL (the test of parallel lines and the general model's estimates and covariances) and SAVE (cumulative and category probabilities, the predicted category and its probability, the probability of the observed category). Checked against R's survey package. JOINTPROB and OUTFILE still give a "not supported yet" error.
+- CSGLM, CSLOGISTIC, CSORDINAL: the contrast coefficients of the model effects (PRINT LMATRIX) show 0 and 1 instead of rounding residue such as -0.00.
+
 - CROSSTABS: gamma, the Kendall taus and Somers' d count concordant pairs with cumulative sums, so a large table (an ID by a measurement) takes well under a second instead of minutes.
-- CSORDINAL: ordinal regression on a complex sample. All five link functions, DESCENDING order, MODEL, CRITERIA (with METHOD=FISHER(n)), STATISTICS, TEST, DOMAIN, MISSING and PRINT (pseudo R squares, iteration history, covariances, classification); thresholds, coefficients and design-based standard errors checked against R's survey package. CUSTOM, ODDSRATIOS, NONPARALLEL and SAVE give a "not supported yet" error for now.
+- CSORDINAL: ordinal regression on a complex sample. All five link functions, DESCENDING order, MODEL, CRITERIA (with METHOD=FISHER(n)), STATISTICS, TEST, DOMAIN, MISSING and PRINT (pseudo R squares, iteration history, covariances, classification); thresholds, coefficients and design-based standard errors checked against R's survey package.
 - CROSSTABS integer mode: /VARIABLES with value ranges. Every value of a row or column range is shown, values outside it count as missing, and TO and ALL on TABLES follow the order of VARIABLES.
 - CROSSTABS /MISSING=REPORT in integer mode: user-missing values are shown in the table, marked, with their counts, and left out of totals, percentages and statistics.
 - AGGREGATE: the percentage, fraction and count functions PGT, PLT, PIN, POUT, FGT, FLT, FIN, FOUT, CGT, CLT, CIN and COUT.
