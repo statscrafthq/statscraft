@@ -242,6 +242,7 @@ impl Engine {
         let before = self.dataset.clone();
         // TREE, DETECTANOMALY, OPTIMAL BINNING, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples procedures ignore SPLIT FILE, as
         // TREE, DETECTANOMALY, MULTIPLE CORRESPONDENCE, CATPCA, CATREG and the complex samples procedures ignore SPLIT FILE, as
+        // TREE, DETECTANOMALY, NAIVEBAYES, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples procedures ignore SPLIT FILE, as
         // the manual says
         // TREE, DETECTANOMALY, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples
         // procedures ignore SPLIT FILE, as the manual says; HOMALS, PRINCALS and OVERALS do as
@@ -253,6 +254,7 @@ impl Engine {
                 | Command::Detectanomaly(_)
                 | Command::OptimalBinning(_)
                 | Command::GenLinMixed(_)
+                | Command::Naivebayes(_)
                 | Command::MultipleCorrespondence(_)
                 | Command::Catpca(_)
                 | Command::Catreg(_)

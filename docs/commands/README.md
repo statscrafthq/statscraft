@@ -156,6 +156,7 @@ One page per supported command, generated from the same table that the parser an
 | [DETECTANOMALY](detectanomaly.md) | Unusual cases: peer groups by two-step clustering, an anomaly index and the variables behind it. |
 | [OPTIMAL BINNING](optimal-binning.md) | Bins of scale variables: cuts chosen by MDLP against a guide variable, or by equal frequency. |
 | [KNN](knn.md) | Nearest neighbor analysis: classify or predict a target from the k most similar training cases. |
+| [NAIVEBAYES](naivebayes.md) | Naive Bayes classification of a categorical target, with forward selection of the predictors. |
 | [PROXIMITIES](proximities.md) | Similarities, dissimilarities or distances between cases or variables by one of 37 measures. |
 | [PROXSCAL](proxscal.md) | Multidimensional scaling of one or more proximity matrices by majorization, with optimal transformations. |
 | [ALSCAL](alscal.md) | Multidimensional scaling of symmetric proximity matrices by alternating least squares on squared distances. |

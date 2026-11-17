@@ -31,6 +31,7 @@ mod descriptives;
 mod detectanomaly;
 mod dictionary;
 mod discriminant;
+mod naivebayes;
 // its own crate so that dev builds can optimize it (see the workspace Cargo.toml)
 use statscraft_dist as dist;
 mod distributions;
@@ -1333,6 +1334,9 @@ impl Engine {
                     self.warn(
                         "OPTIMAL BINNING does not use SPLIT FILE: it bins all cases together",
                     );
+            Command::Naivebayes(_) => {
+                if self.active()?.split_file().is_some() {
+                    self.warn("NAIVEBAYES does not use SPLIT FILE: it analyzes all cases together");
                 }
                 return self.procedure(command);
             }
@@ -1611,6 +1615,7 @@ impl Engine {
             Command::Knn(command) => self.knn(command),
             Command::Detectanomaly(command) => self.detectanomaly(command),
             Command::OptimalBinning(command) => self.optimal_binning(command),
+            Command::Naivebayes(command) => self.naivebayes(command),
             Command::Logistic(command) => self.logistic(command),
             Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),

@@ -75,6 +75,7 @@ pub enum Command {
     Detectanomaly(Box<crate::twostep::Detectanomaly>),
     OptimalBinning(Box<crate::optimal_binning::OptimalBinning>),
     Knn(Box<crate::knn::Knn>),
+    Naivebayes(Box<crate::naivebayes::Naivebayes>),
     Logistic(Box<crate::logistic::Logistic>),
     Coxreg(Box<crate::coxreg::Coxreg>),
     Nomreg(Box<crate::nomreg::Nomreg>),

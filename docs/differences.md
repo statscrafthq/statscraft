@@ -1064,6 +1064,24 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - Keywords ignored by the manual's rules (for example CROSSVALIDATION with NEIGHBORS=FIXED or FEATURES=AUTO, FOLD without cross-validation, PREDPROB with a scale target) are ignored with a warning.
 - The model view comes as tables: Model Summary, k Selection Error Log, Feature Selection Error Log, Feature Importance, Error Summary, Classification Table, and Nearest Neighbors and Distances. The predictor space chart, peers chart and quadrant map are not drawn; CASELABELS names the cases in the focal table.
 - OUTFILE MODEL writes our own JSON model (the coding, k, metric, features, weights and coded training cases), not an XML model. Under SPLIT FILE neither OUTFILE file is written (warning). OUTFILE FOCALCASES without a FOCALCASES variable writes nothing (warning).
+### NAIVEBAYES
+
+- Keywords are written in full, as the command text asks. PRINT also takes `keyword=YES` or `keyword=NO`, since one of the manual's examples writes it that way: a keyword given plainly (or with YES) replaces the default tables, while `=NO` on its own only turns that one table off.
+- Bins: each interval is open at its lower bound and closed at its upper one, the end intervals unbounded. The bounds come from the training cases with a valid target and a usable weight; test cases beyond the range fall into the end intervals.
+- A predictor that is missing or constant over those training cases is left out, with a warning and a row in Excluded Predictors (a table shown only when something is left out); this holds for FORCE predictors too.
+- A category of a test case that no training case has counts as missing for that case. A test case whose target category no training case has is left out of the test statistics and counted as excluded.
+- TRAININGSAMPLE VARIABLE: a case with a missing value is a test case. The variable is quietly taken off the factor and covariate lists; naming it on FORCE is an error.
+- TRAININGSAMPLE PERCENT draws one uniform number per case, in file order, from the session's generator (SET SEED); a case is a training case when its number is below the percent over 100, so the share is close to, not exactly, the percent.
+- The automatic MAXSIZE is the forced count plus 20, or a fifth of the predictors (rounded down) when that is more, at most 100, and never more than the predictors left after the exclusions. MAXSIZE and EXACTSIZE are checked against the forced and listed predictors after EXCEPT; an EXACTSIZE that the predictors left after the exclusions cannot reach stops at all of them with a warning.
+- Ties: among equal training log-likelihoods the predictor first in order (forced factors, forced covariates, factors, covariates) enters; among equal criterion values the smaller subset wins; posterior probabilities within 1e-12 go to the higher prior and then to the lower category.
+- BESTSUBSET=TESTDATA without TRAININGSAMPLE is an error. With TRAININGSAMPLE but no usable test case, the pseudo-BIC chooses, with a warning.
+- The target must be nominal or ordinal (a string target is nominal; an unknown level is guessed from the values as elsewhere), and the training cases must hold at least two of its categories.
+- Under WEIGHT the case counts are the rounded weights; a case whose weight rounds to 0 is not counted at all.
+- Saved values go to every case with at least one predictor present (test cases, cases without a target and cases of weight 0 included); a case missing every selected predictor gets the priors. PredictedValue has the target's type, format, level and value labels. PREDPROB saves the categories in sorted order as root_1 to root_n (format F8.3). A name given on SAVE that already exists is an error; a default name in use gets the first free suffix _1, _2 and so on.
+- MEMALLOCATE is checked and then not needed: all training cases stay in memory, so no simulated data are drawn and only PERCENT uses the random generator. TIMER is checked between selection steps; when the time is up the command stops with an error.
+- Selected Predictors gives the names of each type in one cell, separated by spaces, ready to copy into another command.
+- SPLIT FILE is not used, with a warning.
+- **The OUTFILE file** is a small JSON file of Statscraft's own (`"format": "statscraft-naivebayes-model"`), not the XML the documentation describes: the target with its training categories, counts and smoothed priors, the training case count and the smoothing constant, and each predictor of the model with its kind, its categories (or the inner bin bounds of a covariate), the training counts per category and target category and the smoothed conditional probabilities.
 
 ### PROXIMITIES
 

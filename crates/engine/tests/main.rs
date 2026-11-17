@@ -59,6 +59,7 @@ mod mult_response;
 mod multiple_correspondence;
 mod multiple_imputation;
 mod mva;
+mod naivebayes;
 mod nomreg;
 mod npar;
 mod nptests;

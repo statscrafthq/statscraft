@@ -157,6 +157,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "DETECTANOMALY",
             "OPTIMAL BINNING",
             "KNN",
+            "NAIVEBAYES",
             "PROXIMITIES",
             "PROXSCAL",
             "ALSCAL",

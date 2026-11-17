@@ -63,6 +63,7 @@ mod mult_response;
 mod multiple_correspondence;
 mod multiple_imputation;
 mod mva;
+mod naivebayes;
 mod nomreg;
 mod npar;
 mod nptests;
@@ -301,6 +302,7 @@ pub use mrsets::{Mrsets, MrsetsGroup};
 pub use multiple_correspondence::{McaPlot, McaPlots, McaPrint, MultipleCorrespondence};
 pub use multiple_imputation::{ImputeConstraint, ImputeMethod, ImputeRole, MultipleImputation};
 pub use mva::{AddType, Mva, MvaEstimate, MvaPattern, MvaTtest};
+pub use naivebayes::{Naivebayes, NbSubset, NbTraining};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,
     NomregStepwise, StepMethod, StepRule,

@@ -45,6 +45,7 @@ use crate::mult_response;
 use crate::multiple_correspondence;
 use crate::multiple_imputation;
 use crate::mva;
+use crate::naivebayes;
 use crate::nomreg;
 use crate::npar;
 use crate::nptests;
@@ -2320,6 +2321,36 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "KNN plan (MLEVEL=N) BY region WITH age income /PARTITION TRAINING=8 HOLDOUT=2\n\
                   \x20 /MODEL NEIGHBORS=AUTO(KMIN=2, KMAX=6) /CROSSVALIDATION FOLDS=5 /SAVE PREDVAL PREDPROB.",
         parse: knn::knn,
+        name: "NAIVEBAYES",
+        summary: "Naive Bayes classification of a categorical target, with forward selection of the predictors.",
+        syntax: "NAIVEBAYES target [BY factors] [WITH covariates]\n\
+                 \x20          [/EXCEPT VARIABLES=varlist] [/FORCE [FACTORS=varlist] [COVARIATES=varlist]]\n\
+                 \x20          [/TRAININGSAMPLE PERCENT=p | VARIABLE=var]\n\
+                 \x20          [/SUBSET MAXSIZE=AUTO | n [(BESTSUBSET=PSEUDOBIC | TESTDATA)] | EXACTSIZE=n | NOSELECTION]\n\
+                 \x20          [/CRITERIA [BINS=10] [MEMALLOCATE=1024] [TIMER=5]] [/MISSING USERMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20          [/PRINT [CPS] [EXCLUDED] [SUMMARY] [SELECTED] [CLASSIFICATION] | NONE]\n\
+                 \x20          [/SAVE [PREDVAL[(name)]] [PREDPROB[(root[:n])]]] [/OUTFILE MODEL='file'].\n\
+                 Without BY and WITH every other variable is a predictor (strings, nominal and ordinal ones as\n\
+                 factors, scale ones as covariates), except the weight, the TRAININGSAMPLE variable and EXCEPT.\n\
+                 Keywords are written in full, each subcommand once. A covariate is cut into BINS intervals of\n\
+                 equal width over the training cases, empty inner intervals merged with their neighbours. Each\n\
+                 probability is a smoothed count: (count + 1/N) over (total + categories/N), N the training\n\
+                 cases. Selection starts from the FORCE predictors and adds, step by step, the one that raises\n\
+                 the mean log-likelihood of the training cases most, up to EXACTSIZE more or the MAXSIZE limit\n\
+                 (AUTO: 20, or a fifth of the predictors when that is more, at most 100); of the subsets passed\n\
+                 the best has the lowest pseudo-BIC (minus the mean log-likelihood plus J log(N) / 2N), or with\n\
+                 TESTDATA the highest mean log-likelihood of the test cases (the default when TRAININGSAMPLE\n\
+                 splits the data). NOSELECTION uses every predictor. A case is put in the target category of\n\
+                 highest posterior probability; a missing predictor is left out of a case's product. Cases\n\
+                 without a target or without any predictor are left out, as are predictors that are empty or\n\
+                 constant. PERCENT draws the training cases from the SET SEED generator; VARIABLE takes cases\n\
+                 equal to 1. Frequency weights are rounded (below 0.5 left out). SPLIT FILE is not used.\n\
+                 SAVE adds PredictedValue and PredictedProbability_1 to _n (25 by default) for the first n\n\
+                 target categories. OUTFILE MODEL writes Statscraft's own JSON model. MEMALLOCATE and TIMER\n\
+                 are checked; every case is kept in memory.",
+        example: "NAIVEBAYES churn BY region plan WITH tenure spend /TRAININGSAMPLE PERCENT=70\n\
+                  \x20 /SUBSET MAXSIZE=3 /CRITERIA BINS=5 /SAVE PREDVAL PREDPROB(prob).",
+        parse: naivebayes::naivebayes,
     },
     CommandSpec {
         name: "CLUSTER",
