@@ -3854,6 +3854,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  chart of the lower bounds of the area intervals.",
         example: "ROC ANALYSIS score_a score_b BY diseased (1) /DESIGN PAIR=TRUE /PRINT SE=TRUE CLASSIFIER=TRUE /PLOT CURVE=ROC(REFERENCE) PR.",
         parse: roc_analysis::roc_analysis,
+    },
+    CommandSpec {
         name: "SPCHART",
         summary: "Control charts (X-bar with R or s, individuals, p, np, c, u) and the process capability chart.",
         syntax: spchart::SPCHART_SYNTAX,
