@@ -1325,6 +1325,7 @@ impl Engine {
             | Command::Tree(_)
             | Command::Graph(_)
             | Command::Ggraph(_)
+            | Command::Igraph(_)
             | Command::Report(_)
             | Command::Summarize(_)
             | Command::OlapCubes(_)
@@ -1706,6 +1707,7 @@ impl Engine {
             Command::Tree(command) => self.tree(command),
             Command::Graph(command) => self.graph(command),
             Command::Ggraph(command) => self.ggraph(command),
+            Command::Igraph(command) => self.igraph(command),
             Command::Report(command) => self.report(command),
             Command::Summarize(command) => self.summarize(command),
             Command::OlapCubes(command) => self.olap_cubes(command),

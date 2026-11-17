@@ -44,6 +44,7 @@ mod ggraph;
 mod glm;
 mod glm_multivariate;
 mod graph;
+mod igraph;
 mod inline_data;
 mod input_program;
 mod km_survival;

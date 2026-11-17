@@ -164,7 +164,7 @@ impl Distribution {
     }
 
     /// Tukey's hinges: the 25th, 50th and 75th percentiles by the depths of the hinges.
-    fn hinges(&self) -> Option<[f64; 3]> {
+    pub(crate) fn hinges(&self) -> Option<[f64; 3]> {
         if self.values.is_empty() {
             return None;
         }

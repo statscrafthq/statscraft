@@ -48,6 +48,7 @@ mod get_data;
 mod ggraph;
 mod glm;
 mod graph;
+mod igraph;
 mod input_program;
 mod knn;
 mod legacy_scaling;
@@ -138,6 +139,8 @@ mod tests_ggraph;
 mod tests_glm;
 #[cfg(test)]
 mod tests_graph;
+#[cfg(test)]
+mod tests_igraph;
 #[cfg(test)]
 mod tests_input_program;
 #[cfg(test)]
@@ -287,6 +290,9 @@ pub use graph::{
 };
 pub use knn::{Knn, KnnFeatureCount, KnnFolds, KnnLevel, KnnNeighbors, KnnPartition, KnnSave};
 pub use legacy_scaling::{LegacyChart, LegacyCoding, LegacyLevel, Overals};
+pub use igraph::{
+    Igraph, IgraphElement, IgraphFit, IgraphOrder, IgraphOrderBy, IgraphRole, IgraphVar,
+};
 pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
     Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,

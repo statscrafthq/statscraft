@@ -86,6 +86,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::CsCox(_)
         | Command::Graph(_)
         | Command::Ggraph(_)
+        | Command::Igraph(_)
         | Command::Pplot(_)
         | Command::Roc(_)
         | Command::RocAnalysis(_)

@@ -126,6 +126,7 @@ pub enum Command {
     Ggraph(Box<crate::ggraph::Ggraph>),
     /// The chart program between BEGIN GPL and END GPL, which belongs to the GGRAPH before it.
     BeginGpl(Box<crate::ggraph::GplProgram>),
+    Igraph(Box<crate::igraph::Igraph>),
     Rank(Rank),
     AddFiles(Merge),
     MatchFiles(Merge),

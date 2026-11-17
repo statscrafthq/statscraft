@@ -45,7 +45,7 @@ use crate::chart::{
     Tier,
 };
 use crate::crosstabs::Key;
-use crate::descriptives::case_weights;
+use crate::descriptives::{case_weights, summarize};
 use crate::dist::{beta_i, t_quantile};
 use crate::examine::Distribution;
 use crate::format::{Stat, procedure_format};
@@ -59,6 +59,8 @@ use statscraft_syntax::{
     GraphSummary, VarItem,
 };
 use std::cmp::Ordering;
+
+mod igraph;
 
 /// The most categories a chart can show.
 pub(crate) const MOST_CATEGORIES: usize = 3000;
@@ -183,14 +185,44 @@ pub(crate) fn function_name(function: F, variable: Option<&str>) -> String {
         F::Ngt(x) => format!("N{of} > {}", plain(x)),
         F::Pin(a, b) => format!("%{of} in {} to {}", plain(a), plain(b)),
         F::Nin(a, b) => format!("N{of} in {} to {}", plain(a), plain(b)),
+        F::First => format!("First{of}"),
+        F::Last => format!("Last{of}"),
+        F::Skew => format!("Skewness{of}"),
+        F::Kurtosis => format!("Kurtosis{of}"),
+        F::Semean => format!("Std. Error of Mean{of}"),
+        F::Seskew => format!("Std. Error of Skewness{of}"),
+        F::Sekurt => format!("Std. Error of Kurtosis{of}"),
+        F::Sumav => format!("Sum of Absolute Values{of}"),
+        F::Sumsq => format!("Sum of Squares{of}"),
+        F::Nle(x) => format!("N{of} <= {}", plain(x)),
+        F::Nge(x) => format!("N{of} >= {}", plain(x)),
+        F::Neq(x) => format!("N{of} = {}", plain(x)),
+        F::Ple(x) => format!("%{of} <= {}", plain(x)),
+        F::Pge(x) => format!("%{of} >= {}", plain(x)),
+        F::Peq(x) => format!("%{of} = {}", plain(x)),
     }
 }
 
 /// What the numbers of a function are.
 pub(crate) fn statistic_of(function: F) -> Statistic {
     match function {
-        F::Count | F::Cufreq | F::N | F::Nlt(_) | F::Ngt(_) | F::Nin(..) => Statistic::Count,
-        F::Pct | F::Cupct | F::Plt(_) | F::Pgt(_) | F::Pin(..) => Statistic::Percent,
+        F::Count
+        | F::Cufreq
+        | F::N
+        | F::Nlt(_)
+        | F::Ngt(_)
+        | F::Nin(..)
+        | F::Nle(_)
+        | F::Nge(_)
+        | F::Neq(_) => Statistic::Count,
+        F::Pct
+        | F::Cupct
+        | F::Plt(_)
+        | F::Pgt(_)
+        | F::Pin(..)
+        | F::Ple(_)
+        | F::Pge(_)
+        | F::Peq(_) => Statistic::Percent,
         F::Mean => Statistic::Mean,
         _ => Statistic::Value,
     }
@@ -245,6 +277,22 @@ pub(crate) fn compute(function: F, pairs: &[(f64, f64)]) -> f64 {
         F::Ngt(x) => Some(count(&|v| v > x)),
         F::Pin(a, b) => Some(share(count(&|v| v >= a && v <= b))),
         F::Nin(a, b) => Some(count(&|v| v >= a && v <= b)),
+        F::Nle(x) => Some(count(&|v| v <= x)),
+        F::Nge(x) => Some(count(&|v| v >= x)),
+        F::Neq(x) => Some(count(&|v| v == x)),
+        F::Ple(x) => Some(share(count(&|v| v <= x))),
+        F::Pge(x) => Some(share(count(&|v| v >= x))),
+        F::Peq(x) => Some(share(count(&|v| v == x))),
+        // the cases come in file order
+        F::First => pairs.first().map(|p| p.0),
+        F::Last => pairs.last().map(|p| p.0),
+        F::Sumav => (!pairs.is_empty()).then(|| pairs.iter().map(|p| p.0.abs() * p.1).sum()),
+        F::Sumsq => (!pairs.is_empty()).then(|| pairs.iter().map(|p| p.0 * p.0 * p.1).sum()),
+        F::Semean => statistic(A::Sd, pairs).map(|sd| sd / n.sqrt()),
+        F::Skew => summarize(pairs).skewness,
+        F::Kurtosis => summarize(pairs).kurtosis,
+        F::Seskew => summarize(pairs).se_skewness,
+        F::Sekurt => summarize(pairs).se_kurtosis,
     };
     value.unwrap_or(f64::NAN)
 }
@@ -434,8 +482,9 @@ impl Item<'_> {
             Statistic::Percent => chart::PERCENT_FORMAT.into(),
             _ => {
                 let kind = match self.function {
-                    F::Sum | F::Cusum => Stat::Sum,
-                    F::StdDev => Stat::Spread,
+                    F::Sum | F::Cusum | F::Sumav => Stat::Sum,
+                    F::StdDev | F::Semean => Stat::Spread,
+                    F::Sumsq | F::Skew | F::Kurtosis | F::Seskew | F::Sekurt => Stat::Other,
                     F::Variance => Stat::Other,
                     _ => Stat::Value,
                 };
@@ -1357,6 +1406,12 @@ impl Context<'_> {
             GraphChart::Drop(data) => self.ranges(data, ChartKind::DropLine)?,
             GraphChart::Difference(data) => self.ranges(data, ChartKind::Difference)?,
             GraphChart::Hilo(data) => self.ranges(data, ChartKind::HighLow)?,
+            GraphChart::Boxes {
+                variable,
+                by,
+                outliers,
+                extremes,
+            } => self.boxes(variable, by, *outliers, *extremes)?,
         };
         if interval.is_some() && chart.grouping == Some(Grouping::Stacked) {
             return Err(Error(

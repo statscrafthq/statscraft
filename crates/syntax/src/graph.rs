@@ -64,6 +64,22 @@ pub enum GraphFunction {
     Ngt(f64),
     Pin(f64, f64),
     Nin(f64, f64),
+    // the functions below come from IGRAPH only
+    First,
+    Last,
+    Skew,
+    Kurtosis,
+    Semean,
+    Seskew,
+    Sekurt,
+    Sumav,
+    Sumsq,
+    Nle(f64),
+    Nge(f64),
+    Neq(f64),
+    Ple(f64),
+    Pge(f64),
+    Peq(f64),
 }
 
 impl GraphFunction {
@@ -160,6 +176,14 @@ pub enum GraphChart {
     Difference(GraphData),
     /// HILO: high, low and optionally close as series.
     Hilo(GraphData),
+    /// Made by IGRAPH: a box of the variable per category of up to two variables; OUTLIERS and
+    /// EXTREME off leave those cases unmarked.
+    Boxes {
+        variable: String,
+        by: Vec<String>,
+        outliers: bool,
+        extremes: bool,
+    },
 }
 
 /// What an error bar spans.
