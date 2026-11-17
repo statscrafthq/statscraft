@@ -38,23 +38,23 @@ use statscraft_syntax::{
 
 /// One set of smoothing parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct Params {
-    alpha: f64,
-    gamma: f64,
-    delta: f64,
-    phi: f64,
+pub(crate) struct Params {
+    pub(crate) alpha: f64,
+    pub(crate) gamma: f64,
+    pub(crate) delta: f64,
+    pub(crate) phi: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Model {
-    trend: Trend,
-    season: Seasonality,
+pub(crate) struct Model {
+    pub(crate) trend: Trend,
+    pub(crate) season: Seasonality,
     /// The period (seasonal models).
-    p: usize,
+    pub(crate) p: usize,
 }
 
 impl Model {
-    fn seasonal(&self) -> bool {
+    pub(crate) fn seasonal(&self) -> bool {
         self.season != Seasonality::None
     }
     fn uses_gamma(&self) -> bool {
@@ -88,22 +88,22 @@ impl Model {
 
 /// The start values: level, trend and the factors I_(1-p) .. I_0.
 #[derive(Debug, Clone)]
-struct Start {
-    level: f64,
-    trend: f64,
-    factors: Vec<f64>,
+pub(crate) struct Start {
+    pub(crate) level: f64,
+    pub(crate) trend: f64,
+    pub(crate) factors: Vec<f64>,
 }
 
 /// The fit of one set of parameters.
-struct Fit {
-    sse: f64,
+pub(crate) struct Fit {
+    pub(crate) sse: f64,
     /// The one-step forecast of every case, made at the case before.
-    fits: Vec<f64>,
+    pub(crate) fits: Vec<f64>,
     /// Level and trend after each case (index 0: the start).
-    levels: Vec<f64>,
-    trends: Vec<f64>,
+    pub(crate) levels: Vec<f64>,
+    pub(crate) trends: Vec<f64>,
     /// I_(1-p) .. I_n.
-    factors: Vec<f64>,
+    pub(crate) factors: Vec<f64>,
 }
 
 /// The mean of each complete period.
@@ -180,7 +180,7 @@ fn start_values(
 
 /// The level-and-trend part of the forecast `h` steps after a case with level `s` and trend
 /// `t`.
-fn ahead(m: &Model, q: &Params, s: f64, t: f64, h: usize) -> f64 {
+pub(crate) fn ahead(m: &Model, q: &Params, s: f64, t: f64, h: usize) -> f64 {
     match m.trend {
         Trend::None => s,
         Trend::Linear => s + h as f64 * t,
@@ -197,7 +197,7 @@ fn with_season(m: &Model, value: f64, factor: f64) -> f64 {
     }
 }
 
-fn smooth(x: &[f64], m: &Model, start: &Start, q: &Params) -> Fit {
+pub(crate) fn smooth(x: &[f64], m: &Model, start: &Start, q: &Params) -> Fit {
     let n = x.len();
     let p = if m.seasonal() { m.p } else { 0 };
     let (a, g, d, phi) = (q.alpha, q.gamma, q.delta, q.phi);
@@ -214,7 +214,12 @@ fn smooth(x: &[f64], m: &Model, start: &Start, q: &Params) -> Fit {
         let i_old = factor(&factors, t - 1);
         let forecast = with_season(m, ahead(m, q, s, tr, 1), i_old);
         fits.push(forecast);
-        let e = x[t - 1] - forecast;
+        // a missing value (NaN, from TSMODEL) moves the states on without an update
+        let e = if x[t - 1].is_nan() {
+            0.0
+        } else {
+            x[t - 1] - forecast
+        };
         sse += e * e;
         let per = |e: f64| match m.season {
             Seasonality::Multiplicative => e / i_old,
@@ -260,7 +265,7 @@ fn smooth(x: &[f64], m: &Model, start: &Start, q: &Params) -> Fit {
 }
 
 /// The forecast `h` steps after case `origin` (0: before the first case).
-fn forecast(m: &Model, q: &Params, fit: &Fit, origin: usize, h: usize) -> f64 {
+pub(crate) fn forecast(m: &Model, q: &Params, fit: &Fit, origin: usize, h: usize) -> f64 {
     let value = ahead(m, q, fit.levels[origin], fit.trends[origin], h);
     if !m.seasonal() {
         return value;

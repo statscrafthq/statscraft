@@ -187,7 +187,7 @@ impl Engine {
 
     /// The forecast period: its first and last case, either may lie past the file; None
     /// without PREDICT.
-    fn predict_bounds(
+    pub(crate) fn predict_bounds(
         &self,
         data: &Dataset,
         last_used: usize,
@@ -264,9 +264,13 @@ impl Engine {
         let name = match command {
             Command::Exsmooth(_) => "EXSMOOTH",
             Command::Arima(a) if a.regressors.is_empty() => "ARIMA",
+            // these two do not follow TSET: they add cases when they save variables
+            Command::Tsmodel(t) if !t.output.save.is_empty() => "TSMODEL",
+            Command::Tsapply(t) if !t.output.save.is_empty() => "TSAPPLY",
             _ => return Ok(()),
         };
-        if self.ts_predict.is_none() || self.tset.newvar == NewVar::None {
+        let saves = matches!(command, Command::Tsmodel(_) | Command::Tsapply(_));
+        if self.ts_predict.is_none() || (self.tset.newvar == NewVar::None && !saves) {
             return Ok(());
         }
         let data = self.active()?;

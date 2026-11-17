@@ -280,10 +280,15 @@ impl Engine {
     }
 
     fn in_view(&mut self, command: &Command, use_split: bool) -> Result<Vec<Table>, Error> {
-        // EXSMOOTH, ARIMA and AREG apply USE themselves, as they also forecast after it
+        // EXSMOOTH, ARIMA, AREG, TSMODEL and TSAPPLY apply USE themselves, as they also
+        // forecast after it
         let use_range = !matches!(
             command,
-            Command::Exsmooth(_) | Command::Arima(_) | Command::Areg(_)
+            Command::Exsmooth(_)
+                | Command::Arima(_)
+                | Command::Areg(_)
+                | Command::Tsmodel(_)
+                | Command::Tsapply(_)
         );
         let Some(groups) = self.groups(use_split, use_range)? else {
             return self.run_procedure(command);

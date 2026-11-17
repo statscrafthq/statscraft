@@ -60,30 +60,21 @@ pub(crate) struct Estimates {
 
 /// The structure of a model: lags, differencing, period, constant.
 #[derive(Debug, Clone)]
-struct Structure {
-    ar: Vec<usize>,
-    ma: Vec<usize>,
-    sar: Vec<usize>,
-    sma: Vec<usize>,
-    d: usize,
-    sd: usize,
-    s: usize,
-    regressors: usize,
-    constant: bool,
+pub(crate) struct Structure {
+    pub(crate) ar: Vec<usize>,
+    pub(crate) ma: Vec<usize>,
+    pub(crate) sar: Vec<usize>,
+    pub(crate) sma: Vec<usize>,
+    pub(crate) d: usize,
+    pub(crate) sd: usize,
+    pub(crate) s: usize,
+    pub(crate) regressors: usize,
+    pub(crate) constant: bool,
 }
 
 impl Structure {
-    fn count(&self) -> usize {
-        self.ar.len()
-            + self.ma.len()
-            + self.sar.len()
-            + self.sma.len()
-            + self.regressors
-            + usize::from(self.constant)
-    }
-
     /// The parameters in their order: AR, MA, SAR, SMA, regressors, constant.
-    fn split<'a>(&self, theta: &'a [f64]) -> [&'a [f64]; 6] {
+    pub(crate) fn split<'a>(&self, theta: &'a [f64]) -> [&'a [f64]; 6] {
         let mut at = 0;
         let mut take = |n: usize| {
             let part = &theta[at..at + n];
@@ -101,7 +92,7 @@ impl Structure {
     }
 
     /// The differencing polynomial's coefficients 1, -delta_1, ...
-    fn difference(&self) -> Vec<f64> {
+    pub(crate) fn difference(&self) -> Vec<f64> {
         let mut poly = vec![1.0];
         for _ in 0..self.d {
             poly = product(&poly, &[1.0, -1.0]);
@@ -115,7 +106,7 @@ impl Structure {
     }
 
     /// The number of past values Delta reaches back.
-    fn reach(&self) -> usize {
+    pub(crate) fn reach(&self) -> usize {
         self.d + self.s * self.sd
     }
 }
@@ -547,7 +538,7 @@ fn pick(values: &[f64], lags: &[usize]) -> Vec<f64> {
 
 /// The ordinary least squares coefficients of y on the columns (rows with any missing value
 /// left out).
-fn least_squares(y: &[Option<f64>], columns: &[Vec<Option<f64>>]) -> Option<Vec<f64>> {
+pub(crate) fn least_squares(y: &[Option<f64>], columns: &[Vec<Option<f64>>]) -> Option<Vec<f64>> {
     let k = columns.len();
     let rows: Vec<(f64, Vec<f64>)> = (0..y.len())
         .filter_map(|t| {
@@ -572,7 +563,7 @@ fn least_squares(y: &[Option<f64>], columns: &[Vec<Option<f64>>]) -> Option<Vec<
 }
 
 /// `x` differenced by the polynomial 1, -delta_1, ...
-fn differenced(x: &[Option<f64>], poly: &[f64]) -> Values {
+pub(crate) fn differenced(x: &[Option<f64>], poly: &[f64]) -> Values {
     (0..x.len())
         .map(|t| {
             let mut v = 0.0;
@@ -587,7 +578,7 @@ fn differenced(x: &[Option<f64>], poly: &[f64]) -> Values {
 }
 
 /// Initial values of every parameter.
-fn initial_values(
+pub(crate) fn initial_values(
     st: &Structure,
     y: &[Option<f64>],
     x: &[Vec<Option<f64>>],
@@ -722,7 +713,7 @@ fn jacobian(
 
 /// The matrix of second derivatives of `f` at `theta` by central differences; None where `f`
 /// is not defined.
-fn hessian(f: &dyn Fn(&[f64]) -> Option<f64>, theta: &[f64]) -> Option<Vec<Vec<f64>>> {
+pub(crate) fn hessian(f: &dyn Fn(&[f64]) -> Option<f64>, theta: &[f64]) -> Option<Vec<Vec<f64>>> {
     let k = theta.len();
     let h: Vec<f64> = theta.iter().map(|t| 1e-4 * t.abs().max(1e-1)).collect();
     let at = |moves: &[(usize, f64)]| {
@@ -766,9 +757,176 @@ fn cross(j: &[Vec<f64>], r: &[f64]) -> (Vec<Vec<f64>>, Vec<f64>) {
 
 /// The fitted values, standard errors (sigma units) and whether each is a forecast, over
 /// every case of the series from where the model can start.
-struct Prediction {
-    fit: Values,
-    se: Values,
+pub(crate) struct Prediction {
+    pub(crate) fit: Values,
+    pub(crate) se: Values,
+}
+
+/// The stopping rules of the Marquardt iterations.
+pub(crate) struct Controls {
+    pub(crate) mxiter: usize,
+    pub(crate) mxlamb: f64,
+    pub(crate) ssqpct: f64,
+    pub(crate) pareps: f64,
+}
+
+/// The result of exact maximum likelihood estimation.
+pub(crate) struct Estimation {
+    pub(crate) theta: Vec<f64>,
+    history: Vec<Step>,
+    reason: String,
+    pub(crate) ssq_adj: f64,
+    pub(crate) ssq_plain: f64,
+    /// The valid values after the first d + s sd.
+    pub(crate) n: usize,
+    pub(crate) covariance: Option<Vec<Vec<f64>>>,
+}
+
+/// Estimates a model from `theta` by Marquardt steps on SSQ', over the cases from `start`
+/// to the end of `y_used`.
+pub(crate) fn estimate(
+    st: &Structure,
+    y_used: &[Option<f64>],
+    x_used: &[Values],
+    start: usize,
+    mut theta: Vec<f64>,
+    c: &Controls,
+) -> Result<Estimation, &'static str> {
+    let used_len = y_used.len();
+    let k = theta.len();
+    let (mxiter, mxlamb, ssqpct, pareps) = (c.mxiter, c.mxlamb, c.ssqpct, c.pareps);
+    let residuals = |t: &[f64]| -> Option<Vec<f64>> {
+        scaled_residuals(st, t, y_used, x_used, start, used_len).map(|r| r.0)
+    };
+    let ssq_of = |t: &[f64]| residuals(t).map(|r| r.iter().map(|v| v * v).sum::<f64>());
+    let Some(mut ssq) = ssq_of(&theta) else {
+        return Err("the initial values give a nonstationary model; give other AR or SAR values");
+    };
+    let mut lambda = 0.001;
+    let mut history = vec![Step {
+        ssq,
+        lambda,
+        theta: theta.clone(),
+    }];
+    let mut reason = if mxiter == 0 {
+        "MXITER=0: the initial values are the final estimates".to_string()
+    } else {
+        format!("the maximum of {mxiter} iterations was reached")
+    };
+    'iterate: for _ in 0..mxiter {
+        let Some(r) = residuals(&theta) else { break };
+        let Some(j) = jacobian(&residuals, &theta, r.len()) else {
+            break;
+        };
+        let (a, g) = cross(&j, &r);
+        loop {
+            let mut damped = a.clone();
+            for i in 0..k {
+                damped[i][i] += lambda * a[i][i].max(1e-12);
+            }
+            let step = solve(&damped, &g.iter().map(|v| -v).collect::<Vec<_>>());
+            let candidate: Option<(Vec<f64>, f64)> = step.and_then(|s| {
+                let t: Vec<f64> = theta.iter().zip(&s).map(|(a, b)| a + b).collect();
+                let new = ssq_of(&t)?;
+                (new < ssq).then_some((t, new))
+            });
+            match candidate {
+                Some((t, new)) => {
+                    let change = theta
+                        .iter()
+                        .zip(&t)
+                        .map(|(a, b)| (a - b).abs())
+                        .fold(0.0, f64::max);
+                    let relative = (ssq - new) / ssq * 100.0;
+                    theta = t;
+                    ssq = new;
+                    lambda /= 10.0;
+                    history.push(Step {
+                        ssq,
+                        lambda,
+                        theta: theta.clone(),
+                    });
+                    if change < pareps {
+                        reason = format!("no estimate changed by {pareps} or more (PAREPS)");
+                        break 'iterate;
+                    }
+                    if relative < ssqpct {
+                        reason = format!(
+                            "the adjusted sum of squares changed by less than {ssqpct} percent (SSQPCT)"
+                        );
+                        break 'iterate;
+                    }
+                    break;
+                }
+                None => {
+                    lambda *= 10.0;
+                    if lambda > mxlamb {
+                        reason = format!("the Marquardt constant passed {mxlamb:e} (MXLAMB)");
+                        break 'iterate;
+                    }
+                }
+            }
+        }
+    }
+    let (r, ssq_plain, n) = scaled_residuals(st, &theta, y_used, x_used, start, used_len)
+        .ok_or("the estimates give no valid model")?;
+    let ssq_adj: f64 = r.iter().map(|v| v * v).sum();
+    // the observed information: second derivatives of minus the exact log-likelihood
+    // with the variance profiled out, (N / 2) ln SSQ'
+    let covariance: Option<Vec<Vec<f64>>> = match k {
+        0 => Some(Vec::new()),
+        _ => {
+            let half_n = n as f64 / 2.0;
+            let f = |t: &[f64]| ssq_of(t).map(|v| half_n * v.ln());
+            hessian(&f, &theta).and_then(|h| {
+                let (inv, _) = inverse(&h)?;
+                (0..k).all(|i| inv[i][i] > 0.0).then_some(inv)
+            })
+        }
+    };
+    Ok(Estimation {
+        theta,
+        history,
+        reason,
+        ssq_adj,
+        ssq_plain,
+        n,
+        covariance,
+    })
+}
+
+/// EXACT: the one-step predictions and their standard errors (sigma units) of every case
+/// from `start`, forecasts from `origin` on, with the regressors added back.
+pub(crate) fn exact_prediction(
+    st: &Structure,
+    theta: &[f64],
+    y: &[Option<f64>],
+    x: &[Values],
+    start: usize,
+    origin: usize,
+) -> Option<Prediction> {
+    let z = adjusted(st, theta, y, x);
+    let filtered = kalman(st, theta, &z, start, origin)?;
+    let mut fit = vec![None; y.len()];
+    let mut se = vec![None; y.len()];
+    let [_, _, _, _, reg, _] = st.split(theta);
+    for (t, pred, f, _) in filtered.steps {
+        let mut v = pred;
+        for (c, column) in reg.iter().zip(x) {
+            match column[t] {
+                Some(xv) => v += c * xv,
+                None => {
+                    v = f64::NAN;
+                    break;
+                }
+            }
+        }
+        if v.is_finite() {
+            fit[t] = Some(v);
+            se[t] = Some(f.sqrt());
+        }
+    }
+    Some(Prediction { fit, se })
 }
 
 impl Engine {
@@ -944,7 +1102,6 @@ impl Engine {
                  {dependent}, as the differencing starts from them"
             )));
         }
-        let k = st.count();
         let given = Estimates {
             ar: spec.ar.clone().unwrap_or_default(),
             ma: spec.ma.clone().unwrap_or_default(),
@@ -969,90 +1126,25 @@ impl Engine {
         check_count("REG", &given.reg, st.regressors)?;
         let y_used: Values = y[..used_len].to_vec();
         let x_used: Vec<Values> = x.iter().map(|c| c[..used_len].to_vec()).collect();
-        let mut theta = initial_values(&st, &y_used, &x_used, &given);
+        let theta0 = initial_values(&st, &y_used, &x_used, &given);
         let mut warnings = Vec::new();
-        let residuals = |t: &[f64]| -> Option<Vec<f64>> {
-            scaled_residuals(&st, t, &y_used, &x_used, start, used_len).map(|r| r.0)
+        let controls = Controls {
+            mxiter: spec.mxiter.unwrap_or(10) as usize,
+            mxlamb: spec.mxlamb.unwrap_or(1e9),
+            ssqpct: spec.ssqpct.unwrap_or(0.001),
+            pareps: spec.pareps.unwrap_or(self.tset.cnverge),
         };
-        let ssq_of = |t: &[f64]| residuals(t).map(|r| r.iter().map(|v| v * v).sum::<f64>());
-        let Some(mut ssq) = ssq_of(&theta) else {
-            return Err(Error(format!(
-                "{what}: the initial values give a nonstationary model; give other AR or SAR values"
-            )));
-        };
-        let mxiter = spec.mxiter.unwrap_or(10) as usize;
-        let mxlamb = spec.mxlamb.unwrap_or(1e9);
-        let ssqpct = spec.ssqpct.unwrap_or(0.001);
-        let pareps = spec.pareps.unwrap_or(self.tset.cnverge);
-        let mut lambda = 0.001;
-        let mut history = vec![Step {
-            ssq,
-            lambda,
-            theta: theta.clone(),
-        }];
-        let mut reason = if mxiter == 0 {
-            "MXITER=0: the initial values are the final estimates".to_string()
-        } else {
-            format!("the maximum of {mxiter} iterations was reached")
-        };
-        'iterate: for _ in 0..mxiter {
-            let Some(r) = residuals(&theta) else { break };
-            let Some(j) = jacobian(&residuals, &theta, r.len()) else {
-                break;
-            };
-            let (a, g) = cross(&j, &r);
-            loop {
-                let mut damped = a.clone();
-                for i in 0..k {
-                    damped[i][i] += lambda * a[i][i].max(1e-12);
-                }
-                let step = solve(&damped, &g.iter().map(|v| -v).collect::<Vec<_>>());
-                let candidate: Option<(Vec<f64>, f64)> = step.and_then(|s| {
-                    let t: Vec<f64> = theta.iter().zip(&s).map(|(a, b)| a + b).collect();
-                    let new = ssq_of(&t)?;
-                    (new < ssq).then_some((t, new))
-                });
-                match candidate {
-                    Some((t, new)) => {
-                        let change = theta
-                            .iter()
-                            .zip(&t)
-                            .map(|(a, b)| (a - b).abs())
-                            .fold(0.0, f64::max);
-                        let relative = (ssq - new) / ssq * 100.0;
-                        theta = t;
-                        ssq = new;
-                        lambda /= 10.0;
-                        history.push(Step {
-                            ssq,
-                            lambda,
-                            theta: theta.clone(),
-                        });
-                        if change < pareps {
-                            reason = format!("no estimate changed by {pareps} or more (PAREPS)");
-                            break 'iterate;
-                        }
-                        if relative < ssqpct {
-                            reason = format!(
-                                "the adjusted sum of squares changed by less than {ssqpct} percent (SSQPCT)"
-                            );
-                            break 'iterate;
-                        }
-                        break;
-                    }
-                    None => {
-                        lambda *= 10.0;
-                        if lambda > mxlamb {
-                            reason = format!("the Marquardt constant passed {mxlamb:e} (MXLAMB)");
-                            break 'iterate;
-                        }
-                    }
-                }
-            }
-        }
-        let (r, ssq_plain, n) = scaled_residuals(&st, &theta, &y_used, &x_used, start, used_len)
-            .ok_or_else(|| Error(format!("{what}: the estimates give no valid model")))?;
-        let ssq_adj: f64 = r.iter().map(|v| v * v).sum();
+        let Estimation {
+            theta,
+            history,
+            reason,
+            ssq_adj,
+            ssq_plain,
+            n,
+            covariance,
+        } = estimate(&st, &y_used, &x_used, start, theta0, &controls)
+            .map_err(|e| Error(format!("{what}: {e}")))?;
+        let k = theta.len();
         let df = n as f64 - k as f64;
         if df <= 0.0 {
             return Err(Error(format!(
@@ -1066,19 +1158,6 @@ impl Engine {
             - n as f64 * (2.0 * std::f64::consts::PI).ln() / 2.0;
         let aic = -2.0 * loglik + 2.0 * k as f64;
         let sbc = -2.0 * loglik + (n as f64).ln() * k as f64;
-        // the observed information: second derivatives of minus the exact log-likelihood
-        // with the variance profiled out, (N / 2) ln SSQ'
-        let covariance: Option<Vec<Vec<f64>>> = match k {
-            0 => Some(Vec::new()),
-            _ => {
-                let half_n = n as f64 / 2.0;
-                let f = |t: &[f64]| ssq_of(t).map(|v| half_n * v.ln());
-                hessian(&f, &theta).and_then(|h| {
-                    let (inv, _) = inverse(&h)?;
-                    (0..k).all(|i| inv[i][i] > 0.0).then_some(inv)
-                })
-            }
-        };
         if covariance.is_none() {
             warnings.push(format!(
                 "{what}: the estimates' covariance is singular, so no standard errors are given"
@@ -1296,31 +1375,8 @@ impl Engine {
 
         // fitted values, forecasts and their standard errors (sigma units)
         let prediction = match method {
-            ArimaForecast::Exact => {
-                let z = adjusted(&st, &theta, &y, &x);
-                let filtered = kalman(&st, &theta, &z, start, origin)
-                    .ok_or_else(|| Error(format!("{what}: the estimates give no valid model")))?;
-                let mut fit = vec![None; y.len()];
-                let mut se = vec![None; y.len()];
-                let [_, _, _, _, reg, _] = st.split(&theta);
-                for (t, pred, f, _) in filtered.steps {
-                    let mut v = pred;
-                    for (c, column) in reg.iter().zip(&x) {
-                        match column[t] {
-                            Some(xv) => v += c * xv,
-                            None => {
-                                v = f64::NAN;
-                                break;
-                            }
-                        }
-                    }
-                    if v.is_finite() {
-                        fit[t] = Some(v);
-                        se[t] = Some(f.sqrt());
-                    }
-                }
-                Prediction { fit, se }
-            }
+            ArimaForecast::Exact => exact_prediction(&st, &theta, &y, &x, start, origin)
+                .ok_or_else(|| Error(format!("{what}: the estimates give no valid model")))?,
             _ => conditional(&st, &theta, &y, &x, start, origin, method),
         };
         let t_crit = t_quantile((1.0 - level / 100.0) / 2.0, df);

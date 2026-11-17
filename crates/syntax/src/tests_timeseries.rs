@@ -1,5 +1,5 @@
 //! Parser tests of TSET, TSHOW, CREATE, ACF, PACF, CCF, SEASON, PREDICT, EXSMOOTH, ARIMA,
-//! SPECTRA, AREG and 2SLS.
+//! SPECTRA, AREG, 2SLS, TSMODEL and TSAPPLY.
 
 use super::*;
 
@@ -333,4 +333,80 @@ fn two_stage_subcommands() {
     assert_eq!(t.equations[0].dependent, "y");
     assert!(err("2SLS y WITH x.").contains("INSTRUMENTS"));
     assert!(err("2SLS y x /INSTRUMENTS=z.").contains("WITH"));
+}
+
+#[test]
+fn tsmodel_blocks_and_globals() {
+    let Command::Tsmodel(t) = command(
+        "TSMODEL /MODELSTATISTICS DISPLAY=YES MODELFIT=[RMSE NORMBIC] \
+         /OUTPUTFILTER DISPLAY=[BESTFIT(N=2) WORSTFIT(PCT=10)] MODELFIT=MAPE \
+         /SAVE PREDICTED(fc) NRESIDUAL /AUXILIARY CILEVEL=90 SEASONLENGTH=4 \
+         /MODEL DEPENDENT=a b INDEPENDENT=c [E] PREFIX='Mine' \
+         /ARIMA AR=[1 3] MA=1 DIFF=1 CONSTANT=NO TRANSFORM=LN \
+         /MODEL DEPENDENT=a /EXSMOOTH TYPE=DAMPEDTREND /MODEL DEPENDENT=b.",
+    ) else {
+        panic!("not TSMODEL");
+    };
+    assert_eq!(
+        t.output.statistics_fit,
+        [FitMeasure::Rmse, FitMeasure::Normbic]
+    );
+    assert_eq!(t.output.best, Some(FilterCount::N(2)));
+    assert_eq!(t.output.worst, Some(FilterCount::Pct(10.0)));
+    assert_eq!(t.output.filter_fit, FitMeasure::Mape);
+    assert_eq!(t.output.save[0], (TsSave::Predicted, Some("fc".into())));
+    assert_eq!((t.output.cilevel, t.output.season_length), (90.0, Some(4)));
+    assert_eq!(t.models.len(), 3);
+    assert_eq!(t.models[0].prefix, "Mine");
+    assert_eq!(t.models[0].independent, [VarItem::Name("c".into())]);
+    let TsMethod::Arima(a) = &t.models[0].method else {
+        panic!("not ARIMA");
+    };
+    assert_eq!(
+        (a.ar.clone(), a.ma.clone(), a.d, a.constant),
+        (vec![1, 3], vec![1], 1, false)
+    );
+    assert_eq!(a.transform, TsTransform::Ln);
+    assert!(matches!(
+        t.models[2].method,
+        TsMethod::Expert {
+            arima: true,
+            exsmooth: true,
+            seasonal: true
+        }
+    ));
+    let Command::Tsapply(a) = command(
+        "TSAPPLY /AUXILIARY REESTIMATE=YES /MODEL FILE='m.json' KEEP=['Model_1' 'Model_2'].",
+    ) else {
+        panic!("not TSAPPLY");
+    };
+    assert!(a.output.reestimate);
+    assert_eq!(
+        a.files[0].keep,
+        Some(vec!["Model_1".to_string(), "Model_2".to_string()])
+    );
+    for (source, wanted) in [
+        (
+            "TSMODEL /MODEL DEPENDENT=a /SAVE PREDICTED.",
+            "before the first",
+        ),
+        ("TSMODEL /EXSMOOTH TYPE=HOLT.", "after a /MODEL"),
+        (
+            "TSMODEL /MODEL DEPENDENT=a /OUTLIER LOCATION=[2] TYPE=ADDITIVE.",
+            "not supported",
+        ),
+        (
+            "TSMODEL /MODELSUMMARY PRINT=[NONE MODELFIT] /MODEL DEPENDENT=a.",
+            "NONE",
+        ),
+        ("TSMODEL /MODEL DEPENDENT=a /ARIMA AR=1.", "MA="),
+        ("TSAPPLY /AUXILIARY REESTIMATE=YES.", "MODEL"),
+        (
+            "TSMODEL /AUXILIARY REESTIMATE=YES /MODEL DEPENDENT=a.",
+            "REESTIMATE",
+        ),
+    ] {
+        let message = err(source);
+        assert!(message.contains(wanted), "{source}: {message}");
+    }
 }

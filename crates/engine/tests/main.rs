@@ -106,6 +106,7 @@ mod transform;
 mod tree;
 mod ts_models;
 mod ts_more;
+mod tsmodel;
 mod twostep;
 mod varcomp;
 mod vega_lite;

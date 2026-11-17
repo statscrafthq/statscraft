@@ -1120,6 +1120,7 @@ fn help_lists_every_command() {
     assert_eq!(command_names().len(), 235);
     assert_eq!(command_names().len(), 234);
     assert_eq!(command_names().len(), 232);
+    assert_eq!(command_names().len(), 233);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

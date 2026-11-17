@@ -135,6 +135,7 @@ mod transform;
 mod tree;
 mod ts_plot;
 mod ts_range;
+mod tsmodel;
 mod ttest;
 mod two_stage;
 mod twostep;
@@ -1242,6 +1243,7 @@ impl Engine {
                 return self.procedure(&Command::SeriesPlot(Box::new(spec)));
             }
             Command::Curvefit(_) | Command::Wls(_) => return self.with_current_names(command),
+            Command::Tsmodel(_) | Command::Tsapply(_) => return self.with_current_names(command),
             Command::Frequencies(_)
             | Command::Descriptives(_)
             | Command::Crosstabs(_)
@@ -1623,6 +1625,8 @@ impl Engine {
             Command::Areg(command) => self.areg(command),
             Command::TwoStage(command) => self.two_stage(command),
             Command::Spectra(command) => self.spectra(command),
+            Command::Tsmodel(command) => self.tsmodel(command),
+            Command::Tsapply(command) => self.tsapply(command),
             Command::SeriesPlot(command) => self.series_plot(command),
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),

@@ -82,6 +82,7 @@ use crate::timeseries;
 use crate::tree;
 use crate::ts_models;
 use crate::ts_more;
+use crate::tsmodel;
 use crate::twostep;
 use crate::varcomp;
 
@@ -3200,6 +3201,58 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  is as for TSPLOT.",
         example: "CASEPLOT VARIABLES=hourly_load /ID=shift /FORMAT=LEFT.",
         parse: ts_models::caseplot,
+    },
+    CommandSpec {
+        name: "TSMODEL",
+        summary: "Exponential smoothing and ARIMA models of series, picked by hand or by the expert modeler, with forecasts.",
+        syntax: "TSMODEL [/MODELSUMMARY [PRINT=[MODELFIT RESIDACF RESIDPACF | NONE]] [PLOT=[...]]]\n\
+                 \x20       [/MODELSTATISTICS [DISPLAY=YES | NO] [MODELFIT=[SRSQUARE RSQUARE RMSE MAPE MAE MAXAPE MAXAE NORMBIC]]]\n\
+                 \x20       [/MODELDETAILS [PRINT=[PARAMETERS RESIDACF RESIDPACF FORECASTS]] [PLOT=[RESIDACF RESIDPACF]]]\n\
+                 \x20       [/SERIESPLOT OBSERVED FORECAST FIT FORECASTCI FITCI]\n\
+                 \x20       [/OUTPUTFILTER [DISPLAY=ALLMODELS | [BESTFIT(N=n | PCT=p) WORSTFIT(N=n | PCT=p)]] [MODELFIT=measure]]\n\
+                 \x20       [/SAVE PREDICTED[(root)] LCL[(root)] UCL[(root)] NRESIDUAL[(root)]]\n\
+                 \x20       [/AUXILIARY [CILEVEL=95] [MAXACFLAGS=24] [SEASONLENGTH=n]] [/MISSING USERMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20       /MODEL DEPENDENT=series [INDEPENDENT=predictors] [OUTFILE=file] [PREFIX='Model']\n\
+                 \x20       [/EXPERTMODELER [TYPE=[ARIMA EXSMOOTH]] [TRYSEASONAL=YES | NO]\n\
+                 \x20        | /EXSMOOTH TYPE=SIMPLE | SIMPLESEASONAL | HOLT | BROWN | DAMPEDTREND | WINTERSADDITIVE\n\
+                 \x20                    | WINTERSMULTIPLICATIVE [TRANSFORM=NONE | SQRT | LN]\n\
+                 \x20        | /ARIMA AR=lags MA=lags [ARSEASONAL=lags] [MASEASONAL=lags] [DIFF=d] [DIFFSEASONAL=D]\n\
+                 \x20                 [CONSTANT=YES | NO] [TRANSFORM=NONE | SQRT | LN]]\n\
+                 \x20       [/AUTOOUTLIER DETECT=OFF] [/MODEL ...].\n\
+                 Every series of DEPENDENT gets its own model, named PREFIX_1, PREFIX_2 and so on. Global\n\
+                 subcommands come first; words are written in full and a list goes in square brackets.\n\
+                 The season length is SEASONLENGTH, else the period of the DATE variables. The model is\n\
+                 estimated over the USE range less missing values at its ends; forecasts run from the\n\
+                 case after it to the end of PREDICT. Smoothing weights minimize the sum of squared\n\
+                 one-step errors, from start values found by smoothing backwards. ARIMA models are fitted\n\
+                 by exact maximum likelihood; a single lag value is an order (AR=2: lags 1 and 2), a list\n\
+                 of two or more names the lags. Predictors enter ARIMA models as regressors at lag 0 ([E]\n\
+                 after a name is accepted). The expert modeler fits every fitting smoothing method and a\n\
+                 search of ARIMA orders and keeps the model with the smallest normalized BIC. Output:\n\
+                 the model description, a summary of the fit measures across models, a table of the fit\n\
+                 measures and the Ljung-Box Q(18) by model, and on request parameters, residual\n\
+                 autocorrelations, forecasts and charts. OUTFILE writes the models to a JSON file for\n\
+                 TSAPPLY. SAVE adds root_series_model variables (Predicted, LCL, UCL, NResidual). Not\n\
+                 supported yet: TRANSFERFUNCTION, OUTLIER, AUTOOUTLIER DETECT=ON, OUTPMML and the\n\
+                 MODELSUMMARY charts.",
+        example: "TSMODEL /MODELDETAILS PRINT=[PARAMETERS FORECASTS] /MODEL DEPENDENT=bookings /EXSMOOTH TYPE=HOLT.",
+        parse: tsmodel::tsmodel,
+    },
+    CommandSpec {
+        name: "TSAPPLY",
+        summary: "Forecasts from time series models that TSMODEL saved, as they are or estimated again.",
+        syntax: "TSAPPLY [global subcommands of TSMODEL] [/AUXILIARY [REESTIMATE=NO | YES] ...]\n\
+                 \x20       /MODEL FILE=file [DROP=['id' ...] | KEEP=['id' ...]] [OUTFILE=file] [/MODEL ...].\n\
+                 Reads the JSON model files TSMODEL writes and applies each model to the series of the\n\
+                 same name. With REESTIMATE=NO (the default) the saved estimates and the saved series\n\
+                 make the forecasts, which start after the case the model was estimated to, counted from\n\
+                 the first case of the file; the fit measures are the saved ones. REESTIMATE=YES keeps the\n\
+                 form of each model and estimates it again over the USE range of the active dataset.\n\
+                 KEEP and DROP pick models by identifier; OUTFILE writes the models applied. Output and\n\
+                 SAVE are as in TSMODEL; residual autocorrelations, fitted values and residuals need\n\
+                 REESTIMATE=YES. Not supported under SPLIT FILE.",
+        example: "TSAPPLY /MODELDETAILS PRINT=FORECASTS /MODEL FILE='bookings_models.json'.",
+        parse: tsmodel::tsapply,
     },
     CommandSpec {
         name: "PLUM",

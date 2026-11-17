@@ -97,6 +97,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Areg(_)
         | Command::TwoStage(_)
         | Command::Spectra(_)
+        | Command::Tsmodel(_)
+        | Command::Tsapply(_)
         | Command::SeriesPlot(_)
         | Command::Create(_)
         | Command::MultipleImputation(_)

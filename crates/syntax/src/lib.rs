@@ -190,6 +190,7 @@ mod timeseries;
 mod tree;
 mod ts_models;
 mod ts_more;
+mod tsmodel;
 mod twostep;
 mod varcomp;
 
@@ -376,6 +377,10 @@ pub use ts_models::{
 pub use ts_more::{
     Areg, AregMethod, Equation, Spectra, SpectraBy, SpectraItem, SpectraPlot, SpectraSmoothing,
     SpectraWindow, TwoStage,
+};
+pub use tsmodel::{
+    ES_TYPES, EsType, FilterCount, FitMeasure, TsArima, TsMethod, TsModelBlock, TsModelFile,
+    TsOutput, TsSave, TsTransform, Tsapply, Tsmodel,
 };
 pub use twostep::{AnomalySave, ClusterCount, Detectanomaly, Twostep};
 pub use varcomp::{Varcomp, VarcompMethod, VarcompOutfile, VarcompPrint};

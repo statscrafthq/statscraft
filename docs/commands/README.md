@@ -223,6 +223,8 @@ One page per supported command, generated from the same table that the parser an
 | [AREG](areg.md) | Regression whose errors follow a first-order autoregressive process. |
 | [SPECTRA](spectra.md) | Periodogram, smoothed spectral density and cross-spectra of series. |
 | [2SLS](2sls.md) | Two-stage least squares for equations with endogenous predictors. |
+| [TSMODEL](tsmodel.md) | Exponential smoothing and ARIMA models of series, picked by hand or by the expert modeler, with forecasts. |
+| [TSAPPLY](tsapply.md) | Forecasts from time series models that TSMODEL saved, as they are or estimated again. |
 | [TSPLOT](tsplot.md) | Chart of time series over the cases, as chart data. |
 | [CASEPLOT](caseplot.md) | Chart of time series with the cases down the vertical axis, as chart data. |
 

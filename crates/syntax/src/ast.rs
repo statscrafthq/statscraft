@@ -296,6 +296,8 @@ pub enum Command {
     Arima(Box<crate::ts_models::Arima>),
     Spectra(Box<crate::ts_more::Spectra>),
     Areg(Box<crate::ts_more::Areg>),
+    Tsmodel(Box<crate::tsmodel::Tsmodel>),
+    Tsapply(Box<crate::tsmodel::Tsapply>),
     /// 2SLS.
     TwoStage(Box<crate::ts_more::TwoStage>),
     /// TSPLOT and CASEPLOT.
