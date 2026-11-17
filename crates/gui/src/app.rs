@@ -1805,6 +1805,11 @@ impl App {
                         if ui.button("Repeated Measures...").clicked() {
                             self.open_dialog(Dialog::RepeatedMeasures(Default::default()));
                         }
+                        if ui.button("MANOVA (classic)...").clicked() {
+                            self.open_dialog(Dialog::Advanced(
+                                Advanced::Manova(Default::default()),
+                            ));
+                        }
                     });
                     ui.menu_button("Generalized Linear Models", |ui| {
                         if ui.button("Generalized Linear Models...").clicked() {
@@ -1860,6 +1865,10 @@ impl App {
                             ("Ordinal...", Advanced::Ordinal(Default::default())),
                             ("Probit...", Advanced::Probit(Default::default())),
                             ("Weight Estimation...", Advanced::Wls(Default::default())),
+                            (
+                                "Partial Least Squares...",
+                                Advanced::Pls(Default::default()),
+                            ),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));
@@ -1907,6 +1916,9 @@ impl App {
                         }
                         if ui.button("ROC Analysis...").clicked() {
                             self.open_dialog(Dialog::RocAnalysis(Default::default()));
+                        }
+                        if ui.button("Nearest Neighbor...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Knn(Default::default())));
                         }
                     });
                     ui.menu_button("Dimension Reduction", |ui| {

@@ -39,6 +39,7 @@ use crate::model_dialogs::{
     KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
 };
 use crate::model_more_dialog::{OptimalBinning, QuantileRegression, VarianceComponents};
+use crate::multivar_dialog::{Knn, Manova, Pls};
 use crate::mva_dialog::{Estimation, MissingValueAnalysis};
 use crate::proportions_dialog::{Proportions, ProportionsKind};
 use crate::proximities_dialog::Distances;
@@ -554,6 +555,22 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         d.high = s("2");
         list.push(Dialog::NparTests(d));
     }
+    list.push(Dialog::Advanced(Advanced::Manova(Box::new(Manova {
+        dependents: v(&["monthly_spend"]),
+        factors: v(&["region"]),
+        ranges: [(s("region"), (s("1"), s("5")))].into_iter().collect(),
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Pls(Box::new(Pls {
+        scale: v(&["monthly_spend"]),
+        covariates: v(&["age", "q2_recommend"]),
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Knn(Box::new(Knn {
+        target: s("gender"),
+        covariates: v(&["age", "monthly_spend"]),
+        ..Default::default()
+    }))));
     list
 }
 
@@ -2304,6 +2321,65 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         }
         list.push(Dialog::NparTests(d));
     }
+    list.push(Dialog::Advanced(Advanced::Manova(Box::new(Manova {
+        dependents: v(&["monthly_spend", "q1_satisfaction"]),
+        factors: v(&["region", "gender"]),
+        ranges: [
+            (s("region"), (s("1"), s("5"))),
+            (s("gender"), (s("1"), s("2"))),
+        ]
+        .into_iter()
+        .collect(),
+        covariates: v(&["age"]),
+        error: 3,
+        sequential: true,
+        main_effects: true,
+        print: [true; 8],
+    }))));
+    list.push(Dialog::Advanced(Advanced::Pls(Box::new(Pls {
+        scale: v(&["monthly_spend", "q2_recommend"]),
+        categorical: v(&["gender"]),
+        first_reference: true,
+        factors: v(&["region"]),
+        covariates: v(&["age", "q1_satisfaction"]),
+        id: s("resp_id"),
+        latent: s("2"),
+        cases: true,
+        loadings: true,
+        predictors: true,
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Knn(Box::new(Knn {
+        target: s("gender"),
+        level: 3,
+        factors: v(&["region"]),
+        covariates: v(&["age", "monthly_spend"]),
+        training: s("8"),
+        holdout: s("2"),
+        auto: true,
+        kmin: s("2"),
+        kmax: s("4"),
+        folds: s("5"),
+        metric: 1,
+        scale_covariates: false,
+        weight_features: true,
+        include_missing: true,
+        show_model: false,
+        save: [true; 4],
+        save_names: [s("knn_pred"), s("knn_prob"), s("knn_part"), s("knn_fold")],
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Knn(Box::new(Knn {
+        target: s("monthly_spend"),
+        level: 1,
+        covariates: v(&["age", "q2_recommend"]),
+        by_variable: true,
+        partition_variable: s("gender"),
+        k: s("5"),
+        select_features: true,
+        median: true,
+        ..Default::default()
+    }))));
     list
 }
 

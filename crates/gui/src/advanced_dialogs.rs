@@ -27,6 +27,7 @@ use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::mca_dialog::Mca;
 use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::{GLM_ADJUSTMENTS, by_with};
+use crate::multivar_dialog::{Knn, Manova, Pls};
 use crate::mva_dialog::MissingValueAnalysis;
 use crate::nptests_dialog::Nptests;
 use crate::power_dialog::PowerAnalysis;
@@ -89,6 +90,10 @@ pub enum Advanced {
     // boxed: a large dialog
     Probit(Box<Probit>),
     Wls(WeightEstimation),
+    // the MANOVA, PLS and KNN dialogs (in `multivar_dialog`)
+    Manova(Box<Manova>),
+    Pls(Box<Pls>),
+    Knn(Box<Knn>),
     // boxed: a large dialog
     Power(Box<PowerAnalysis>),
     // boxed: a large dialog
@@ -144,6 +149,9 @@ impl Advanced {
             Advanced::Curve(_) => "Curve Estimation",
             Advanced::Probit(_) => "Probit Analysis",
             Advanced::Wls(_) => "Weight Estimation",
+            Advanced::Manova(_) => "MANOVA (classic)",
+            Advanced::Pls(_) => "Partial Least Squares",
+            Advanced::Knn(_) => "Nearest Neighbor",
             Advanced::Power(d) => d.title(),
             Advanced::Nptests(d) => d.title(),
             Advanced::Bayes(d) => d.title(),
@@ -201,6 +209,9 @@ impl Advanced {
             Advanced::Curve(_) => Advanced::Curve(Default::default()),
             Advanced::Probit(_) => Advanced::Probit(Default::default()),
             Advanced::Wls(_) => Advanced::Wls(Default::default()),
+            Advanced::Manova(_) => Advanced::Manova(Default::default()),
+            Advanced::Pls(_) => Advanced::Pls(Default::default()),
+            Advanced::Knn(_) => Advanced::Knn(Default::default()),
             Advanced::Power(d) => Advanced::Power(Box::new(PowerAnalysis::new(d.kind))),
             Advanced::Nptests(d) => Advanced::Nptests(Box::new(Nptests::new(d.kind))),
             Advanced::Bayes(d) => Advanced::Bayes(Box::new(Bayesian::new(d.kind))),
@@ -259,6 +270,9 @@ impl Advanced {
             Advanced::Curve(d) => d.syntax(data),
             Advanced::Probit(d) => d.syntax(data),
             Advanced::Wls(d) => d.syntax(data),
+            Advanced::Manova(d) => d.syntax(data),
+            Advanced::Pls(d) => d.syntax(data),
+            Advanced::Knn(d) => d.syntax(data),
             Advanced::Power(d) => d.syntax(),
             Advanced::Nptests(d) => d.syntax(data),
             Advanced::Bayes(d) => d.syntax(data),
