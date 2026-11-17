@@ -81,8 +81,8 @@ use crate::roc_analysis;
 use crate::save_translate;
 use crate::selection;
 use crate::session_commands;
-use crate::spchart;
 use crate::simulation;
+use crate::spchart;
 use crate::stats;
 use crate::summarize;
 use crate::survival;
@@ -2456,6 +2456,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "NAIVEBAYES churn BY region plan WITH tenure spend /TRAININGSAMPLE PERCENT=70\n\
                   \x20 /SUBSET MAXSIZE=3 /CRITERIA BINS=5 /SAVE PREDVAL PREDPROB(prob).",
         parse: naivebayes::naivebayes,
+    },
+    CommandSpec {
         name: "AIM",
         summary: "Attribute importance: how much each variable sets every group (cluster) apart from all cases.",
         syntax: "AIM groupvar [/CATEGORICAL varlist] [/CONTINUOUS varlist]\n\
@@ -4518,6 +4520,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  ELEMENT: interval(position(summary.count(bin.rect(price))))\n\
                  END GPL.",
         parse: ggraph::begin_gpl,
+    },
+    CommandSpec {
         name: "IGRAPH",
         summary: "The older chart command: bars, lines, areas, pies, boxes, error bars, histograms and scatterplots built from variables placed on axes and legends.",
         syntax: "IGRAPH [/Y=VAR(var) | $COUNT | $PCT [TYPE=SCALE [(MIN=n MAX=n)] | CATEGORICAL] [TITLE='text']]\n\

@@ -101,8 +101,8 @@ mod roc_analysis;
 mod save_translate;
 mod selection;
 mod session_commands;
-mod spchart;
 mod simulation;
+mod spchart;
 mod split;
 mod stats;
 mod summarize;
@@ -193,8 +193,9 @@ mod tests_roc_analysis;
 #[cfg(test)]
 mod tests_session;
 #[cfg(test)]
-mod tests_spchart;
 mod tests_simulation;
+#[cfg(test)]
+mod tests_spchart;
 #[cfg(test)]
 mod tests_survival;
 #[cfg(test)]
@@ -290,11 +291,11 @@ pub use glm::{
 pub use graph::{
     Graph, GraphChart, GraphData, GraphFunction, GraphInterval, GraphPanel, GraphSummary,
 };
-pub use knn::{Knn, KnnFeatureCount, KnnFolds, KnnLevel, KnnNeighbors, KnnPartition, KnnSave};
-pub use legacy_scaling::{LegacyChart, LegacyCoding, LegacyLevel, Overals};
 pub use igraph::{
     Igraph, IgraphElement, IgraphFit, IgraphOrder, IgraphOrderBy, IgraphRole, IgraphVar,
 };
+pub use knn::{Knn, KnnFeatureCount, KnnFolds, KnnLevel, KnnNeighbors, KnnPartition, KnnSave};
+pub use legacy_scaling::{LegacyChart, LegacyCoding, LegacyLevel, Overals};
 pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
     Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,
@@ -385,12 +386,13 @@ pub use report::{
 };
 pub use roc_analysis::{RocAnalysis, RocCriteria, RocDesign, RocPlot, RocPrint, RocSelect};
 pub use session_commands::{SETTINGS, SettingEffect};
-pub use spchart::{
-    CAPABILITY_SIGMA_STATISTICS, CapSigma, SPCHART_RULES, SPCHART_STATISTICS, Spchart, SpchartData,
-    SpchartKind, SpchartNormal, SpchartSize,
 pub use simulation::{
     FixedInput, SimDistribution, SimField, SimInput, Simplan, Simrun, StopRule, TargetFilter,
     TargetOptions, is_iterated,
+};
+pub use spchart::{
+    CAPABILITY_SIGMA_STATISTICS, CapSigma, SPCHART_RULES, SPCHART_STATISTICS, Spchart, SpchartData,
+    SpchartKind, SpchartNormal, SpchartSize,
 };
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
 pub use summarize::{Summarize, SummarizeList, SummarizeMissing};

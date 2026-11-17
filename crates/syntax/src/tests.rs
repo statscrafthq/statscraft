@@ -1115,10 +1115,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 260);
-    assert_eq!(command_names().len(), 233);
-    assert_eq!(command_names().len(), 232);
-    assert_eq!(command_names().len(), 235);
+    assert_eq!(command_names().len(), 267);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

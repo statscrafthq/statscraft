@@ -1012,6 +1012,7 @@ impl Engine {
             ggraph::GplStep::Pass => {}
             ggraph::GplStep::Wait => return Ok(Vec::new()),
             ggraph::GplStep::Run(joined) => return self.execute_inner(&joined),
+        }
         if let Some(result) = self.collect_expr(command) {
             return result;
         }
@@ -1367,6 +1368,9 @@ impl Engine {
             Command::Naivebayes(_) => {
                 if self.active()?.split_file().is_some() {
                     self.warn("NAIVEBAYES does not use SPLIT FILE: it analyzes all cases together");
+                }
+                return self.procedure(command);
+            }
             Command::Selectpred(_) => {
                 if self.active()?.split_file().is_some() {
                     self.warn("SELECTPRED does not use SPLIT FILE: it analyzes all cases together");
