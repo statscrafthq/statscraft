@@ -2696,6 +2696,54 @@ fn maximal(out: &Path) -> Vec<Dialog> {
 }
 
 /// The syntax of each dialog is Ok, parses without an error and runs on the survey file.
+/// Draws the dialog as its window does (variable list, body, footer) for two frames, with no
+/// input: a panic in the view code, or two widgets sharing an id, fails the test. The id clash
+/// warning only paints a fire sign, so the shapes are searched for it.
+fn draw_once(dialog: &mut Dialog, data: &statscraft_data::Dataset) {
+    fn burnt(shape: &eframe::egui::Shape) -> bool {
+        match shape {
+            eframe::egui::Shape::Text(t) => t.galley.text().contains('\u{1F525}'),
+            eframe::egui::Shape::Vec(v) => v.iter().any(burnt),
+            _ => false,
+        }
+    }
+    let ctx = eframe::egui::Context::default();
+    ctx.options_mut(|o| o.warn_on_id_clash = true);
+    let (mut filter, mut picked, mut folder) = (String::new(), Vec::new(), None);
+    let sets = matches!(
+        dialog,
+        Dialog::CustomTables(..) | Dialog::Advanced(Advanced::Codebook(_))
+    );
+    for _ in 0..2 {
+        let input = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(1280.0, 900.0),
+            )),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            eframe::egui::CentralPanel::default().show(ui, |ui| {
+                super::variable_picker(ui, data, sets, &mut filter, &mut picked, 200.0);
+                super::dialog_body(ui, data, dialog, &mut picked, &mut folder);
+                super::dialog_footer(ui, &dialog.syntax(data), true);
+            });
+        });
+        out.textures_delta.clear();
+        assert!(
+            !out.shapes.iter().any(|s| burnt(&s.shape)),
+            "{}: two widgets share an id",
+            dialog.title()
+        );
+    }
+}
+
+/// The syntax of a dialog, after drawing it once.
+fn drawn(mut dialog: Dialog, data: &statscraft_data::Dataset) -> Result<String, String> {
+    draw_once(&mut dialog, data);
+    dialog.syntax(data)
+}
+
 fn walk(dialogs: Vec<Dialog>) {
     let mut failures = Vec::new();
     for dialog in dialogs {
@@ -2710,6 +2758,8 @@ fn walk(dialogs: Vec<Dialog>) {
             )
             .unwrap();
         let data = session.dataset().unwrap().clone();
+        let mut dialog = dialog;
+        draw_once(&mut dialog, &data);
         let syntax = match dialog.syntax(&data) {
             Ok(text) => text,
             Err(e) => {
@@ -2920,7 +2970,7 @@ fn the_scaling_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        let syntax = drawn(Dialog::Advanced(dialog), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -3061,9 +3111,7 @@ fn the_missing_value_dialog_writes_syntax_that_runs() {
     for (dialog, expected) in cases {
         let mut session = open("survey_basic.sav");
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(Advanced::Mva(Box::new(dialog)))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(Dialog::Advanced(Advanced::Mva(Box::new(dialog))), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -3231,9 +3279,11 @@ fn the_imputation_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(Advanced::Imputation(Box::new(dialog)))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(
+            Dialog::Advanced(Advanced::Imputation(Box::new(dialog))),
+            &data,
+        )
+        .unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -3353,7 +3403,7 @@ fn the_report_dialogs_write_syntax_that_runs() {
             )
             .unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        let syntax = drawn(Dialog::Advanced(dialog), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -3511,7 +3561,7 @@ fn the_loglinear_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        let syntax = drawn(Dialog::Advanced(dialog), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -3640,7 +3690,7 @@ fn the_agreement_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        let syntax = drawn(Dialog::Advanced(dialog), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -3873,9 +3923,7 @@ fn the_nonparametric_tests_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(Advanced::Nptests(Box::new(dialog)))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(Dialog::Advanced(Advanced::Nptests(Box::new(dialog))), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -4057,7 +4105,7 @@ fn the_time_series_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        let syntax = drawn(Dialog::Advanced(dialog), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -4368,7 +4416,7 @@ fn the_forecasting_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&format!("{program}{before}"), None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        let syntax = drawn(Dialog::Advanced(dialog), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -4613,7 +4661,7 @@ fn the_regression_more_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        let syntax = drawn(Dialog::Advanced(dialog), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -5007,9 +5055,7 @@ fn the_power_dialogs_write_syntax_that_runs() {
     let data = statscraft_data::Dataset::new(0);
     for (dialog, expected) in cases {
         let name = dialog.kind.name();
-        let syntax = Dialog::Advanced(Advanced::Power(Box::new(dialog)))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(Dialog::Advanced(Advanced::Power(Box::new(dialog))), &data).unwrap();
         assert_eq!(syntax, format!("{name}\n  /PARAMETERS {expected}."));
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -5232,9 +5278,7 @@ fn the_bayes_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(Advanced::Bayes(Box::new(dialog)))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(Dialog::Advanced(Advanced::Bayes(Box::new(dialog))), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -5417,9 +5461,7 @@ fn the_bayes_model_dialogs_write_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(Advanced::Bayes(Box::new(dialog)))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(Dialog::Advanced(Advanced::Bayes(Box::new(dialog))), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -5623,9 +5665,7 @@ fn the_multiple_correspondence_dialog_writes_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(Advanced::Mca(Box::new(dialog)))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(Dialog::Advanced(Advanced::Mca(Box::new(dialog))), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -5851,9 +5891,7 @@ fn the_categorical_principal_components_dialog_writes_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::Advanced(Advanced::Catpca(Box::new(dialog)))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(Dialog::Advanced(Advanced::Catpca(Box::new(dialog))), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
@@ -5882,9 +5920,11 @@ fn the_conjoint_dialogs_write_syntax_that_runs() {
             .dataset()
             .cloned()
             .unwrap_or_else(|| statscraft_data::Dataset::new(0));
-        let syntax = Dialog::Advanced(Advanced::Conjoint(Box::new(design)))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(
+            Dialog::Advanced(Advanced::Conjoint(Box::new(design))),
+            &data,
+        )
+        .unwrap();
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
         let result = session.run(&syntax, None).unwrap();
@@ -6285,9 +6325,7 @@ fn the_control_chart_dialog_writes_syntax_that_runs() {
         let mut session = statscraft_engine::session::Session::default();
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
-        let syntax = Dialog::ControlCharts(Box::new(dialog))
-            .syntax(&data)
-            .unwrap();
+        let syntax = drawn(Dialog::ControlCharts(Box::new(dialog)), &data).unwrap();
         assert_eq!(syntax, expected);
         let (_, errors) = statscraft_syntax::parse(&syntax);
         assert!(errors.is_empty(), "{syntax}\n{errors:?}");
