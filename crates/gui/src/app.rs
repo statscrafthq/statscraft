@@ -1983,6 +1983,10 @@ impl App {
                                 "Ordinal Regression...",
                                 Advanced::Model(Box::new(SampleModel::new_ordinal())),
                             ),
+                            (
+                                "Cox Regression...",
+                                Advanced::Model(Box::new(SampleModel::new_cox())),
+                            ),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));

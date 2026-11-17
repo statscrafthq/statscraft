@@ -106,6 +106,7 @@ impl Advanced {
             Advanced::Descriptives(_) => "Complex Samples Descriptives",
             Advanced::Tables(d) if d.crosstabs => "Complex Samples Crosstabs",
             Advanced::Tables(_) => "Complex Samples Frequencies",
+            Advanced::Model(d) if d.cox.is_some() => "Complex Samples Cox Regression",
             Advanced::Model(d) if d.ordinal.is_some() => "Complex Samples Ordinal Regression",
             Advanced::Model(d) if d.logistic => "Complex Samples Logistic Regression",
             Advanced::Model(_) => "Complex Samples General Linear Model",
@@ -154,6 +155,9 @@ impl Advanced {
                 crosstabs: d.crosstabs,
                 ..Default::default()
             }),
+            Advanced::Model(d) if d.cox.is_some() => {
+                Advanced::Model(Box::new(SampleModel::new_cox()))
+            }
             Advanced::Model(d) if d.ordinal.is_some() => {
                 Advanced::Model(Box::new(SampleModel::new_ordinal()))
             }

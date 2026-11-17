@@ -9,6 +9,7 @@ use crate::advanced_dialogs::{
 use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
 use crate::stats_dialogs::{numeric, parse};
+use crate::survival_dialog::{event, saved};
 use crate::syntax_text::{number, quote, value};
 use statscraft_data::{Dataset, is_valid_name};
 
@@ -156,11 +157,129 @@ pub struct CsOrdinal {
     pub category_count: String,
 }
 
-/// CSGLM, CSLOGISTIC or CSORDINAL (`ordinal` is set, and `logistic` too).
+/// The tables of PRINT for CSCOXREG, keyword and label; the last is the iteration history.
+pub const COX_PRINT: [(&str, &str); 8] = [
+    ("SAMPLEINFO", "Sample information"),
+    ("EVENTINFO", "Event and censored counts"),
+    ("RISKINFO", "Events and records at risk per event time"),
+    ("LMATRIX", "Coefficients of the tests"),
+    ("COVB", "Covariance of the estimates"),
+    ("CORB", "Correlation of the estimates"),
+    ("BASELINE", "Baseline functions"),
+    ("HISTORY", "Iteration history"),
+];
+
+/// The tables CSCOXREG shows without PRINT.
+const COX_DEFAULT_PRINT: [bool; 8] = [true, true, false, false, false, false, false, false];
+
+/// TIES of CSCOXREG; the first is the default.
+pub const COX_TIES: [(&str, &str); 2] = [("EFRON", "Efron"), ("BRESLOW", "Breslow")];
+
+/// BASELINE of SURVIVALMETHOD; the first leaves the choice to the ties method.
+pub const COX_BASELINES: [(&str, &str); 4] = [
+    ("", "As the ties method"),
+    ("EFRON", "Efron"),
+    ("BRESLOW", "Breslow"),
+    ("PRODUCTLIMIT", "Product limit"),
+];
+
+/// CI of SURVIVALMETHOD, the scale of the survival interval; the first is the default.
+pub const COX_INTERVALS: [(&str, &str); 3] = [
+    ("LOG", "Log of the survival"),
+    ("ORIGINAL", "The survival itself"),
+    ("LML", "Log minus log of the survival"),
+];
+
+/// The variables of SAVE for CSCOXREG, keyword and label; the first three take a root.
+pub const COX_SAVE: [(&str, &str); 13] = [
+    ("SCHOENFELD", "Schoenfeld residuals"),
+    ("SCORE", "Score residuals"),
+    ("DFBETA", "DfBeta"),
+    ("MARTINGALE", "Martingale residuals"),
+    ("DEVIANCE", "Deviance residuals"),
+    ("COXSNELL", "Cox-Snell residuals"),
+    ("XBETA", "Linear predictor"),
+    ("SURVIVAL", "Survival"),
+    ("LCL_SURVIVAL", "Lower limit of the survival"),
+    ("UCL_SURVIVAL", "Upper limit of the survival"),
+    ("CUMHAZARD", "Cumulative hazard"),
+    ("LCL_CUMHAZARD", "Lower limit of the cumulative hazard"),
+    ("UCL_CUMHAZARD", "Upper limit of the cumulative hazard"),
+];
+
+/// The functions PLOT draws, keyword and label.
+pub const COX_PLOTS: [(&str, &str); 4] = [
+    ("SURVIVAL", "Survival"),
+    ("CUMHAZARD", "Cumulative hazard"),
+    ("LML", "Log minus log of the survival"),
+    ("OMS", "One minus survival"),
+];
+
+/// What only CSCOXREG has beyond the other models. The end time is the model's `dependent`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct CsCox {
+    /// The start time; empty when every record is at risk from the beginning.
+    pub start: String,
+    pub status: String,
+    /// The event is a range of values rather than a list.
+    pub event_range: bool,
+    pub event_values: String,
+    pub event_from: String,
+    pub event_to: String,
+    /// Each value of this variable has its own baseline hazard; may be empty.
+    pub strata: String,
+    /// Index into `COX_TIES`.
+    pub ties: usize,
+    /// Index into `COX_BASELINES` and `COX_INTERVALS`.
+    pub baseline: usize,
+    pub interval: usize,
+    /// One flag per entry of `COX_PRINT`, and every n-th iteration in the history.
+    pub print: [bool; 8],
+    pub history: String,
+    /// One flag per entry of `COX_SAVE`, and the names (a root for the first three).
+    pub save: [bool; 13],
+    pub save_names: [String; 13],
+    /// One flag per entry of `COX_PLOTS`, and whether the plots carry intervals.
+    pub plots: [bool; 4],
+    pub plot_ci: bool,
+    /// One line per model variable held at a value: `name value`; may be empty.
+    pub pattern: String,
+    /// A factor that gets one line per level; may be empty.
+    pub pattern_by: String,
+}
+
+impl Default for CsCox {
+    fn default() -> Self {
+        Self {
+            start: String::new(),
+            status: String::new(),
+            event_range: false,
+            event_values: String::new(),
+            event_from: String::new(),
+            event_to: String::new(),
+            strata: String::new(),
+            ties: 0,
+            baseline: 0,
+            interval: 0,
+            print: COX_DEFAULT_PRINT,
+            history: "1".into(),
+            save: Default::default(),
+            save_names: Default::default(),
+            plots: [false; 4],
+            plot_ci: false,
+            pattern: String::new(),
+            pattern_by: String::new(),
+        }
+    }
+}
+
+/// CSGLM, CSLOGISTIC, CSORDINAL (`ordinal` is set, and `logistic` too) or CSCOXREG (`cox` is
+/// set, and `dependent` is its end time).
 #[derive(Clone, PartialEq, Debug)]
 pub struct SampleModel {
     pub logistic: bool,
     pub ordinal: Option<CsOrdinal>,
+    pub cox: Option<CsCox>,
     pub plan: String,
     pub dependent: String,
     /// CSLOGISTIC: index into `CS_LEVELS`.
@@ -224,6 +343,7 @@ impl SampleModel {
         Self {
             logistic,
             ordinal: None,
+            cox: None,
             plan: String::new(),
             dependent: String::new(),
             reference: 0,
@@ -266,10 +386,22 @@ impl SampleModel {
         }
     }
 
+    pub fn new_cox() -> Self {
+        Self {
+            cox: Some(CsCox::default()),
+            statistics: [false; 7],
+            ..Self::new(false)
+        }
+    }
+
     /// The statistics and tables this command offers: CSGLM has neither EXP nor the last two
     /// tables.
     pub fn offered(&self) -> (usize, usize) {
-        if self.logistic { (7, 8) } else { (6, 6) }
+        if self.logistic || self.cox.is_some() {
+            (7, 8)
+        } else {
+            (6, 6)
+        }
     }
 
     /// Drops the odds ratios and held values of variables taken out of Factors and Covariates,
@@ -312,6 +444,9 @@ impl SampleModel {
     }
 
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
+        if let Some(c) = &self.cox {
+            return self.cox_syntax(c, data);
+        }
         let command = match (&self.ordinal, self.logistic) {
             (Some(_), _) => "CSORDINAL",
             (None, true) => "CSLOGISTIC",
@@ -419,29 +554,8 @@ impl SampleModel {
             }
             text.push_str(&format!("\n  /STATISTICS {}", chosen.join(" ")));
         }
-        let mut parts = Vec::new();
-        if self.test_type > 0 {
-            parts.push(format!("TYPE={}", CS_TESTS[self.test_type].0));
-        }
-        if self.adjustment > 0 {
-            parts.push(format!("PADJUST={}", CS_ADJUSTMENTS[self.adjustment].0));
-        }
-        if !parts.is_empty() {
-            text.push_str(&format!("\n  /TEST {}", parts.join(" ")));
-        }
-        let domain = self.domain.trim();
-        if !domain.is_empty() {
-            if domain == dependent || model.iter().any(|n| n == domain) {
-                return Err(format!(
-                    "{domain} is in the model, so it cannot define the subpopulation"
-                ));
-            }
-            let given = match self.domain_value.trim() {
-                "" => return Err(format!("give the value of {domain} for the subpopulation")),
-                given => value(given, quoted(domain)?)?,
-            };
-            text.push_str(&format!("\n  /DOMAIN VARIABLE={domain}({given})"));
-        }
+        text.push_str(&self.test_syntax());
+        text.push_str(&self.domain_syntax(&[dependent], &quoted)?);
         if self.include {
             text.push_str("\n  /MISSING CLASSMISSING=INCLUDE");
         }
@@ -475,6 +589,43 @@ impl SampleModel {
         }
         text.push('.');
         Ok(text)
+    }
+
+    /// `/TEST` when the type or the adjustment is not the default.
+    fn test_syntax(&self) -> String {
+        let mut parts = Vec::new();
+        if self.test_type > 0 {
+            parts.push(format!("TYPE={}", CS_TESTS[self.test_type].0));
+        }
+        if self.adjustment > 0 {
+            parts.push(format!("PADJUST={}", CS_ADJUSTMENTS[self.adjustment].0));
+        }
+        match parts.is_empty() {
+            true => String::new(),
+            false => format!("\n  /TEST {}", parts.join(" ")),
+        }
+    }
+
+    /// `/DOMAIN`: the variable is none of `others` and not in the model.
+    fn domain_syntax(
+        &self,
+        others: &[&str],
+        quoted: &dyn Fn(&str) -> Result<bool, String>,
+    ) -> Result<String, String> {
+        let domain = self.domain.trim();
+        if domain.is_empty() {
+            return Ok(String::new());
+        }
+        if others.contains(&domain) || self.model_variables().iter().any(|n| n == domain) {
+            return Err(format!(
+                "{domain} is in the model, so it cannot define the subpopulation"
+            ));
+        }
+        let given = match self.domain_value.trim() {
+            "" => return Err(format!("give the value of {domain} for the subpopulation")),
+            given => value(given, quoted(domain)?)?,
+        };
+        Ok(format!("\n  /DOMAIN VARIABLE={domain}({given})"))
     }
 
     /// One `/EMMEANS` per table.
@@ -628,8 +779,11 @@ impl SampleModel {
             }
             out.push(format!("DF={}", number(df)));
         }
-        if !self.logistic {
+        if !self.logistic && self.cox.is_none() {
             return Ok(out);
+        }
+        if self.cox.as_ref().is_some_and(|c| c.ties > 0) {
+            out.push("TIES=BRESLOW".into());
         }
         let numbers = [
             (
@@ -649,6 +803,10 @@ impl SampleModel {
             ("MXSTEP", &self.halvings, 1, 5, "the maximum step-halving"),
         ];
         for (keyword, text, least, default, what) in numbers {
+            // a time-to-event model has no separation check
+            if keyword == "CHKSEP" && self.cox.is_some() {
+                continue;
+            }
             match whole(text, least, what)? {
                 Some(n) if n != default => out.push(format!("{keyword}={n}")),
                 _ => {}
@@ -680,6 +838,185 @@ impl SampleModel {
             }
         }
         Ok(out)
+    }
+
+    /// CSCOXREG: the time and status variables first, then the sections of the dialog. There is
+    /// no intercept, so the model needs at least one factor or covariate.
+    fn cox_syntax(&self, c: &CsCox, data: &Dataset) -> Result<String, String> {
+        let plan = plan_file(&self.plan)?;
+        let (start, end) = (c.start.trim(), self.dependent.trim());
+        let (status, strata) = (c.status.trim(), c.strata.trim());
+        if end.is_empty() {
+            return Err("choose the end time variable".into());
+        }
+        if status.is_empty() {
+            return Err("choose the status variable".into());
+        }
+        let model = self.model_variables();
+        if model.is_empty() {
+            return Err("add at least one factor or covariate".into());
+        }
+        let roles = [
+            (start, "start time"),
+            (end, "end time"),
+            (status, "status"),
+            (strata, "baseline strata"),
+        ];
+        for (i, (name, role)) in roles.iter().enumerate() {
+            if name.is_empty() {
+                continue;
+            }
+            if model.iter().any(|m| m.eq_ignore_ascii_case(name)) {
+                return Err(format!("{name} is the {role} variable"));
+            }
+            if let Some((_, other)) = roles[..i]
+                .iter()
+                .find(|(b, _)| b.eq_ignore_ascii_case(name))
+            {
+                return Err(format!(
+                    "{name} is both the {other} and the {role} variable"
+                ));
+            }
+        }
+        let variables = model_variables(end, &self.factors, &self.covariates)?;
+        let times = [&c.start, &self.dependent];
+        numeric(data, times.into_iter().filter(|t| !t.trim().is_empty()))?;
+        numeric(data, &self.covariates)?;
+        let quoted = |name: &str| match data.variable(name) {
+            Ok(v) => Ok(v.is_string() || crate::edits::shows_date(v.format())),
+            Err(_) => Err(format!("{name} is no longer a variable")),
+        };
+        let (events, _) = event(
+            data,
+            status,
+            c.event_range,
+            &c.event_values,
+            &c.event_from,
+            &c.event_to,
+        )?;
+        let mut text = String::from("CSCOXREG ");
+        if !start.is_empty() {
+            text.push_str(&format!("{start} "));
+        }
+        text.push_str(&variables);
+        text.push_str(&format!("\n  /VARIABLES STATUS={status}({events})"));
+        if !strata.is_empty() {
+            text.push_str(&format!(" BASELINESTRATA={strata}"));
+        }
+        text.push_str(&plan);
+
+        let main = main_effects(&model);
+        let terms = match self.model {
+            0 => main.clone(),
+            1 => full_factorial(&self.factors, &self.covariates)?,
+            _ => {
+                self.terms.syntax(&model, "model")?;
+                self.terms.terms.clone()
+            }
+        };
+        if terms != main {
+            let written: Vec<String> = terms.iter().map(|t| t.join("*")).collect();
+            text.push_str(&format!("\n  /MODEL {}", written.join(" ")));
+        }
+        for (i, test) in self.tests.iter().enumerate() {
+            text.push_str(&custom(test, &terms, false, i + 1)?);
+        }
+        let criteria = self.criteria()?;
+        if !criteria.is_empty() {
+            text.push_str(&format!("\n  /CRITERIA {}", criteria.join(" ")));
+        }
+        let chosen = keywords(&CS_STATISTICS, &self.statistics);
+        if !chosen.is_empty() {
+            text.push_str(&format!("\n  /STATISTICS {}", chosen.join(" ")));
+        }
+        text.push_str(&self.test_syntax());
+        text.push_str(&self.domain_syntax(&[start, end, status, strata], &quoted)?);
+        if self.include {
+            text.push_str("\n  /MISSING CLASSMISSING=INCLUDE");
+        }
+        if c.print != COX_DEFAULT_PRINT {
+            let every = match c.print[7] {
+                true => whole(&c.history, 1, "the iteration history step")?.filter(|n| *n != 1),
+                false => None,
+            };
+            let print: Vec<String> = keywords(&COX_PRINT, &c.print)
+                .into_iter()
+                .map(|k| match every {
+                    Some(n) if k == "HISTORY" => format!("HISTORY({n})"),
+                    _ => k.to_string(),
+                })
+                .collect();
+            let print = match print.is_empty() {
+                true => "NONE".to_string(),
+                false => print.join(" "),
+            };
+            text.push_str(&format!("\n  /PRINT {print}"));
+        }
+        let mut parts = Vec::new();
+        if c.baseline > 0 {
+            parts.push(format!("BASELINE={}", COX_BASELINES[c.baseline].0));
+        }
+        if c.interval > 0 {
+            parts.push(format!("CI={}", COX_INTERVALS[c.interval].0));
+        }
+        if !parts.is_empty() {
+            text.push_str(&format!("\n  /SURVIVALMETHOD {}", parts.join(" ")));
+        }
+        let save = saved(data, &COX_SAVE, &c.save, &c.save_names)?;
+        if !save.is_empty() {
+            text.push_str(&format!("\n  /SAVE {}", save.join(" ")));
+        }
+        let plots = keywords(&COX_PLOTS, &c.plots);
+        if !plots.is_empty() {
+            let ci = if c.plot_ci { " CI=YES" } else { "" };
+            text.push_str(&format!("\n  /PLOT {}{ci}", plots.join(" ")));
+        }
+        text.push_str(&self.pattern_syntax(c, &quoted)?);
+        text.push('.');
+        Ok(text)
+    }
+
+    /// `/PATTERN`: each line of the dialog is a model variable and the value it is held at; a
+    /// factor after BY gets a line per level. The curves need PLOT.
+    fn pattern_syntax(
+        &self,
+        c: &CsCox,
+        quoted: &dyn Fn(&str) -> Result<bool, String>,
+    ) -> Result<String, String> {
+        let model = self.model_variables();
+        let mut parts: Vec<String> = Vec::new();
+        for line in c.pattern.lines().filter(|l| !l.trim().is_empty()) {
+            let Some((name, given)) = line.trim().split_once(char::is_whitespace) else {
+                return Err(format!(
+                    "write a pattern line as a variable and a value: {line}"
+                ));
+            };
+            if !model.iter().any(|m| m == name) {
+                return Err(format!(
+                    "{name} in the pattern is not a factor or covariate"
+                ));
+            }
+            if parts.iter().any(|p| p.starts_with(&format!("{name}("))) {
+                return Err(format!("the pattern gives {name} twice"));
+            }
+            parts.push(format!("{name}({})", value(given.trim(), quoted(name)?)?));
+        }
+        let by = c.pattern_by.trim();
+        if !by.is_empty() {
+            if !self.factors.iter().any(|f| f == by) {
+                return Err(format!(
+                    "{by} is not a factor, so it has no lines per level"
+                ));
+            }
+            if parts.iter().any(|p| p.starts_with(&format!("{by}("))) {
+                return Err(format!("{by} has separate lines, so it takes no value"));
+            }
+            parts.push(format!("BY {by}"));
+        }
+        Ok(match parts.is_empty() {
+            true => String::new(),
+            false => format!("\n  /PATTERN {}", parts.join(" ")),
+        })
     }
 
     /// `/SAVE` of CSORDINAL: names valid, free and not given twice; the first two take a root
@@ -1300,6 +1637,137 @@ mod tests {
             d.syntax(&data).unwrap_err(),
             "q3_comment is a string; the command needs numbers"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn cox_regression() {
+        let (mut session, path, dir) = survey("cscoxreg");
+        let data = data(&session);
+        let mut d = SampleModel {
+            plan: path.clone(),
+            dependent: "age".into(),
+            factors: v(&["gender"]),
+            covariates: v(&["monthly_spend"]),
+            cox: Some(CsCox {
+                status: "q5_1".into(),
+                event_values: "1".into(),
+                ..Default::default()
+            }),
+            ..SampleModel::new_cox()
+        };
+        let syntax = d.syntax(&data).unwrap();
+        assert_eq!(
+            syntax,
+            format!(
+                "CSCOXREG age BY gender WITH monthly_spend\n  /VARIABLES STATUS=q5_1(1)\n  /PLAN FILE={}.",
+                quote(&path)
+            )
+        );
+        assert!(runs_in(&mut session, &syntax) >= 3);
+
+        // every option
+        d.statistics = [true, true, false, false, false, false, true];
+        d.test_type = 1;
+        d.domain = "plan".into();
+        d.domain_value = "Basic".into();
+        d.include = true;
+        d.iterations = "50".into();
+        d.cox = Some(CsCox {
+            start: "q5_2".into(),
+            status: "q5_1".into(),
+            event_range: true,
+            event_from: "1".into(),
+            event_to: "2".into(),
+            strata: "region".into(),
+            ties: 1,
+            baseline: 3,
+            interval: 1,
+            print: [true, false, true, false, false, false, true, true],
+            history: "2".into(),
+            save: [
+                false, false, true, true, false, false, false, true, false, false, true, false,
+                false,
+            ],
+            save_names: [
+                "".into(),
+                "".into(),
+                "dfb".into(),
+                "mart".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+                "".into(),
+            ],
+            plots: [true, false, true, false],
+            plot_ci: true,
+            pattern: "monthly_spend 100".into(),
+            pattern_by: "gender".into(),
+            ..Default::default()
+        });
+        d.dependent = "age".into();
+        let syntax = d.syntax(&data).unwrap();
+        assert_eq!(
+            syntax,
+            format!(
+                "CSCOXREG q5_2 age BY gender WITH monthly_spend\n  \
+                 /VARIABLES STATUS=q5_1(1 THRU 2) BASELINESTRATA=region\n  /PLAN FILE={}\n  \
+                 /CRITERIA TIES=BRESLOW MXITER=50\n  /STATISTICS PARAMETER SE EXP\n  \
+                 /TEST TYPE=ADJF\n  /DOMAIN VARIABLE=plan('Basic')\n  \
+                 /MISSING CLASSMISSING=INCLUDE\n  \
+                 /PRINT SAMPLEINFO RISKINFO BASELINE HISTORY(2)\n  \
+                 /SURVIVALMETHOD BASELINE=PRODUCTLIMIT CI=ORIGINAL\n  \
+                 /SAVE DFBETA(dfb) MARTINGALE(mart) SURVIVAL CUMHAZARD\n  \
+                 /PLOT SURVIVAL LML CI=YES\n  /PATTERN monthly_spend(100) BY gender.",
+                quote(&path)
+            )
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn cox_regression_checks_its_input() {
+        let (session, path, dir) = survey("cscoxreg-checks");
+        let data = data(&session);
+        let mut d = SampleModel {
+            plan: path,
+            dependent: "age".into(),
+            covariates: v(&["monthly_spend"]),
+            cox: Some(CsCox {
+                status: "q5_1".into(),
+                event_values: "1".into(),
+                ..Default::default()
+            }),
+            ..SampleModel::new_cox()
+        };
+
+        let fails = |d: &SampleModel| d.syntax(&data).unwrap_err();
+        assert!(d.syntax(&data).is_ok());
+        d.covariates.clear();
+        assert_eq!(fails(&d), "add at least one factor or covariate");
+        d.covariates = v(&["age"]);
+        assert_eq!(fails(&d), "age is the end time variable");
+        d.covariates = v(&["monthly_spend"]);
+        let mut c = d.cox.clone().unwrap();
+        c.status.clear();
+        d.cox = Some(c.clone());
+        assert_eq!(fails(&d), "choose the status variable");
+        c.status = "q5_1".into();
+        c.pattern = "gender 1".into();
+        d.cox = Some(c.clone());
+        assert_eq!(
+            fails(&d),
+            "gender in the pattern is not a factor or covariate"
+        );
+        c.pattern = String::new();
+        c.pattern_by = "monthly_spend".into();
+        d.cox = Some(c);
+        assert!(fails(&d).contains("is not a factor"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

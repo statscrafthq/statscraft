@@ -14,7 +14,7 @@ use crate::analyze_dialogs::{
 use crate::catpca_dialog::{Catpca, CatpcaVariable};
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
 use crate::cox_dialog::Cox;
-use crate::cs_model_dialog::{CsOrdinal, Held, OddsRatio, SampleModel};
+use crate::cs_model_dialog::{CsCox, CsOrdinal, Held, OddsRatio, SampleModel};
 use crate::cs_sample_dialog::{SampleSelection, SamplingPlan, SamplingStage};
 use crate::data_dialogs::{
     Aggregate, AggregateTo, Aggregated, ExportData, ImportData, Make, MergeFiles, Mrsets,
@@ -398,6 +398,17 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             plan: plan.clone(),
             dependent: s("q5_3"),
             ..SampleModel::new_ordinal()
+        }))),
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("age"),
+            covariates: v(&["monthly_spend"]),
+            cox: Some(CsCox {
+                status: s("q5_1"),
+                event_values: s("1"),
+                ..Default::default()
+            }),
+            ..SampleModel::new_cox()
         }))),
         Dialog::Advanced(Advanced::Tables(SampleTables {
             crosstabs: true,
@@ -1718,6 +1729,56 @@ fn maximal(out: &Path) -> Vec<Dialog> {
                 ..Default::default()
             }),
             ..SampleModel::new(true)
+        }))),
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("age"),
+            factors: v(&["plan"]),
+            covariates: v(&["monthly_spend"]),
+            statistics: [true, true, true, true, true, true, true],
+            test_type: 1,
+            adjustment: 1,
+            ci_level: s("90"),
+            df: s("100"),
+            iterations: s("50"),
+            halvings: s("10"),
+            domain: s("q5_4"),
+            domain_value: s("1"),
+            include: true,
+            cox: Some(CsCox {
+                status: s("q5_1"),
+                event_range: true,
+                event_from: s("1"),
+                event_to: s("2"),
+                strata: s("q5_2"),
+                ties: 1,
+                baseline: 3,
+                interval: 2,
+                print: [true; 8],
+                history: s("2"),
+                save: [true; 13],
+                save_names: [
+                    s("sch"),
+                    s("sco"),
+                    s("dfb"),
+                    s("mart"),
+                    s("dev"),
+                    s("snell"),
+                    s("xb"),
+                    s("surv"),
+                    s("lcls"),
+                    s("ucls"),
+                    s("cum"),
+                    s("lclc"),
+                    s("uclc"),
+                ],
+                plots: [true; 4],
+                plot_ci: true,
+                pattern: s("monthly_spend 100"),
+                pattern_by: s("plan"),
+                ..Default::default()
+            }),
+            ..SampleModel::new_cox()
         }))),
         Dialog::Advanced(Advanced::Tables(SampleTables {
             crosstabs: true,

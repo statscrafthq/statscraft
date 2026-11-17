@@ -4,13 +4,14 @@ use crate::advanced_dialogs::{forget_old_covariates, forget_old_factors};
 use crate::advanced_dialogs_view::{means_editor, plan_path, terms_editor, tests_editor};
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::cs_model_dialog::{
-    CS_ADJUSTMENTS, CS_CONTRASTS, CS_INTERCEPTS, CS_LEVELS, CS_PRINT, CS_STATISTICS, CS_TESTS,
-    GLM_SAVE, Held, LOGISTIC_SAVE, ORDINAL_LINKS, ORDINAL_PARALLEL, ORDINAL_SAVE, OddsRatio,
-    SampleModel,
+    COX_BASELINES, COX_INTERVALS, COX_PLOTS, COX_PRINT, COX_SAVE, COX_TIES, CS_ADJUSTMENTS,
+    CS_CONTRASTS, CS_INTERCEPTS, CS_LEVELS, CS_PRINT, CS_STATISTICS, CS_TESTS, CsCox, GLM_SAVE,
+    Held, LOGISTIC_SAVE, ORDINAL_LINKS, ORDINAL_PARALLEL, ORDINAL_SAVE, OddsRatio, SampleModel,
 };
 use crate::genlin_dialog::GENLIN_MODELS;
 use crate::stats_dialogs_view::small_field;
-use eframe::egui::{self, ComboBox, Ui};
+use crate::survival_dialog_view::{event_fields, save_fields};
+use eframe::egui::{self, ComboBox, TextEdit, Ui};
 use std::path::PathBuf;
 
 pub fn sample_model(
@@ -20,7 +21,27 @@ pub fn sample_model(
     folder: &mut Option<PathBuf>,
 ) {
     plan_path(ui, &mut d.plan, false, folder);
-    target_one(ui, "Dependent variable", &mut d.dependent, picked);
+    if let Some(c) = &mut d.cox {
+        target_one(
+            ui,
+            "Start time (empty: from the beginning)",
+            &mut c.start,
+            picked,
+        );
+        target_one(ui, "End time", &mut d.dependent, picked);
+        target_one(ui, "Status", &mut c.status, picked);
+        event_fields(
+            ui,
+            &mut c.event_range,
+            &mut c.event_values,
+            &mut c.event_from,
+            &mut c.event_to,
+        );
+        ui.weak("List values with spaces or commas; a string status takes commas and no range");
+        target_one(ui, "Baseline strata (optional)", &mut c.strata, picked);
+    } else {
+        target_one(ui, "Dependent variable", &mut d.dependent, picked);
+    }
     if let Some(o) = &mut d.ordinal {
         ui.checkbox(
             &mut o.descending,
@@ -43,6 +64,7 @@ pub fn sample_model(
     ui.add_space(6.0);
     let model = d.model_variables();
     let ordinal = d.ordinal.is_some();
+    let cox = d.cox.is_some();
     egui::CollapsingHeader::new("Model").show(ui, |ui| {
         if let Some(o) = &mut d.ordinal {
             choice(ui, "Link function", &ORDINAL_LINKS, &mut o.link);
@@ -57,8 +79,9 @@ pub fn sample_model(
                 terms_editor(ui, "model", &model, &mut d.terms);
             });
         });
-        // the thresholds of an ordinal model take the intercept's place
-        if !ordinal {
+        // the thresholds of an ordinal model take the intercept's place, and the baseline
+        // hazard of a survival model does
+        if !ordinal && !cox {
             choice(ui, "Intercept", &CS_INTERCEPTS, &mut d.intercept);
             ui.add_enabled_ui(d.intercept == 0, |ui| {
                 ui.checkbox(&mut d.show_intercept, "Show the intercept in the tables");
@@ -83,7 +106,10 @@ pub fn sample_model(
     });
     if !ordinal {
         egui::CollapsingHeader::new("Tests").show(ui, |ui| {
-            ui.weak("INTERCEPT comes first in a row. End a row with = value to test against it");
+            if !cox {
+                ui.weak("INTERCEPT comes first in a row");
+            }
+            ui.weak("End a row with = value to test against it");
             tests_editor(ui, &mut d.tests);
         });
     }
@@ -91,7 +117,7 @@ pub fn sample_model(
         egui::CollapsingHeader::new("Odds ratios").show(ui, |ui| {
             odds_editor(ui, d);
         });
-    } else {
+    } else if !cox {
         egui::CollapsingHeader::new("EM means").show(ui, |ui| {
             means_editor(
                 ui,
@@ -112,11 +138,16 @@ pub fn sample_model(
             &mut d.df,
             50.0,
         );
-        if d.logistic {
+        if let Some(c) = &mut d.cox {
+            choice(ui, "Tied event times", &COX_TIES, &mut c.ties);
+        }
+        if d.logistic || cox {
             field(ui, "Maximum iterations", &mut d.iterations, 50.0);
             field(ui, "Maximum step-halving", &mut d.halvings, 50.0);
             field(ui, "Parameter convergence", &mut d.pconverge, 80.0);
             field(ui, "Log-likelihood convergence", &mut d.lconverge, 80.0);
+        }
+        if d.logistic {
             field(
                 ui,
                 "Check for separation from iteration (0: never)",
@@ -138,6 +169,10 @@ pub fn sample_model(
         target_one(ui, "Variable", &mut d.domain, picked);
         field(ui, "Value", &mut d.domain_value, 80.0);
     });
+    if let Some(c) = &mut d.cox {
+        cox_sections(ui, c, &d.factors, picked);
+        return;
+    }
     egui::CollapsingHeader::new("Output").show(ui, |ui| {
         checkboxes(ui, &CS_PRINT[..tables], &mut d.print[..tables]);
         if d.logistic {
@@ -181,6 +216,46 @@ pub fn sample_model(
                 small_field(ui, d.save[0], &mut d.probabilities);
             });
         }
+    });
+}
+
+/// The sections only CSCOXREG has: the tables, the baseline functions with their plots and
+/// patterns, and the saved variables.
+fn cox_sections(ui: &mut Ui, c: &mut CsCox, factors: &[String], picked: &mut Vec<String>) {
+    egui::CollapsingHeader::new("Output").show(ui, |ui| {
+        checkboxes(ui, &COX_PRINT, &mut c.print);
+        ui.horizontal(|ui| {
+            ui.label("Iteration history: every n-th iteration, n =");
+            small_field(ui, c.print[7], &mut c.history);
+        });
+    });
+    egui::CollapsingHeader::new("Baseline functions").show(ui, |ui| {
+        choice(ui, "Estimated by", &COX_BASELINES, &mut c.baseline);
+        choice(
+            ui,
+            "Interval of the survival on",
+            &COX_INTERVALS,
+            &mut c.interval,
+        );
+        ui.label("Plots");
+        checkboxes(ui, &COX_PLOTS, &mut c.plots);
+        ui.checkbox(&mut c.plot_ci, "With confidence intervals");
+        ui.separator();
+        ui.label("Curves for a pattern of values (need a plot)");
+        ui.weak("One line per variable: its name and the value. The others stay at the reference");
+        ui.add(
+            TextEdit::multiline(&mut c.pattern)
+                .desired_rows(2)
+                .desired_width(200.0),
+        );
+        target_one(ui, "A line for each level of", &mut c.pattern_by, picked);
+        if !c.pattern_by.is_empty() && !factors.contains(&c.pattern_by) {
+            ui.weak("Pick one of the factors");
+        }
+    });
+    egui::CollapsingHeader::new("Save").show(ui, |ui| {
+        save_fields(ui, &COX_SAVE, &mut c.save, &mut c.save_names);
+        ui.weak("The first three take a root: one variable per estimate");
     });
 }
 
