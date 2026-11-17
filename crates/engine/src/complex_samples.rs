@@ -715,6 +715,19 @@ impl Design {
         deff: bool,
         joint: Option<&Dataset>,
     ) -> Result<Design, Error> {
+        Design::with_subjects(data, plan, include, deff, joint, None)
+    }
+
+    /// As `new`; where a stage has no clusters, the dataset cases with one `subject` key form
+    /// one unit (CSCOXREG's ID), a case without one a unit of its own.
+    fn with_subjects(
+        data: &Dataset,
+        plan: &PlanFile,
+        include: bool,
+        deff: bool,
+        joint: Option<&Dataset>,
+        subject: Option<&[Option<Key>]>,
+    ) -> Result<Design, Error> {
         let weight_var = data.variable(&plan.weight)?;
         let weights = numbers(&weight_var)?;
         let mut used: Vec<&PlanStage> = Vec::new();
@@ -847,7 +860,10 @@ impl Design {
                 }
                 let mut ukey = format!("{h}\u{2}");
                 if sd.clusters.is_empty() {
-                    ukey.push_str(&format!("case{c}"));
+                    match subject.and_then(|s| s[case].as_ref()) {
+                        Some(k) => ukey.push_str(&format!("id{}", key_part(k))),
+                        None => ukey.push_str(&format!("case{c}")),
+                    }
                 } else {
                     for k in &sd.clusters {
                         ukey.push('\u{1}');

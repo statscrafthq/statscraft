@@ -4,7 +4,8 @@
 //! - The variable list comes first: the end time, or a start time and an end time, then factors
 //!   after BY and covariates after WITH. VARIABLES STATUS=var(values) and PLAN FILE= are
 //!   required. The event values are numbers, THRU ranges or quoted strings.
-//! - VARIABLES may also name BASELINESTRATA=var (a baseline hazard per value) and ID=var.
+//! - VARIABLES may also name BASELINESTRATA=var (a baseline hazard per value) and ID=var (the
+//!   records of a subject share its value).
 //! - MODEL, CUSTOM, STATISTICS, TEST, DOMAIN and MISSING work as for the other complex samples
 //!   models; there is no intercept (the baseline hazard absorbs it), so an L row has no
 //!   intercept coefficient. CRITERIA: CILEVEL, DF, LCONVERGE, MXITER, MXSTEP, PCONVERGE,
@@ -16,7 +17,9 @@
 //! - SAVE keyword[(name)] for one variable, keyword[(root[:n])] for one per parameter (25 at
 //!   most by default); the AGG keywords need VARIABLES ID.
 //! - PLOT SURVIVAL CUMHAZARD (or HAZARD) LML OMS CI=NO | YES.
-//! - PATTERN var(value) ... [BY factor]; a value list for the end time is a piecewise path.
+//! - PATTERN var(value) ... [BY factor]; a value list for the end time is a piecewise path, and
+//!   then a variable takes one value or as many as the end time.
+//! - TESTASSUMPTIONS PROPHAZARD = KM (default) | IDENTITY | LOG | RANK, PARAMETER, COVB.
 //! - OUTFILE COVB | CORB = file, MODEL = file, SURVIVAL = file.
 //! - CUSTOM and PATTERN may repeat; every other subcommand comes at most once and none may be
 //!   empty.
@@ -41,6 +44,24 @@ pub struct CsCoxPrint {
     pub covb: bool,
     pub corb: bool,
     pub baseline: bool,
+    pub gef: bool,
+}
+
+/// TESTASSUMPTIONS PROPHAZARD: the function of time that multiplies the predictors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CsCoxTimeFunction {
+    Km,
+    Identity,
+    Log,
+    Rank,
+}
+
+/// TESTASSUMPTIONS: the time function and the tables of the alternative model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CsCoxAssumptions {
+    pub function: CsCoxTimeFunction,
+    pub parameter: bool,
+    pub covb: bool,
 }
 
 /// SURVIVALMETHOD BASELINE: how the baseline functions are estimated.
@@ -114,10 +135,12 @@ pub struct CsCoxPlot {
     pub ci: bool,
 }
 
-/// PATTERN: values of model variables, and a factor whose every level gets a line.
+/// PATTERN: values of model variables, and a factor whose every level gets a line. With a
+/// piecewise path, `path` holds the end times and a variable has one value or one per end time.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CsCoxPattern {
-    pub values: Vec<(String, Value)>,
+    pub values: Vec<(String, Vec<Value>)>,
+    pub path: Option<Vec<f64>>,
     pub by: Option<String>,
 }
 
@@ -141,6 +164,8 @@ pub struct CsCox {
     pub events: Vec<MissingValue>,
     /// BASELINESTRATA
     pub strata: Option<String>,
+    /// ID: the subject of each record.
+    pub id: Option<String>,
     pub plan: String,
     pub model: Option<Vec<Term>>,
     pub custom: Vec<CsCustom>,
@@ -151,6 +176,7 @@ pub struct CsCox {
     pub statistics: Option<CsModelStatistics>,
     pub test: CsTestType,
     pub padjust: CsPadjust,
+    pub assumptions: Option<CsCoxAssumptions>,
     pub domain: Option<(String, Value)>,
     /// CLASSMISSING=INCLUDE
     pub include: bool,
@@ -168,14 +194,6 @@ pub struct CsCox {
 }
 
 const COMMAND: &str = "CSCOXREG";
-
-fn not_yet(p: &Parser, start: usize, what: &str) -> crate::error::SyntaxError {
-    error(
-        p,
-        start,
-        format!("{what} of {COMMAND} is not supported yet"),
-    )
-}
 
 fn variables(p: &mut Parser, c: &mut CsCox) -> PResult<()> {
     let mut seen = Vec::new();
@@ -199,8 +217,9 @@ fn variables(p: &mut Parser, c: &mut CsCox) -> PResult<()> {
         } else if eat_assignment(p, "BASELINESTRATA")? {
             once(p, at, &mut seen, "BASELINESTRATA")?;
             c.strata = Some(p.name("the baseline strata variable")?);
-        } else if p.at_keyword("ID") {
-            return Err(not_yet(p, at, "VARIABLES ID (several records per subject)"));
+        } else if eat_assignment(p, "ID")? {
+            once(p, at, &mut seen, "ID")?;
+            c.id = Some(p.name("the subject ID variable")?);
         } else {
             return Err(p.unexpected(&["STATUS =", "BASELINESTRATA =", "ID ="]));
         }
@@ -274,13 +293,13 @@ fn print(p: &mut Parser) -> PResult<CsCoxPrint> {
         covb: false,
         corb: false,
         baseline: false,
+        gef: false,
     };
     let mut seen = Vec::new();
     if at_end(p) {
         return Err(error(p, start, "PRINT needs at least one keyword"));
     }
     while !at_end(p) {
-        let at = p.pos;
         if flag(p, &mut seen, "SAMPLEINFO")? {
             out.sampleinfo = true;
         } else if flag(p, &mut seen, "EVENTINFO")? {
@@ -301,8 +320,8 @@ fn print(p: &mut Parser) -> PResult<CsCoxPrint> {
                 p.expect(Punct::RParen)?;
             }
             out.history = Some(every);
-        } else if p.at_keyword("GEF") {
-            return Err(not_yet(p, at, "PRINT GEF (the general estimable function)"));
+        } else if flag(p, &mut seen, "GEF")? {
+            out.gef = true;
         } else if flag(p, &mut seen, "BASELINE")? {
             out.baseline = true;
         } else {
@@ -439,6 +458,7 @@ fn pattern(p: &mut Parser, end: &str) -> PResult<CsCoxPattern> {
     let start = p.pos;
     let mut out = CsCoxPattern {
         values: Vec::new(),
+        path: None,
         by: None,
     };
     while !at_end(p) && !p.at_keyword("BY") {
@@ -451,26 +471,106 @@ fn pattern(p: &mut Parser, end: &str) -> PResult<CsCoxPattern> {
             p.eat(Punct::Comma);
         }
         p.expect(Punct::RParen)?;
-        if name.eq_ignore_ascii_case(end) || values.len() > 1 {
-            return Err(not_yet(p, at, "PATTERN with a piecewise path"));
-        }
-        let Some(value) = values.pop() else {
+        if values.is_empty() {
             return Err(error(p, at, format!("PATTERN needs a value for {name}")));
-        };
-        if out
-            .values
-            .iter()
-            .any(|(n, _)| n.eq_ignore_ascii_case(&name))
+        }
+        let is_end = name.eq_ignore_ascii_case(end);
+        if (is_end && out.path.is_some())
+            || out
+                .values
+                .iter()
+                .any(|(n, _)| n.eq_ignore_ascii_case(&name))
         {
             return Err(error(p, at, format!("PATTERN names {name} twice")));
         }
-        out.values.push((name, value));
+        if !is_end {
+            out.values.push((name, values));
+            continue;
+        }
+        let mut times: Vec<f64> = Vec::new();
+        for v in values {
+            match v {
+                Value::Number(t) if t > 0.0 && times.last().is_none_or(|&l| t > l) => times.push(t),
+                _ => {
+                    return Err(error(
+                        p,
+                        at,
+                        format!("PATTERN: the end times of {name} must be ascending numbers above 0"),
+                    ));
+                }
+            }
+        }
+        out.path = Some(times);
     }
     if p.eat_keyword("BY") {
         out.by = Some(p.name("a factor")?);
     }
-    if out.values.is_empty() && out.by.is_none() {
+    if out.values.is_empty() && out.by.is_none() && out.path.is_none() {
         return Err(error(p, start, "PATTERN needs var(value) or BY factor"));
+    }
+    let steps = out.path.as_ref().map_or(1, Vec::len);
+    if let Some((name, values)) = out
+        .values
+        .iter()
+        .find(|(_, v)| v.len() != 1 && v.len() != steps)
+    {
+        let message = match out.path {
+            None => format!(
+                "PATTERN gives {name} {} values; a list of values needs the end time {end} with a list of times",
+                values.len()
+            ),
+            Some(_) => format!(
+                "PATTERN gives {name} {} values, but the path has {steps} end times",
+                values.len()
+            ),
+        };
+        return Err(error(p, start, message));
+    }
+    Ok(out)
+}
+
+fn assumptions(p: &mut Parser) -> PResult<CsCoxAssumptions> {
+    let start = p.pos;
+    if at_end(p) {
+        return Err(error(
+            p,
+            start,
+            "TESTASSUMPTIONS needs PROPHAZARD, PARAMETER or COVB",
+        ));
+    }
+    let mut out = CsCoxAssumptions {
+        function: CsCoxTimeFunction::Km,
+        parameter: false,
+        covb: false,
+    };
+    let mut seen = Vec::new();
+    const FUNCTIONS: [(&str, CsCoxTimeFunction); 4] = [
+        ("KM", CsCoxTimeFunction::Km),
+        ("IDENTITY", CsCoxTimeFunction::Identity),
+        ("LOG", CsCoxTimeFunction::Log),
+        ("RANK", CsCoxTimeFunction::Rank),
+    ];
+    while !at_end(p) {
+        if flag(p, &mut seen, "PROPHAZARD")? {
+            // the syntax chart writes PROPHAZARD = KM, the text puts the function in parentheses
+            let paren = p.eat(Punct::LParen);
+            if paren || p.eat(Punct::Eq) {
+                let Some(f) = pick(p, &FUNCTIONS)? else {
+                    return Err(p.unexpected(&["KM", "IDENTITY", "LOG", "RANK"]));
+                };
+                out.function = f;
+                if paren {
+                    p.expect(Punct::RParen)?;
+                }
+            }
+        } else if flag(p, &mut seen, "PARAMETER")? {
+            out.parameter = true;
+        } else if flag(p, &mut seen, "COVB")? {
+            out.covb = true;
+        } else {
+            return Err(p.unexpected(&["PROPHAZARD", "PARAMETER", "COVB"]));
+        }
+        p.eat(Punct::Comma);
     }
     Ok(out)
 }
@@ -562,6 +662,7 @@ pub(crate) fn cscoxreg(p: &mut Parser) -> PResult<Command> {
         status: String::new(),
         events: Vec::new(),
         strata: None,
+        id: None,
         plan: String::new(),
         model: None,
         custom: Vec::new(),
@@ -570,6 +671,7 @@ pub(crate) fn cscoxreg(p: &mut Parser) -> PResult<Command> {
         statistics: None,
         test: CsTestType::F,
         padjust: CsPadjust::Lsd,
+        assumptions: None,
         domain: None,
         include: false,
         print: CsCoxPrint {
@@ -581,6 +683,7 @@ pub(crate) fn cscoxreg(p: &mut Parser) -> PResult<Command> {
             covb: false,
             corb: false,
             baseline: false,
+            gef: false,
         },
         baseline: None,
         ci: CsCoxCi::Log,
@@ -682,8 +785,11 @@ pub(crate) fn cscoxreg(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("JOINTPROB") {
             once(p, start, &mut seen, "JOINTPROB")?;
             c.jointprob = Some(joint_file(p)?);
+        } else if p.eat_keyword("TESTASSUMPTIONS") {
+            once(p, start, &mut seen, "TESTASSUMPTIONS")?;
+            c.assumptions = Some(assumptions(p)?);
         } else {
-            return Err(p.subcommand_error(COMMAND, &["TESTASSUMPTIONS"]));
+            return Err(p.subcommand_error(COMMAND, &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));
@@ -788,22 +894,17 @@ mod tests {
                 .contains("one or two time variables")
         );
         for (sub, what) in [
-            (
-                "TESTASSUMPTIONS PROPHAZARD=KM",
-                "subcommand TESTASSUMPTIONS",
-            ),
-            ("PRINT GEF", "PRINT GEF"),
-            ("PATTERN t(1 2) x(1 2)", "piecewise path"),
+            ("TESTASSUMPTIONS", "needs PROPHAZARD"),
+            ("TESTASSUMPTIONS PROPHAZARD=SQRT", "KM"),
+            ("PATTERN x(1 2)", "end time t with a list"),
+            ("PATTERN t(5 2) x(1 2)", "ascending"),
+            ("PATTERN t(1 2 3) x(1 2)", "3 end times"),
+            ("PATTERN t(1 2) t(3)", "twice"),
+            ("VARIABLES STATUS=s(1) ID=a ID=b", "only once"),
         ] {
             let message = fails(&format!("{base} /{sub}."));
-            assert!(
-                message.contains(what) && message.contains("not supported yet"),
-                "{message}"
-            );
+            assert!(message.contains(what), "{sub}: {message}");
         }
-        let message =
-            fails("CSCOXREG t WITH x /VARIABLES STATUS=s(1) ID=person /PLAN FILE='p.json'.");
-        assert!(message.contains("ID") && message.contains("not supported yet"));
         assert!(fails(&format!("{base} /CUSTOM LMATRIX=1 x 1.")).contains("no intercept"));
         assert!(fails(&format!("{base} /CUSTOM KMATRIX=1.")).contains("no intercept"));
         assert!(fails(&format!("{base} /CRITERIA CHKSEP=3.")).contains("CHKSEP"));
@@ -838,10 +939,41 @@ mod tests {
         let plot = c.plot.unwrap();
         assert!(plot.survival && plot.cumhazard && plot.ci && !plot.lml);
         assert_eq!(c.patterns.len(), 2);
-        assert_eq!(c.patterns[0].values[1], ("g".into(), Value::Number(1.0)));
+        assert_eq!(c.patterns[0].values[1], ("g".into(), vec![Value::Number(1.0)]));
         assert_eq!(c.patterns[1].by.as_deref(), Some("g"));
         assert_eq!(c.outfile.matrix, Some(("c.sav".into(), true)));
         assert_eq!(c.outfile.model.as_deref(), Some("m.json"));
         assert_eq!(c.outfile.survival.as_deref(), Some("s.sav"));
+    }
+
+    #[test]
+    fn id_gef_paths_and_assumptions() {
+        let c = cox(
+            "CSCOXREG t BY g WITH x z /VARIABLES STATUS=s(1) ID=person /PLAN FILE='p.json' \
+             /PRINT GEF /PATTERN t(4 9.5) x(1, 2) z(3) BY g /TESTASSUMPTIONS PROPHAZARD(RANK) COVB.",
+        );
+        assert_eq!(c.id.as_deref(), Some("person"));
+        assert!(c.print.gef && !c.print.sampleinfo);
+        let pattern = &c.patterns[0];
+        assert_eq!(pattern.path, Some(vec![4.0, 9.5]));
+        assert_eq!(pattern.values[0].1, [Value::Number(1.0), Value::Number(2.0)]);
+        assert_eq!(pattern.values[1].1, [Value::Number(3.0)]);
+        assert_eq!(pattern.by.as_deref(), Some("g"));
+        let a = c.assumptions.unwrap();
+        assert_eq!(a.function, CsCoxTimeFunction::Rank);
+        assert!(a.covb && !a.parameter);
+        let base = "CSCOXREG t WITH x /VARIABLES STATUS=s(1) /PLAN FILE='p.json'";
+        for (sub, function) in [
+            ("PROPHAZARD = LOG PARAMETER", CsCoxTimeFunction::Log),
+            ("PROPHAZARD", CsCoxTimeFunction::Km),
+            ("PARAMETER", CsCoxTimeFunction::Km),
+            ("PROPHAZARD=IDENTITY", CsCoxTimeFunction::Identity),
+        ] {
+            let c = cox(&format!("{base} /TESTASSUMPTIONS {sub}."));
+            assert_eq!(c.assumptions.unwrap().function, function, "{sub}");
+        }
+        // a path alone takes every variable at its default
+        let c = cox(&format!("{base} /PATTERN t(2 5)."));
+        assert!(c.patterns[0].values.is_empty());
     }
 }

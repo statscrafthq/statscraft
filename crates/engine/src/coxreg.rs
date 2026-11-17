@@ -607,6 +607,27 @@ fn program_inputs_missing(data: &Dataset, program: &TimeProgram) -> Vec<bool> {
     missing
 }
 
+/// The variables a time program may compute: the targets of COMPUTE and IF, and every variable
+/// a RECODE or COUNT names.
+// shortcut: only top-level commands count; a DO REPEAT or vector element of the program is not
+// searched
+pub(crate) fn program_targets(commands: &[Command]) -> Vec<String> {
+    let mut computed = Vec::new();
+    for c in commands {
+        match c {
+            Command::Compute { target, .. } | Command::If { target, .. } => {
+                computed.push(target.clone())
+            }
+            // the variables a RECODE or COUNT names may be the ones it changes
+            Command::Recode(_) | Command::Count(_) => {
+                computed.extend(crate::rows::Refs::of(std::slice::from_ref(c)).names)
+            }
+            _ => {}
+        }
+    }
+    computed
+}
+
 /// Some expression of the program reads $CASENUM.
 // shortcut: a DO REPEAT body is not searched; walk its commands when that is needed
 fn program_reads_casenum(commands: &[Command]) -> bool {
@@ -640,6 +661,113 @@ impl Engine {
             .clone()
             .filter(|p| !p.commands.is_empty());
         self.coxreg_with(command, program, &[])
+    }
+
+    /// Runs a time program on the cases `take` of the active data, T_ set to each one's value in
+    /// `times`, with only the variables the program reads and `keep`: the expanded data and the
+    /// program's warnings. A fault in the program itself sets `program_fault`.
+    pub(crate) fn run_time_program(
+        &self,
+        program: &TimeProgram,
+        take: &[Option<usize>],
+        times: Vec<Option<f64>>,
+        keep: &[String],
+    ) -> Result<(Dataset, Vec<String>), Error> {
+        if program.commands.iter().any(|c| {
+            matches!(
+                c,
+                Command::Print(_) | Command::PrintSpace(_) | Command::Xsave(_)
+            )
+        }) {
+            self.program_fault.set(true);
+            return Err(Error(
+                "TIME PROGRAM: PRINT, WRITE, PRINT SPACE and XSAVE would act on every case at every event time; they cannot be in it"
+                    .into(),
+            ));
+        }
+        let mut program_warnings = Vec::new();
+        let mut data = self.active()?.clone();
+        // only the variables the program reads and the covariates go along
+        let refs = crate::rows::Refs::of(&program.commands);
+        if !refs.all && refs.ranges.is_empty() {
+            // a vector the program names brings its variables
+            let members = program
+                .vectors
+                .iter()
+                .filter(|(v, _)| refs.names.iter().any(|n| n.eq_ignore_ascii_case(v)))
+                .flat_map(|(_, m)| m);
+            let named: Vec<&String> = refs.names.iter().chain(keep).chain(members).collect();
+            let wanted: Vec<&str> = (0..data.variable_count())
+                .map(|i| data.variable_at(i).name())
+                .filter(|n| named.iter().any(|w| w.eq_ignore_ascii_case(n)))
+                .collect();
+            if !wanted.is_empty() {
+                let wanted: Vec<String> = wanted.iter().map(|n| n.to_string()).collect();
+                let names: Vec<&str> = wanted.iter().map(String::as_str).collect();
+                data.keep_variables(&names)?;
+            }
+        }
+        data.take_cases(take)?;
+        data.set_numeric_values("T_", times)?;
+        let rows_before = data.case_count();
+        let mut sub = self.clone();
+        sub.dataset = Some(data);
+        sub.time_program = None;
+        sub.running_program = None;
+        sub.vectors = program.vectors.clone();
+        sub.case_numbers = None;
+        sub.temporary = None;
+        // a fault in the program itself: a failed command then drops the program
+        let fault = |message: String| {
+            self.program_fault.set(true);
+            Error(format!("TIME PROGRAM: {message}"))
+        };
+        for c in &program.commands {
+            sub.execute(c).map_err(|e| fault(e.0))?;
+            program_warnings.append(&mut sub.warnings);
+        }
+        // shortcut: the expanded rows of all cases form one stream, so a value carried from
+        // row to row, or the row number, would cross from case to case; run each case apart
+        // to support them
+        // a program whose names cannot all be listed may read it anywhere
+        let casenum = program_reads_casenum(&program.commands)
+            || (refs.all
+                && format!("{:?}", program.commands)
+                    .to_ascii_uppercase()
+                    .contains("$CASENUM"));
+        if sub.pending.is_some() || casenum {
+            return Err(fault(
+                "a case-by-case pass (LAG, $CASENUM, a scratch variable kept from case to case) is not supported yet in it"
+                    .into(),
+            ));
+        }
+        // as at the end of a run: an open LOOP or DO IF
+        if sub.collecting.is_some() || !sub.blocks.is_empty() {
+            return Err(fault("a LOOP or DO IF in it is not closed".into()));
+        }
+        // the random numbers the program drew count as drawn
+        self.random.swap(&sub.random);
+        let data = sub.dataset.take().expect("the expanded data");
+        if data.case_count() != rows_before {
+            return Err(fault("the transformations cannot add or drop cases".into()));
+        }
+        Ok((data, program_warnings))
+    }
+
+    /// Whether the time program creates the variable `name` or changes its values in the rows of
+    /// `data` it expanded from the active data's cases `take`.
+    pub(crate) fn program_changes(
+        &self,
+        data: &Dataset,
+        take: &[Option<usize>],
+        name: &str,
+    ) -> Result<bool, Error> {
+        let Some(_) = self.active()?.variable_index(name) else {
+            return Ok(true);
+        };
+        let before = categories(&self.active()?.variable(name)?, true);
+        let after = categories(&data.variable(name)?, true);
+        Ok((0..after.len()).any(|r| take[r].is_some_and(|k| after[r] != before[k])))
     }
 
     /// COXREG with the time program, if any, it runs.
@@ -749,19 +877,10 @@ impl Engine {
         // is checked after the program runs, where a missing value is an error
         // shortcut: only top-level COMPUTE, IF, RECODE and COUNT count as computing; a covariate a
         // DO REPEAT or vector element of the program changes is screened on the data's values
-        let mut computed = Vec::new();
-        for c in program.iter().flat_map(|p| &p.commands) {
-            match c {
-                Command::Compute { target, .. } | Command::If { target, .. } => {
-                    computed.push(target.clone())
-                }
-                // the variables a RECODE or COUNT names may be the ones it changes
-                Command::Recode(_) | Command::Count(_) => {
-                    computed.extend(crate::rows::Refs::of(std::slice::from_ref(c)).names)
-                }
-                _ => {}
-            }
-        }
+        let computed = program
+            .as_ref()
+            .map(|p| program_targets(&p.commands))
+            .unwrap_or_default();
         let mut present: Vec<Vec<String>> = Vec::new();
         for t in &term_vars {
             let kept: Vec<String> = t
@@ -909,18 +1028,6 @@ impl Engine {
             t.sort_by(f64::total_cmp);
             t.dedup();
         }
-        if program.iter().flat_map(|p| &p.commands).any(|c| {
-            matches!(
-                c,
-                Command::Print(_) | Command::PrintSpace(_) | Command::Xsave(_)
-            )
-        }) {
-            self.program_fault.set(true);
-            return Err(Error(
-                "TIME PROGRAM: PRINT, WRITE, PRINT SPACE and XSAVE would act on every case at every event time; they cannot be in it"
-                    .into(),
-            ));
-        }
         let mut program_warnings = Vec::new();
         // the random numbers before the program ran
         let random_before = self.random.clone();
@@ -952,88 +1059,16 @@ impl Engine {
                     start = t;
                 }
             }
-            let mut data = data.clone();
-            // only the variables the program reads and the covariates go along
-            let refs = crate::rows::Refs::of(&program.commands);
-            if !refs.all && refs.ranges.is_empty() {
-                // a vector the program names brings its variables
-                let members = program
-                    .vectors
-                    .iter()
-                    .filter(|(v, _)| refs.names.iter().any(|n| n.eq_ignore_ascii_case(v)))
-                    .flat_map(|(_, m)| m);
-                let named: Vec<&String> = refs
-                    .names
-                    .iter()
-                    .chain(term_vars.iter().flatten())
-                    .chain(members)
-                    .collect();
-                let wanted: Vec<&str> = (0..data.variable_count())
-                    .map(|i| data.variable_at(i).name())
-                    .filter(|n| named.iter().any(|w| w.eq_ignore_ascii_case(n)))
-                    .collect();
-                if !wanted.is_empty() {
-                    let wanted: Vec<String> = wanted.iter().map(|n| n.to_string()).collect();
-                    let names: Vec<&str> = wanted.iter().map(String::as_str).collect();
-                    data.keep_variables(&names)?;
-                }
-            }
-            data.take_cases(&take)?;
-            data.set_numeric_values("T_", origin.iter().map(|&(_, _, t)| Some(t)).collect())?;
-            let rows_before = data.case_count();
-            let mut sub = self.clone();
-            sub.dataset = Some(data);
-            sub.time_program = None;
-            sub.running_program = None;
-            sub.vectors = program.vectors.clone();
-            sub.case_numbers = None;
-            sub.temporary = None;
-            // a fault in the program itself: a failed COXREG then drops the program
-            let fault = |message: String| {
-                self.program_fault.set(true);
-                Error(format!("TIME PROGRAM: {message}"))
-            };
-            for c in &program.commands {
-                sub.execute(c).map_err(|e| fault(e.0))?;
-                program_warnings.append(&mut sub.warnings);
-            }
-            // shortcut: the expanded rows of all cases form one stream, so a value carried from
-            // row to row, or the row number, would cross from case to case; run each case apart
-            // to support them
-            // a program whose names cannot all be listed may read it anywhere
-            let casenum = program_reads_casenum(&program.commands)
-                || (refs.all
-                    && format!("{:?}", program.commands)
-                        .to_ascii_uppercase()
-                        .contains("$CASENUM"));
-            if sub.pending.is_some() || casenum {
-                return Err(fault(
-                    "a case-by-case pass (LAG, $CASENUM, a scratch variable kept from case to case) is not supported yet in it"
-                        .into(),
-                ));
-            }
-            // as at the end of a run: an open LOOP or DO IF
-            if sub.collecting.is_some() || !sub.blocks.is_empty() {
-                return Err(fault("a LOOP or DO IF in it is not closed".into()));
-            }
-            // the random numbers the program drew count as drawn
-            self.random.swap(&sub.random);
-            let data = sub.dataset.take().expect("the expanded data");
-            if data.case_count() != rows_before {
-                return Err(fault("the transformations cannot add or drop cases".into()));
-            }
-            // a covariate depends on time when the program creates it or changes its values
-            let changed = |name: &String| -> Result<bool, Error> {
-                let Some(_) = self.active()?.variable_index(name) else {
-                    return Ok(true);
-                };
-                let before = categories(&self.active()?.variable(name)?, true);
-                let after = categories(&data.variable(name)?, true);
-                Ok((0..after.len()).any(|r| take[r].is_some_and(|k| after[r] != before[k])))
-            };
+            let (data, mut ran) = self.run_time_program(
+                program,
+                &take,
+                origin.iter().map(|&(_, _, t)| Some(t)).collect(),
+                &term_vars.concat(),
+            )?;
+            program_warnings.append(&mut ran);
             let mut any = false;
             for name in term_vars.iter().flatten() {
-                any |= changed(name)?;
+                any |= self.program_changes(&data, &take, name)?;
             }
             if !any {
                 // the cases are screened afresh on every covariate without the program

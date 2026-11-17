@@ -37,11 +37,12 @@
 //!   deviance and Cox-Snell from it, Schoenfeld w (x - xbar) at the event, score w U, DFBETA
 //!   w J^-1 U.
 
-use super::super::{Design, keys_of, numbers};
+use super::super::{Design, key_part, keys_of, numbers};
 use super::{
     Estimates, Saved, Wald, information_inverse, padjust, padjust_note, parameter_names,
     test_cells, test_columns, test_values, wald,
 };
+use crate::coxreg::{TimeProgram, program_targets};
 use crate::crosstabs::Key;
 use crate::descriptives::number;
 use crate::dist::{normal_quantile, t_p, t_quantile};
@@ -55,8 +56,10 @@ use crate::{Cell, Engine, Error, Table};
 use serde_json::json;
 use statscraft_data::{Dataset, Variable};
 use statscraft_syntax::{
-    CsCox, CsCoxBaseline, CsCoxCi, CsCoxSave, LRow, MissingValue, Term, Value,
+    CsCox, CsCoxBaseline, CsCoxCi, CsCoxSave, CsCoxTimeFunction, LRow, MissingValue, Term, Value,
+    VarItem,
 };
+use std::collections::HashMap;
 
 const NAME: &str = "CSCOXREG";
 
@@ -265,15 +268,17 @@ struct CoxFit {
     times: Vec<Vec<EventTime>>,
 }
 
+/// The fit from the parameters `start`.
 fn fit_cox(
     recs: &[Record],
     strata: usize,
     q: usize,
     c: &CsCox,
     warnings: &mut Vec<String>,
+    start: Vec<f64>,
 ) -> CoxFit {
     let k = &c.criteria;
-    let mut b = vec![0.0; q];
+    let mut b = start;
     let mut at = pass(recs, strata, &b, c.breslow, true);
     let ll0 = at.ll;
     let mut history = vec![(0, -2.0 * ll0, 0, b.clone())];
@@ -344,8 +349,62 @@ fn fit_cox(
     }
 }
 
-/// The lines of a PATTERN: each name with its centered model columns.
-type Lines = Vec<(String, Vec<f64>)>;
+/// The subject of every design case and the weight of every subject.
+struct Subjects {
+    of: Vec<usize>,
+    weight: Vec<f64>,
+}
+
+/// J^-1 and the covariances J^-1 V J^-1 of the estimates from the score residuals `us` of the
+/// design cases: V the design covariance of their total and, with the factor `srs` (the fpc
+/// times N / (n - 1) over subjects), the one under simple random sampling of the subjects.
+fn covariances(
+    design: &Design,
+    subjects: &Subjects,
+    us: &[Vec<f64>],
+    info: &Matrix,
+    srs: Option<f64>,
+    warnings: &mut Vec<String>,
+) -> (Matrix, Matrix, Option<Matrix>) {
+    let q = us.len();
+    let jinv = if q > 0 {
+        information_inverse(NAME, info, warnings)
+    } else {
+        Vec::new()
+    };
+    let sandwich = |m: &Matrix| -> Matrix { multiply(&multiply(&jinv, m), &jinv) };
+    let v = sandwich(&design.covariance(us));
+    // sum w U U' over the subjects with U about its weighted mean, which is 0 at a converged fit
+    let vs = srs.map(|f| {
+        let mut agg = vec![vec![0.0; subjects.weight.len()]; q];
+        for (a, u) in us.iter().enumerate() {
+            for (i, x) in u.iter().enumerate() {
+                agg[a][subjects.of[i]] += x;
+            }
+        }
+        let big_n: f64 = subjects.weight.iter().sum();
+        let mean: Vec<f64> = agg.iter().map(|u| dot(u, &subjects.weight) / big_n).collect();
+        let m: Matrix = (0..q)
+            .map(|a| {
+                (0..q)
+                    .map(|b| {
+                        let s: f64 = (0..subjects.weight.len())
+                            .map(|j| subjects.weight[j] * agg[a][j] * agg[b][j])
+                            .sum();
+                        f * (s - big_n * mean[a] * mean[b])
+                    })
+                    .collect()
+            })
+            .collect();
+        sandwich(&m)
+    });
+    (jinv, v, vs)
+}
+
+/// A line of a PATTERN: its name and the centered model columns of each step of its path up to
+/// the step's end time (one step without end for a fixed pattern).
+type Line = (String, Vec<(f64, Vec<f64>)>);
+type Lines = Vec<Line>;
 
 /// What CSCOXREG gives besides its tables: SAVE columns, OUTFILE data and charts.
 struct Outputs {
@@ -507,7 +566,11 @@ fn baselines(
 impl Engine {
     pub(crate) fn cs_cox(&mut self, c: &CsCox) -> Result<Vec<Table>, Error> {
         let mut warnings = Vec::new();
-        let out = self.cs_cox_tables(c, &mut warnings)?;
+        let program = self
+            .running_program
+            .clone()
+            .filter(|p| !p.commands.is_empty());
+        let out = self.cs_cox_tables(c, program.as_ref(), &mut warnings)?;
         self.warn_weight_and_split(NAME);
         for w in warnings {
             self.warn(w);
@@ -531,14 +594,41 @@ impl Engine {
         Ok(out.tables)
     }
 
-    fn cs_cox_tables(&self, c: &CsCox, warnings: &mut Vec<String>) -> Result<Outputs, Error> {
+    fn cs_cox_tables(
+        &self,
+        c: &CsCox,
+        program: Option<&TimeProgram>,
+        warnings: &mut Vec<String>,
+    ) -> Result<Outputs, Error> {
         let plan = self.read_plan(&c.plan)?;
         let joint = self.joint_file(&plan, &c.plan, c.jointprob.as_deref())?;
         let data = self.active()?;
         let shown = self.shown();
-        let design = Design::new(data, &plan, c.include, false, joint.as_ref())?;
-        let factor_names = self.expand(&c.factors)?;
-        let covariate_names = self.expand(&c.covariates)?;
+        let id_var = c.id.as_ref().map(|v| data.variable(v)).transpose()?;
+        let subject_keys = id_var.as_ref().map(|v| keys_of(v, c.include));
+        let design = Design::with_subjects(
+            data,
+            &plan,
+            c.include,
+            false,
+            joint.as_ref(),
+            subject_keys.as_deref(),
+        )?;
+        // a name that only the time program creates stays as it is
+        let expand = |items: &[VarItem]| -> Result<Vec<String>, Error> {
+            let mut out = Vec::new();
+            for item in items {
+                match item {
+                    VarItem::Name(n) if program.is_some() && data.variable_index(n).is_none() => {
+                        out.push(n.clone())
+                    }
+                    other => out.extend(self.expand(std::slice::from_ref(other))?),
+                }
+            }
+            Ok(out)
+        };
+        let factor_names = expand(&c.factors)?;
+        let covariate_names = expand(&c.covariates)?;
         let end_var = data.variable(&c.end)?;
         let start_var = c.start.as_ref().map(|v| data.variable(v)).transpose()?;
         let status_var = data.variable(&c.status)?;
@@ -573,6 +663,7 @@ impl Engine {
                 .iter()
                 .map(|v| ("BASELINESTRATA", v.name().to_string())),
         );
+        roles.extend(id_var.iter().map(|v| ("ID", v.name().to_string())));
         roles.extend(c.domain.iter().map(|(v, _)| ("DOMAIN", v.clone())));
         for (role, v) in &roles {
             if seen.contains(&v.to_uppercase()) {
@@ -586,6 +677,29 @@ impl Engine {
             if design.plan_vars.contains(&upper) && !design.strata_clusters.contains(&upper) {
                 return Err(Error(format!(
                     "{v} is a plan variable other than a stratum or cluster and cannot define the DOMAIN"
+                )));
+            }
+        }
+        let computed = program
+            .map(|p| program_targets(&p.commands))
+            .unwrap_or_default();
+        let is_computed = |n: &str| computed.iter().any(|t| t.eq_ignore_ascii_case(n));
+        if program.is_some() {
+            if data.variable_index("T_").is_some() {
+                return Err(Error(
+                    "the data has a variable T_, which a TIME PROGRAM reserves for the time; rename it"
+                        .into(),
+                ));
+            }
+            if seen.iter().any(|n| n == "T_") {
+                return Err(Error(
+                    "T_ is the time of a TIME PROGRAM and cannot be a factor or covariate".into(),
+                ));
+            }
+            let others = time_names.iter().chain(roles.iter().map(|(_, v)| v));
+            if let Some(v) = others.clone().find(|v| is_computed(v)) {
+                return Err(Error(format!(
+                    "TIME PROGRAM: only factors and covariates may come from it, but it computes {v}"
                 )));
             }
         }
@@ -611,20 +725,30 @@ impl Engine {
                 }
             )));
         }
-        let factor_vars: Vec<Variable> = factor_names
+        let numeric = |vars: &[Variable]| -> Result<(), Error> {
+            match vars.iter().find(|v| v.is_string()) {
+                Some(v) => Err(Error(format!(
+                    "{NAME} needs numeric covariates, but {} is a string variable",
+                    v.name()
+                ))),
+                None => Ok(()),
+            }
+        };
+        // the model variables that the data gives before any time program runs
+        let from_data = |n: &&String| program.is_none() || !is_computed(n);
+        let screen_factors: Vec<Variable> = factor_names
             .iter()
+            .filter(from_data)
+            .filter(|n| data.variable_index(n).is_some())
             .map(|n| data.variable(n))
             .collect::<Result<_, _>>()?;
-        let cov_vars: Vec<Variable> = covariate_names
+        let screen_covs: Vec<Variable> = covariate_names
             .iter()
+            .filter(from_data)
+            .filter(|n| data.variable_index(n).is_some())
             .map(|n| data.variable(n))
             .collect::<Result<_, _>>()?;
-        if let Some(v) = cov_vars.iter().find(|v| v.is_string()) {
-            return Err(Error(format!(
-                "{NAME} needs numeric covariates, but {} is a string variable",
-                v.name()
-            )));
-        }
+        numeric(&screen_covs)?;
         let n = design.cases();
         let at = |values: Vec<Option<f64>>| -> Vec<Option<f64>> {
             design.rows.iter().map(|&r| values[r]).collect()
@@ -634,14 +758,31 @@ impl Engine {
             design.rows.iter().map(|&r| all[r].clone()).collect()
         };
         let ends = at(numbers(&end_var)?);
-        let starts = match &start_var {
-            Some(v) => at(numbers(v)?),
-            None => vec![Some(f64::NEG_INFINITY); n],
+        let subject: Option<Vec<Option<Key>>> = subject_keys
+            .as_ref()
+            .map(|k| design.rows.iter().map(|&r| k[r].clone()).collect());
+        let starts: Vec<Option<f64>> = match (&start_var, &subject) {
+            (Some(v), _) => at(numbers(v)?),
+            // with ID and one time, a record starts where the subject's previous record ended
+            (None, Some(subject)) => {
+                let mut last: HashMap<String, f64> = HashMap::new();
+                (0..n)
+                    .map(|i| {
+                        let key = key_part(subject[i].as_ref()?);
+                        let start = last.get(&key).copied().unwrap_or(f64::NEG_INFINITY);
+                        if let Some(e) = ends[i] {
+                            last.insert(key, e);
+                        }
+                        Some(start)
+                    })
+                    .collect()
+            }
+            (None, None) => vec![Some(f64::NEG_INFINITY); n],
         };
         let status = keys_at(&status_var);
         let strata_keys = strata_var.as_ref().map(keys_at);
-        let factor_keys: Vec<Vec<Option<Key>>> = factor_vars.iter().map(keys_at).collect();
-        let cov_values: Vec<Vec<Option<f64>>> = cov_vars
+        let screen_keys: Vec<Vec<Option<Key>>> = screen_factors.iter().map(keys_at).collect();
+        let screen_values: Vec<Vec<Option<f64>>> = screen_covs
             .iter()
             .map(|v| Ok(at(numbers(v)?)))
             .collect::<Result<_, Error>>()?;
@@ -656,8 +797,9 @@ impl Engine {
                 times_ok
                     && status[i].is_some()
                     && strata_keys.as_ref().is_none_or(|k| k[i].is_some())
-                    && factor_keys.iter().all(|k| k[i].is_some())
-                    && cov_values.iter().all(|v| v[i].is_some())
+                    && subject.as_ref().is_none_or(|k| k[i].is_some())
+                    && screen_keys.iter().all(|k| k[i].is_some())
+                    && screen_values.iter().all(|v| v[i].is_some())
             })
             .collect();
         let in_domain: Vec<bool> = match &c.domain {
@@ -693,10 +835,9 @@ impl Engine {
                 "{NAME}: no record among the cases analyzed has the event"
             )));
         }
-        let sorted_levels = |keys: &[Option<Key>]| -> Vec<Key> {
+        let sorted_levels = |keys: Vec<&Key>| -> Vec<Key> {
             let mut found: Vec<Key> = Vec::new();
-            for &i in &rows {
-                let key = keys[i].as_ref().expect("valid");
+            for key in keys {
                 if !found.iter().any(|l| l.compare(key).is_eq()) {
                     found.push(key.clone());
                 }
@@ -710,10 +851,9 @@ impl Engine {
                 .position(|l| l.compare(key).is_eq())
                 .expect("a level")
         };
-        let levels: Vec<Vec<Key>> = factor_keys.iter().map(|k| sorted_levels(k)).collect();
         let strata_levels: Vec<Key> = strata_keys
             .as_ref()
-            .map(|k| sorted_levels(k))
+            .map(|k| sorted_levels(rows.iter().map(|&i| k[i].as_ref().expect("valid")).collect()))
             .unwrap_or_default();
         let stratum: Vec<usize> = rows
             .iter()
@@ -723,8 +863,125 @@ impl Engine {
             })
             .collect();
         let strata = strata_levels.len().max(1);
-        let labels = Shown::labels(shown.currencies.clone());
         let w_rows: Vec<f64> = rows.iter().map(|&i| design.w[i]).collect();
+        // each record's dataset case and its interval
+        let rec_case: Vec<usize> = rows.iter().map(|&i| design.rows[i]).collect();
+        let spans: Vec<(f64, f64)> = rows
+            .iter()
+            .map(|&i| (starts[i].expect("valid"), ends[i].expect("valid")))
+            .collect();
+
+        // the model rows (record, source row, start, stop): each record, or with a time program
+        // each record at every event time of its stratum within its interval
+        let mut layout: Vec<(usize, usize, f64, f64)> = (0..rows.len())
+            .map(|r| (r, rec_case[r], spans[r].0, spans[r].1))
+            .collect();
+        let mut expanded = None;
+        if let Some(program) = program {
+            let mut times_of: Vec<Vec<f64>> = vec![Vec::new(); strata];
+            for r in (0..rows.len()).filter(|&r| event[r]) {
+                times_of[stratum[r]].push(spans[r].1);
+            }
+            for t in &mut times_of {
+                t.sort_by(f64::total_cmp);
+                t.dedup();
+            }
+            let mut pieces = Vec::new();
+            for &(r, case, start, stop) in &layout {
+                let mut from = start;
+                for &t in times_of[stratum[r]].iter().filter(|&&t| t > start && t <= stop) {
+                    pieces.push((r, case, from, t));
+                    from = t;
+                }
+            }
+            // shortcut: a fixed bound on the expanded rows, as in COXREG
+            const MAX_ROWS: usize = 5_000_000;
+            if pieces.len() > MAX_ROWS {
+                return Err(Error(format!(
+                    "TIME PROGRAM: the records at risk at every event time make {} rows, more than the {MAX_ROWS} supported",
+                    pieces.len()
+                )));
+            }
+            let take: Vec<Option<usize>> = pieces.iter().map(|p| Some(p.1)).collect();
+            let random_before = self.random.clone();
+            let keep: Vec<String> = factor_names
+                .iter()
+                .chain(&covariate_names)
+                .cloned()
+                .collect();
+            let (source, mut ran) =
+                self.run_time_program(program, &take, pieces.iter().map(|p| Some(p.3)).collect(), &keep)?;
+            warnings.append(&mut ran);
+            let mut changes = false;
+            for name in &keep {
+                changes |= self.program_changes(&source, &take, name)?;
+            }
+            if !changes {
+                // as if the unused program had not run
+                self.random.swap(&random_before);
+                let out = self.cs_cox_tables(c, None, warnings)?;
+                warnings.push(format!(
+                    "{NAME}: the TIME PROGRAM changes none of the factors and covariates, so it is not used"
+                ));
+                return Ok(out);
+            }
+            layout = pieces
+                .into_iter()
+                .enumerate()
+                .map(|(m, (r, _, start, stop))| (r, m, start, stop))
+                .collect();
+            expanded = Some(source);
+        }
+        let time_dependent = expanded.is_some();
+        let source = expanded.as_ref().unwrap_or(data);
+        let factor_vars: Vec<Variable> = factor_names
+            .iter()
+            .map(|n| source.variable(n))
+            .collect::<Result<_, _>>()?;
+        let cov_vars: Vec<Variable> = covariate_names
+            .iter()
+            .map(|n| source.variable(n))
+            .collect::<Result<_, _>>()?;
+        numeric(&cov_vars)?;
+        let factor_keys: Vec<Vec<Option<Key>>> = factor_vars
+            .iter()
+            .map(|v| {
+                let all = keys_of(v, c.include);
+                layout.iter().map(|l| all[l.1].clone()).collect()
+            })
+            .collect();
+        let cov_values: Vec<Vec<Option<f64>>> = cov_vars
+            .iter()
+            .map(|v| {
+                let all = numbers(v)?;
+                Ok(layout.iter().map(|l| all[l.1]).collect())
+            })
+            .collect::<Result<_, Error>>()?;
+        // shortcut: a value the time program leaves missing stops the command; leave the record
+        // out (as COXREG does) when that is needed
+        let missing = (0..layout.len()).find_map(|m| {
+            let factor = factor_keys.iter().position(|k| k[m].is_none());
+            let covariate = cov_values.iter().position(|v| v[m].is_none());
+            match (factor, covariate) {
+                (Some(f), _) => Some((m, factor_vars[f].name().to_string())),
+                (_, Some(k)) => Some((m, cov_vars[k].name().to_string())),
+                _ => None,
+            }
+        });
+        if let Some((m, name)) = missing {
+            let k = rec_case[layout[m].0];
+            return Err(Error(format!(
+                "TIME PROGRAM: {name} is missing for case {} at time {}",
+                self.case_numbers.as_ref().map_or(k, |n| n[k]) + 1,
+                layout[m].3
+            )));
+        }
+        let levels: Vec<Vec<Key>> = factor_keys
+            .iter()
+            .map(|k| sorted_levels(k.iter().map(|k| k.as_ref().expect("valid")).collect()))
+            .collect();
+        let labels = Shown::labels(shown.currencies.clone());
+        let w_model: Vec<f64> = layout.iter().map(|l| w_rows[l.0]).collect();
         let d = Data {
             factors: factor_names.clone(),
             factor_texts: factor_vars.iter().map(|v| shown.variable(v)).collect(),
@@ -741,24 +998,22 @@ impl Engine {
             labelled: factor_vars.iter().any(|v| !v.value_labels().is_empty())
                 && shown.values != Show::Plain,
             covariates: covariate_names.clone(),
-            case: rows.iter().map(|&i| design.rows[i]).collect(),
-            level: rows
-                .iter()
-                .map(|&i| {
+            case: layout.iter().map(|l| rec_case[l.0]).collect(),
+            level: (0..layout.len())
+                .map(|m| {
                     factor_keys
                         .iter()
                         .zip(&levels)
-                        .map(|(k, ls)| position(ls, k[i].as_ref().expect("valid")))
+                        .map(|(k, ls)| position(ls, k[m].as_ref().expect("valid")))
                         .collect()
                 })
                 .collect(),
-            cov: rows
-                .iter()
-                .map(|&i| cov_values.iter().map(|v| v[i].expect("valid")).collect())
+            cov: (0..layout.len())
+                .map(|m| cov_values.iter().map(|v| v[m].expect("valid")).collect())
                 .collect(),
-            y: vec![Vec::new(); rows.len()],
-            f: w_rows.clone(),
-            g: vec![1.0; rows.len()],
+            y: vec![Vec::new(); layout.len()],
+            f: w_model.clone(),
+            g: vec![1.0; layout.len()],
         };
         // the intercept only finds the redundant columns; the baseline hazard takes its place
         let mut terms = vec![intercept_term()];
@@ -785,13 +1040,15 @@ impl Engine {
         let p = fit.p;
         let cols: Vec<usize> = (1..p).filter(|&j| !fit.redundant[j]).collect();
         // the reference pattern: factors at their last level, covariates at their weighted means
+        // (over the model rows, which with a time program are the records at each event time)
         let total_w: f64 = w_rows.iter().sum();
+        let model_w: f64 = w_model.iter().sum();
         let means: Vec<f64> = (0..cov_vars.len())
             .map(|k| {
-                (0..rows.len())
-                    .map(|r| w_rows[r] * d.cov[r][k])
+                (0..layout.len())
+                    .map(|m| w_model[m] * d.cov[m][k])
                     .sum::<f64>()
-                    / total_w
+                    / model_w
             })
             .collect();
         let mut reference = vec![0.0; p];
@@ -807,67 +1064,90 @@ impl Engine {
                 }
             }
         }
-        let recs: Vec<Record> = (0..rows.len())
-            .map(|r| Record {
+        let recs: Vec<Record> = layout
+            .iter()
+            .enumerate()
+            .map(|(m, &(r, _, start, stop))| Record {
                 stratum: stratum[r],
-                start: starts[rows[r]].expect("valid"),
-                stop: ends[rows[r]].expect("valid"),
-                event: event[r],
+                start,
+                stop,
+                event: event[r] && stop == spans[r].1,
                 w: w_rows[r],
-                z: cols.iter().map(|&j| fit.x[r][j] - reference[j]).collect(),
+                z: cols.iter().map(|&j| fit.x[m][j] - reference[j]).collect(),
             })
             .collect();
-        let q = cols.len();
-        let cox = fit_cox(&recs, strata, q, c, warnings);
-
-        // the design covariance and the SRS one
-        let mut us = vec![vec![0.0; n]; q];
-        for (r, &i) in rows.iter().enumerate() {
-            for (u, s) in us.iter_mut().zip(&cox.scores[r]) {
-                u[i] = *s;
-            }
+        // each record's last model row, None for a record in no risk set
+        let mut last_row: Vec<Option<usize>> = vec![None; rows.len()];
+        for (m, l) in layout.iter().enumerate() {
+            last_row[l.0] = Some(m);
         }
-        let big_n = design.total_w;
+        let q = cols.len();
+        let cox = fit_cox(&recs, strata, q, c, warnings, vec![0.0; q]);
+        let by_record = |scores: &[Vec<f64>], rec_of: &dyn Fn(usize) -> usize| {
+            let mut out = vec![vec![0.0; scores.first().map_or(0, Vec::len)]; rows.len()];
+            for (m, s) in scores.iter().enumerate() {
+                for (o, v) in out[rec_of(m)].iter_mut().zip(s) {
+                    *o += v;
+                }
+            }
+            out
+        };
+        let rec_scores = by_record(&cox.scores, &|m| layout[m].0);
+
+        // the subjects: with ID the records of one ID value, otherwise each design case
+        let subjects = {
+            let mut index: HashMap<String, usize> = HashMap::new();
+            let mut weight = Vec::new();
+            let of = (0..n)
+                .map(|i| {
+                    let key = match subject.as_ref().and_then(|s| s[i].as_ref()) {
+                        Some(k) => key_part(k),
+                        None => format!("case{i}"),
+                    };
+                    let next = index.len();
+                    let s = *index.entry(key).or_insert(next);
+                    if s == weight.len() {
+                        weight.push(design.w[i]);
+                    }
+                    s
+                })
+                .collect();
+            Subjects { of, weight }
+        };
+        let to_design = |scores: &[Vec<f64>]| -> Matrix {
+            let width = scores.first().map_or(0, Vec::len);
+            let mut us = vec![vec![0.0; n]; width];
+            for (r, &i) in rows.iter().enumerate() {
+                for (u, s) in us.iter_mut().zip(&scores[r]) {
+                    u[i] = *s;
+                }
+            }
+            us
+        };
+        let us = to_design(&rec_scores);
+        let big_n: f64 = subjects.weight.iter().sum();
+        let n_s = subjects.weight.len();
         let wants_srs = matches!(
             c.test,
             statscraft_syntax::CsTestType::AdjF | statscraft_syntax::CsTestType::AdjChiSquare
         ) || c.statistics.is_some_and(|s| s.deff || s.deffsqrt);
         let srs_factor = if design.srs_wr {
             Some(1.0)
-        } else if (n as f64) < big_n {
-            Some(1.0 - n as f64 / big_n)
+        } else if (n_s as f64) < big_n {
+            Some(1.0 - n_s as f64 / big_n)
         } else {
             None
         }
-        .filter(|_| n > 1)
-        .map(|fpc| fpc * big_n / (n as f64 - 1.0));
+        .filter(|_| n_s > 1)
+        .map(|fpc| fpc * big_n / (n_s as f64 - 1.0));
         if wants_srs && srs_factor.is_none() {
             warnings.push(format!(
                 "{NAME}: the simple random sampling variance is not defined (without replacement it needs a sample smaller than the estimated population), so design effects and adjusted tests of several rows are left empty"
             ));
         }
-        let jinv = if q > 0 {
-            information_inverse(NAME, &cox.info, warnings)
-        } else {
-            Vec::new()
-        };
-        let sandwich = |m: &Matrix| -> Matrix { multiply(&multiply(&jinv, m), &jinv) };
-        let v_small = sandwich(&design.covariance(&us));
-        // sum w U U' with U about its weighted mean, which is 0 at a converged fit
-        let vs_small = srs_factor.filter(|_| wants_srs).map(|f| {
-            let mean: Vec<f64> = us.iter().map(|u| dot(u, &design.w) / big_n).collect();
-            let m: Matrix = (0..q)
-                .map(|a| {
-                    (0..q)
-                        .map(|b| {
-                            let s: f64 = (0..n).map(|i| design.w[i] * us[a][i] * us[b][i]).sum();
-                            f * (s - big_n * mean[a] * mean[b])
-                        })
-                        .collect()
-                })
-                .collect();
-            sandwich(&m)
-        });
+        let srs = srs_factor.filter(|_| wants_srs);
+        let (jinv, v_small, vs_small) =
+            covariances(&design, &subjects, &us, &cox.info, srs, warnings);
         let expand = |m: &Matrix| -> Matrix {
             let mut out = vec![vec![0.0; p]; p];
             for (a, &ja) in cols.iter().enumerate() {
@@ -1087,17 +1367,17 @@ impl Engine {
                 let mut times: Vec<f64> = mine
                     .iter()
                     .filter(|&&r| event[r])
-                    .map(|&r| recs[r].stop)
+                    .map(|&r| spans[r].1)
                     .collect();
                 times.sort_by(f64::total_cmp);
                 times.dedup();
                 for (k, &t) in times.iter().enumerate() {
                     let (mut ew, mut ek, mut rw, mut rk) = (0.0, 0.0, 0.0, 0.0);
                     for &r in &mine {
-                        if recs[r].start < t && t <= recs[r].stop {
+                        if spans[r].0 < t && t <= spans[r].1 {
                             rw += w_rows[r];
                             rk += 1.0;
-                            if event[r] && recs[r].stop == t {
+                            if event[r] && spans[r].1 == t {
                                 ew += w_rows[r];
                                 ek += 1.0;
                             }
@@ -1446,6 +1726,35 @@ impl Engine {
             lmatrices.push((custom.label.clone().unwrap_or(what), l));
         }
 
+        // General Estimable Function
+        if c.print.gef && !cols.is_empty() {
+            tables.push(gef_table(&fit, &names, &caption));
+        }
+
+        // TESTASSUMPTIONS
+        let rec_of: Vec<usize> = layout.iter().map(|l| l.0).collect();
+        tables.extend(prophazard_tables(
+            &Original {
+                recs: &recs,
+                rec_of: &rec_of,
+                spans: &spans,
+                event: &event,
+                w: &w_rows,
+                strata,
+                b: &cox.b,
+                times: &cox.times,
+                rows: &rows,
+                design: &design,
+                subjects: &subjects,
+                srs,
+                names: cols.iter().map(|&j| names[j].clone()).collect(),
+            },
+            c,
+            df,
+            &caption,
+            warnings,
+        )?);
+
         // L matrices
         if c.print.lmatrix {
             for (label, l) in &lmatrices {
@@ -1484,36 +1793,55 @@ impl Engine {
         let same = |a: &String, b: &str| a.eq_ignore_ascii_case(b);
         let mut sets: Vec<(String, Lines)> = vec![(
             "at the reference values".into(),
-            vec![("Reference".into(), vec![0.0; q])],
+            vec![("Reference".into(), vec![(f64::INFINITY, vec![0.0; q])])],
         )];
-        for (k, pattern) in c.patterns.iter().enumerate() {
-            let mut lv: Vec<usize> = levels.iter().map(|l| l.len() - 1).collect();
-            let mut cv = means.clone();
-            for (name, value) in &pattern.values {
-                if let Some(f) = factor_names.iter().position(|n| same(n, name)) {
-                    lv[f] =
-                        super::level_of(&factor_vars[f], &levels[f], value).ok_or_else(|| {
-                            Error(format!(
-                                "PATTERN: {} is not a level of {name} among the records analyzed",
-                                super::value_text(value)
-                            ))
-                        })?;
-                } else if let Some(v) = covariate_names.iter().position(|n| same(n, name)) {
-                    let Value::Number(x) = value else {
+        if time_dependent && !c.patterns.is_empty() {
+            warnings.push(format!(
+                "{NAME}: PATTERN is not available with covariates from a TIME PROGRAM, so it is ignored"
+            ));
+        }
+        for (k, pattern) in c.patterns.iter().enumerate().filter(|_| !time_dependent) {
+            // the factor levels and covariate values of each step of the path
+            let ends: Vec<f64> = pattern.path.clone().unwrap_or(vec![f64::INFINITY]);
+            let mut steps: Vec<(Vec<usize>, Vec<f64>)> = vec![
+                (levels.iter().map(|l| l.len() - 1).collect(), means.clone());
+                ends.len()
+            ];
+            for (name, values) in &pattern.values {
+                for (s, (lv, cv)) in steps.iter_mut().enumerate() {
+                    let value = &values[s.min(values.len() - 1)];
+                    if let Some(f) = factor_names.iter().position(|n| same(n, name)) {
+                        lv[f] = super::level_of(&factor_vars[f], &levels[f], value).ok_or_else(
+                            || {
+                                Error(format!(
+                                    "PATTERN: {} is not a level of {name} among the records analyzed",
+                                    super::value_text(value)
+                                ))
+                            },
+                        )?;
+                    } else if let Some(v) = covariate_names.iter().position(|n| same(n, name)) {
+                        let Value::Number(x) = value else {
+                            return Err(Error(format!(
+                                "PATTERN: {name} is a covariate and takes a number"
+                            )));
+                        };
+                        cv[v] = *x;
+                    } else {
                         return Err(Error(format!(
-                            "PATTERN: {name} is a covariate and takes a number"
+                            "PATTERN names {name}, which is not a factor or covariate of {NAME}"
                         )));
-                    };
-                    cv[v] = *x;
-                } else {
-                    return Err(Error(format!(
-                        "PATTERN names {name}, which is not a factor or covariate of {NAME}"
-                    )));
+                    }
                 }
             }
+            let path = |steps: &[(Vec<usize>, Vec<f64>)]| -> Vec<(f64, Vec<f64>)> {
+                ends.iter()
+                    .zip(steps)
+                    .map(|(&e, (lv, cv))| (e, centered(lv, cv)))
+                    .collect()
+            };
             let title = format!("Pattern {}", k + 1);
             let lines = match &pattern.by {
-                None => vec![(title.clone(), centered(&lv, &cv))],
+                None => vec![(title.clone(), path(&steps))],
                 Some(by) => {
                     let f = factor_names
                         .iter()
@@ -1526,11 +1854,13 @@ impl Engine {
                         })?;
                     (0..levels[f].len())
                         .map(|l| {
-                            lv[f] = l;
+                            for (lv, _) in steps.iter_mut() {
+                                lv[f] = l;
+                            }
                             let value = shown.value(&factor_vars[f], &levels[f][l]);
                             (
                                 format!("{title}, {} = {value}", d.factor_texts[f]),
-                                centered(&lv, &cv),
+                                path(&steps),
                             )
                         })
                         .collect()
@@ -1539,25 +1869,48 @@ impl Engine {
             sets.push((format!("for {title}"), lines));
         }
 
-        // the baseline functions, when something needs them
+        // the baseline functions, when something needs them; not with a time program
         let method = c.baseline.unwrap_or(if c.breslow {
             CsCoxBaseline::Breslow
         } else {
             CsCoxBaseline::Efron
         });
-        let needs_base = c.print.baseline
+        let unavailable = |s: &CsCoxSave| {
+            !matches!(
+                s,
+                CsCoxSave::Schoenfeld
+                    | CsCoxSave::Score
+                    | CsCoxSave::Dfbeta
+                    | CsCoxSave::AggScore
+                    | CsCoxSave::AggDfbeta
+                    | CsCoxSave::Xbeta
+            )
+        };
+        let wants_base = c.print.baseline
             || c.plot.is_some()
             || c.outfile.survival.is_some()
             || c.outfile.model.is_some()
-            || !c.save.is_empty();
+            || c.save.iter().any(|(s, ..)| unavailable(s));
+        if time_dependent
+            && (c.print.baseline
+                || c.plot.is_some()
+                || c.outfile.survival.is_some()
+                || c.save.iter().any(|(s, ..)| unavailable(s)))
+        {
+            warnings.push(format!(
+                "{NAME}: with covariates from a TIME PROGRAM there are no baseline functions, plots, SURVIVAL file or residuals that need them; SAVE gives only SCHOENFELD, SCORE, DFBETA, their AGG forms and XBETA"
+            ));
+        }
+        let needs_base = wants_base && !time_dependent;
+        // each design case's W = J^-1 U
+        let ws: Vec<Vec<f64>> = (0..q)
+            .map(|k| {
+                (0..n)
+                    .map(|i| (0..q).map(|l| jinv[k][l] * us[l][i]).sum())
+                    .collect()
+            })
+            .collect();
         let bases = if needs_base {
-            let ws: Vec<Vec<f64>> = (0..q)
-                .map(|k| {
-                    (0..n)
-                        .map(|i| (0..q).map(|l| jinv[k][l] * us[l][i]).sum())
-                        .collect()
-                })
-                .collect();
             baselines(&recs, &cox.times, &cox.b, method, &rows, &ws, &design)
         } else {
             Vec::new()
@@ -1569,22 +1922,27 @@ impl Engine {
             CsCoxBaseline::ProductLimit => "product-limit",
         };
         // (stratum, time, h, s, se of h) of a line at each event time of each stratum
-        let curve = |z: &[f64]| -> Vec<(usize, f64, f64, f64, f64)> {
-            let mut out = Vec::new();
-            for (g, base) in bases.iter().enumerate() {
-                for &t in &base.times {
-                    let (h, s, se) = base.at(t, z, &cox.b);
-                    out.push((g, t, h, s, se));
+        let curve = |line: &[(f64, Vec<f64>)]| -> Vec<(usize, f64, f64, f64, f64)> {
+            if let [(end, z)] = line
+                && end.is_infinite()
+            {
+                let mut out = Vec::new();
+                for (g, base) in bases.iter().enumerate() {
+                    for &t in &base.times {
+                        let (h, s, se) = base.at(t, z, &cox.b);
+                        out.push((g, t, h, s, se));
+                    }
                 }
+                return out;
             }
-            out
+            path_curve(&recs, &cox.times, &bases, &cox.b, line, &rows, &ws, &design)
         };
 
         // Baseline Functions
-        if c.print.baseline {
+        if c.print.baseline && !time_dependent {
             let mut out = Vec::new();
             let mut last = None;
-            for (g, t, h, s, se) in curve(&vec![0.0; q]) {
+            for (g, t, h, s, se) in curve(&[(f64::INFINITY, vec![0.0; q])]) {
                 let mut row = Vec::new();
                 if strata_var.is_some() {
                     row.push(text(if last == Some(g) {
@@ -1626,7 +1984,7 @@ impl Engine {
 
         // PLOT: each function for the reference values and for each PATTERN
         let mut charts = Vec::new();
-        if let Some(plot) = c.plot {
+        if let Some(plot) = c.plot.filter(|_| !time_dependent) {
             use crate::chart::{Axis, ChartKind};
             use crate::plot::{Plot, Point, PointGroup};
             let kinds = [
@@ -1717,12 +2075,13 @@ impl Engine {
         let column = |values: Vec<f64>| -> Vec<Option<f64>> {
             let mut out = vec![None; cases];
             for (r, v) in values.into_iter().enumerate() {
-                out[d.case[r]] = v.is_finite().then_some(v);
+                out[rec_case[r]] = v.is_finite().then_some(v);
             }
             out
         };
-        // per record: h, s, se of h at its own end time and pattern, and its martingale residual
-        let own: Vec<(f64, f64, f64, f64)> = if c.save.is_empty() {
+        // per record (each its own model row here): h, s, se of h at its own end time and
+        // pattern, and its martingale residual
+        let own: Vec<(f64, f64, f64, f64)> = if bases.is_empty() || c.save.is_empty() {
             Vec::new()
         } else {
             recs.iter()
@@ -1735,6 +2094,22 @@ impl Engine {
                 })
                 .collect()
         };
+        let delta = |r: usize| f64::from(u8::from(event[r]));
+        // the sum over each subject's records, on its last record and missing on the others
+        let aggregate = |values: &dyn Fn(usize) -> f64| -> Vec<f64> {
+            let mut sums: HashMap<usize, (f64, usize)> = HashMap::new();
+            for r in 0..rows.len() {
+                let sum = sums.entry(subjects.of[rows[r]]).or_insert((0.0, r));
+                *sum = (sum.0 + values(r), r);
+            }
+            (0..rows.len())
+                .map(|r| match sums[&subjects.of[rows[r]]] {
+                    (sum, last) if last == r => sum,
+                    _ => f64::NAN,
+                })
+                .collect()
+        };
+        let mut agg_warned = false;
         for (kind, given, count) in &c.save {
             let one = |root: &str, label: &str, values: Vec<f64>| Saved {
                 name: given.clone(),
@@ -1751,7 +2126,7 @@ impl Engine {
                         name: None,
                         root: format!("{root}_{}", k + 1),
                         label: format!("{label} for {}", names[cols[k]]),
-                        numbers: Some(column((0..recs.len()).map(|r| values(r, k)).collect())),
+                        numbers: Some(column((0..rows.len()).map(|r| values(r, k)).collect())),
                         texts: None,
                         category: None,
                     })
@@ -1761,30 +2136,64 @@ impl Engine {
                 let (h, s, se, _) = own[r];
                 limits(s, h, se, zq, c.ci)
             };
-            let all = |f: &dyn Fn(usize) -> f64| (0..recs.len()).map(f).collect::<Vec<f64>>();
+            let all = |f: &dyn Fn(usize) -> f64| (0..rows.len()).map(f).collect::<Vec<f64>>();
+            let is_agg = matches!(
+                kind,
+                CsCoxSave::AggMartingale
+                    | CsCoxSave::AggDeviance
+                    | CsCoxSave::AggCoxSnell
+                    | CsCoxSave::AggScore
+                    | CsCoxSave::AggDfbeta
+            );
+            if is_agg && subject.is_none() {
+                if !std::mem::replace(&mut agg_warned, true) {
+                    warnings.push(format!(
+                        "{NAME}: aggregated residuals need VARIABLES ID, so SAVE leaves them out"
+                    ));
+                }
+                continue;
+            }
+            // with a time program the residuals from the baseline are not available (warned)
+            if time_dependent && unavailable(kind) {
+                continue;
+            }
+            let score = |r: usize, k: usize| w_rows[r] * rec_scores[r][k];
+            let dfbeta = |r: usize, k: usize| w_rows[r] * dot(&jinv[k], &rec_scores[r]);
             match kind {
                 CsCoxSave::Schoenfeld => saved.extend(per_parameter(
                     "Resid_Schoenfeld",
                     "Schoenfeld residual",
                     &|r, k| {
-                        let rec = &recs[r];
-                        if !rec.event {
+                        let Some(rec) = last_row[r].map(|m| &recs[m]).filter(|rec| rec.event)
+                        else {
                             return f64::NAN;
-                        }
+                        };
                         let times = &cox.times[rec.stratum];
                         let at = times.partition_point(|t| t.time <= rec.stop) - 1;
                         rec.w * (rec.z[k] - times[at].xbar[k])
                     },
                 )),
                 CsCoxSave::Score => {
-                    saved.extend(per_parameter("Resid_Score", "Score residual", &|r, k| {
-                        recs[r].w * cox.scores[r][k]
-                    }))
+                    saved.extend(per_parameter("Resid_Score", "Score residual", &score))
                 }
-                CsCoxSave::Dfbeta => {
-                    saved.extend(per_parameter("Resid_DFBETA", "DFBETA", &|r, k| {
-                        recs[r].w * dot(&jinv[k], &cox.scores[r])
-                    }))
+                CsCoxSave::Dfbeta => saved.extend(per_parameter("Resid_DFBETA", "DFBETA", &dfbeta)),
+                CsCoxSave::AggScore => {
+                    let sums: Vec<Vec<f64>> =
+                        (0..q).map(|k| aggregate(&|r| score(r, k))).collect();
+                    saved.extend(per_parameter(
+                        "AggResid_Score",
+                        "Aggregated score residual",
+                        &|r, k| sums[k][r],
+                    ))
+                }
+                CsCoxSave::AggDfbeta => {
+                    let sums: Vec<Vec<f64>> =
+                        (0..q).map(|k| aggregate(&|r| dfbeta(r, k))).collect();
+                    saved.extend(per_parameter(
+                        "AggResid_DFBETA",
+                        "Aggregated DFBETA",
+                        &|r, k| sums[k][r],
+                    ))
                 }
                 CsCoxSave::Martingale => saved.push(one(
                     "Resid_Martingale",
@@ -1794,22 +2203,35 @@ impl Engine {
                 CsCoxSave::Deviance => saved.push(one(
                     "Resid_Deviance",
                     "Deviance residual",
-                    all(&|r| {
-                        let m = own[r].3;
-                        let delta = f64::from(u8::from(recs[r].event));
-                        let log = if recs[r].event { (delta - m).ln() } else { 0.0 };
-                        m.signum() * (2.0 * (-m - delta * log)).max(0.0).sqrt()
-                    }),
+                    all(&|r| deviance(own[r].3, delta(r))),
                 )),
                 CsCoxSave::CoxSnell => saved.push(one(
                     "Resid_CoxSnell",
                     "Cox-Snell residual",
-                    all(&|r| f64::from(u8::from(recs[r].event)) - own[r].3),
+                    all(&|r| delta(r) - own[r].3),
+                )),
+                CsCoxSave::AggMartingale => saved.push(one(
+                    "AggResid_Martingale",
+                    "Aggregated martingale residual",
+                    aggregate(&|r| own[r].3),
+                )),
+                CsCoxSave::AggDeviance => {
+                    let (m, events) = (aggregate(&|r| own[r].3), aggregate(&delta));
+                    saved.push(one(
+                        "AggResid_Deviance",
+                        "Aggregated deviance residual",
+                        all(&|r| deviance(m[r], events[r])),
+                    ))
+                }
+                CsCoxSave::AggCoxSnell => saved.push(one(
+                    "AggResid_CoxSnell",
+                    "Aggregated Cox-Snell residual",
+                    aggregate(&|r| delta(r) - own[r].3),
                 )),
                 CsCoxSave::Xbeta => saved.push(one(
                     "XBETA",
                     "Linear predictor of the predictors centered at their reference values",
-                    all(&|r| dot(&recs[r].z, &cox.b)),
+                    all(&|r| last_row[r].map_or(f64::NAN, |m| dot(&recs[m].z, &cox.b))),
                 )),
                 CsCoxSave::Survival => {
                     saved.push(one("Survival", "Survival function", all(&|r| own[r].1)))
@@ -1838,13 +2260,6 @@ impl Engine {
                     "UCL_CumHazard",
                     "Upper confidence limit of the cumulative hazard function",
                     all(&|r| -limit(r).0.ln()),
-                )),
-                CsCoxSave::AggMartingale
-                | CsCoxSave::AggDeviance
-                | CsCoxSave::AggCoxSnell
-                | CsCoxSave::AggScore
-                | CsCoxSave::AggDfbeta => warnings.push(format!(
-                    "{NAME}: aggregated residuals need VARIABLES ID, so SAVE leaves them out"
                 )),
             }
         }
@@ -1895,7 +2310,7 @@ impl Engine {
                 "baseline": baseline,
             })
         });
-        let survival = match &c.outfile.survival {
+        let survival = match c.outfile.survival.as_ref().filter(|_| !time_dependent) {
             None => None,
             Some(_) => {
                 // (line, stratum, time, s, se of s, lower, upper, h)
@@ -1985,4 +2400,301 @@ fn custom_row(d: &Data, fit: &Fit, row: &LRow, what: &str) -> Result<Vec<f64>, E
         }
     }
     Ok(values)
+}
+
+/// The deviance residual from a martingale residual `m` and the number of events `delta`.
+fn deviance(m: f64, delta: f64) -> f64 {
+    let log = if delta > 0.0 { (delta - m).ln() } else { 0.0 };
+    m.signum() * (2.0 * (-m - delta * log)).max(0.0).sqrt()
+}
+
+/// The cumulative hazard, the survival and the cumulative hazard's standard error of a
+/// piecewise constant path (centered columns up to each step's end time) at each event time of
+/// each stratum up to the path's last end time. The baseline's steps are weighted by r =
+/// exp(z'b) of the step in force, and the influence of a record sums r (v0 terms) over the event
+/// times less G'W with G the sum of r (wd E1 / E0^2 - z wd / E0), as for a fixed pattern.
+#[allow(clippy::too_many_arguments)]
+fn path_curve(
+    recs: &[Record],
+    times: &[Vec<EventTime>],
+    bases: &[Base],
+    b: &[f64],
+    path: &[(f64, Vec<f64>)],
+    place: &[usize],
+    ws: &[Vec<f64>],
+    design: &Design,
+) -> Vec<(usize, f64, f64, f64, f64)> {
+    let q = b.len();
+    let last = path.last().map_or(0.0, |s| s.0);
+    let e: Vec<f64> = recs.iter().map(|r| dot(&r.z, b).exp()).collect();
+    let mut out = Vec::new();
+    for (g, (times, base)) in times.iter().zip(bases).enumerate() {
+        let mine: Vec<usize> = (0..recs.len()).filter(|&r| recs[r].stratum == g).collect();
+        let mut v0 = vec![0.0; design.cases()];
+        let mut big_g = vec![0.0; q];
+        let (mut h, mut s) = (0.0, 1.0);
+        for (j, t) in times.iter().enumerate().take_while(|(_, t)| t.time <= last) {
+            let z = &path
+                .iter()
+                .find(|step| t.time <= step.0)
+                .expect("within the path")
+                .1;
+            let r = dot(z, b).exp();
+            let (h_before, s_before) = match j {
+                0 => (0.0, 1.0),
+                _ => (base.h[j - 1], base.s[j - 1]),
+            };
+            h += r * (base.h[j] - h_before);
+            s *= if s_before > 0.0 {
+                (base.s[j] / s_before).powf(r)
+            } else {
+                0.0
+            };
+            let c = t.wd / (t.e0 * t.e0);
+            for &i in &mine {
+                if recs[i].start < t.time && t.time <= recs[i].stop {
+                    v0[place[i]] -= r * e[i] * c;
+                }
+            }
+            for &i in &t.deaths {
+                v0[place[i]] += r / t.e0;
+            }
+            for (m, gm) in big_g.iter_mut().enumerate() {
+                *gm += r * (t.wd * t.e1[m] / (t.e0 * t.e0) - z[m] * t.wd / t.e0);
+            }
+            let influence: Vec<f64> = (0..design.cases())
+                .map(|i| v0[i] - (0..q).map(|m| big_g[m] * ws[m][i]).sum::<f64>())
+                .collect();
+            let var = design.covariance(&[influence])[0][0];
+            out.push((g, t.time, h, s, var.max(0.0).sqrt()));
+        }
+    }
+    out
+}
+
+/// PRINT GEF: the general estimable function, one column per nonredundant parameter j with 1
+/// at j, 0 at the other nonredundant parameters and row j of H = G X'WX at the redundant ones.
+// a helper of its own so that the other complex samples models can share it
+fn gef_table(fit: &Fit, names: &[String], caption: &str) -> Table {
+    let h = fit.h();
+    let cols: Vec<usize> = (1..fit.p).filter(|&j| !fit.redundant[j]).collect();
+    let mut columns = plain(&["Parameter"]);
+    columns.extend((1..=cols.len()).map(|k| (String::new(), format!("L{k}"))));
+    let rows = (1..fit.p)
+        .map(|k| {
+            let mut row = vec![text(names[k].clone())];
+            row.extend(cols.iter().map(|&j| {
+                let v = if fit.redundant[k] {
+                    h[j][k]
+                } else {
+                    f64::from(u8::from(k == j))
+                };
+                // the generalized inverse leaves rounding noise around whole numbers
+                let r = v.round();
+                Cell::Number(if (v - r).abs() <= 1e-9 { r + 0.0 } else { v })
+            }));
+            row
+        })
+        .collect();
+    table(
+        "General Estimable Function",
+        1,
+        columns,
+        rows,
+        Some(format!(
+            "{caption} Each column Lk is an estimable function of the parameters."
+        )),
+    )
+}
+
+/// What the test of proportional hazards needs from the fitted model.
+struct Original<'a> {
+    recs: &'a [Record],
+    /// The record of each model row, and of each record its interval, event and weight.
+    rec_of: &'a [usize],
+    spans: &'a [(f64, f64)],
+    event: &'a [bool],
+    w: &'a [f64],
+    strata: usize,
+    b: &'a [f64],
+    times: &'a [Vec<EventTime>],
+    /// The design cases of the records, the subjects and the SRS factor.
+    rows: &'a [usize],
+    design: &'a Design,
+    subjects: &'a Subjects,
+    srs: Option<f64>,
+    names: Vec<String>,
+}
+
+/// TESTASSUMPTIONS: the alternative model adds every predictor times g(t), its coefficients
+/// fitted from (b, 0) on the model rows split at the event times; the Wald test of the added
+/// coefficients uses the design covariance as the model's own tests do.
+fn prophazard_tables(
+    o: &Original,
+    c: &CsCox,
+    df: f64,
+    caption: &str,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Table>, Error> {
+    let Some(a) = c.assumptions else {
+        return Ok(Vec::new());
+    };
+    let q = o.b.len();
+    if q == 0 {
+        warnings.push(format!(
+            "{NAME}: the model has no predictors, so there is no test of proportional hazards"
+        ));
+        return Ok(Vec::new());
+    }
+    // the distinct event times of all records, whatever their baseline stratum
+    let mut all: Vec<f64> = (0..o.spans.len())
+        .filter(|&r| o.event[r])
+        .map(|r| o.spans[r].1)
+        .collect();
+    all.sort_by(f64::total_cmp);
+    all.dedup();
+    let weights = o.w;
+    // the weighted Kaplan-Meier survival just after each event time
+    let mut km = Vec::with_capacity(all.len());
+    let mut s = 1.0;
+    for &t in &all {
+        let (mut died, mut at_risk) = (0.0, 0.0);
+        for (r, &(start, stop)) in o.spans.iter().enumerate() {
+            if start < t && t <= stop {
+                at_risk += weights[r];
+                if o.event[r] && stop == t {
+                    died += weights[r];
+                }
+            }
+        }
+        s *= 1.0 - died / at_risk;
+        km.push(s);
+    }
+    let (g_text, label) = match a.function {
+        CsCoxTimeFunction::Km => ("1 - Kaplan-Meier survival", "(1 - KM)"),
+        CsCoxTimeFunction::Identity => ("time", "T"),
+        CsCoxTimeFunction::Log => ("log of time", "ln(T)"),
+        CsCoxTimeFunction::Rank => ("rank of the event time", "rank(T)"),
+    };
+    if a.function == CsCoxTimeFunction::Log && all[0] <= 0.0 {
+        return Err(Error(format!(
+            "TESTASSUMPTIONS PROPHAZARD=LOG needs event times above 0, but one is {}",
+            all[0]
+        )));
+    }
+    let g = |t: f64| -> f64 {
+        let k = all.partition_point(|&x| x <= t);
+        match a.function {
+            CsCoxTimeFunction::Km => 1.0 - if k == 0 { 1.0 } else { km[k - 1] },
+            CsCoxTimeFunction::Identity => t,
+            CsCoxTimeFunction::Log => t.ln(),
+            CsCoxTimeFunction::Rank => (k + 1) as f64,
+        }
+    };
+    // the model rows split at the event times of their stratum: (model row, record)
+    let mut alt = Vec::new();
+    let mut origin = Vec::new();
+    for (m, rec) in o.recs.iter().enumerate() {
+        let mut from = rec.start;
+        for t in o.times[rec.stratum]
+            .iter()
+            .filter(|t| t.time > rec.start && t.time <= rec.stop)
+        {
+            let gt = g(t.time);
+            let mut z = rec.z.clone();
+            z.extend(rec.z.iter().map(|x| x * gt));
+            alt.push(Record {
+                stratum: rec.stratum,
+                start: from,
+                stop: t.time,
+                event: rec.event && t.time == rec.stop,
+                w: rec.w,
+                z,
+            });
+            origin.push(o.rec_of[m]);
+            from = t.time;
+        }
+    }
+    let mut start = o.b.to_vec();
+    start.resize(2 * q, 0.0);
+    let fit = fit_cox(&alt, o.strata, 2 * q, c, warnings, start);
+    let n = o.design.cases();
+    let mut us = vec![vec![0.0; n]; 2 * q];
+    for (piece, scores) in fit.scores.iter().enumerate() {
+        let i = o.rows[origin[piece]];
+        for (u, s) in us.iter_mut().zip(scores) {
+            u[i] += s;
+        }
+    }
+    let (_, v, vs) = covariances(o.design, o.subjects, &us, &fit.info, o.srs, warnings);
+    let est = Estimates {
+        b: fit.b.clone(),
+        v,
+        vs,
+        redundant: vec![false; 2 * q],
+        p: 2 * q,
+        logits: 1,
+    };
+    let l: Matrix = (0..q)
+        .map(|k| (0..2 * q).map(|j| f64::from(u8::from(j == q + k))).collect())
+        .collect();
+    let w = wald(&est, &l, &vec![0.0; q]);
+    let cap = format!(
+        "{caption} Alternative model: each predictor also enters times g(t) = {g_text}; the test is that all those coefficients are 0."
+    );
+    let mut columns = plain(&["Time Function"]);
+    columns.extend(test_columns(c.test));
+    let mut row = vec![text(match a.function {
+        CsCoxTimeFunction::Km => "Kaplan-Meier",
+        CsCoxTimeFunction::Identity => "Identity",
+        CsCoxTimeFunction::Log => "Log",
+        CsCoxTimeFunction::Rank => "Rank",
+    })];
+    row.extend(test_cells(c.test, w.as_ref(), df, None));
+    let mut tables = vec![table(
+        "Overall Test of Proportional Hazards",
+        1,
+        columns,
+        vec![row],
+        Some(cap.clone()),
+    )];
+    let mut names = o.names.clone();
+    names.extend(o.names.iter().map(|n| format!("{n} * {label}")));
+    if a.parameter {
+        let rows = (0..2 * q)
+            .map(|j| {
+                vec![
+                    text(names[j].clone()),
+                    number(Some(est.b[j])),
+                    number(Some(est.v[j][j].max(0.0).sqrt())),
+                ]
+            })
+            .collect();
+        tables.push(table(
+            "Parameter Estimates of the Alternative Model",
+            1,
+            plain(&["Parameter", "Estimate", "Std. Error"]),
+            rows,
+            Some(cap.clone()),
+        ));
+    }
+    if a.covb {
+        let mut columns = plain(&["Parameter"]);
+        columns.extend(names.iter().map(|n| (String::new(), n.clone())));
+        let rows = (0..2 * q)
+            .map(|i| {
+                let mut row = vec![text(names[i].clone())];
+                row.extend((0..2 * q).map(|j| number(Some(est.v[i][j]))));
+                row
+            })
+            .collect();
+        tables.push(table(
+            "Covariances of the Alternative Model Parameters",
+            1,
+            columns,
+            rows,
+            Some(cap),
+        ));
+    }
+    Ok(tables)
 }

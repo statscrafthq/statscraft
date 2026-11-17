@@ -50,6 +50,7 @@ use crate::procedures::at_end;
 
 mod cox;
 pub(crate) use cox::cscoxreg;
+pub use cox::{CsCoxAssumptions, CsCoxTimeFunction};
 pub use cox::{
     CsCox, CsCoxBaseline, CsCoxCi, CsCoxOutfile, CsCoxPattern, CsCoxPlot, CsCoxPrint, CsCoxSave,
 };

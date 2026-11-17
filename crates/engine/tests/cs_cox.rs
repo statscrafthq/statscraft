@@ -381,8 +381,8 @@ fn baseline_only_model_and_errors() {
     for (extra, before, expected) in [
         (
             "",
-            "TIME PROGRAM.\nCOMPUTE T_COV_ = x * T_.\n",
-            "TIME PROGRAM",
+            "TIME PROGRAM.\nCOMPUTE st = st * 1.\n",
+            "only factors and covariates",
         ),
         ("/VARIABLES STATUS=st(9)", "", "has the event"),
         (
@@ -773,5 +773,393 @@ fn pattern_lines_and_errors() {
             "Pattern 1, grp = 2",
             "Pattern 1, grp = 3"
         ]
+    );
+}
+
+/// 60 invented records of 30 subjects (id) in 3 strata (str) with a weight per subject: each
+/// subject has 1 to 3 records with consecutive intervals (t0, t], a factor grp, a covariate x
+/// that changes from record to record, and a status st (1 is the event) that only a subject's
+/// last record can have. The plan has strata and no clusters, so the subjects are the units.
+const SUBJECTS: &str = "
+101,1,13.5,0,4,0,2,5 101,1,13.5,4,7,1,2,5.1 102,1,15,0,4,0,3,5.5 102,1,15,4,6,0,3,5
+102,1,15,6,9,0,3,6.3 103,1,12,0,6,1,1,2.1 104,1,13.5,0,5,0,2,4.9 104,1,13.5,5,7,1,2,4.4
+105,1,15,0,2,0,3,4.1 105,1,15,2,8,0,3,5 105,1,15,8,14,1,3,3.5 106,1,12,0,6,1,1,6.7
+107,1,13.5,0,2,0,2,6.1 107,1,13.5,2,8,1,2,4.6 108,1,15,0,6,0,3,3.7 108,1,15,6,11,0,3,2.6
+108,1,15,11,16,1,3,3.7 109,1,12,0,5,1,1,4.1 110,1,13.5,0,5,0,2,3.9 110,1,13.5,5,8,1,2,4.2
+111,2,21.5,0,6,0,3,3 111,2,21.5,6,9,0,3,3.5 111,2,21.5,9,16,1,3,2.4 112,2,23,0,7,1,1,4.6
+113,2,20,0,3,0,2,6.9 113,2,20,3,7,0,2,6.8 114,2,21.5,0,5,0,3,7.5 114,2,21.5,5,11,0,3,7.8
+114,2,21.5,11,18,0,3,6.6 115,2,23,0,5,0,1,5.4 116,2,20,0,4,0,2,2.5 116,2,20,4,11,1,2,2
+117,2,21.5,0,3,0,3,4.6 117,2,21.5,3,9,0,3,5.2 117,2,21.5,9,11,1,3,4.3 118,2,23,0,7,0,1,4.3
+119,2,20,0,5,0,2,6.1 119,2,20,5,7,1,2,6.7 120,2,21.5,0,4,0,3,5.5 120,2,21.5,4,6,0,3,6.9
+120,2,21.5,6,11,1,3,5.8 121,3,10.5,0,6,0,1,7.6 122,3,12,0,6,0,2,4.2 122,3,12,6,9,1,2,4.1
+123,3,9,0,5,0,3,4 123,3,9,5,12,0,3,3.8 123,3,9,12,17,0,3,3.2 124,3,10.5,0,4,1,1,5.1
+125,3,12,0,4,0,2,2.4 125,3,12,4,11,0,2,2.1 126,3,9,0,7,0,3,3.7 126,3,9,7,14,0,3,3.4
+126,3,9,14,19,0,3,3.6 127,3,10.5,0,2,1,1,2.1 128,3,12,0,5,0,2,2.5 128,3,12,5,9,1,2,3.9
+129,3,9,0,2,0,3,6.5 129,3,9,2,4,0,3,7 129,3,9,4,6,1,3,7.7 130,3,10.5,0,3,0,1,6.6
+";
+
+/// The subjects' data and a plan with strata and no clusters, then `commands`.
+fn subjects(folder: &str, commands: &str) -> String {
+    let dir =
+        std::env::temp_dir().join(format!("statscraft-cscox-{folder}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let records: Vec<&str> = SUBJECTS.split_whitespace().collect();
+    format!(
+        "DATA LIST LIST(\",\") /id str w t0 t st grp x.\n\
+         BEGIN DATA\n{}\nEND DATA.\nCD '{}'.\n\
+         CSPLAN ANALYSIS /PLAN FILE='s.json' /PLANVARS ANALYSISWEIGHT=w\n\
+         \x20 /DESIGN STRATA=str /ESTIMATOR TYPE=WR.\n\
+         {commands}\n",
+        records.join("\n"),
+        dir.display()
+    )
+}
+
+// The references: coxph with the weights on the 60 records (grp releveled to its last level),
+// and svycoxph on svydesign(ids=~id, strata=~str, weights=~w), which agrees to 1e-14 with the
+// manual's J^-1 V J^-1, V the design covariance of the subjects' totals of w U. The design
+// effects divide by J^-1 S J^-1, S = (1 - n/N) N/(n - 1) sum over the 30 subjects of w U U'
+// with n = 30 and N their summed weights. Martingale
+// residuals are coxph's (Breslow ties); the aggregated ones sum a subject's records, the
+// aggregated deviance comes from that sum and the subject's events, and the aggregated score
+// and DFBETA sum w U and w J^-1 U.
+#[test]
+fn subjects_as_units_with_one_or_two_times_and_aggregated_residuals() {
+    let b = [3.42032366801177, 2.03439957958917, 0.129124170743974];
+    let se = [0.774089524097684, 0.579964861346988, 0.182697420224556];
+    let deff = [0.936653780523957, 0.919169743144461, 1.29353604341029];
+    // the one-time form takes each start from the subject's previous record
+    for times in ["t0 t", "t"] {
+        let (_, tables) = run(&subjects(
+            "ids",
+            &format!(
+                "CSCOXREG {times} BY grp WITH x /VARIABLES STATUS=st(1) ID=id /PLAN FILE='s.json'\n\
+                 \x20 /STATISTICS PARAMETER SE DEFF."
+            ),
+        ));
+        let estimates = find(&tables, "Parameter Estimates");
+        for (k, name) in ["[grp=1]", "[grp=2]", "x"].iter().enumerate() {
+            checks(
+                estimates,
+                &[
+                    (name, "Estimate", b[k]),
+                    (name, "Std. Error", se[k]),
+                    (name, "Design Effect", deff[k]),
+                ],
+            );
+        }
+        checks(
+            find(&tables, "Sample Design Information"),
+            &[("Sampling Design Degrees of Freedom", "Value", 27.0)],
+        );
+    }
+    let (engine, tables) = run(&subjects(
+        "aggregated",
+        "CSCOXREG t0 t BY grp WITH x /VARIABLES STATUS=st(1) ID=id /PLAN FILE='s.json'\n\
+         \x20 /CRITERIA TIES=BRESLOW /STATISTICS PARAMETER SE\n\
+         \x20 /SAVE MARTINGALE AGGMARTINGALE AGGDEVIANCE AGGCOXSNELL AGGSCORE AGGDFBETA.",
+    ));
+    checks(
+        find(&tables, "Parameter Estimates"),
+        &[
+            ("[grp=1]", "Estimate", 3.22443589843098),
+            ("[grp=1]", "Std. Error", 0.676011670903849),
+            ("x", "Std. Error", 0.172260049731465),
+        ],
+    );
+    saved(
+        &engine,
+        &[
+            ("Resid_Martingale", 1, -0.0310224472826235),
+            ("Resid_Martingale", 2, 0.693224658716225),
+            ("Resid_Martingale", 3, -0.00492788608392747),
+        ],
+    );
+    // (case, martingale, deviance, Cox-Snell, score, DFBETA) of a subject's last record
+    let rows: [(usize, f64, f64, f64, [f64; 3], [f64; 3]); 3] = [
+        (
+            2,
+            0.662202211433602,
+            0.919897396205623,
+            0.337797788566398,
+            [-4.07315466245363, 4.73384388382106, 4.31187964703694],
+            [-0.0774740947889029, 0.0589564513801266, 0.0100594443520802],
+        ),
+        (
+            5,
+            -0.171608654301778,
+            -0.585847513098379,
+            0.171608654301778,
+            [0.463605372851522, 1.5364801459814, -5.15108267951745],
+            [0.0622477398107051, 0.0555648264729451, -0.00153982995962081],
+        ),
+        (
+            18,
+            0.828738117049916,
+            1.36808135555433,
+            0.171261882950084,
+            [2.79087910285308, -2.37187633597585, -9.38095931015091],
+            [0.0613345180000545, -0.029436830819399, -0.0142052069420278],
+        ),
+    ];
+    for (case, m, dev, cs, score, dfbeta) in rows {
+        saved(
+            &engine,
+            &[
+                ("AggResid_Martingale", case, m),
+                ("AggResid_Deviance", case, dev),
+                ("AggResid_CoxSnell", case, cs),
+            ],
+        );
+        for k in 0..3 {
+            saved(
+                &engine,
+                &[
+                    (&format!("AggResid_Score_{}", k + 1), case, score[k]),
+                    (&format!("AggResid_DFBETA_{}", k + 1), case, dfbeta[k]),
+                ],
+            );
+        }
+    }
+    // on the subject's other records the aggregated residuals are missing
+    assert_eq!(column(&engine, "AggResid_Martingale")[0], None);
+    assert_eq!(column(&engine, "AggResid_Score_1")[3], None);
+}
+
+// The alternative model on the subjects' records split at the event times with the predictors
+// times t, fitted by svycoxph with ids=~id; Wald F on 3 and 27 - 3 + 1 degrees of freedom.
+#[test]
+fn proportional_hazards_test_with_subjects() {
+    let (_, tables) = run(&subjects(
+        "subjects-ph",
+        "CSCOXREG t0 t BY grp WITH x /VARIABLES STATUS=st(1) ID=id /PLAN FILE='s.json'\n\
+         \x20 /TESTASSUMPTIONS PROPHAZARD=IDENTITY PARAMETER.",
+    ));
+    checks(
+        find(&tables, "Overall Test of Proportional Hazards"),
+        &[
+            ("Identity", "Wald F", 0.611348801137133),
+            ("Identity", "df2", 25.0),
+            ("Identity", "Sig.", 0.613955744512214),
+        ],
+    );
+    checks(
+        find(&tables, "Parameter Estimates of the Alternative Model"),
+        &[
+            ("[grp=1]", "Std. Error", 11.8321471178769),
+            ("x * T", "Std. Error", 0.0422954343768367),
+        ],
+    );
+}
+
+// The references for the 81 valid records: survSplit at the event times (keeping the pieces that
+// end at one), then svycoxph on svydesign(ids=~psu, strata=~str, weights=~w, nest=TRUE) of the
+// pieces. The time-dependent covariate is x ln(t) at each piece's end; record scores are
+// coxph's unweighted score residuals summed over a record's pieces times its weight.
+#[test]
+fn covariates_from_a_time_program() {
+    let (engine, tables) = run(&program(
+        "program",
+        "TIME PROGRAM.\nCOMPUTE xt = x * LN(T_).\n\
+         CSCOXREG t0 t BY grp WITH x xt /VARIABLES STATUS=st(1) /PLAN FILE='wr.json'\n\
+         \x20 /STATISTICS PARAMETER SE /SAVE SCORE DFBETA MARTINGALE XBETA /PRINT BASELINE.",
+    ));
+    let b = [
+        0.0722124527201917,
+        -0.223632219461664,
+        0.200494908885687,
+        0.0150896126829603,
+    ];
+    let se = [
+        0.375174187646778,
+        0.41405856000685,
+        0.0894507796560857,
+        0.0696400685206921,
+    ];
+    let estimates = find(&tables, "Parameter Estimates");
+    for (k, name) in ["[grp=1]", "[grp=2]", "x", "xt"].iter().enumerate() {
+        checks(
+            estimates,
+            &[(name, "Estimate", b[k]), (name, "Std. Error", se[k])],
+        );
+    }
+    assert!(!tables.iter().any(|t| t.title == "Baseline Functions"));
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("no baseline functions"))
+    );
+    let scores = [
+        (
+            2,
+            [6.20691056698835, -11.44381784231467, 16.284265965516, 52.6863324883265],
+        ),
+        (
+            10,
+            [-4.95577668129684, 7.08506022302379, -10.1329187560551, -56.22706937242],
+        ),
+    ];
+    for (case, values) in scores {
+        for (k, v) in values.iter().enumerate() {
+            saved(&engine, &[(&format!("Resid_Score_{}", k + 1), case, *v)]);
+        }
+    }
+    let dfbeta = [
+        0.00110580403753345,
+        -0.0278204971214205,
+        -0.00677393361309823,
+        0.0059240885664982,
+    ];
+    for (k, v) in dfbeta.iter().enumerate() {
+        saved(&engine, &[(&format!("Resid_DFBETA_{}", k + 1), 2, *v)]);
+    }
+    let data = engine.dataset().unwrap();
+    assert!(data.variable("Resid_Martingale").is_err());
+    assert!(data.variable("XBETA").is_ok());
+    // a program that changes no model variable is not used
+    let (engine, tables) = run(&program(
+        "unused",
+        "TIME PROGRAM.\nCOMPUTE other = T_.\n\
+         CSCOXREG t BY grp WITH x /VARIABLES STATUS=st(1) /PLAN FILE='wr.json' /STATISTICS PARAMETER.",
+    ));
+    checks(
+        find(&tables, "Parameter Estimates"),
+        &[("x", "Estimate", 0.240733208722236)],
+    );
+    assert!(engine.warnings().iter().any(|w| w.contains("not used")));
+}
+
+// The alternative models: the same split pieces with the predictors times g at each piece's end
+// (1 minus the weighted Kaplan-Meier survival of the valid records, the rank of the event time
+// plus 1, its log or the time itself), fitted by svycoxph; the Wald F is the manual's
+// (df - r + 1)/(r df) X2 on r = 3 and 8 - 3 + 1 = 6 degrees of freedom.
+#[test]
+fn proportional_hazards_tests_and_estimable_functions() {
+    let (_, tables) = run(&program(
+        "prophazard",
+        "CSCOXREG t0 t BY grp WITH x /VARIABLES STATUS=st(1) /PLAN FILE='wr.json'\n\
+         \x20 /TESTASSUMPTIONS PROPHAZARD=KM PARAMETER COVB /PRINT GEF.",
+    ));
+    checks(
+        find(&tables, "Overall Test of Proportional Hazards"),
+        &[
+            ("Kaplan-Meier", "Wald F", 0.106911531666538),
+            ("Kaplan-Meier", "df1", 3.0),
+            ("Kaplan-Meier", "df2", 6.0),
+            ("Kaplan-Meier", "Sig.", 0.952981253164657),
+        ],
+    );
+    let names = [
+        "[grp=1]",
+        "[grp=2]",
+        "x",
+        "[grp=1] * (1 - KM)",
+        "[grp=2] * (1 - KM)",
+        "x * (1 - KM)",
+    ];
+    let b = [
+        -0.251330409961638,
+        -0.61717509417245,
+        0.222151414902697,
+        0.711821682456732,
+        0.831108729207248,
+        0.000499386176140916,
+    ];
+    let se = [
+        0.915532289854753,
+        0.637619500339405,
+        0.0623315379240695,
+        1.74375650021995,
+        1.62686384755964,
+        0.241207456127783,
+    ];
+    let estimates = find(&tables, "Parameter Estimates of the Alternative Model");
+    for k in 0..6 {
+        checks(
+            estimates,
+            &[(names[k], "Estimate", b[k]), (names[k], "Std. Error", se[k])],
+        );
+    }
+    let covb = find(&tables, "Covariances of the Alternative Model Parameters");
+    checks(
+        covb,
+        &[
+            (names[3], names[4], 1.9004583154805),
+            (names[0], names[5], -0.0214843082612111),
+        ],
+    );
+    // the estimable functions of grp contrast each level with the last
+    let gef = find(&tables, "General Estimable Function");
+    let expected = [
+        ("[grp=1]", [1.0, 0.0, 0.0]),
+        ("[grp=2]", [0.0, 1.0, 0.0]),
+        ("[grp=3]", [-1.0, -1.0, 0.0]),
+        ("x", [0.0, 0.0, 1.0]),
+    ];
+    for (row, values) in expected {
+        for (k, v) in values.iter().enumerate() {
+            assert_eq!(value(gef, row, &format!("L{}", k + 1)), *v, "{row} L{k}");
+        }
+    }
+    for (function, label, f, sig) in [
+        ("RANK", "Rank", 0.068349758094751, 0.974748534647914),
+        ("LOG", "Log", 1.074552846779507, 0.427840730808268),
+        ("IDENTITY", "Identity", 0.105262521435373, 0.95396882472438),
+    ] {
+        let (_, tables) = run(&program(
+            "prophazard",
+            &format!(
+                "CSCOXREG t0 t BY grp WITH x /VARIABLES STATUS=st(1) /PLAN FILE='wr.json'\n\
+                 \x20 /TESTASSUMPTIONS PROPHAZARD({function})."
+            ),
+        ));
+        checks(
+            find(&tables, "Overall Test of Proportional Hazards"),
+            &[(label, "Wald F", f), (label, "Sig.", sig)],
+        );
+    }
+}
+
+// The path's cumulative hazard and survival are survfit's on the weighted coxph (Efron) with a
+// counting-process newdata for one id; its standard error is the manual's influence of each
+// record, sum over the event times of r (v0 terms) less G'J^-1 U with r = exp(z'b) of the step
+// in force, totalled by svytotal on the design.
+#[test]
+fn piecewise_pattern_path() {
+    let (mut engine, _) = run(&program(
+        "path",
+        "CSCOXREG t0 t BY grp WITH x /VARIABLES STATUS=st(1) /PLAN FILE='wr.json'\n\
+         \x20 /PATTERN t(5 12 40) x(4 6 8) grp(1) /OUTFILE SURVIVAL='path.sav'.",
+    ));
+    let (commands, _) = parse("GET FILE='path.sav'.");
+    engine.execute(&commands[0].command).unwrap();
+    let data = engine.dataset().unwrap();
+    let patterns: Vec<String> = data
+        .variable("Pattern")
+        .unwrap()
+        .string()
+        .unwrap()
+        .iter()
+        .map(|s| s.trim_end().to_string())
+        .collect();
+    let times = column(&engine, "Time");
+    let expected = [
+        (1.0, 0.0574120958938587, 0.944204886225069, 0.020975555236835),
+        (4.0, 0.18214268367276, 0.833482407599954, 0.0482446125826713),
+        (5.0, 0.209135273881993, 0.811285482483591, 0.0589406558992799),
+        (6.0, 0.279883798108209, 0.755871570059094, 0.0853516608310496),
+    ];
+    for (time, h, s, se) in expected {
+        let row = (0..patterns.len())
+            .find(|&r| patterns[r] == "Pattern 1" && times[r] == Some(time))
+            .unwrap();
+        near(column(&engine, "CumHazard")[row].unwrap(), h, "path hazard");
+        near(column(&engine, "Survival")[row].unwrap(), s, "path survival");
+        near(column(&engine, "SE_Survival")[row].unwrap(), s * se, "path error");
+    }
+    // the path ends at its last end time
+    assert!(
+        (0..patterns.len()).all(|r| patterns[r] != "Pattern 1" || times[r] <= Some(40.0))
     );
 }

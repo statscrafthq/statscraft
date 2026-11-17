@@ -902,13 +902,9 @@ impl Engine {
             program.collecting = false;
         }
         // the next command that reads the data uses a time program up (begin_pass drops it);
-        // only COXREG runs it
-        if !matches!(command, Command::Coxreg(_)) && output::stage(command) == output::Stage::Pass {
-            if matches!(command, Command::CsCox(_)) && self.time_program.take().is_some() {
-                return Err(Error(
-                    "CSCOXREG does not support covariates from a TIME PROGRAM yet".into(),
-                ));
-            }
+        // only COXREG and CSCOXREG run it
+        let runs_program = matches!(command, Command::Coxreg(_) | Command::CsCox(_));
+        if !runs_program && output::stage(command) == output::Stage::Pass {
             self.time_program = None;
         }
         self.track_clean(command);
@@ -963,7 +959,7 @@ impl Engine {
                 self.flush()?;
             }
         }
-        if matches!(command, Command::Coxreg(_)) {
+        if runs_program {
             // the vectors go along: the data pass of COXREG clears them before it runs the program
             // the vectors in force now, over those a program a failed COXREG kept had then
             self.running_program = self.time_program.take().map(|mut program| {
@@ -973,7 +969,7 @@ impl Engine {
         }
         self.program_fault.set(false);
         let tables = self.execute_command(command);
-        if matches!(command, Command::Coxreg(_)) {
+        if runs_program {
             let program = self.running_program.take();
             // a COXREG that fails leaves its time program for the corrected one, unless the fault
             // is in the program itself

@@ -184,6 +184,7 @@ pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};
 pub use codebook::{
     Codebook, CodebookFile, CodebookInfo, CodebookItem, CodebookOrder, CodebookStatistic,
 };
+pub use complex_samples::{CsCoxAssumptions, CsCoxTimeFunction};
 pub use complex_samples::{
     CsCells, CsContrast, CsControl, CsCox, CsCoxBaseline, CsCoxCi, CsCoxOutfile, CsCoxPattern,
     CsCoxPlot, CsCoxPrint, CsCoxSave, CsCriteria, CsCustom, CsEmmeans, CsEstimator, CsIntercept,
