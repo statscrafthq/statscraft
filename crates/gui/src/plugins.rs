@@ -37,6 +37,17 @@ pub struct Plugins {
     pub generation: u64,
     /// The open settings dialog.
     pub dialog: Option<Dialog>,
+    /// The licence code field of Edit > Settings > Plugins.
+    pub licence: Licence,
+}
+
+/// The licence code typed in Edit > Settings > Plugins and the plugin's answer to it.
+#[derive(Default)]
+pub struct Licence {
+    pub code: String,
+    pub answer: Option<Result<String, String>>,
+    /// Set by a successful activation: the tables are decorated again.
+    pub activated: bool,
 }
 
 /// Edit > Plugin Settings while it is open: the description it was opened with, the values
@@ -172,6 +183,7 @@ impl Default for Plugins {
             redo: false,
             generation: 0,
             dialog: None,
+            licence: Licence::default(),
         }
     }
 }
@@ -257,6 +269,11 @@ impl Plugins {
         self.generation += 1;
         let generation = self.generation;
         self.waiting.retain(|d| d.generation == generation);
+    }
+
+    /// Whether the chosen plugin takes a licence code.
+    pub fn takes_licence(&mut self, settings: &Settings) -> bool {
+        matches!(self.description(settings), Some(Ok(d)) if d.licence)
     }
 
     /// What Edit > Settings shows about the plugin.
@@ -913,6 +930,7 @@ mod tests {
             name: "Example".into(),
             version: "1".into(),
             protocol: 1,
+            licence: false,
             settings: vec![
                 setting("threshold", Kind::Number, 0.05),
                 setting("note", Kind::Text, 0.0),
@@ -956,6 +974,7 @@ mod tests {
             name: "House".into(),
             version: "1".into(),
             protocol: 1,
+            licence: false,
             settings: vec![plugin::Setting {
                 key: "limit".into(),
                 label: "Upper limit".into(),
@@ -1036,6 +1055,7 @@ mod tests {
             name: "House".into(),
             version: "1".into(),
             protocol: 1,
+            licence: false,
             settings: vec![plugin::Setting {
                 key: "head".into(),
                 label: "Header".into(),
@@ -1084,6 +1104,7 @@ mod tests {
             name: "House".into(),
             version: "1".into(),
             protocol: 1,
+            licence: false,
             settings: vec![
                 setting("high", Kind::Colour, "#ffffff".into(), false, false),
                 setting("limit", Kind::Number, 0.into(), true, false),

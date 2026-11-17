@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Plugins sold under a licence (`"licence": true` in their description) get a Licence code field with Activate in Edit > Settings > Plugins, which runs `plugin --activate CODE` and shows its answer.
 - CSCOXREG: baseline functions, residuals, plots and files. PRINT BASELINE shows the baseline cumulative hazard and survival per baseline stratum with design-based standard errors and intervals; SURVIVALMETHOD picks the Efron, Breslow or product-limit baseline and the interval scale (CI=ORIGINAL, LOG or LML). SAVE writes Schoenfeld, martingale, deviance, Cox-Snell and score residuals, DFBETA, XBETA, and each record's survival and cumulative hazard with their limits. PLOT draws the survival, cumulative hazard, log minus log and one minus survival functions, with CI=YES their limits, for the reference values and each PATTERN (with BY for a line per factor level). OUTFILE writes the COVB or CORB matrix file, a MODEL JSON file with the baseline functions and a SURVIVAL data file of the curves. Checked against R's survival and survey packages. VARIABLES ID (and with it the aggregated residuals), piecewise PATTERN paths, TESTASSUMPTIONS and PRINT GEF are not supported yet. See [differences](docs/differences.md).
 - Analyze > Classify: new dialogs TwoStep Cluster (TWOSTEP CLUSTER) and Identify Unusual Cases (DETECTANOMALY).
 - Window: Analyze > Complex Samples > Ordinal Regression writes CSORDINAL (link function, descending order, parallel-lines test, odds ratios, saved probabilities).
