@@ -57,6 +57,7 @@ use crate::timeseries_dialog::{
     ArimaModel, Correlogram, CreateRow, CreateSeries, Dates, ExpSmoothing, IFFT, Parameter, Season,
     SeriesChart, SeriesOptions, TimeRange, TimeSeries,
 };
+use crate::tsmodel_dialog::{TsOutputs, Tsapply, Tsmodel};
 use crate::twostep_dialog::{Anomaly, TwoStep};
 use std::path::Path;
 
@@ -4382,6 +4383,80 @@ fn the_forecasting_dialogs_write_syntax_that_runs() {
         let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
         assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
     }
+    tsmodel_then_tsapply(&program);
+}
+
+/// Create Models writes a model file and Apply Models reads it, with and without estimating
+/// again; both forecast past the 48 of the series (the saved variables add cases, so Apply goes further) and save the predicted values.
+fn tsmodel_then_tsapply(program: &str) {
+    let folder = std::env::temp_dir().join(format!("statscraft_tsmodel_{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder
+        .join("it's models.json")
+        .to_string_lossy()
+        .into_owned();
+    let outputs = |last: &str, root: &str| TsOutputs {
+        last: s(last),
+        saves: [
+            (true, s(root)),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ],
+        ..Default::default()
+    };
+    let create = |method, ar: &str, ma: &str| {
+        series(TimeSeries::Tsmodel(Tsmodel {
+            dependents: v(&["loaves"]),
+            method,
+            ar: s(ar),
+            ma: s(ma),
+            smoothing: 2,
+            file: file.clone(),
+            outputs: outputs("54", "fc"),
+            ..Default::default()
+        }))
+    };
+    fn series(d: TimeSeries) -> Advanced {
+        Advanced::TimeSeries(Box::new(d))
+    }
+    let apply = |reestimate| {
+        series(TimeSeries::Tsapply(Tsapply {
+            file: file.clone(),
+            reestimate,
+            outputs: outputs("60", "ap"),
+            ..Default::default()
+        }))
+    };
+    for (first, expect) in [
+        (
+            create(0, "", ""),
+            "PREDICT THRU 54.\nTSMODEL /SAVE PREDICTED(fc)",
+        ),
+        (create(1, "", ""), "/EXSMOOTH TYPE=HOLT."),
+        (create(2, "1", "1"), "/ARIMA AR=1 MA=1."),
+    ] {
+        for reestimate in [false, true] {
+            // forecasting adds cases, so each run starts from the series itself
+            let mut session = statscraft_engine::session::Session::default();
+            session.run(program, None).unwrap();
+            let data = session.dataset().unwrap().clone();
+            let create = Dialog::Advanced(first.clone()).syntax(&data).unwrap();
+            assert!(create.contains(expect), "{create}");
+            let apply = Dialog::Advanced(apply(reestimate)).syntax(&data).unwrap();
+            for syntax in [&create, &apply] {
+                let (_, errors) = statscraft_syntax::parse(syntax);
+                assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+            }
+            let result = session.run(&format!("{create}\n{apply}"), None).unwrap();
+            let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+            assert!(warnings.is_empty(), "{create}\n{apply}\n{warnings:?}");
+            let data = session.dataset().unwrap();
+            assert!(data.variable("ap_loaves_Model_1").is_ok(), "{apply}");
+            assert!(data.variable("fc_loaves_Model_1").is_ok(), "{create}");
+        }
+    }
+    std::fs::remove_dir_all(&folder).unwrap();
 }
 
 /// Invented records: trainees of three schools passing a test after hours of practice (with

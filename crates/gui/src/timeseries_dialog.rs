@@ -9,6 +9,7 @@ use crate::dialogs::whole;
 use crate::forecast_more_dialog::{Areg, Spectra, TwoSls};
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::syntax_text::number;
+use crate::tsmodel_dialog::{Tsapply, Tsmodel};
 use statscraft_data::{Dataset, is_valid_name};
 use statscraft_syntax::DateUnit;
 
@@ -27,10 +28,12 @@ pub enum TimeSeries {
     Spectra(Spectra),
     Areg(Areg),
     TwoSls(TwoSls),
+    Tsmodel(Tsmodel),
+    Tsapply(Tsapply),
 }
 
 /// The Analyze > Forecasting menu, in order.
-pub fn forecasting_menu() -> [(&'static str, TimeSeries); 10] {
+pub fn forecasting_menu() -> [(&'static str, TimeSeries); 12] {
     [
         (
             "Exponential Smoothing...",
@@ -62,6 +65,14 @@ pub fn forecasting_menu() -> [(&'static str, TimeSeries); 10] {
             TimeSeries::Spectra(Default::default()),
         ),
         ("Autoregression...", TimeSeries::Areg(Default::default())),
+        (
+            "Create Models (TSMODEL)...",
+            TimeSeries::Tsmodel(Default::default()),
+        ),
+        (
+            "Apply Models (TSAPPLY)...",
+            TimeSeries::Tsapply(Default::default()),
+        ),
         ("Options...", TimeSeries::Options(Default::default())),
     ]
 }
@@ -84,6 +95,8 @@ impl TimeSeries {
             TimeSeries::Spectra(_) => "Spectral Analysis",
             TimeSeries::Areg(_) => "Autoregression",
             TimeSeries::TwoSls(_) => "2-Stage Least Squares",
+            TimeSeries::Tsmodel(_) => "Create Models",
+            TimeSeries::Tsapply(_) => "Apply Models",
         }
     }
 
@@ -102,6 +115,8 @@ impl TimeSeries {
             TimeSeries::Spectra(_) => TimeSeries::Spectra(Default::default()),
             TimeSeries::Areg(_) => TimeSeries::Areg(Default::default()),
             TimeSeries::TwoSls(_) => TimeSeries::TwoSls(Default::default()),
+            TimeSeries::Tsmodel(_) => TimeSeries::Tsmodel(Default::default()),
+            TimeSeries::Tsapply(_) => TimeSeries::Tsapply(Default::default()),
         }
     }
 
@@ -119,6 +134,8 @@ impl TimeSeries {
             TimeSeries::Spectra(d) => d.syntax(data),
             TimeSeries::Areg(d) => d.syntax(data),
             TimeSeries::TwoSls(d) => d.syntax(data),
+            TimeSeries::Tsmodel(d) => d.syntax(data),
+            TimeSeries::Tsapply(d) => d.syntax(),
         }
     }
 }

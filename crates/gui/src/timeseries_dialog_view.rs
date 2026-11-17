@@ -25,6 +25,8 @@ pub fn body(ui: &mut Ui, data: &Dataset, d: &mut TimeSeries, picked: &mut Vec<St
         TimeSeries::Spectra(d) => crate::forecast_more_dialog_view::spectra(ui, d, picked),
         TimeSeries::Areg(d) => crate::forecast_more_dialog_view::areg(ui, d, picked),
         TimeSeries::TwoSls(d) => crate::forecast_more_dialog_view::two_sls(ui, d, picked),
+        TimeSeries::Tsmodel(d) => crate::tsmodel_dialog_view::tsmodel(ui, d, picked),
+        TimeSeries::Tsapply(d) => crate::tsmodel_dialog_view::tsapply(ui, d),
     }
 }
 
