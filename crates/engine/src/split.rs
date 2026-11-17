@@ -252,6 +252,7 @@ impl Engine {
                 | Command::Tree(_)
                 | Command::Detectanomaly(_)
                 | Command::OptimalBinning(_)
+                | Command::GenLinMixed(_)
                 | Command::MultipleCorrespondence(_)
                 | Command::Catpca(_)
                 | Command::Catreg(_)

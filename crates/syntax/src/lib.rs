@@ -42,6 +42,7 @@ mod factor;
 mod files;
 mod frequencies;
 mod genlin;
+mod genlinmixed;
 mod get_data;
 mod glm;
 mod graph;
@@ -121,6 +122,8 @@ mod tests_data_list;
 mod tests_factor;
 #[cfg(test)]
 mod tests_genlin;
+#[cfg(test)]
+mod tests_genlinmixed;
 #[cfg(test)]
 mod tests_glm;
 #[cfg(test)]
@@ -256,6 +259,7 @@ pub use genlin::{
     GenlinReference, GenlinRepeated, GenlinResponse, GenlinSave, GenlinSaveKind, GenlinScale,
     GenlinTolerance, GenlinTrials, default_link, distribution_keyword, link_allowed, link_keyword,
 };
+pub use genlinmixed::{GenLinMixed, GlmmRandom};
 pub use glm::{
     Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix,
     LRow, MColumn, Profile, RefCat, Term, WsFactor,

@@ -59,7 +59,7 @@ mod gee;
 // distributions and links
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Family {
+pub(crate) enum Family {
     Normal,
     Binomial,
     Gamma,
@@ -122,7 +122,7 @@ fn tiny(alpha: f64) -> bool {
 }
 
 /// g(mu).
-fn link_value(link: GenlinLink, mu: f64, k: f64) -> f64 {
+pub(crate) fn link_value(link: GenlinLink, mu: f64, k: f64) -> f64 {
     use GenlinLink as L;
     match link {
         L::Identity => mu,
@@ -142,7 +142,7 @@ fn link_value(link: GenlinLink, mu: f64, k: f64) -> f64 {
 }
 
 /// The inverse link.
-fn link_inverse(link: GenlinLink, eta: f64, k: f64) -> f64 {
+pub(crate) fn link_inverse(link: GenlinLink, eta: f64, k: f64) -> f64 {
     use GenlinLink as L;
     let logistic = |e: f64| 1.0 / (1.0 + (-e).exp());
     match link {
@@ -172,7 +172,7 @@ fn link_inverse(link: GenlinLink, eta: f64, k: f64) -> f64 {
 }
 
 /// dg/dmu.
-fn link_d1(link: GenlinLink, mu: f64, k: f64) -> f64 {
+pub(crate) fn link_d1(link: GenlinLink, mu: f64, k: f64) -> f64 {
     use GenlinLink as L;
     match link {
         L::Identity => 1.0,
@@ -212,7 +212,7 @@ fn link_d2(link: GenlinLink, mu: f64, k: f64) -> f64 {
     }
 }
 
-fn variance(family: Family, mu: f64, k: f64) -> f64 {
+pub(crate) fn variance(family: Family, mu: f64, k: f64) -> f64 {
     match family {
         Family::Normal => 1.0,
         Family::Binomial => mu * (1.0 - mu),
@@ -234,7 +234,7 @@ fn variance_d1(family: Family, mu: f64, k: f64) -> f64 {
     }
 }
 
-fn mu_valid(family: Family, mu: f64) -> bool {
+pub(crate) fn mu_valid(family: Family, mu: f64) -> bool {
     mu.is_finite()
         && match family {
             Family::Normal => true,
@@ -1307,7 +1307,7 @@ fn type1_rows(xwx: &Matrix, eps: f64) -> Vec<Option<Vec<f64>>> {
     out
 }
 
-fn distribution_name(d: GenlinDistribution, k: Option<f64>) -> String {
+pub(crate) fn distribution_name(d: GenlinDistribution, k: Option<f64>) -> String {
     match d {
         GenlinDistribution::Normal => "Normal".into(),
         GenlinDistribution::Binomial => "Binomial".into(),
@@ -1322,7 +1322,7 @@ fn distribution_name(d: GenlinDistribution, k: Option<f64>) -> String {
     }
 }
 
-fn link_name(link: GenlinLink) -> String {
+pub(crate) fn link_name(link: GenlinLink) -> String {
     use GenlinLink as L;
     match link {
         L::Identity => "Identity".into(),

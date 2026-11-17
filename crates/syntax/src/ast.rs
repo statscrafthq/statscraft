@@ -99,6 +99,7 @@ pub enum Command {
     Manova(Box<crate::manova::Manova>),
     Mixed(Box<crate::mixed::Mixed>),
     Varcomp(Box<crate::varcomp::Varcomp>),
+    GenLinMixed(Box<crate::genlinmixed::GenLinMixed>),
     Csplan(Box<crate::complex_samples::Csplan>),
     Csselect(Box<crate::complex_samples::Csselect>),
     Csdescriptives(Box<crate::complex_samples::Csdescriptives>),

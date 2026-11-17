@@ -1308,6 +1308,14 @@ impl Engine {
             | Command::Validatedata(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
+            Command::GenLinMixed(_) => {
+                if self.active()?.split_file().is_some() {
+                    self.warn(
+                        "GENLINMIXED does not use SPLIT FILE: it analyzes all cases together",
+                    );
+                }
+                return self.procedure(command);
+            }
             Command::Detectanomaly(_) => {
                 if self.active()?.split_file().is_some() {
                     self.warn(
@@ -1638,6 +1646,7 @@ impl Engine {
             Command::Glm(command) => self.glm(command),
             Command::Mixed(command) => self.mixed_model(command),
             Command::Varcomp(command) => self.varcomp(command),
+            Command::GenLinMixed(command) => self.genlinmixed(command),
             Command::Csdescriptives(command) => self.csdescriptives(command),
             Command::Csselect(command) => self.csselect(command),
             Command::Cstabulate(command) => self.cstabulate(command),

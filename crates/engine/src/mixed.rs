@@ -84,6 +84,8 @@ use statscraft_syntax::{
     CovType, CustomTest, DfMethod, Emmeans, LRow, Mixed, MixedTemp, RefCat, Term, Value,
 };
 
+mod genlinmixed;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Variance,
@@ -579,6 +581,8 @@ struct Model {
     group_of: Vec<usize>,
     members: Vec<Vec<Vec<usize>>>,
     np: usize,
+    /// GENLINMIXED with a discrete distribution: R = W^-1 with no parameter.
+    unit_residual: bool,
 }
 
 struct Eval {
@@ -705,6 +709,13 @@ fn add_to(acc: &mut Matrix, m: &Matrix) {
 impl Model {
     /// Entry (a, c) of R, or of its derivative.
     fn residual_entry(&self, th: &[f64], a: usize, c: usize, what: What) -> f64 {
+        if self.unit_residual {
+            return if a == c && matches!(what, What::Value) {
+                1.0 / self.g[a]
+            } else {
+                0.0
+            };
+        }
         let residual = &self.blocks[0];
         if !residual.touches(what) {
             return 0.0;
@@ -2136,6 +2147,15 @@ fn ci_title(cin: f64) -> String {
 
 impl Engine {
     pub(crate) fn mixed_model(&mut self, command: &Mixed) -> Result<Vec<Table>, Error> {
+        self.mixed_fit(command, None)
+    }
+
+    /// MIXED, or with `glmm` the working linear model of GENLINMIXED, refitted as it says.
+    fn mixed_fit(
+        &mut self,
+        command: &Mixed,
+        glmm: Option<&genlinmixed::Glmm>,
+    ) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();
         let factor_names = self.expand(&command.factors)?;
@@ -2161,7 +2181,8 @@ impl Engine {
             .iter()
             .map(|n| data.variable(n))
             .collect::<Result<_, _>>()?;
-        for v in std::iter::once(&dependent).chain(&cov_vars) {
+        let numeric_ones = std::iter::once(&dependent).filter(|_| glmm.is_none());
+        for v in numeric_ones.chain(&cov_vars) {
             if v.is_string() {
                 return Err(Error(format!(
                     "MIXED needs a numeric dependent variable and numeric covariates, but {} is a string variable",
@@ -2224,6 +2245,10 @@ impl Engine {
                 Values::String(_) => None,
             }
         };
+        let target = |k: usize| match glmm {
+            Some(g) => g.y[k],
+            None => numeric(&dependent, k),
+        };
         let factor_keys: Vec<Vec<Option<Key>>> = factor_vars
             .iter()
             .map(|v| categories(v, command.include))
@@ -2242,7 +2267,7 @@ impl Engine {
             };
             let valid = f >= 1.0
                 && g > 0.0
-                && numeric(&dependent, k).is_some()
+                && target(k).is_some()
                 && cov_vars.iter().all(|v| numeric(v, k).is_some())
                 && factor_keys.iter().all(|col| col[k].is_some())
                 && group_keys.iter().all(|col| col[k].is_some());
@@ -2318,7 +2343,7 @@ impl Engine {
                 .collect(),
             y: rows
                 .iter()
-                .map(|&k| vec![numeric(&dependent, k).expect("valid")])
+                .map(|&k| vec![target(k).expect("valid")])
                 .collect(),
             f: vec![1.0; rows.len()],
             g: rows
@@ -2418,7 +2443,11 @@ impl Engine {
                 Some((subj, level, subjects.len(), distinct))
             }
             None => {
-                blocks.push(Block::new(CovType::Id, vec![0], 0));
+                let mut block = Block::new(CovType::Id, vec![0], 0);
+                if glmm.is_some_and(|g| g.unit_scale) {
+                    block.count = 0;
+                }
+                blocks.push(block);
                 None
             }
         };
@@ -2511,7 +2540,8 @@ impl Engine {
                 group_of[i] = g;
             }
         }
-        let model = Model {
+        let mut model = Model {
+            unit_residual: glmm.is_some_and(|g| g.unit_scale),
             y: d.y.iter().map(|y| y[0]).collect(),
             x: fixed
                 .x
@@ -2547,7 +2577,10 @@ impl Engine {
             .collect();
         // EMMEANS holds covariates at their means over the cases, not weighted by REGWGT
         d.g = vec![1.0; n];
-        let (fitted, more) = fit_model(&model, start_values, command)?;
+        let (fitted, more) = match glmm {
+            Some(g) => g.fit(&mut model, &d.case, command)?,
+            None => fit_model(&model, start_values, command)?,
+        };
         warnings.extend(more);
         let dep_text = shown.variable(&dependent);
         let caption = format!("Dependent Variable: {dep_text}.");
@@ -2795,7 +2828,7 @@ impl Engine {
                     Cell::Number(*subjects as f64),
                 ]);
             }
-            _ => {
+            _ if !model.unit_residual => {
                 total_params += 1;
                 rows_md.push(vec![
                     text("Residual"),
@@ -2807,6 +2840,7 @@ impl Engine {
                     Cell::Empty,
                 ]);
             }
+            _ => {}
         }
         rows_md.push(vec![
             text("Total"),
@@ -2901,6 +2935,8 @@ impl Engine {
             (
                 if command.ml {
                     "-2 Log Likelihood"
+                } else if glmm.is_some() {
+                    "-2 Restricted Log Pseudo Likelihood"
                 } else {
                     "-2 Restricted Log Likelihood"
                 },
@@ -3404,7 +3440,10 @@ impl Engine {
             tables.extend(part.emmeans(em, &label_of, &level_of)?);
         }
         for w in warnings {
-            self.warn(w);
+            self.warn(match glmm {
+                Some(_) => genlinmixed::renamed(&w),
+                None => w,
+            });
         }
         if !command.save.is_empty() {
             let saved = |t: MixedTemp| command.save.iter().any(|(s, _)| *s == t);

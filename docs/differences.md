@@ -849,6 +849,17 @@ Choices where the documentation says nothing, and where it is not followed:
 - PRINT EMS and SS without SSTYPE, PRINT HISTORY without ML or REML, and COVB or CORB without ML or REML are ignored with a warning; CONVERGE and ITERATE do nothing outside ML and REML.
 - Expected Mean Squares lists every effect, the Intercept and fixed effects included, with the fixed effects whose coefficients enter under Quadratic Term. The ANOVA method stops with an error when a random effect has no degrees of freedom of its own, or when the equations of the random rows and the error row have no unique solution.
 
+
+### GENLINMIXED
+
+- GNU PSPP has no GENLINMIXED. The numbers were compared with a separate R program written from the documented method (restricted pseudo likelihood, the predicted random effects in the expansion, scale 1 for the binomial and Poisson distributions); its inner fits use a derivative-free optimizer and numerical derivatives. R's `MASS::glmmPQL` was not used for the numbers: it maximizes the full likelihood of the working model and estimates the scale, so its results differ by design.
+- The tolerance of the outer loop (the largest relative change of a covariance parameter) is not named in the documentation; it is the PCONVERGE value, or 1E-6 when PCONVERGE is 0. MAX_ITERATIONS bounds the outer loop and each inner fit, as documented. The inner fit takes at most 10 step halvings, as MIXED does by default.
+- A count of 0 has no logarithm, so for the Poisson, gamma and inverse Gaussian distributions a target outside the range of the mean starts half a unit up (y + 0.5); the documentation starts every non-binomial case at y. The start only affects the path, not the converged estimates.
+- A categorical target of two values without DISTRIBUTION is fitted as binomial with the logit link: the documented default, the nominal multinomial model, is the same model for two categories. An explicit DISTRIBUTION other than BINOMIAL takes the values of a numeric target whatever its measurement level, so a count read as nominal still fits as Poisson.
+- The binomial event of a two-valued target is the value that is not the reference: the last value in TARGET_CATEGORY_ORDER (ascending by default, so 0 is the event of a 0/1 target), or the other one when REFERENCE names a value.
+- The tables are those of MIXED on the final working model: Model Dimension, Information Criteria (labelled as pseudo likelihood; for the binomial and Poisson distributions the scale is not a parameter and is not counted), Type III Tests of Fixed Effects, Estimates of Fixed Effects, Estimates of Covariance Parameters with standard errors and Wald intervals, and Estimates of Random Effects for each RANDOM with SOLUTION=TRUE, after a Model Summary naming the target, distribution and link. The model viewer of the documentation is not reproduced, and there are no exponentiated coefficients and no corrected model test yet.
+- The fixed effects transformation the documentation applies for numerical stability (centering and scaling covariates) is not made: the estimates and the restricted log pseudo likelihood it reports on the original scale are the same without it.
+- Not supported yet: the multinomial and negative binomial distributions, a model without RANDOM (GENLIN fits it), REPEATED_MEASURES and the other repeated measures keywords of DATA_STRUCTURE, GROUPING, COVB=ROBUST, INPUTS_CATEGORY_ORDER other than ASCENDING, EMMEANS, SAVE and OUTFILE. COVARIANCE_TYPE on DATA_STRUCTURE only shapes repeated measures and so has no effect; EMMEANS_OPTIONS is checked and has no effect.
 ### ANOVA
 
 - **Beyond the documentation:** the first analysis list may come without VARIABLES=, as the later lists of the manual's examples are written.
@@ -1603,6 +1614,7 @@ Where the documentation is silent:
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
   - CSCOXREG gives no test of the covariate form (the manual names it without defining it).
   - UNIANOVA and GLM have no RANDOM, TEST, ROBUST, OUTFILE, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF and TEST(LMATRIX) or the heteroskedasticity tests, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
+  - GENLINMIXED has no multinomial or negative binomial distribution, no model without RANDOM, no repeated measures (R side), GROUPING, COVB=ROBUST, EMMEANS, SAVE or OUTFILE.
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.

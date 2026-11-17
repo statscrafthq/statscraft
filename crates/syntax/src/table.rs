@@ -25,6 +25,7 @@ use crate::factor;
 use crate::files;
 use crate::frequencies;
 use crate::genlin;
+use crate::genlinmixed;
 use crate::get_data;
 use crate::glm;
 use crate::graph;
@@ -3927,6 +3928,45 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  matrix (COVB or CORB, ML and REML only) in columns VC1, VC2, ...",
         example: "VARCOMP strength BY mixture batch operator /RANDOM=batch operator /METHOD=REML /PRINT=HISTORY.",
         parse: varcomp::varcomp,
+        name: "GENLINMIXED",
+        summary: "Generalized linear mixed model: a target with a normal, binomial, gamma, inverse Gaussian or Poisson distribution and a link, fixed effects and random effects of subjects.",
+        syntax: "GENLINMIXED [/DATA_STRUCTURE SUBJECTS=field[*field...]]\n\
+                 \x20  /FIELDS TARGET=field [TRIALS=NONE | VALUE(n) | FIELD(field)] [ANALYSIS_WEIGHT=field]\n\
+                 \x20         [OFFSET=NONE | VALUE(x) | FIELD(field)]\n\
+                 \x20  [/TARGET_OPTIONS [REFERENCE=value] [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | INVERSE_GAUSSIAN | POISSON]\n\
+                 \x20         [LINK=IDENTITY | CLOGLOG | LOG | LOGC | LOGIT | NLOGLOG | POWER | PROBIT] [LINK_PARAMETER=x]]\n\
+                 \x20  [/FIXED [EFFECTS=effects] [USE_INTERCEPT=TRUE | FALSE]]\n\
+                 \x20  /RANDOM [EFFECTS=effects] [USE_INTERCEPT=FALSE | TRUE] [SUBJECTS=field[*field...]]\n\
+                 \x20          [COVARIANCE_TYPE=type] [SOLUTION=FALSE | TRUE] ...\n\
+                 \x20  [/BUILD_OPTIONS [TARGET_CATEGORY_ORDER=ASCENDING | DESCENDING | DATA] [MAX_ITERATIONS=100]\n\
+                 \x20         [CONFIDENCE_LEVEL=95] [DF_METHOD=RESIDUAL | SATTERTHWAITE | KENWARD_ROGER]\n\
+                 \x20         [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [LCONVERGE=0[(...)]] [HCONVERGE=0[(...)]]\n\
+                 \x20         [SCORING=0] [SINGULAR=1E-12]]\n\
+                 effects: a field, a*b or a BY b, a(b); a field of scale level is a covariate, any other a factor.\n\
+                 type: VARIANCE_COMPONENTS (the default: one variance per effect), IDENTITY, DIAGONAL, UNSTRUCTURED,\n\
+                 COMPOUND_SYMMETRY, AR1, ARH1, ARMA11, CSH or TOEPLITZ, as the types of MIXED.\n\
+                 Without DISTRIBUTION a scale target is NORMAL, and one with TRIALS or a categorical one of two\n\
+                 values BINOMIAL; the link defaults to IDENTITY, LOGIT, POWER(-1) for GAMMA, POWER(-2) for\n\
+                 INVERSE_GAUSSIAN and LOG for POISSON. BINOMIAL takes either events with TRIALS or a target\n\
+                 of two values; then the last value in TARGET_CATEGORY_ORDER (or REFERENCE) is the reference\n\
+                 and the model is for the other one.\n\
+                 Cases whose target does not fit the distribution, or that miss a field, the offset or a weight\n\
+                 above 0, are left out. The fit linearizes the model around the current means and fits the\n\
+                 linear mixed model of the working target with the weights that follow from the variance\n\
+                 function, by restricted likelihood as MIXED does, then updates the means with the predicted\n\
+                 random effects, until no covariance parameter changes by more than PCONVERGE relative to its\n\
+                 size. The scale is 1 for BINOMIAL and POISSON and estimated as the residual variance\n\
+                 otherwise; NORMAL with IDENTITY is MIXED itself. Each RANDOM must name subjects from\n\
+                 DATA_STRUCTURE. MAX_ITERATIONS bounds both loops. Tables: Model Summary, Model Dimension,\n\
+                 Information Criteria (of the working model), Type III Tests of Fixed Effects, Estimates of\n\
+                 Fixed Effects, Estimates of Covariance Parameters with standard errors and Wald intervals, and\n\
+                 the predicted random effects of each RANDOM with SOLUTION=TRUE. Degrees of freedom are the cases\n\
+                 less the rank of the fixed design unless DF_METHOD says otherwise. EMMEANS_OPTIONS is checked\n\
+                 and has no effect. Not supported yet: MULTINOMIAL and NEGATIVE_BINOMIAL, a model without\n\
+                 RANDOM, REPEATED_MEASURES and the other repeated measures keywords, GROUPING, COVB=ROBUST,\n\
+                 INPUTS_CATEGORY_ORDER other than ASCENDING, EMMEANS, SAVE and OUTFILE.",
+        example: "GENLINMIXED /DATA_STRUCTURE SUBJECTS=clinic /FIELDS TARGET=cured /TARGET_OPTIONS DISTRIBUTION=BINOMIAL LINK=LOGIT /FIXED EFFECTS=dose /RANDOM USE_INTERCEPT=TRUE SUBJECTS=clinic.",
+        parse: genlinmixed::genlinmixed,
     },
     CommandSpec {
         name: "ANOVA",

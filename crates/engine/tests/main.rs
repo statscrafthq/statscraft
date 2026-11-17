@@ -37,6 +37,7 @@ mod factor;
 mod file_handle;
 mod frequencies;
 mod genlin;
+mod genlinmixed;
 mod get_data;
 mod glm;
 mod glm_multivariate;

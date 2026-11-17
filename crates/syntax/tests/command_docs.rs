@@ -189,6 +189,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "MANOVA",
             "MIXED",
             "VARCOMP",
+            "GENLINMIXED",
             "COXREG",
             "TIME PROGRAM",
             "CLEAR TIME PROGRAM",
