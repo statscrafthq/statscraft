@@ -47,11 +47,7 @@ pub fn proportions(ui: &mut Ui, d: &mut Proportions, picked: &mut Vec<String>) {
         }
     }
     ui.add_space(6.0);
-    let i = match k {
-        ProportionsKind::OneSample => 0,
-        ProportionsKind::Paired => 1,
-        ProportionsKind::Independent => 2,
-    };
+    let i = k.index();
     egui::CollapsingHeader::new("Tests").show(ui, |ui| {
         ui.weak("None checked: no tests");
         checkboxes(ui, k.tests(), &mut d.tests[i]);

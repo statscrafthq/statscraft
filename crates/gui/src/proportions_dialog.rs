@@ -74,7 +74,7 @@ const INDEPENDENT_INTERVALS: Methods = &[
 ];
 
 impl ProportionsKind {
-    fn index(self) -> usize {
+    pub(crate) fn index(self) -> usize {
         self as usize
     }
 

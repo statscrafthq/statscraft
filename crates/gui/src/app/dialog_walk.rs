@@ -43,7 +43,6 @@ use crate::mva_dialog::{Estimation, MissingValueAnalysis};
 use crate::proportions_dialog::{Proportions, ProportionsKind};
 use crate::proximities_dialog::Distances;
 use crate::reports_dialog::{Codebook, OlapCubes, OlapDifference, Summarize};
-use crate::reports_dialog::{Codebook, Summarize};
 use crate::roc_analysis_dialog::RocAnalysis;
 use crate::spchart_dialog::{CAPABILITY, ControlCharts};
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
