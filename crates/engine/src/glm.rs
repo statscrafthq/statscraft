@@ -2871,7 +2871,7 @@ fn custom_tests(
 
 /// The Kronecker product of the columns of each factor, the first factor's rows changing
 /// slowest.
-fn kronecker(parts: &[Matrix]) -> Matrix {
+pub(crate) fn kronecker(parts: &[Matrix]) -> Matrix {
     let mut out: Matrix = vec![vec![1.0]];
     for a in parts {
         let rows = out.len() * a.len();
@@ -3028,7 +3028,7 @@ pub(crate) fn multivariate(
 
 /// The significance of Mauchly's chi-square by the manual's expansion.
 /// A singular matrix gives W = 0 and no chi-square or Sig.
-fn mauchly(xi: &Matrix, dfe: f64, reference: &[f64]) -> (f64, f64, f64, f64) {
+pub(crate) fn mauchly(xi: &Matrix, dfe: f64, reference: &[f64]) -> (f64, f64, f64, f64) {
     let m = xi.len() as f64;
     let (log_det, rank) = log_determinant_and_rank(xi, reference);
     let log_w = log_det - m * (trace(xi) / m).ln();

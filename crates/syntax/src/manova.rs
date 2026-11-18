@@ -15,6 +15,13 @@
 //!   to the next term.
 //! - ERROR, CONTRAST(f)=type, PARTITION(f)[=(n, m*k ...)], METHOD (UNIQUE, SEQUENTIAL,
 //!   CONSTANT, NOCONSTANT, QR, CHOLESKY), PRINT and NOPRINT, OMEANS, PMEANS, ANALYSIS.
+//! - MWITHIN f(n) starts a term (the constant within level n of f) or nests like WITHIN.
+//! - Repeated measures: WSFACTORS (names, each group closed by its number of levels) must be the
+//!   first subcommand; WSDESIGN takes terms of within-subjects factors without MUPLUS,
+//!   CONSTANT, POOL or error terms; MEASURE names the measures; covariates in parentheses after
+//!   the others are constant over the within-subjects cells. SIGNIF(UNIV) is off by default then.
+//! - TRANSFORM[(list [/list ...])] [=] [ORTHONORM] [CONTRAST | BASIS] type; RENAME names every
+//!   continuous variable, `*` keeping one.
 
 use crate::ast::{Command, VarItem};
 use crate::error::SyntaxError;
@@ -67,6 +74,13 @@ pub struct ManovaTerm {
     pub label: String,
 }
 
+impl ManovaEffect {
+    /// The constant: no factor and no nesting.
+    pub fn is_constant(&self) -> bool {
+        self.crossed.is_empty() && self.within.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ManovaPrint {
     pub multiv: bool,
@@ -82,6 +96,43 @@ pub struct ManovaPrint {
     pub error_cov: bool,
     pub error_cor: bool,
     pub error_stddev: bool,
+    pub averf: bool,
+    pub avonly: bool,
+    pub hf: bool,
+    pub gg: bool,
+    pub efsize: bool,
+    pub singledf: bool,
+    pub transform: bool,
+    /// PRINT DESIGN(OVERALL) and DESIGN(ONEWAY).
+    pub overall: bool,
+    pub oneway: bool,
+    /// PARAMETERS(ORTHO) and PARAMETERS(COR).
+    pub ortho: bool,
+    pub param_cor: bool,
+}
+
+/// TRANSFORM: the variable lists (empty for all continuous variables) and how the matrix is made.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ManovaTransform {
+    pub lists: Vec<Vec<VarItem>>,
+    pub basis: bool,
+    pub orthonorm: bool,
+    pub kind: Contrast,
+}
+
+/// PMEANS: the dependents to predict (None for all) and the tables of collapsed means.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ManovaPmeans {
+    pub variables: Option<Vec<VarItem>>,
+    pub tables: Vec<Vec<String>>,
+}
+
+/// CINTERVAL: the confidence level and the kind of interval.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ManovaInterval {
+    pub level: f64,
+    pub joint: bool,
+    pub bonferroni: bool,
 }
 
 /// The settings a DESIGN uses.
@@ -97,7 +148,14 @@ pub struct ManovaDesign {
     pub print: ManovaPrint,
     /// ANALYSIS: dependents and covariates by name.
     pub analysis: Option<(Vec<VarItem>, Vec<VarItem>)>,
-    pub pmeans: bool,
+    pub pmeans: Option<ManovaPmeans>,
+    /// WSDESIGN; None for the full factorial of the within-subjects factors.
+    pub wsdesign: Option<Vec<ManovaTerm>>,
+    pub transform: Option<ManovaTransform>,
+    /// RENAME: a new name for each continuous variable, None to keep it.
+    pub rename: Option<Vec<Option<String>>>,
+    pub cinterval: ManovaInterval,
+    pub residuals: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -112,6 +170,11 @@ pub struct Manova {
     pub dependents: Vec<VarItem>,
     pub factors: Vec<ManovaFactors>,
     pub covariates: Vec<VarItem>,
+    /// Covariates in parentheses: constant over the within-subjects cells.
+    pub constant_covariates: Vec<VarItem>,
+    /// WSFACTORS: name and number of levels.
+    pub wsfactors: Vec<(String, usize)>,
+    pub measures: Vec<String>,
     pub designs: Vec<ManovaDesign>,
     pub implicit_design: bool,
     pub include: bool,
@@ -122,20 +185,7 @@ pub struct Manova {
     pub omeans: Option<ManovaOmeans>,
 }
 
-const KNOWN: [&str; 12] = [
-    "WSFACTORS",
-    "WSDESIGN",
-    "MEASURE",
-    "TRANSFORM",
-    "RENAME",
-    "RESIDUALS",
-    "POWER",
-    "CINTERVAL",
-    "PLOT",
-    "PCOMPS",
-    "DISCRIM",
-    "MATRIX",
-];
+const KNOWN: [&str; 5] = ["POWER", "PLOT", "PCOMPS", "DISCRIM", "MATRIX"];
 
 fn error_term(p: &mut Parser) -> PResult<ManovaError> {
     if let Some(n) = p.number() {
@@ -209,6 +259,7 @@ fn item(p: &mut Parser) -> PResult<ManovaItem> {
 
 fn is_within(p: &Parser) -> bool {
     p.at_keyword("WITHIN")
+        || p.at_keyword("MWITHIN")
         || matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case("W"))
 }
 
@@ -217,9 +268,11 @@ fn effect(p: &mut Parser) -> PResult<ManovaEffect> {
     if p.eat_keyword("CONSTANT") {
         return Ok(e);
     }
-    e.crossed.push(item(p)?);
-    while p.eat_word("BY") {
+    if !p.at_keyword("MWITHIN") {
         e.crossed.push(item(p)?);
+        while p.eat_word("BY") {
+            e.crossed.push(item(p)?);
+        }
     }
     while is_within(p) {
         p.pos += 1;
@@ -238,12 +291,6 @@ fn design_terms(p: &mut Parser) -> PResult<Vec<ManovaTerm>> {
         if p.eat_keyword("MUPLUS") {
             muplus = true;
             continue;
-        }
-        if p.at_keyword("MWITHIN") {
-            return Err(SyntaxError::new(
-                p.span(),
-                "MWITHIN (simple effects of within-subjects factors) is not supported yet",
-            ));
         }
         let mut effects = vec![effect(p)?];
         while p.eat(Punct::Plus) {
@@ -302,13 +349,6 @@ fn options<'k>(p: &mut Parser, allowed: &[&'k str]) -> PResult<Vec<&'k str>> {
     Ok(out)
 }
 
-fn word(p: &Parser) -> String {
-    match p.peek() {
-        Some(TokenKind::Word(w)) => w.to_uppercase(),
-        _ => String::new(),
-    }
-}
-
 fn item_label(i: &ManovaItem) -> String {
     let names: Vec<String> = i
         .names
@@ -332,8 +372,12 @@ fn item_label(i: &ManovaItem) -> String {
 
 /// An effect as the tables name it, such as `A BY B` or `C WITHIN A(1)`.
 pub fn effect_label(e: &ManovaEffect) -> String {
-    if e.crossed.is_empty() {
+    if e.is_constant() {
         return "CONSTANT".into();
+    }
+    if e.crossed.is_empty() {
+        let within: Vec<String> = e.within.iter().map(item_label).collect();
+        return format!("MWITHIN {}", within.join(" WITHIN "));
     }
     let join = |items: &[ManovaItem]| -> String {
         items
@@ -377,18 +421,28 @@ fn print(p: &mut Parser, on: bool, d: &mut ManovaDesign, m: &mut Manova) -> PRes
                     "ESTIM", "NEGSUM", "ALL", "ORTHO", "COR", "EFSIZE", "OPTIMAL",
                 ],
             )?;
-            if let Some(k) = o
-                .iter()
-                .find(|k| ["ORTHO", "COR", "EFSIZE", "OPTIMAL"].contains(k))
-            {
+            if o.contains(&"OPTIMAL") {
                 return Err(SyntaxError::new(
                     p.span_from(start),
-                    format!("PARAMETERS({k}) of MANOVA is not supported yet; ESTIM and NEGSUM are"),
+                    "PARAMETERS(OPTIMAL) of MANOVA is not supported yet",
                 ));
             }
-            d.print.parameters = on;
-            if o.contains(&"NEGSUM") || o.contains(&"ALL") {
-                d.print.negsum = on;
+            let has = |k: &str| o.contains(&k) || o.contains(&"ALL");
+            let pr = &mut d.print;
+            if o.is_empty() || has("ESTIM") || has("NEGSUM") || has("EFSIZE") {
+                pr.parameters = on;
+            }
+            if has("NEGSUM") {
+                pr.negsum = on;
+            }
+            if has("EFSIZE") {
+                pr.efsize = on;
+            }
+            if has("ORTHO") {
+                pr.ortho = on;
+            }
+            if has("COR") {
+                pr.param_cor = on;
             }
         } else if p.eat_keyword("SIGNIF") {
             let o = options(
@@ -398,23 +452,36 @@ fn print(p: &mut Parser, on: bool, d: &mut ManovaDesign, m: &mut Manova) -> PRes
                     "AVERF", "AVONLY", "HF", "GG", "EFSIZE",
                 ],
             )?;
+            if o.contains(&"AVERF") && o.contains(&"AVONLY") {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "SIGNIF takes AVERF or AVONLY, not both",
+                ));
+            }
+            let pr = &mut d.print;
             for k in &o {
                 let flag = match *k {
-                    "MULTIV" => &mut d.print.multiv,
-                    "UNIV" => &mut d.print.univ,
-                    "EIGEN" => &mut d.print.eigen,
-                    "DIMENR" => &mut d.print.dimenr,
-                    "HYPOTH" => &mut d.print.hypoth,
-                    "STEPDOWN" => &mut d.print.stepdown,
-                    "BRIEF" => &mut d.print.brief,
-                    other => {
-                        return Err(SyntaxError::new(
-                            p.span_from(start),
-                            format!("SIGNIF({other}) of MANOVA is not supported yet"),
-                        ));
-                    }
+                    "MULTIV" => &mut pr.multiv,
+                    "UNIV" => &mut pr.univ,
+                    "EIGEN" => &mut pr.eigen,
+                    "DIMENR" => &mut pr.dimenr,
+                    "HYPOTH" => &mut pr.hypoth,
+                    "STEPDOWN" => &mut pr.stepdown,
+                    "BRIEF" => &mut pr.brief,
+                    "SINGLEDF" => &mut pr.singledf,
+                    "AVERF" => &mut pr.averf,
+                    "AVONLY" => &mut pr.avonly,
+                    "HF" => &mut pr.hf,
+                    "GG" => &mut pr.gg,
+                    _ => &mut pr.efsize,
                 };
                 *flag = on;
+            }
+            if on && o.contains(&"AVONLY") {
+                pr.averf = true;
+            }
+            if on && o.contains(&"AVERF") {
+                pr.avonly = false;
             }
         } else if p.eat_keyword("ERROR") {
             let o = options(p, &["SSCP", "COV", "COR", "STDDEV"])?;
@@ -432,11 +499,36 @@ fn print(p: &mut Parser, on: bool, d: &mut ManovaDesign, m: &mut Manova) -> PRes
                     _ => flags.error_stddev = on,
                 }
             }
-        } else if p.at_keyword("DESIGN") || p.at_keyword("TRANSFORM") {
-            return Err(SyntaxError::new(
-                p.span(),
-                format!("PRINT {} of MANOVA is not supported yet", word(p)),
-            ));
+        } else if p.eat_keyword("TRANSFORM") {
+            d.print.transform = on;
+        } else if p.eat_keyword("DESIGN") {
+            let o = options(
+                p,
+                &[
+                    "OVERALL",
+                    "ONEWAY",
+                    "DECOMP",
+                    "BIAS",
+                    "SOLUTION",
+                    "REDUNDANCY",
+                    "COLLINEARITY",
+                    "ALL",
+                ],
+            )?;
+            if let Some(k) = o.iter().find(|k| !["OVERALL", "ONEWAY"].contains(k)) {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    format!(
+                        "PRINT DESIGN({k}) of MANOVA is not supported yet; OVERALL and ONEWAY are"
+                    ),
+                ));
+            }
+            if o.is_empty() || o.contains(&"OVERALL") {
+                d.print.overall = on;
+            }
+            if o.contains(&"ONEWAY") {
+                d.print.oneway = on;
+            }
         } else {
             return Err(p.unexpected(&[
                 "CELLINFO",
@@ -444,6 +536,8 @@ fn print(p: &mut Parser, on: bool, d: &mut ManovaDesign, m: &mut Manova) -> PRes
                 "PARAMETERS",
                 "SIGNIF",
                 "ERROR",
+                "TRANSFORM",
+                "DESIGN",
             ]));
         }
         p.eat(Punct::Comma);
@@ -501,15 +595,23 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
             return Err(p.unexpected(&["a factor name"]));
         }
     }
-    let covariates = if p.eat_word("WITH") {
-        list_until(p, &[])?
-    } else {
-        Vec::new()
-    };
+    let (mut covariates, mut constant_covariates) = (Vec::new(), Vec::new());
+    if p.eat_word("WITH") {
+        if !p.at(Punct::LParen) {
+            covariates = list_until(p, &[])?;
+        }
+        if p.eat(Punct::LParen) {
+            constant_covariates = list_until(p, &[])?;
+            p.expect(Punct::RParen)?;
+        }
+    }
     let mut m = Manova {
         dependents,
         factors,
         covariates,
+        constant_covariates,
+        wsfactors: Vec::new(),
+        measures: Vec::new(),
         designs: Vec::new(),
         implicit_design: false,
         include: false,
@@ -527,16 +629,174 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
         print: ManovaPrint {
             multiv: true,
             univ: true,
+            averf: true,
             ..ManovaPrint::default()
         },
         analysis: None,
-        pmeans: false,
+        pmeans: None,
+        wsdesign: None,
+        transform: None,
+        rename: None,
+        cinterval: ManovaInterval {
+            level: 0.95,
+            joint: false,
+            bonferroni: false,
+        },
+        residuals: false,
     };
     let mut last_design = false;
+    let mut first = true;
     while p.eat(Punct::Slash) {
         last_design = false;
         let start = p.pos;
-        if p.eat_keyword("DESIGN") {
+        if p.at_keyword("WSFACTORS") && !first {
+            return Err(SyntaxError::new(
+                p.span(),
+                "WSFACTORS must be the first subcommand of MANOVA, and given once",
+            ));
+        }
+        first = false;
+        if p.eat_keyword("WSFACTORS") {
+            p.eat(Punct::Eq);
+            while !at_end(p) {
+                let mut names = vec![p.name("a within-subjects factor name")?];
+                while !p.at(Punct::LParen) {
+                    names.push(p.name("a within-subjects factor name")?);
+                }
+                p.expect(Punct::LParen)?;
+                let levels = whole(p, "the number of levels")?;
+                p.expect(Punct::RParen)?;
+                if levels < 2 {
+                    return Err(SyntaxError::new(
+                        p.span_from(start),
+                        "a within-subjects factor has at least 2 levels",
+                    ));
+                }
+                m.wsfactors
+                    .extend(names.into_iter().map(|n| (n, levels as usize)));
+                p.eat(Punct::Comma);
+            }
+            // repeated measures show the averaged tests, not the univariate ones, by default
+            d.print.univ = false;
+        } else if p.eat_keyword("WSDESIGN") {
+            p.eat(Punct::Eq);
+            let terms = design_terms(p)?;
+            let bad = terms.iter().any(|t| {
+                t.muplus
+                    || t.define.is_some()
+                    || t.against.is_some()
+                    || t.effects.iter().any(|e| {
+                        e.is_constant() || e.crossed.iter().chain(&e.within).any(|i| i.pool)
+                    })
+            });
+            if bad {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "WSDESIGN takes within-subjects factors only: no CONSTANT, MUPLUS, POOL or error terms",
+                ));
+            }
+            d.wsdesign = (!terms.is_empty()).then_some(terms);
+        } else if p.eat_keyword("MEASURE") {
+            p.eat(Punct::Eq);
+            m.measures.clear();
+            while !at_end(p) {
+                m.measures.push(p.name("a measure name")?);
+                p.eat(Punct::Comma);
+            }
+        } else if p.eat_keyword("RENAME") {
+            p.eat(Punct::Eq);
+            let mut names = Vec::new();
+            while !at_end(p) {
+                if p.eat(Punct::Star) {
+                    names.push(None);
+                } else {
+                    names.push(Some(p.name("a new name or '*'")?));
+                }
+                p.eat(Punct::Comma);
+            }
+            d.rename = Some(names);
+        } else if p.eat_keyword("TRANSFORM") {
+            let mut lists = Vec::new();
+            if p.eat(Punct::LParen) {
+                lists.push(list_until(p, &[])?);
+                while p.eat(Punct::Slash) {
+                    lists.push(list_until(p, &[])?);
+                }
+                p.expect(Punct::RParen)?;
+            }
+            p.eat(Punct::Eq);
+            let (mut basis, mut orthonorm) = (false, false);
+            loop {
+                if p.eat_keyword("ORTHONORM") {
+                    orthonorm = true;
+                } else if p.eat_keyword("BASIS") {
+                    basis = true;
+                } else if !p.eat_keyword("CONTRAST") {
+                    break;
+                }
+            }
+            let kind = contrast(p, false)?;
+            d.transform = Some(ManovaTransform {
+                lists,
+                basis,
+                orthonorm,
+                kind,
+            });
+        } else if p.eat_keyword("CINTERVAL") {
+            p.eat(Punct::Eq);
+            while !at_end(p) {
+                let joint = p.at_keyword("JOINT");
+                if p.eat_keyword("INDIVIDUAL") || p.eat_keyword("JOINT") {
+                    d.cinterval.joint = joint;
+                    if p.eat(Punct::LParen) {
+                        let at = p.pos;
+                        match p.number() {
+                            Some(a) if a > 0.0 && a < 1.0 => d.cinterval.level = a,
+                            _ => {
+                                return Err(SyntaxError::new(
+                                    p.span_from(at),
+                                    "the confidence level is a number between 0 and 1",
+                                ));
+                            }
+                        }
+                        p.expect(Punct::RParen)?;
+                    }
+                } else if p.eat_keyword("UNIVARIATE") {
+                    p.expect(Punct::LParen)?;
+                    if p.eat_keyword("BONFER") {
+                        d.cinterval.bonferroni = true;
+                    } else if p.eat_keyword("SCHEFFE") {
+                        d.cinterval.bonferroni = false;
+                    } else {
+                        return Err(p.unexpected(&["SCHEFFE", "BONFER"]));
+                    }
+                    p.expect(Punct::RParen)?;
+                } else if p.at_keyword("MULTIVARIATE") {
+                    return Err(SyntaxError::new(
+                        p.span(),
+                        "CINTERVAL MULTIVARIATE of MANOVA is not supported yet; INDIVIDUAL, JOINT and UNIVARIATE are",
+                    ));
+                } else {
+                    return Err(p.unexpected(&["INDIVIDUAL", "JOINT", "UNIVARIATE"]));
+                }
+                p.eat(Punct::Comma);
+            }
+        } else if p.eat_keyword("RESIDUALS") {
+            p.eat(Punct::Eq);
+            while !at_end(p) {
+                if p.at_keyword("PLOT") {
+                    return Err(SyntaxError::new(
+                        p.span(),
+                        "RESIDUALS PLOT of MANOVA is not supported yet; CASEWISE is",
+                    ));
+                }
+                if !p.eat_keyword("CASEWISE") {
+                    return Err(p.unexpected(&["CASEWISE"]));
+                }
+                p.eat(Punct::Comma);
+            }
+            d.residuals = true;
+        } else if p.eat_keyword("DESIGN") {
             p.eat(Punct::Eq);
             let terms = design_terms(p)?;
             d.terms = (!terms.is_empty()).then_some(terms);
@@ -624,13 +884,25 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("PMEANS") {
             p.eat(Punct::Eq);
-            if !at_end(p) {
-                return Err(SyntaxError::new(
-                    p.span(),
-                    "PMEANS takes no keywords yet: VARIABLES, TABLES and PLOT are not supported",
-                ));
+            let mut o = ManovaPmeans::default();
+            while !at_end(p) {
+                if p.eat_keyword("VARIABLES") {
+                    p.expect(Punct::LParen)?;
+                    o.variables = Some(list_until(p, &[])?);
+                    p.expect(Punct::RParen)?;
+                } else if p.eat_keyword("TABLES") {
+                    o.tables.extend(means_tables(p)?);
+                } else if p.at_keyword("PLOT") {
+                    return Err(SyntaxError::new(
+                        p.span(),
+                        "PMEANS PLOT of MANOVA is not supported yet; VARIABLES and TABLES are",
+                    ));
+                } else {
+                    return Err(p.unexpected(&["VARIABLES", "TABLES"]));
+                }
+                p.eat(Punct::Comma);
             }
-            d.pmeans = true;
+            d.pmeans = Some(o);
         } else if p.eat_keyword("ANALYSIS") {
             p.eat(Punct::Eq);
             if p.at(Punct::LParen) {
@@ -659,14 +931,7 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
                 p.eat(Punct::Comma);
             }
         } else {
-            let mut error = p.subcommand_error("MANOVA", &KNOWN);
-            if p.at_keyword("WSFACTORS") || p.at_keyword("WSDESIGN") || p.at_keyword("MEASURE") {
-                error.message = format!(
-                    "{} (repeated measures in MANOVA) is not supported yet; GLM with WSFACTOR runs repeated measures",
-                    word(p)
-                );
-            }
-            return Err(error);
+            return Err(p.subcommand_error("MANOVA", &KNOWN));
         }
         if !last_design && !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));
@@ -739,11 +1004,58 @@ mod tests {
     fn partitions_and_unsupported_parts() {
         let m = manova("MANOVA y BY t(1,12) /PARTITION(t)=(3*2,4) /DESIGN t(2).");
         assert_eq!(m.designs[0].partitions[0].1, vec![2, 2, 2, 4]);
-        assert!(error("MANOVA y BY t(1,3) /WSFACTORS=w(2).").contains("not supported yet"));
+        assert!(error("MANOVA y BY t(1,3) /POWER.").contains("not supported yet"));
         assert!(
-            error("MANOVA y BY t(1,3) /PRINT=PARAMETERS(ORTHO).").contains("not supported yet")
+            error("MANOVA y BY t(1,3) /PRINT=PARAMETERS(OPTIMAL).").contains("not supported yet")
         );
+        assert!(error("MANOVA y BY t(1,3) /PRINT=DESIGN(BIAS).").contains("not supported yet"));
+        assert!(error("MANOVA y1 y2 /DESIGN /WSFACTORS=w(2).").contains("first subcommand"));
+        assert!(error("MANOVA y1 y2 /WSFACTORS=w(2) /WSDESIGN=CONSTANT.").contains("WSDESIGN"));
         assert!(error("MANOVA y BY t(3,1).").contains("minimum first"));
         assert!(error("MANOVA y BY t(1,3) /DESIGN t = 11.").contains("1 to 10"));
+    }
+
+    #[test]
+    fn repeated_measures_and_transformations() {
+        let m = manova(
+            "MANOVA a1 a2 a3 b1 b2 b3 BY g(1,2) WITH x1 x2 x3 (z) /WSFACTORS=t u(3) v w(2) \
+             /MEASURE=a b /WSDESIGN=t, MWITHIN u(2) /RENAME=* * c * * * * * * * \
+             /PRINT=SIGNIF(AVONLY GG HF EFSIZE SINGLEDF) TRANSFORM PARAM(ORTHO COR) DESIGN(ONEWAY) \
+             /PMEANS=VARIABLES(a1) TABLES(g) /CINTERVAL=JOINT(.9) UNIVARIATE(BONFER) /RESIDUALS \
+             /TRANSFORM(a1 a2/b1 b2)=ORTHONORM BASIS SPECIAL(1 1 1 -1) /DESIGN=MWITHIN g(1).",
+        );
+        assert_eq!(m.covariates.len(), 3);
+        assert_eq!(m.constant_covariates, vec![VarItem::Name("z".into())]);
+        assert_eq!(
+            m.wsfactors,
+            vec![
+                ("t".to_string(), 3),
+                ("u".to_string(), 3),
+                ("v".to_string(), 2),
+                ("w".to_string(), 2)
+            ]
+        );
+        assert_eq!(m.measures, vec!["a".to_string(), "b".to_string()]);
+        let d = &m.designs[0];
+        let ws = d.wsdesign.as_ref().unwrap();
+        assert_eq!(ws[1].label, "MWITHIN U(2)");
+        assert_eq!(d.rename.as_ref().unwrap()[2], Some("c".into()));
+        let pr = d.print;
+        assert!(pr.avonly && pr.averf && pr.gg && pr.hf && pr.efsize && pr.singledf);
+        assert!(pr.transform && pr.ortho && pr.param_cor && pr.oneway && !pr.overall);
+        assert!(!pr.parameters && !pr.univ && pr.multiv);
+        assert_eq!(d.cinterval.level, 0.9);
+        assert!(d.cinterval.joint && d.cinterval.bonferroni && d.residuals);
+        let t = d.transform.as_ref().unwrap();
+        assert_eq!(t.lists.len(), 2);
+        assert!(t.basis && t.orthonorm);
+        assert_eq!(
+            d.pmeans.as_ref().unwrap().tables,
+            vec![vec!["g".to_string()]]
+        );
+        let term = &d.terms.as_ref().unwrap()[0];
+        assert!(term.effects[0].crossed.is_empty() && !term.effects[0].is_constant());
+        assert!(error("MANOVA y /PMEANS PLOT.").contains("not supported yet"));
+        assert!(error("MANOVA y /CINTERVAL MULTIVARIATE(ROY).").contains("not supported yet"));
     }
 }

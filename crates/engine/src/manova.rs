@@ -27,7 +27,7 @@
 //!   and Roy's largest root as lambda / (1 + lambda) without an F.
 
 use crate::descriptives::{case_weights, number};
-use crate::dist::{f_p, t_p, t_quantile};
+use crate::dist::{f_p, f_quantile, t_p, t_quantile};
 use crate::glm::{Data, box_m_stats, multivariate, relative_eigenvalues, sweep_in_order};
 use crate::matrix::{Matrix, inverse};
 use crate::npar_tests::text;
@@ -35,7 +35,8 @@ use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::Values;
 use statscraft_syntax::{
-    Contrast, Manova, ManovaDesign, ManovaEffect, ManovaError, ManovaItem, VarItem,
+    Contrast, Manova, ManovaDesign, ManovaEffect, ManovaError, ManovaInterval, ManovaItem,
+    ManovaPrint, ManovaTransform, VarItem,
 };
 
 const EPS: f64 = 1e-8;
@@ -48,6 +49,8 @@ struct Factor {
 }
 
 struct Case {
+    /// The case number in the data, from 0.
+    index: usize,
     levels: Vec<usize>,
     cell: usize,
     /// The continuous variables, dependents then covariates.
@@ -203,6 +206,142 @@ impl Test {
     }
 }
 
+/// The continuous variables a design analyzes: each a combination of the original ones.
+struct Space {
+    names: Vec<String>,
+    /// One row per variable: its coefficients on the original variables.
+    rows: Matrix,
+    ndeps: usize,
+}
+
+impl Space {
+    fn identity(cont: &[String], ndeps: usize) -> Space {
+        let k = cont.len();
+        Space {
+            names: cont.to_vec(),
+            rows: (0..k).map(|i| unit(k, i)).collect(),
+            ndeps,
+        }
+    }
+
+    fn rename(&mut self, d: &ManovaDesign) -> Result<(), Error> {
+        let Some(new) = &d.rename else {
+            return Ok(());
+        };
+        if new.len() != self.names.len() {
+            return Err(err(format!(
+                "RENAME gives {} names for {} continuous variables",
+                new.len(),
+                self.names.len()
+            )));
+        }
+        for (name, n) in self.names.iter_mut().zip(new) {
+            if let Some(n) = n {
+                name.clone_from(n);
+            }
+        }
+        for (i, n) in self.names.iter().enumerate() {
+            if find(&self.names[..i], n).is_some() {
+                return Err(err(format!("RENAME gives the name {n} twice")));
+            }
+        }
+        Ok(())
+    }
+
+    fn apply(&self, cases: &[Case]) -> Vec<Case> {
+        cases
+            .iter()
+            .map(|c| Case {
+                v: self
+                    .rows
+                    .iter()
+                    .map(|r| r.iter().zip(&c.v).map(|(a, b)| a * b).sum())
+                    .collect(),
+                levels: c.levels.clone(),
+                ..*c
+            })
+            .collect()
+    }
+
+    /// The transposed transformation matrix: original variables down, new ones across.
+    fn table(&self, cont: &[String], caption: &str) -> Table {
+        let mut columns = plain(&[""]);
+        columns.extend(self.names.iter().map(|n| (String::new(), n.clone())));
+        let rows = cont
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let mut row = vec![text(n.clone())];
+                row.extend(self.rows.iter().map(|r| number(Some(r[i]))));
+                row
+            })
+            .collect();
+        table(
+            "Transformation Matrix",
+            1,
+            columns,
+            rows,
+            (!caption.is_empty()).then(|| caption.to_string()),
+        )
+    }
+}
+
+fn unit(k: usize, i: usize) -> Vec<f64> {
+    (0..k).map(|j| f64::from(u8::from(i == j))).collect()
+}
+
+/// Gram-Schmidt on the rows, in order, leaving out a row that the earlier ones span.
+fn orthonormal_rows(m: &Matrix) -> Matrix {
+    let mut out: Matrix = Vec::new();
+    for row in m {
+        let norm0 = row.iter().map(|x| x * x).sum::<f64>().sqrt();
+        let mut v = row.clone();
+        for q in &out {
+            let dot: f64 = v.iter().zip(q).map(|(a, b)| a * b).sum();
+            v.iter_mut().zip(q).for_each(|(a, b)| *a -= dot * b);
+        }
+        let norm = v.iter().map(|x| x * x).sum::<f64>().sqrt();
+        if norm > 1e-10 * norm0.max(f64::MIN_POSITIVE) {
+            out.push(v.iter().map(|x| x / norm).collect());
+        }
+    }
+    out
+}
+
+/// The rows of a TRANSFORM matrix for k variables: the mean and the contrasts (SPECIAL: the
+/// matrix itself), BASIS taking the transposed inverse, ORTHONORM orthonormalizing the rows.
+fn transform_matrix(t: &ManovaTransform, k: usize) -> Result<Matrix, String> {
+    let c: Matrix = match &t.kind {
+        Contrast::Special(v) if v.len() == k * k => v.chunks(k).map(<[f64]>::to_vec).collect(),
+        Contrast::Special(v) => {
+            return Err(format!(
+                "SPECIAL has {} values; {k} variables need a square matrix of {}",
+                v.len(),
+                k * k
+            ));
+        }
+        kind => {
+            let mut c = vec![vec![1.0 / k as f64; k]];
+            c.extend(
+                crate::contrast::contrast_rows(kind, k)?
+                    .into_iter()
+                    .map(|(_, r)| r),
+            );
+            c
+        }
+    };
+    let m = if t.basis {
+        let (inv, det) = inverse(&c).ok_or("the matrix is singular, so BASIS has no inverse")?;
+        if det.abs() <= 1e-12 {
+            return Err("the matrix is singular, so BASIS has no inverse".into());
+        }
+        crate::matrix::transpose(&inv)
+    } else {
+        c
+    };
+    Ok(if t.orthonorm { orthonormal_rows(&m) } else { m })
+}
+
 /// Rao's F for Wilks' lambda with p variables and q hypothesis df: (F, df1, df2).
 fn rao(lambda: f64, p: f64, q: f64, ne: f64) -> (f64, f64, f64) {
     let t = if p * p + q * q - 5.0 > 0.0 {
@@ -220,7 +359,11 @@ impl Engine {
     pub(crate) fn manova(&mut self, c: &Manova) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let deps = self.expand(&c.dependents)?;
-        let covs = self.expand(&c.covariates)?;
+        let mut covs = self.expand(&c.covariates)?;
+        let nvary = covs.len();
+        if !c.constant_covariates.is_empty() {
+            covs.extend(self.expand(&c.constant_covariates)?);
+        }
         let mut factors = Vec::new();
         for g in &c.factors {
             for name in self.expand(&g.names)? {
@@ -295,6 +438,7 @@ impl Engine {
             }
             values.truncate(cont.len());
             cases.push(Case {
+                index: k,
                 levels,
                 cell,
                 v: values,
@@ -343,27 +487,61 @@ impl Engine {
             } else {
                 String::new()
             };
-            tables.extend(self.manova_design(&setup, d, deps.len(), &caption)?);
+            if c.wsfactors.is_empty() {
+                tables.extend(self.transformed_design(&setup, d, deps.len(), &caption)?);
+            } else {
+                tables.extend(self.repeated_design(&setup, c, d, deps.len(), nvary, &caption)?);
+            }
         }
         Ok(tables)
     }
 
-    fn manova_design(
+    /// Every factor CONTRAST names must be one of `factors`.
+    fn check_contrasts(d: &ManovaDesign, factors: &[&str]) -> Result<(), Error> {
+        for (name, _) in &d.contrasts {
+            if !factors.iter().any(|f| f.eq_ignore_ascii_case(name)) {
+                return Err(err(format!("CONTRAST names {name}, which is not a factor")));
+            }
+        }
+        Ok(())
+    }
+
+    /// A design on the continuous variables after TRANSFORM and RENAME.
+    fn transformed_design(
         &self,
         s: &Setup,
         d: &ManovaDesign,
         ndeps: usize,
         caption: &str,
     ) -> Result<Vec<Table>, Error> {
-        // the continuous variables of this analysis: dependents, then covariates
-        let (dv, cv): (Vec<usize>, Vec<usize>) = match &d.analysis {
-            None => ((0..ndeps).collect(), (ndeps..s.cont.len()).collect()),
+        let factors: Vec<&str> = s.factors.iter().map(|f| f.name.as_str()).collect();
+        Self::check_contrasts(d, &factors)?;
+        let mut space = Space::identity(s.cont, ndeps);
+        if let Some(t) = &d.transform {
+            space = self.transform_space(s.cont, t, ndeps)?;
+        }
+        space.rename(d)?;
+        let mut out = Vec::new();
+        if d.print.transform && d.transform.is_some() {
+            out.push(space.table(s.cont, caption));
+        }
+        let cases = space.apply(s.cases);
+        let s2 = Setup {
+            cont: &space.names,
+            cases: &cases,
+            ..*s
+        };
+        let (dv, cv) = match &d.analysis {
+            None => (
+                (0..space.ndeps).collect(),
+                (space.ndeps..space.names.len()).collect(),
+            ),
             Some((a, b)) => {
                 let pick = |items: &[VarItem]| -> Result<Vec<usize>, Error> {
-                    self.expand(items)?
+                    self.expand_among(items, &space.names)?
                         .iter()
                         .map(|n| {
-                            find(s.cont, n).ok_or_else(|| {
+                            find(&space.names, n).ok_or_else(|| {
                                 err(format!(
                                     "ANALYSIS names {n}, which is not a dependent variable or covariate of MANOVA"
                                 ))
@@ -374,7 +552,327 @@ impl Engine {
                 (pick(a)?, pick(b)?)
             }
         };
-        let used: Vec<usize> = dv.iter().chain(&cv).copied().collect();
+        out.extend(self.manova_design(&s2, d, &dv, &cv, None, caption)?);
+        Ok(out)
+    }
+
+    /// Names of a variable list, with TO ranges taken over `names` when they are not in the
+    /// data (transformed or renamed variables).
+    fn expand_among(&self, items: &[VarItem], names: &[String]) -> Result<Vec<String>, Error> {
+        let mut out = Vec::new();
+        for item in items {
+            match item {
+                VarItem::Name(n) => out.push(n.clone()),
+                VarItem::Range(a, b) => match (find(names, a), find(names, b)) {
+                    (Some(i), Some(j)) if i <= j => out.extend(names[i..=j].iter().cloned()),
+                    _ => out.extend(self.expand(std::slice::from_ref(item))?),
+                },
+                VarItem::All => out.extend(names.iter().cloned()),
+            }
+        }
+        Ok(out)
+    }
+
+    /// A repeated measures design: the between-subjects analysis of the constant of the
+    /// orthonormal within-subjects transformation, then one analysis for each within-subjects
+    /// effect of its transformed variables (the constant of that analysis is the effect).
+    fn repeated_design(
+        &self,
+        s: &Setup,
+        c: &Manova,
+        d: &ManovaDesign,
+        ndeps: usize,
+        nvary: usize,
+        caption: &str,
+    ) -> Result<Vec<Table>, Error> {
+        if d.transform.is_some() {
+            return Err(err(
+                "TRANSFORM cannot be used with WSFACTORS, which transforms the dependents itself",
+            ));
+        }
+        if d.analysis.is_some() {
+            return Err(err("ANALYSIS with WSFACTORS is not supported yet"));
+        }
+        let wsf: Vec<Factor> = c
+            .wsfactors
+            .iter()
+            .map(|(name, k)| Factor {
+                name: name.clone(),
+                min: 1.0,
+                k: *k,
+            })
+            .collect();
+        for (i, f) in wsf.iter().enumerate() {
+            let clash = find(s.cont, &f.name).is_some()
+                || s.factors
+                    .iter()
+                    .any(|g| g.name.eq_ignore_ascii_case(&f.name))
+                || wsf[..i]
+                    .iter()
+                    .any(|g| g.name.eq_ignore_ascii_case(&f.name));
+            if clash {
+                return Err(err(format!(
+                    "the within-subjects factor {} has the name of another factor or variable",
+                    f.name
+                )));
+            }
+        }
+        let factors: Vec<&str> = s
+            .factors
+            .iter()
+            .chain(&wsf)
+            .map(|f| f.name.as_str())
+            .collect();
+        Self::check_contrasts(d, &factors)?;
+        let r: usize = wsf.iter().map(|f| f.k).product();
+        if !ndeps.is_multiple_of(r) {
+            return Err(err(format!(
+                "WSFACTORS gives {r} within-subjects cells, which do not divide the {ndeps} dependent variables"
+            )));
+        }
+        let nmeas = ndeps / r;
+        if !c.measures.is_empty() && c.measures.len() != nmeas {
+            return Err(err(format!(
+                "MEASURE names {} measures, but the dependents make {nmeas}",
+                c.measures.len()
+            )));
+        }
+        if !nvary.is_multiple_of(r) {
+            return Err(err(format!(
+                "the {nvary} covariates outside parentheses are not a whole number of sets of the {r} within-subjects cells"
+            )));
+        }
+        let measures: Vec<String> = if c.measures.is_empty() {
+            (1..=nmeas).map(|m| format!("MEAS.{m}")).collect()
+        } else {
+            c.measures.clone()
+        };
+        // each factor's orthonormal basis: column 0 the constant, the others its contrasts
+        let mut bases = Vec::new();
+        for f in &wsf {
+            let kind = d
+                .contrasts
+                .iter()
+                .rev()
+                .find(|(n, _)| n.eq_ignore_ascii_case(&f.name))
+                .map_or(Contrast::Polynomial(None), |(_, k)| k.clone());
+            let mut rows = vec![vec![1.0; f.k]];
+            rows.extend(
+                crate::contrast::contrast_rows(&kind, f.k)
+                    .map_err(|e| err(format!("CONTRAST({}): {e}", f.name)))?
+                    .into_iter()
+                    .map(|(_, r)| r),
+            );
+            let q = orthonormal_rows(&rows);
+            if q.len() < f.k {
+                return Err(err(format!(
+                    "CONTRAST({}): the contrasts are linearly dependent",
+                    f.name
+                )));
+            }
+            bases.push(crate::matrix::transpose(&q));
+        }
+        let full = crate::glm::kronecker(&bases);
+        // the transformed variables: each measure and each varying covariate set by `full`
+        let sets = nmeas + nvary / r;
+        let k = s.cont.len();
+        let mut space = Space {
+            names: Vec::new(),
+            rows: Vec::new(),
+            ndeps,
+        };
+        for set in 0..sets {
+            for j in 0..r {
+                let mut row = vec![0.0; k];
+                for (i, f) in full.iter().enumerate() {
+                    row[set * r + i] = f[j];
+                }
+                space.rows.push(row);
+                space.names.push(format!("T{}", set * r + j + 1));
+            }
+        }
+        for v in sets * r..k {
+            space.rows.push(unit(k, v));
+            space.names.push(s.cont[v].clone());
+        }
+        space.rename(d)?;
+        let mut out = Vec::new();
+        if d.print.transform {
+            out.push(space.table(s.cont, caption));
+        }
+        let terms = match &d.wsdesign {
+            Some(t) => t.clone(),
+            None => full_factorial(&wsf),
+        };
+        let mut analyses: Vec<(Option<String>, Matrix)> =
+            vec![(None, vec![full.iter().map(|row| row[0]).collect()])];
+        for t in &terms {
+            let mut cols = Vec::new();
+            for e in &t.effects {
+                cols.extend(within_columns(e, &wsf, &bases, d)?);
+            }
+            analyses.push((Some(t.label.clone()), cols));
+        }
+        for (label, cols) in analyses {
+            // the name of a column: the transformed variable it equals, else the effect's own
+            let name = |set: usize, ci: usize, col: &[f64]| -> String {
+                let at = (0..r).find(|&j| {
+                    (full
+                        .iter()
+                        .zip(col)
+                        .map(|(f, x)| f[j] * x)
+                        .sum::<f64>()
+                        .abs()
+                        - 1.0)
+                        .abs()
+                        < 1e-9
+                });
+                if let Some(j) = at {
+                    return space.names[set * r + j].clone();
+                }
+                let own = format!("{} {}", label.as_deref().unwrap_or("T"), ci + 1);
+                if set >= nmeas {
+                    format!("{} {own}", s.cont[set * r])
+                } else if nmeas > 1 {
+                    format!("{} {own}", measures[set])
+                } else {
+                    own
+                }
+            };
+            let mut names = Vec::new();
+            for set in 0..sets {
+                for (ci, col) in cols.iter().enumerate() {
+                    names.push(name(set, ci, col));
+                }
+            }
+            names.extend(space.names[sets * r..].iter().cloned());
+            let cases: Vec<Case> = s
+                .cases
+                .iter()
+                .map(|case| {
+                    let mut v = Vec::with_capacity(names.len());
+                    for set in 0..sets {
+                        for col in &cols {
+                            v.push(col.iter().zip(&case.v[set * r..]).map(|(a, b)| a * b).sum());
+                        }
+                    }
+                    v.extend_from_slice(&case.v[sets * r..]);
+                    Case {
+                        v,
+                        levels: case.levels.clone(),
+                        ..*case
+                    }
+                })
+                .collect();
+            let s2 = Setup {
+                cont: &names,
+                cases: &cases,
+                ..*s
+            };
+            let p = nmeas * cols.len();
+            let dv: Vec<usize> = (0..p).collect();
+            let cv: Vec<usize> = (p..names.len()).collect();
+            let what = match &label {
+                None => "Between-subjects effects".to_string(),
+                Some(l) => format!("Within-subjects effect {l}"),
+            };
+            let cap = if caption.is_empty() {
+                what
+            } else {
+                format!("{what}; {caption}")
+            };
+            let within = label.map(|label| Within {
+                label,
+                per: cols.len(),
+                measures: measures.clone(),
+            });
+            out.extend(self.manova_design(&s2, d, &dv, &cv, within.as_ref(), &cap)?);
+        }
+        Ok(out)
+    }
+
+    /// The variables TRANSFORM makes: each list transformed by the same matrix, the others kept.
+    fn transform_space(
+        &self,
+        cont: &[String],
+        t: &ManovaTransform,
+        ndeps: usize,
+    ) -> Result<Space, Error> {
+        let groups: Vec<Vec<usize>> = if t.lists.is_empty() {
+            vec![(0..cont.len()).collect()]
+        } else {
+            let mut groups = Vec::new();
+            for list in &t.lists {
+                let g: Vec<usize> = self
+                    .expand_among(list, cont)?
+                    .iter()
+                    .map(|n| {
+                        find(cont, n).ok_or_else(|| {
+                            err(format!(
+                                "TRANSFORM names {n}, which is not a dependent variable or covariate of MANOVA"
+                            ))
+                        })
+                    })
+                    .collect::<Result<_, _>>()?;
+                groups.push(g);
+            }
+            groups
+        };
+        let k = groups[0].len();
+        if groups.iter().any(|g| g.len() != k) {
+            return Err(err(
+                "the lists of TRANSFORM must have the same number of variables",
+            ));
+        }
+        let mut slot: Vec<Option<(usize, usize)>> = vec![None; cont.len()];
+        for (g, list) in groups.iter().enumerate() {
+            for (j, &v) in list.iter().enumerate() {
+                if slot[v].replace((g, j)).is_some() {
+                    return Err(err(format!("TRANSFORM names {} twice", cont[v])));
+                }
+            }
+        }
+        let m = transform_matrix(t, k).map_err(|e| err(format!("TRANSFORM: {e}")))?;
+        let mut space = Space {
+            names: Vec::new(),
+            rows: Vec::new(),
+            ndeps: 0,
+        };
+        let mut counter = 0;
+        for v in 0..cont.len() {
+            let mut row = vec![0.0; cont.len()];
+            match slot[v] {
+                None => {
+                    row[v] = 1.0;
+                    space.names.push(cont[v].clone());
+                }
+                Some((g, j)) if j < m.len() => {
+                    for (i, &u) in groups[g].iter().enumerate() {
+                        row[u] = m[j][i];
+                    }
+                    counter += 1;
+                    space.names.push(format!("T{counter}"));
+                }
+                Some(_) => continue,
+            }
+            space.rows.push(row);
+            if v < ndeps {
+                space.ndeps += 1;
+            }
+        }
+        Ok(space)
+    }
+
+    fn manova_design(
+        &self,
+        s: &Setup,
+        d: &ManovaDesign,
+        dv: &[usize],
+        cv: &[usize],
+        within: Option<&Within>,
+        caption: &str,
+    ) -> Result<Vec<Table>, Error> {
+        let used: Vec<usize> = dv.iter().chain(cv).copied().collect();
         let (p, q) = (dv.len(), cv.len());
         let mut x: Vec<Vec<f64>> = Vec::new();
         let mut terms: Vec<Term> = Vec::new();
@@ -400,16 +898,6 @@ impl Engine {
                 basis(&kind, f.k).map_err(|e| err(format!("CONTRAST({}): {e}", f.name)))
             })
             .collect::<Result<_, _>>()?;
-        for (name, _) in &d.contrasts {
-            if find(
-                &s.factors.iter().map(|f| f.name.clone()).collect::<Vec<_>>(),
-                name,
-            )
-            .is_none()
-            {
-                return Err(err(format!("CONTRAST names {name}, which is not a factor")));
-            }
-        }
         let constant = |case: &Case| -> f64 {
             bases
                 .iter()
@@ -423,7 +911,7 @@ impl Engine {
         };
         let explicit_constant = written
             .iter()
-            .any(|t| t.muplus || t.effects.iter().any(|e| e.crossed.is_empty()));
+            .any(|t| t.muplus || t.effects.iter().any(ManovaEffect::is_constant));
         if d.constant && !explicit_constant {
             let col = s.cases.iter().map(constant).collect();
             let t = Term {
@@ -451,7 +939,7 @@ impl Engine {
             } else {
                 t.label.clone()
             };
-            let is_constant = !t.muplus && t.effects.iter().all(|e| e.crossed.is_empty());
+            let is_constant = !t.muplus && t.effects.iter().all(ManovaEffect::is_constant);
             push(
                 &mut x,
                 &mut terms,
@@ -465,6 +953,17 @@ impl Engine {
                     constant: is_constant,
                 },
             );
+        }
+        // in a within-subjects analysis the constant is the within-subjects effect
+        if let Some(w) = within {
+            for t in &mut terms {
+                if t.constant {
+                    t.label.clone_from(&w.label);
+                    t.shown = true;
+                } else {
+                    t.label = format!("{} BY {}", t.label, w.label);
+                }
+            }
         }
         // Z'WZ over the design columns, the dependents and the covariates
         let nx = x.len();
@@ -572,24 +1071,59 @@ impl Engine {
             }
             parts.join("; ")
         };
-        // every shown term with its test (None when its error term does not exist)
-        let mut tests: Vec<(usize, ManovaError, Option<Test>)> = Vec::new();
+        // every shown term with its test (None when its error term does not exist), and with
+        // SINGLEDF one test for each of its degrees of freedom, orthogonal within the term
+        let mut tests: Vec<Row> = Vec::new();
         for (i, t) in terms.iter().enumerate() {
             if !t.shown {
                 continue;
             }
             let e = t.against.unwrap_or(default);
-            let test = match error_of(e)? {
-                Some((se, dfe))
-                    if t.define.is_none() || e != ManovaError::Number(t.define.unwrap_or(0)) =>
-                {
-                    Some(Test::new(&hyp[i].0, hyp[i].1, &se, dfe, p))
+            let error = error_of(e)?
+                .filter(|_| t.define.is_none() || e != ManovaError::Number(t.define.unwrap_or(0)));
+            tests.push(Row {
+                term: i,
+                label: t.label.clone(),
+                error: e,
+                test: error
+                    .as_ref()
+                    .map(|(se, dfe)| Test::new(&hyp[i].0, hyp[i].1, se, *dfe, p)),
+                single: false,
+            });
+            if let (true, Some((se, dfe)), true) = (d.print.singledf, &error, t.cols.len() > 1) {
+                let mut order: Vec<usize> = if d.sequential {
+                    terms[..i].iter().flat_map(|t| t.cols.clone()).collect()
+                } else {
+                    all.iter()
+                        .filter(|c| !t.cols.contains(c))
+                        .copied()
+                        .collect()
+                };
+                let (mut s0, mut r0) = after(&order);
+                let mut j = 0;
+                for c in t.cols.clone() {
+                    order.push(c);
+                    let (s1, r1) = after(&order);
+                    if r1 > r0 {
+                        j += 1;
+                        tests.push(Row {
+                            term: i,
+                            label: format!("{} ({j})", t.label),
+                            error: e,
+                            test: Some(Test::new(&sub(&s0, &s1), 1.0, se, *dfe, p)),
+                            single: true,
+                        });
+                    }
+                    (s0, r0) = (s1, r1);
                 }
-                _ => None,
-            };
-            tests.push((i, e, test));
+            }
         }
         let default_error = error_of(default)?;
+        // the default error after the covariates, with its df
+        let adjusted = default_error.as_ref().map(|(se, dfe)| {
+            let (ea, qq) = adjust(se, p);
+            (ea, dfe - qq as f64)
+        });
         let regression = default_error.as_ref().filter(|_| q > 0).map(|(se, dfe)| {
             let (ea, qq) = adjust(se, p);
             Test {
@@ -599,8 +1133,9 @@ impl Engine {
                 dfe: dfe - qq as f64,
             }
         });
+        let pr = &d.print;
         let mut out = Vec::new();
-        let label = |i: usize| terms[i].label.clone();
+        let averaged = within.filter(|w| w.per > 1);
         if p == 1 {
             out.push(self.univariate_table(
                 &terms,
@@ -609,28 +1144,39 @@ impl Engine {
                 default,
                 &zwz,
                 nx,
-                &x,
                 &s_wr,
                 rank,
                 s.n,
+                pr.efsize,
                 &cap(&format!("{} using {method} sums of squares", names[0])),
             ));
-        } else {
+        } else if !(averaged.is_some() && pr.avonly) {
             let mut groups: Vec<(String, &Test)> = Vec::new();
             if let Some(r) = &regression {
                 groups.push((format!("{} Regression", error_name(default)), r));
             }
-            for (i, e, t) in &tests {
-                if let Some(t) = t {
-                    let suffix = if *e == default {
+            for row in &tests {
+                if let Some(t) = &row.test {
+                    let suffix = if row.error == default {
                         String::new()
                     } else {
-                        format!(" (vs {})", error_name(*e))
+                        format!(" (vs {})", error_name(row.error))
                     };
-                    groups.push((format!("{}{suffix}", label(*i)), t));
+                    groups.push((format!("{}{suffix}", row.label), t));
                 }
             }
-            out.extend(multivariate_tables(&groups, &names, &d.print, &cap(method)));
+            out.extend(multivariate_tables(&groups, &names, pr, &cap(method)));
+        }
+        if let Some(w) = averaged {
+            out.extend(averaged_tables(
+                w,
+                &tests,
+                adjusted.as_ref(),
+                default,
+                s.n,
+                pr,
+                &cap(method),
+            ));
         }
         if let (Some((se, dfe)), true) = (&default_error, q > 0) {
             let covs: Vec<String> = cv.iter().map(|&j| s.cont[j].clone()).collect();
@@ -639,16 +1185,19 @@ impl Engine {
                 *dfe,
                 &names,
                 &covs,
+                &d.cinterval,
+                pr.efsize,
                 &cap(&error_name(default)),
             ));
         }
-        if let Some((se, dfe)) = &default_error {
-            let (ea, qq) = adjust(se, p);
-            let dfe = dfe - qq as f64;
-            let pr = &d.print;
+        if pr.overall || pr.oneway {
+            out.extend(design_tables(s, &x, &bases, pr, continuous, &cap(method))?);
+        }
+        if let Some((ea, dfe)) = &adjusted {
+            let dfe = *dfe;
             let what = cap(&error_name(default));
             if pr.error_sscp {
-                out.push(matrix_table("Error SSCP Matrix", &names, &ea, what.clone()));
+                out.push(matrix_table("Error SSCP Matrix", &names, ea, what.clone()));
             }
             let cov: Matrix = ea
                 .iter()
@@ -663,23 +1212,10 @@ impl Engine {
                 ));
             }
             if pr.error_cor {
-                let cor: Matrix = (0..p)
-                    .map(|i| {
-                        (0..p)
-                            .map(|j| {
-                                if i == j {
-                                    cov[i][i].sqrt()
-                                } else {
-                                    cov[i][j] / (cov[i][i] * cov[j][j]).sqrt()
-                                }
-                            })
-                            .collect()
-                    })
-                    .collect();
                 out.push(matrix_table(
                     "Error Correlation Matrix",
                     &names,
-                    &cor,
+                    &correlations(&cov),
                     format!("{what}; standard deviations on the diagonal"),
                 ));
             }
@@ -696,36 +1232,74 @@ impl Engine {
                     Some(what),
                 ));
             }
-            if d.print.parameters || d.pmeans {
-                let (full, swept) =
-                    sweep_in_order(&zwz, &(0..nx).chain(nx + p..dim).collect::<Vec<_>>(), EPS);
-                if d.print.parameters {
+            if pr.parameters || pr.param_cor || d.pmeans.is_some() || d.residuals {
+                let order: Vec<usize> = (0..nx).chain(nx + p..dim).collect();
+                let (full, swept) = sweep_in_order(&zwz, &order, EPS);
+                if pr.parameters {
                     out.push(parameters(
                         &terms,
                         &tests,
-                        (&ea, dfe),
+                        (ea, dfe),
                         &full,
                         &swept,
                         nx,
                         &names,
-                        d.print.negsum,
+                        d,
                         &cap(method),
                     ));
                 }
-                if d.pmeans {
+                if pr.param_cor {
+                    out.extend(parameter_correlations(
+                        &zwz,
+                        &order,
+                        &swept,
+                        nx,
+                        &cap(method),
+                    ));
+                }
+                if let Some(pm) = &d.pmeans {
                     if continuous {
                         return Err(err(
                             "PMEANS is not available when DESIGN names a continuous variable",
                         ));
                     }
-                    let (design_only, _) = sweep_in_order(&zwz, &all, EPS);
-                    out.push(predicted_means(
+                    let keep: Vec<usize> = match &pm.variables {
+                        None => (0..p).collect(),
+                        Some(items) => self
+                            .expand_among(items, &names)?
+                            .iter()
+                            .map(|n| {
+                                find(&names, n).ok_or_else(|| {
+                                    err(format!(
+                                        "PMEANS VARIABLES names {n}, which is not a dependent variable of the analysis"
+                                    ))
+                                })
+                            })
+                            .collect::<Result<_, _>>()?,
+                    };
+                    let (design_only, design_swept) = sweep_in_order(&zwz, &all, EPS);
+                    out.extend(predicted_means(
                         s,
                         &x,
-                        &full,
-                        &design_only,
+                        (&full, &swept),
+                        (&design_only, &design_swept),
                         nx,
-                        &dv,
+                        dv,
+                        &names,
+                        &keep,
+                        &pm.tables,
+                        &cov,
+                        &cap(&error_name(default)),
+                    )?);
+                }
+                if d.residuals {
+                    out.push(casewise(
+                        s,
+                        &x,
+                        (&full, &swept),
+                        (nx, p),
+                        dv,
+                        cv,
                         &names,
                         &cov,
                         &cap(&error_name(default)),
@@ -733,14 +1307,17 @@ impl Engine {
                 }
             }
         }
-        if d.print.hypoth && p > 1 {
-            for (i, _, t) in &tests {
-                if let Some(t) = t {
+        if pr.ortho {
+            out.push(orthogonal_estimates(&terms, &zwz, nx, &names, &cap(method)));
+        }
+        if pr.hypoth && p > 1 {
+            for row in tests.iter().filter(|r| !r.single) {
+                if let Some(t) = &row.test {
                     out.push(matrix_table(
                         "Hypothesis SSCP Matrix",
                         &names,
                         &t.h,
-                        cap(&label(*i)),
+                        cap(&row.label),
                     ));
                 }
             }
@@ -888,42 +1465,47 @@ impl Engine {
     fn univariate_table(
         &self,
         terms: &[Term],
-        tests: &[(usize, ManovaError, Option<Test>)],
+        tests: &[Row],
         regression: &Option<Test>,
         default: ManovaError,
         zwz: &Matrix,
         nx: usize,
-        _x: &[Vec<f64>],
         s_wr: &Matrix,
         rank: usize,
         n: f64,
+        efsize: bool,
         caption: &str,
     ) -> Table {
         let mut rows = Vec::new();
-        let row = |name: String, ss: f64, df: f64, f: Option<(f64, f64)>| -> Vec<Cell> {
-            vec![
+        let row = |name: String, ss: f64, df: f64, t: Option<&Test>| -> Vec<Cell> {
+            let f = t.filter(|t| t.ok()).map(|t| t.univariate(0));
+            let mut r = vec![
                 text(name),
                 number(Some(ss)),
                 number(Some(df)),
                 number((df > 0.0).then(|| ss / df)),
                 number(f.map(|f| f.0)),
                 number(f.map(|f| f.1)),
-            ]
+            ];
+            if efsize {
+                r.push(number(t.map(|t| t.h[0][0] / (t.h[0][0] + t.e[0][0]))));
+            }
+            r
         };
         let mut errors: Vec<ManovaError> = vec![default];
-        for (_, e, _) in tests {
-            if !errors.contains(e) {
-                errors.push(*e);
+        for t in tests {
+            if !errors.contains(&t.error) {
+                errors.push(t.error);
             }
         }
         for e in errors {
-            let group: Vec<_> = tests
+            let group: Vec<&Row> = tests
                 .iter()
-                .filter(|(_, ee, t)| *ee == e && t.is_some())
+                .filter(|t| t.error == e && t.test.is_some())
                 .collect();
             let Some(first) = group
                 .first()
-                .and_then(|g| g.2.as_ref())
+                .and_then(|g| g.test.as_ref())
                 .or(if e == default {
                     regression.as_ref()
                 } else {
@@ -936,32 +1518,20 @@ impl Engine {
             if e == default
                 && let Some(r) = regression
             {
-                rows.push(row(
-                    "REGRESSION".into(),
-                    r.h[0][0],
-                    r.dfh,
-                    r.ok().then(|| r.univariate(0)),
-                ));
+                rows.push(row("REGRESSION".into(), r.h[0][0], r.dfh, Some(r)));
             }
-            for (i, _, t) in group {
-                let t = t.as_ref().expect("a test");
-                rows.push(row(
-                    terms[*i].label.clone(),
-                    t.h[0][0],
-                    t.dfh,
-                    t.ok().then(|| t.univariate(0)),
-                ));
+            for r in group {
+                let t = r.test.as_ref().expect("a test");
+                rows.push(row(r.label.clone(), t.h[0][0], t.dfh, Some(t)));
             }
         }
-        for (i, _, t) in tests {
-            if t.is_none() {
-                rows.push(row(
-                    format!("{} (no error term)", terms[*i].label),
-                    f64::NAN,
-                    f64::NAN,
-                    None,
-                ));
-            }
+        for r in tests.iter().filter(|r| r.test.is_none()) {
+            rows.push(row(
+                format!("{} (no error term)", r.label),
+                f64::NAN,
+                f64::NAN,
+                None,
+            ));
         }
         // (Model) and (Total): the design after the constant, both after the covariates
         let base: Vec<usize> = terms
@@ -981,10 +1551,14 @@ impl Engine {
         rows.push(row("(Total)".into(), total[0][0], df_total, None));
         let r2 = model / total[0][0];
         let adj = 1.0 - (1.0 - r2) * df_total / (n - rank as f64 - q as f64);
+        let mut columns = plain(&["Source of Variation", "SS", "DF", "MS", "F", "Sig of F"]);
+        if efsize {
+            columns.extend(plain(&["Partial Eta Sq."]));
+        }
         let mut t = table(
             "Tests of Significance",
             1,
-            plain(&["Source of Variation", "SS", "DF", "MS", "F", "Sig of F"]),
+            columns,
             rows,
             Some(format!(
                 "{caption}. R-Squared = {r2:.3}, Adjusted R-Squared = {adj:.3}"
@@ -1043,6 +1617,77 @@ fn partition(d: &ManovaDesign, f: &Factor, n: Option<u32>) -> Result<Vec<usize>,
     Ok((start..start + sizes[n - 1]).collect())
 }
 
+/// A within-subjects effect being analyzed: its label, its transformed variables per measure
+/// and the names of the measures.
+struct Within {
+    label: String,
+    per: usize,
+    measures: Vec<String>,
+}
+
+/// The columns of a within-subjects effect over the r cells: a factor it crosses gives its
+/// contrast columns (partition n for f(n)), a factor it is nested in all its columns (or the
+/// unit vector of level n), any other factor its constant column.
+fn within_columns(
+    e: &ManovaEffect,
+    wsf: &[Factor],
+    bases: &[Matrix],
+    d: &ManovaDesign,
+) -> Result<Matrix, Error> {
+    let names: Vec<String> = wsf.iter().map(|f| f.name.clone()).collect();
+    let mut parts: Vec<Option<Matrix>> = vec![None; wsf.len()];
+    let items = e
+        .crossed
+        .iter()
+        .map(|i| (i, false))
+        .chain(e.within.iter().map(|i| (i, true)));
+    for (item, nested) in items {
+        let f = match item.names.as_slice() {
+            [VarItem::Name(n)] if !item.pool => find(&names, n),
+            _ => None,
+        }
+        .ok_or_else(|| {
+            err(format!(
+                "WSDESIGN names {}, which is not a within-subjects factor",
+                statscraft_syntax::manova_effect_label(e)
+            ))
+        })?;
+        let k = wsf[f].k;
+        let chosen: Matrix = if nested {
+            match item.number {
+                Some(l) if l as usize > k => {
+                    return Err(err(format!("{} has {k} levels, not {l}", wsf[f].name)));
+                }
+                Some(l) => vec![unit(k, l as usize - 1)],
+                None => (0..k)
+                    .map(|j| bases[f].iter().map(|r| r[j]).collect())
+                    .collect(),
+            }
+        } else {
+            partition(d, &wsf[f], item.number)?
+                .into_iter()
+                .map(|j| bases[f].iter().map(|r| r[j]).collect())
+                .collect()
+        };
+        if parts[f]
+            .replace(crate::matrix::transpose(&chosen))
+            .is_some()
+        {
+            return Err(err(format!(
+                "the effect {} names {} twice",
+                statscraft_syntax::manova_effect_label(e),
+                wsf[f].name
+            )));
+        }
+    }
+    let parts: Vec<Matrix> = parts
+        .into_iter()
+        .zip(bases)
+        .map(|(p, b)| p.unwrap_or_else(|| b.iter().map(|r| vec![r[0]]).collect()))
+        .collect();
+    Ok(crate::matrix::transpose(&crate::glm::kronecker(&parts)))
+}
+
 /// All main effects and interactions of the factors, lower orders first.
 fn full_factorial(factors: &[Factor]) -> Vec<statscraft_syntax::ManovaTerm> {
     let k = factors.len();
@@ -1074,10 +1719,232 @@ fn full_factorial(factors: &[Factor]) -> Vec<statscraft_syntax::ManovaTerm> {
         .collect()
 }
 
+/// A shown test: its term, label and error, the test (None without an error term) and whether
+/// it is one degree of freedom of a term (SINGLEDF).
+struct Row {
+    term: usize,
+    label: String,
+    error: ManovaError,
+    test: Option<Test>,
+    single: bool,
+}
+
+fn trace(m: &Matrix) -> f64 {
+    (0..m.len()).map(|i| m[i][i]).sum()
+}
+
+/// A matrix with each off-diagonal element over the roots of its diagonal elements, and those
+/// roots on the diagonal.
+fn correlations(cov: &Matrix) -> Matrix {
+    let k = cov.len();
+    (0..k)
+        .map(|i| {
+            (0..k)
+                .map(|j| {
+                    if i == j {
+                        cov[i][i].sqrt()
+                    } else {
+                        cov[i][j] / (cov[i][i] * cov[j][j]).sqrt()
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Mauchly's test and the averaged tests of a within-subjects effect with several transformed
+/// variables: for each measure the sums over its variables of the hypothesis and error sums of
+/// squares, with the df times their number; with several measures also the multivariate tests
+/// of those summed matrices.
+fn averaged_tables(
+    w: &Within,
+    tests: &[Row],
+    error: Option<&(Matrix, f64)>,
+    default: ManovaError,
+    n: f64,
+    pr: &ManovaPrint,
+    caption: &str,
+) -> Vec<Table> {
+    let k = w.per;
+    let kf = k as f64;
+    let nm = w.measures.len();
+    let block = |m: &Matrix, a: usize| -> Matrix {
+        (0..k)
+            .map(|i| (0..k).map(|j| m[a * k + i][a * k + j]).collect())
+            .collect()
+    };
+    // the Greenhouse-Geisser and Huynh-Feldt epsilons of measure `a`
+    let epsilons = |e: &Matrix, dfe: f64, a: usize| -> (f64, f64) {
+        let b = block(e, a);
+        let tr2: f64 = b.iter().flatten().map(|x| x * x).sum();
+        let gg = trace(&b).powi(2) / (kf * tr2);
+        let hf = ((n * kf * gg - 2.0) / (kf * dfe - kf * kf * gg)).min(1.0);
+        (gg, hf)
+    };
+    let label = |a: usize| {
+        if nm > 1 {
+            w.measures[a].clone()
+        } else {
+            w.label.clone()
+        }
+    };
+    let mut out = Vec::new();
+    if let Some((e, dfe)) = error {
+        let rows = (0..nm)
+            .map(|a| {
+                let b = block(e, a);
+                let reference: Vec<f64> = (0..k).map(|i| b[i][i]).collect();
+                let (wv, chi, df, sig) = crate::glm::mauchly(&b, *dfe, &reference);
+                let (gg, hf) = epsilons(e, *dfe, a);
+                let mut row = vec![text(label(a))];
+                row.extend(
+                    [wv, chi, df, sig, gg, hf, 1.0 / kf]
+                        .map(|v| number(v.is_finite().then_some(v))),
+                );
+                row
+            })
+            .collect();
+        out.push(table(
+            "Mauchly Sphericity Test",
+            1,
+            plain(&[
+                "",
+                "Mauchly's W",
+                "Chi-Square",
+                "DF",
+                "Sig.",
+                "Greenhouse-Geisser Epsilon",
+                "Huynh-Feldt Epsilon",
+                "Lower-bound Epsilon",
+            ]),
+            rows,
+            Some(format!(
+                "{caption}. From the error matrix of the orthonormal transformed variables"
+            )),
+        ));
+    }
+    if !pr.averf {
+        return out;
+    }
+    let mut columns = plain(&["Source of Variation", "SS", "DF", "MS", "F", "Sig of F"]);
+    if pr.gg {
+        columns.extend(plain(&["Sig. (Greenhouse-Geisser)"]));
+    }
+    if pr.hf {
+        columns.extend(plain(&["Sig. (Huynh-Feldt)"]));
+    }
+    if pr.efsize {
+        columns.extend(plain(&["Partial Eta Sq."]));
+    }
+    let mut errors: Vec<ManovaError> = vec![default];
+    for t in tests {
+        if !errors.contains(&t.error) {
+            errors.push(t.error);
+        }
+    }
+    for a in 0..nm {
+        let mut rows = Vec::new();
+        for &e in &errors {
+            let group: Vec<(&Row, &Test)> = tests
+                .iter()
+                .filter(|r| !r.single && r.error == e)
+                .filter_map(|r| r.test.as_ref().map(|t| (r, t)))
+                .collect();
+            let Some((_, first)) = group.first() else {
+                continue;
+            };
+            let (sse, dfe) = (trace(&block(&first.e, a)), first.dfe * kf);
+            let mut row = vec![
+                text(error_name(e)),
+                number(Some(sse)),
+                number(Some(dfe)),
+                number(Some(sse / dfe)),
+            ];
+            row.extend((4..columns.len()).map(|_| Cell::Empty));
+            rows.push(row);
+            for (r, t) in group {
+                let (ssh, dfh) = (trace(&block(&t.h, a)), t.dfh * kf);
+                let ok = t.ok();
+                let f = (ssh / dfh) / (sse / dfe);
+                let mut row = vec![
+                    text(r.label.clone()),
+                    number(Some(ssh)),
+                    number(Some(dfh)),
+                    number((dfh > 0.0).then(|| ssh / dfh)),
+                    number(ok.then_some(f)),
+                    number(ok.then(|| f_p(f, dfh, dfe))),
+                ];
+                let (gg, hf) = epsilons(&t.e, t.dfe, a);
+                if pr.gg {
+                    row.push(number(ok.then(|| f_p(f, dfh * gg, dfe * gg))));
+                }
+                if pr.hf {
+                    row.push(number(ok.then(|| f_p(f, dfh * hf, dfe * hf))));
+                }
+                if pr.efsize {
+                    row.push(number(Some(ssh / (ssh + sse))));
+                }
+                rows.push(row);
+            }
+        }
+        let what = if nm > 1 {
+            format!("{caption}; {}", w.measures[a])
+        } else {
+            caption.to_string()
+        };
+        out.push(table(
+            "Averaged Tests of Significance",
+            1,
+            columns.clone(),
+            rows,
+            Some(what),
+        ));
+    }
+    if nm > 1 {
+        let sum = |m: &Matrix| -> Matrix {
+            (0..nm)
+                .map(|a| {
+                    (0..nm)
+                        .map(|b| (0..k).map(|i| m[a * k + i][b * k + i]).sum())
+                        .collect()
+                })
+                .collect()
+        };
+        let summed: Vec<(String, Test)> = tests
+            .iter()
+            .filter(|r| !r.single)
+            .filter_map(|r| {
+                r.test.as_ref().map(|t| {
+                    (
+                        r.label.clone(),
+                        Test {
+                            h: sum(&t.h),
+                            e: sum(&t.e),
+                            dfh: t.dfh * kf,
+                            dfe: t.dfe * kf,
+                        },
+                    )
+                })
+            })
+            .collect();
+        let groups: Vec<(String, &Test)> = summed.iter().map(|(l, t)| (l.clone(), t)).collect();
+        let only = ManovaPrint {
+            multiv: true,
+            efsize: pr.efsize,
+            ..ManovaPrint::default()
+        };
+        for mut t in multivariate_tables(&groups, &w.measures, &only, caption) {
+            t.title = format!("Averaged {}", t.title);
+            out.push(t);
+        }
+    }
+    out
+}
+
 fn multivariate_tables(
     groups: &[(String, &Test)],
     names: &[String],
-    pr: &statscraft_syntax::ManovaPrint,
+    pr: &ManovaPrint,
     caption: &str,
 ) -> Vec<Table> {
     let mut out = Vec::new();
@@ -1132,7 +1999,7 @@ fn multivariate_tables(
             t.dfh,
             t.dfe,
         );
-        for (k, (_, value, f, d1, d2, _)) in stats.into_iter().enumerate() {
+        for (k, (_, value, f, d1, d2, eta)) in stats.into_iter().enumerate() {
             let roy = k == 3;
             let ok = t.ok() && d1 > 0.0 && d2 > 0.0 && f.is_finite() && !roy;
             let value = if roy {
@@ -1140,7 +2007,7 @@ fn multivariate_tables(
             } else {
                 value
             };
-            mv.push(vec![
+            let mut row = vec![
                 text(if k == 0 { head.clone() } else { String::new() }),
                 text(["Pillais", "Wilks", "Hotellings", "Roys"][k]),
                 number(t.ok().then_some(value)),
@@ -1148,7 +2015,11 @@ fn multivariate_tables(
                 number(ok.then_some(d1)),
                 number(ok.then_some(d2)),
                 number(ok.then(|| f_p(f, d1, d2))),
-            ]);
+            ];
+            if pr.efsize {
+                row.push(number((t.ok() && eta.is_finite()).then_some(eta)));
+            }
+            mv.push(row);
         }
         let total: f64 = l.iter().sum();
         let mut cum = 0.0;
@@ -1178,7 +2049,7 @@ fn multivariate_tables(
         }
         for (j, nm) in names.iter().enumerate() {
             let (f, sig) = t.univariate(j);
-            uni.push(vec![
+            let mut row = vec![
                 text(if j == 0 { label.clone() } else { String::new() }),
                 text(nm.clone()),
                 number(Some(t.h[j][j])),
@@ -1187,7 +2058,11 @@ fn multivariate_tables(
                 number(Some(t.e[j][j] / t.dfe)),
                 number(t.ok().then_some(f)),
                 number(t.ok().then_some(sig)),
-            ]);
+            ];
+            if pr.efsize {
+                row.push(number(Some(t.h[j][j] / (t.h[j][j] + t.e[j][j]))));
+            }
+            uni.push(row);
         }
         // Roy-Bargmann stepdown: Cholesky factors of E and E + H
         if let (Some(le), Some(lt)) = (
@@ -1213,19 +2088,26 @@ fn multivariate_tables(
         }
     }
     let note = Some(caption.to_string());
+    let eta = if pr.efsize {
+        plain(&["Partial Eta Sq."])
+    } else {
+        Vec::new()
+    };
     if pr.multiv {
+        let mut columns = plain(&[
+            "Effect",
+            "Test Name",
+            "Value",
+            "Approx. F",
+            "Hypoth. DF",
+            "Error DF",
+            "Sig. of F",
+        ]);
+        columns.extend(eta.clone());
         out.push(table(
             "Multivariate Tests of Significance",
             2,
-            plain(&[
-                "Effect",
-                "Test Name",
-                "Value",
-                "Approx. F",
-                "Hypoth. DF",
-                "Error DF",
-                "Sig. of F",
-            ]),
+            columns,
             mv,
             Some(format!(
                 "{caption}. Roys is the largest root as lambda / (1 + lambda)"
@@ -1266,22 +2148,18 @@ fn multivariate_tables(
         ));
     }
     if pr.univ {
-        out.push(table(
-            "Univariate F-tests",
-            2,
-            plain(&[
-                "Effect",
-                "Variable",
-                "Hypoth. SS",
-                "Error SS",
-                "Hypoth. MS",
-                "Error MS",
-                "F",
-                "Sig. of F",
-            ]),
-            uni,
-            note.clone(),
-        ));
+        let mut columns = plain(&[
+            "Effect",
+            "Variable",
+            "Hypoth. SS",
+            "Error SS",
+            "Hypoth. MS",
+            "Error MS",
+            "F",
+            "Sig. of F",
+        ]);
+        columns.extend(eta);
+        out.push(table("Univariate F-tests", 2, columns, uni, note.clone()));
     }
     if pr.stepdown {
         out.push(table(
@@ -1304,46 +2182,81 @@ fn multivariate_tables(
     out
 }
 
-/// t, its two-sided significance and the 95% interval of an estimate.
-fn t_cells(b: f64, se: f64, df: f64) -> Vec<Cell> {
+/// t, its two-sided significance, the confidence interval CINTERVAL asks for (`nh` estimates
+/// in the joint family) and with EFSIZE the partial eta squared t^2 / (t^2 + df).
+fn t_cells(b: f64, se: f64, df: f64, iv: &ManovaInterval, nh: f64, efsize: bool) -> Vec<Cell> {
     let ok = se > 0.0 && df > 0.0;
     let t = b / se;
-    let half = if ok {
-        t_quantile(0.025, df) * se
-    } else {
+    let alpha = 1.0 - iv.level;
+    let half = if !ok {
         f64::NAN
+    } else if !iv.joint {
+        t_quantile(alpha / 2.0, df) * se
+    } else if iv.bonferroni {
+        t_quantile(alpha / (2.0 * nh), df) * se
+    } else {
+        (nh * f_quantile(alpha, nh, df)).sqrt() * se
     };
-    vec![
+    let mut cells = vec![
         number(Some(b)),
         number(ok.then_some(se)),
         number(ok.then_some(t)),
         number(ok.then(|| t_p(t, df))),
         number(Some(b - half)),
         number(Some(b + half)),
-    ]
+    ];
+    if efsize {
+        cells.push(number(ok.then(|| t * t / (t * t + df))));
+    }
+    cells
 }
 
-const ESTIMATE_COLUMNS: [&str; 5] = ["Std. Err.", "t-Value", "Sig. t", "Lower -95%", "CL- Upper"];
+fn estimate_columns(iv: &ManovaInterval, efsize: bool) -> Vec<(String, String)> {
+    let pct = format!("{}", (iv.level * 1e8).round() / 1e6);
+    let mut columns = plain(&["Std. Err.", "t-Value", "Sig. t"]);
+    columns.push((String::new(), format!("Lower -{pct}%")));
+    columns.push((String::new(), "CL- Upper".into()));
+    if efsize {
+        columns.extend(plain(&["Partial Eta Sq."]));
+    }
+    columns
+}
 
 /// The within-error regression of the dependents on the covariates. `se` is the error SSCP of
 /// dependents and covariates.
-fn coefficients(se: &Matrix, dfe: f64, names: &[String], covs: &[String], caption: &str) -> Table {
+fn coefficients(
+    se: &Matrix,
+    dfe: f64,
+    names: &[String],
+    covs: &[String],
+    iv: &ManovaInterval,
+    efsize: bool,
+    caption: &str,
+) -> Table {
     let p = names.len();
     let (m, swept) = sweep_in_order(se, &(p..se.len()).collect::<Vec<_>>(), EPS);
-    let dfe = dfe - swept.iter().filter(|&&s| s).count() as f64;
+    let nq = swept.iter().filter(|&&s| s).count() as f64;
+    let dfe = dfe - nq;
     let mut rows = Vec::new();
     for (j, name) in names.iter().enumerate() {
         for (k, cov) in covs.iter().enumerate() {
             let c = p + k;
             let mut row = vec![text(name.clone()), text(cov.clone())];
             if swept[c] {
-                row.extend(t_cells(m[j][c], (m[j][j] / dfe * m[c][c]).sqrt(), dfe));
+                row.extend(t_cells(
+                    m[j][c],
+                    (m[j][j] / dfe * m[c][c]).sqrt(),
+                    dfe,
+                    iv,
+                    nq,
+                    efsize,
+                ));
             }
             rows.push(row);
         }
     }
     let mut columns = plain(&["Dependent", "Covariate", "B"]);
-    columns.extend(plain(&ESTIMATE_COLUMNS));
+    columns.extend(estimate_columns(iv, efsize));
     table(
         "Regression Coefficients",
         2,
@@ -1358,25 +2271,27 @@ fn coefficients(se: &Matrix, dfe: f64, names: &[String], covs: &[String], captio
 #[allow(clippy::too_many_arguments)]
 fn parameters(
     terms: &[Term],
-    tests: &[(usize, ManovaError, Option<Test>)],
+    tests: &[Row],
     fallback: (&Matrix, f64),
     full: &Matrix,
     swept: &[bool],
     nx: usize,
     names: &[String],
-    negsum: bool,
+    d: &ManovaDesign,
     caption: &str,
 ) -> Table {
+    let (iv, efsize) = (&d.cinterval, d.print.efsize);
     let p = names.len();
     let mut rows = Vec::new();
     for (j, name) in names.iter().enumerate() {
         for (i, term) in terms.iter().enumerate() {
             let (e, dfe) = tests
                 .iter()
-                .find(|t| t.0 == i)
-                .and_then(|t| t.2.as_ref())
+                .find(|t| t.term == i && !t.single)
+                .and_then(|t| t.test.as_ref())
                 .map_or(fallback, |t| (&t.e, t.dfe));
             let mse = e[j][j] / dfe;
+            let nh = term.cols.clone().filter(|&c| swept[c]).count() as f64;
             let head = |label: String| -> Vec<Cell> {
                 let mut row = Vec::new();
                 if p > 1 {
@@ -1389,11 +2304,18 @@ fn parameters(
             for c in term.cols.clone() {
                 let mut row = head(format!("{}", c + 1));
                 if swept[c] {
-                    row.extend(t_cells(full[nx + j][c], (mse * full[c][c]).sqrt(), dfe));
+                    row.extend(t_cells(
+                        full[nx + j][c],
+                        (mse * full[c][c]).sqrt(),
+                        dfe,
+                        iv,
+                        nh,
+                        efsize,
+                    ));
                 }
                 rows.push(row);
             }
-            if negsum && !term.constant && term.cols.clone().all(|c| swept[c]) {
+            if d.print.negsum && !term.constant && term.cols.clone().all(|c| swept[c]) {
                 let b: f64 = -term.cols.clone().map(|c| full[nx + j][c]).sum::<f64>();
                 let v: f64 = term
                     .cols
@@ -1402,7 +2324,7 @@ fn parameters(
                     .map(|(a, c)| full[a][c])
                     .sum();
                 let mut row = head("NEGSUM".into());
-                row.extend(t_cells(b, (mse * v).sqrt(), dfe));
+                row.extend(t_cells(b, (mse * v).sqrt(), dfe, iv, nh, efsize));
                 rows.push(row);
             }
         }
@@ -1413,7 +2335,7 @@ fn parameters(
         Vec::new()
     };
     columns.extend(plain(&["Term", "Parameter", "Coeff."]));
-    columns.extend(plain(&ESTIMATE_COLUMNS));
+    columns.extend(estimate_columns(iv, efsize));
     let heads = if p > 1 { 3 } else { 2 };
     table(
         "Parameter Estimates",
@@ -1424,44 +2346,208 @@ fn parameters(
     )
 }
 
-/// Observed and predicted cell means of each dependent with the residuals.
+/// PARAMETERS(COR): the covariance factors of the estimates (the inverse of the cross products
+/// of the design with the covariates, design part) and their correlations.
+fn parameter_correlations(
+    zwz: &Matrix,
+    order: &[usize],
+    swept: &[bool],
+    nx: usize,
+    caption: &str,
+) -> Vec<Table> {
+    let kept: Vec<usize> = order.iter().copied().filter(|&c| swept[c]).collect();
+    let sub: Matrix = kept
+        .iter()
+        .map(|&a| kept.iter().map(|&b| zwz[a][b]).collect())
+        .collect();
+    let Some((inv, _)) = inverse(&sub) else {
+        return Vec::new();
+    };
+    let design: Vec<usize> = (0..kept.len()).filter(|&i| kept[i] < nx).collect();
+    let factors: Matrix = design
+        .iter()
+        .map(|&a| design.iter().map(|&b| inv[a][b]).collect())
+        .collect();
+    let names: Vec<String> = design.iter().map(|&i| format!("{}", kept[i] + 1)).collect();
+    vec![
+        matrix_table(
+            "Covariance Factors of Parameter Estimates",
+            &names,
+            &factors,
+            caption.to_string(),
+        ),
+        matrix_table(
+            "Correlations of Parameter Estimates",
+            &names,
+            &correlations(&factors),
+            format!("{caption}; the roots of the covariance factors on the diagonal"),
+        ),
+    ]
+}
+
+/// PARAMETERS(ORTHO): the orthogonal estimates of the design columns in order, without the
+/// covariates; the squares of a term's estimates add up to its sequential sum of squares.
+fn orthogonal_estimates(
+    terms: &[Term],
+    zwz: &Matrix,
+    nx: usize,
+    names: &[String],
+    caption: &str,
+) -> Table {
+    let p = names.len();
+    let mut m = zwz.clone();
+    let mut est: Vec<Option<Vec<f64>>> = vec![None; nx];
+    for (c, e) in est.iter_mut().enumerate() {
+        if zwz[c][c] > 0.0 && m[c][c] > EPS * zwz[c][c] {
+            *e = Some((0..p).map(|j| m[c][nx + j] / m[c][c].sqrt()).collect());
+            crate::matrix::sweep(&mut m, c);
+        }
+    }
+    let mut rows = Vec::new();
+    for (j, name) in names.iter().enumerate() {
+        for term in terms {
+            for c in term.cols.clone() {
+                let mut row = Vec::new();
+                if p > 1 {
+                    row.push(text(name.clone()));
+                }
+                row.push(text(term.label.clone()));
+                row.push(text(format!("{}", c + 1)));
+                row.push(number(est[c].as_ref().map(|e| e[j])));
+                rows.push(row);
+            }
+        }
+    }
+    let mut columns = if p > 1 {
+        plain(&["Dependent"])
+    } else {
+        Vec::new()
+    };
+    columns.extend(plain(&["Term", "Parameter", "Estimate"]));
+    table(
+        "Orthogonal Estimates",
+        if p > 1 { 3 } else { 2 },
+        columns,
+        rows,
+        Some(caption.to_string()),
+    )
+}
+
+/// PRINT DESIGN: the design matrix of the cells (OVERALL) and each factor's one-way basis.
+fn design_tables(
+    s: &Setup,
+    x: &[Vec<f64>],
+    bases: &[Matrix],
+    pr: &ManovaPrint,
+    continuous: bool,
+    caption: &str,
+) -> Result<Vec<Table>, Error> {
+    let mut out = Vec::new();
+    if pr.overall {
+        if continuous {
+            return Err(err(
+                "PRINT DESIGN is not available when DESIGN names a continuous variable",
+            ));
+        }
+        let mut columns = plain(&["Cell"]);
+        columns.extend(s.factors.iter().map(|f| (String::new(), f.name.clone())));
+        columns.extend((1..=x.len()).map(|c| (String::new(), format!("{c}"))));
+        let mut seen = Vec::new();
+        let mut rows = Vec::new();
+        let mut order: Vec<usize> = (0..s.cases.len()).collect();
+        order.sort_by_key(|&i| s.cases[i].cell);
+        for i in order {
+            let c = &s.cases[i];
+            if seen.contains(&c.cell) {
+                continue;
+            }
+            seen.push(c.cell);
+            let mut row = vec![text(format!("{}", seen.len()))];
+            row.extend(levels_text(s.factors, &c.levels));
+            row.extend(x.iter().map(|col| number(Some(col[i]))));
+            rows.push(row);
+        }
+        out.push(table(
+            "Design Matrix",
+            1,
+            columns,
+            rows,
+            Some(caption.to_string()),
+        ));
+    }
+    if pr.oneway {
+        for (f, b) in s.factors.iter().zip(bases) {
+            let mut columns = plain(&[&f.name]);
+            columns.extend((1..=f.k).map(|c| (String::new(), format!("{c}"))));
+            let rows = b
+                .iter()
+                .enumerate()
+                .map(|(l, r)| {
+                    let mut row = vec![text(format!("{}", f.min + l as f64))];
+                    row.extend(r.iter().map(|v| number(Some(*v))));
+                    row
+                })
+                .collect();
+            out.push(table(
+                "One-Way Basis Matrix",
+                1,
+                columns,
+                rows,
+                Some(f.name.clone()),
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// The design part of the fit of dependent row `row` for case `i`, from the swept columns.
+fn fit(x: &[Vec<f64>], m: (&Matrix, &[bool]), row: usize, i: usize) -> f64 {
+    (0..x.len())
+        .filter(|&c| m.1[c])
+        .map(|c| x[c][i] * m.0[row][c])
+        .sum()
+}
+
+/// Observed and predicted cell means of each dependent with the residuals, and with TABLES the
+/// adjusted means collapsed over the other factors.
 #[allow(clippy::too_many_arguments)]
 fn predicted_means(
     s: &Setup,
     x: &[Vec<f64>],
-    full: &Matrix,
-    design_only: &Matrix,
+    full: (&Matrix, &[bool]),
+    design_only: (&Matrix, &[bool]),
     nx: usize,
     dv: &[usize],
     names: &[String],
+    keep: &[usize],
+    specs: &[Vec<String>],
     cov: &Matrix,
     caption: &str,
-) -> Table {
+) -> Result<Vec<Table>, Error> {
+    let groups = s.groups();
     let mut rows = Vec::new();
-    for (j, (&v, name)) in dv.iter().zip(names).enumerate() {
-        let mut cells: Vec<usize> = s.cases.iter().map(|c| c.cell).collect();
-        cells.sort_unstable();
-        cells.dedup();
-        for cell in cells {
-            let members: Vec<usize> = (0..s.cases.len())
-                .filter(|&i| s.cases[i].cell == cell)
-                .collect();
-            let w: f64 = members.iter().map(|&i| s.cases[i].w).sum();
-            let obs = members
+    // each kept dependent's adjusted mean in each cell, with the cell's weight
+    let mut adjusted: Vec<Vec<(f64, f64)>> = Vec::new();
+    for &j in keep {
+        let mut cells = Vec::new();
+        for g in &groups {
+            let w: f64 = g.iter().map(|c| c.w).sum();
+            let obs = g.iter().map(|c| c.w * c.v[dv[j]]).sum::<f64>() / w;
+            let i = s
+                .cases
                 .iter()
-                .map(|&i| s.cases[i].w * s.cases[i].v[v])
-                .sum::<f64>()
-                / w;
-            let i = members[0];
-            let fit = |m: &Matrix| (0..nx).map(|c| x[c][i] * m[nx + j][c]).sum::<f64>();
-            let (adj, est) = (fit(full), fit(design_only));
-            let mut row = vec![text(name.clone())];
-            row.extend(levels_text(s.factors, &s.cases[i].levels));
+                .position(|c| std::ptr::eq(c, g[0]))
+                .expect("a case of the cell");
+            let (adj, est) = (fit(x, full, nx + j, i), fit(x, design_only, nx + j, i));
+            let mut row = vec![text(names[j].clone())];
+            row.extend(levels_text(s.factors, &g[0].levels));
             row.extend(
                 [obs, adj, est, obs - est, (obs - est) / cov[j][j].sqrt()].map(|v| number(Some(v))),
             );
             rows.push(row);
+            cells.push((adj, w));
         }
+        adjusted.push(cells);
     }
     let mut columns = plain(&["Variable"]);
     columns.extend(s.factors.iter().map(|f| (String::new(), f.name.clone())));
@@ -1472,9 +2558,122 @@ fn predicted_means(
         "Raw Resid.",
         "Std. Resid.",
     ]));
-    table(
+    let mut out = vec![table(
         "Observed and Predicted Means",
         1 + s.factors.len(),
+        columns,
+        rows,
+        Some(caption.to_string()),
+    )];
+    for spec in specs {
+        let fs: Vec<usize> = spec
+            .iter()
+            .map(|n| {
+                s.factors
+                    .iter()
+                    .position(|f| f.name.eq_ignore_ascii_case(n))
+                    .ok_or_else(|| err(format!("PMEANS TABLES names {n}, which is not a factor")))
+            })
+            .collect::<Result<_, _>>()?;
+        let key = |c: &Case| -> Vec<usize> { fs.iter().map(|&f| c.levels[f]).collect() };
+        let mut keys: Vec<Vec<usize>> = groups.iter().map(|g| key(g[0])).collect();
+        keys.sort();
+        keys.dedup();
+        let mut rows = Vec::new();
+        for (cells, &j) in adjusted.iter().zip(keep) {
+            for k in &keys {
+                let mine: Vec<(f64, f64)> = groups
+                    .iter()
+                    .zip(cells)
+                    .filter(|(g, _)| key(g[0]) == *k)
+                    .map(|(_, c)| *c)
+                    .collect();
+                let w: f64 = mine.iter().map(|c| c.1).sum();
+                let mut row = vec![text(names[j].clone())];
+                row.extend(
+                    fs.iter()
+                        .zip(k)
+                        .map(|(&f, l)| text(format!("{}", s.factors[f].min + *l as f64))),
+                );
+                row.push(number(Some(
+                    mine.iter().map(|c| c.0 * c.1).sum::<f64>() / w,
+                )));
+                row.push(number(Some(
+                    mine.iter().map(|c| c.0).sum::<f64>() / mine.len() as f64,
+                )));
+                rows.push(row);
+            }
+        }
+        let mut columns = plain(&["Variable"]);
+        columns.extend(
+            fs.iter()
+                .map(|&f| (String::new(), s.factors[f].name.clone())),
+        );
+        columns.extend(plain(&["Weighted Mean", "Unweighted Mean"]));
+        let what = if spec.is_empty() {
+            "CONSTANT".to_string()
+        } else {
+            spec.join(" BY ").to_uppercase()
+        };
+        out.push(table(
+            "Combined Adjusted Means",
+            1 + fs.len(),
+            columns,
+            rows,
+            Some(format!("{what}; {caption}")),
+        ));
+    }
+    Ok(out)
+}
+
+/// RESIDUALS: each case's observed and predicted value (design and covariates), the residual
+/// and the residual over the error standard deviation.
+#[allow(clippy::too_many_arguments)]
+fn casewise(
+    s: &Setup,
+    x: &[Vec<f64>],
+    full: (&Matrix, &[bool]),
+    (nx, p): (usize, usize),
+    dv: &[usize],
+    cv: &[usize],
+    names: &[String],
+    cov: &Matrix,
+    caption: &str,
+) -> Table {
+    let mut rows = Vec::new();
+    for (i, c) in s.cases.iter().enumerate() {
+        for (j, name) in names.iter().enumerate() {
+            let covs: f64 = cv
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| full.1[nx + p + k])
+                .map(|(k, &v)| c.v[v] * full.0[nx + j][nx + p + k])
+                .sum();
+            let pred = fit(x, full, nx + j, i) + covs;
+            let obs = c.v[dv[j]];
+            let mut row = vec![text(format!("{}", c.index + 1))];
+            if p > 1 {
+                row.push(text(name.clone()));
+            }
+            row.extend(
+                [obs, pred, obs - pred, (obs - pred) / cov[j][j].sqrt()].map(|v| number(Some(v))),
+            );
+            rows.push(row);
+        }
+    }
+    let mut columns = plain(&["Case No."]);
+    if p > 1 {
+        columns.extend(plain(&["Variable"]));
+    }
+    columns.extend(plain(&[
+        "Observed",
+        "Predicted",
+        "Raw Resid.",
+        "Std. Resid.",
+    ]));
+    table(
+        "Observed and Predicted Values for Each Case",
+        if p > 1 { 2 } else { 1 },
         columns,
         rows,
         Some(caption.to_string()),

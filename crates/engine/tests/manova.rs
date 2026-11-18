@@ -516,17 +516,18 @@ fn contrasts_partitions_and_the_constant() {
 #[test]
 fn unsupported_parts_say_so() {
     for (source, words) in [
-        ("MANOVA y1 y2 y3 /WSFACTORS=t(3).", "not supported yet"),
+        ("MANOVA y1 y2 y3 /WSFACTORS=t(2).", "do not divide"),
         (
-            "MANOVA y1 BY a(1,3) /TRANSFORM=POLYNOMIAL.",
+            "MANOVA y1 y2 y3 /WSFACTORS=t(3) /TRANSFORM=POLYNOMIAL.",
+            "cannot be used with WSFACTORS",
+        ),
+        (
+            "MANOVA y1 BY a(1,3) /PRINT=DESIGN(BIAS).",
             "not supported yet",
         ),
-        ("MANOVA y1 BY a(1,3) /PRINT=DESIGN.", "not supported yet"),
         ("MANOVA y1 BY a(1,3) /DISCRIM.", "not supported yet"),
-        (
-            "MANOVA y1 BY a(1,3) b(1,2) /DESIGN a MWITHIN b(1).",
-            "not supported yet",
-        ),
+        ("MANOVA y1 y2 /TRANSFORM=SPECIAL(1 1 1).", "square matrix"),
+        ("MANOVA y1 y2 /RENAME=a.", "RENAME gives 1 names"),
     ] {
         let message = run_error(&format!("{DATA}\n{source}"));
         assert!(message.contains(words), "{source}: {message}");
@@ -586,4 +587,665 @@ fn cell_information_means_and_homogeneity() {
         .find(|t| t.title == "Univariate Homogeneity of Variance Tests")
         .expect("homogeneity");
     assert_eq!(row_keys(homogeneity).len(), 4);
+}
+
+// Repeated measures. The expected numbers come from R run as a separate program: `lm` fits
+// of the transformed variables (orthonormal polynomial contrasts, `contr.poly`) compared with
+// `anova` (the four multivariate statistics and the univariate F tests), `mauchly.test`, and the
+// Greenhouse-Geisser and Huynh-Feldt epsilons and averaged F tests computed from their formulas
+// on the residual matrices of those fits.
+
+/// 12 made-up subjects: group g (1, 2), a score at three times y1 to y3, a covariate x.
+const TIMES: &str = "DATA LIST FREE /g y1 y2 y3 x.
+BEGIN DATA
+1 12.1 14.3 15.0 3.2  1 10.4 13.8 13.1 2.7  1 11.7 12.9 16.2 4.1  1 9.8 11.5 12.7 2.2
+1 13.2 15.9 17.4 3.8  1 10.9 12.2 14.8 3.0  2 14.5 15.1 19.3 4.4  2 12.8 16.7 18.2 3.9
+2 15.3 15.8 21.0 5.1  2 13.1 14.2 17.6 3.3  2 16.0 18.4 20.5 4.8  2 12.2 15.5 16.9 2.9
+END DATA.";
+
+/// 15 made-up subjects in three unequal groups, six scores crossing a (2) and b (3).
+const CROSSED: &str = "DATA LIST FREE /g v1 v2 v3 v4 v5 v6.
+BEGIN DATA
+1 5.2 6.1 7.3 4.8 6.6 8.0  1 4.7 5.9 6.8 5.1 5.7 7.2  1 6.0 6.4 8.1 5.5 7.0 8.9
+1 5.5 7.0 7.7 4.9 6.2 8.4  2 6.3 6.8 7.0 6.9 8.1 9.6  2 5.8 7.3 7.9 6.1 7.4 9.1
+2 6.6 6.5 8.4 7.2 8.8 10.2  2 5.1 6.9 7.2 6.4 7.7 9.3  2 6.9 7.7 8.8 7.5 8.3 10.9
+3 4.4 5.0 5.9 4.2 5.1 6.0  3 4.9 5.6 6.3 4.0 5.8 6.7  3 3.8 4.7 5.2 3.9 4.6 5.5
+3 5.3 5.9 6.9 4.7 5.5 6.4  3 4.1 5.2 6.1 4.4 5.0 6.2  3 4.6 4.9 5.8 4.1 5.3 5.9
+END DATA.";
+
+const AVG: &str = "Averaged Tests of Significance";
+const MAUCHLY: &str = "Mauchly Sphericity Test";
+
+#[test]
+fn one_within_factor_with_a_between_factor() {
+    let t = run(&format!(
+        "{TIMES}\nMANOVA y1 y2 y3 BY g(1,2) /WSFACTORS=time(3) /PRINT=SIGNIF(UNIV GG HF EFSIZE)."
+    ));
+    let mut rows = four(
+        "TIME (S = 1, M = 0, N = 3.5)",
+        [
+            (
+                0.984482490812462,
+                285.494995048171,
+                2.0,
+                9.0,
+                7.22269124988921e-09,
+            ),
+            (
+                0.0155175091875381,
+                285.494995048166,
+                2.0,
+                9.0,
+                7.22269124988972e-09,
+            ),
+            (
+                63.4433322329259,
+                285.494995048166,
+                2.0,
+                9.0,
+                7.22269124988972e-09,
+            ),
+            (roy(63.4433322329259), 0.0, 0.0, 0.0, 0.0),
+        ],
+    );
+    rows.extend(four(
+        "G BY TIME (S = 1, M = 0, N = 3.5)",
+        [
+            (
+                0.594558622248564,
+                6.5990151645519,
+                2.0,
+                9.0,
+                0.0172058570560864,
+            ),
+            (
+                0.405441377751436,
+                6.5990151645519,
+                2.0,
+                9.0,
+                0.0172058570560864,
+            ),
+            (
+                1.46644781434487,
+                6.59901516455189,
+                2.0,
+                9.0,
+                0.0172058570560865,
+            ),
+            (roy(1.46644781434486), 0.0, 0.0, 0.0, 0.0),
+        ],
+    ));
+    check_mv(&t, &rows);
+    check(
+        &t,
+        &[
+            (SIG, "G", "SS", 84.64),
+            (SIG, "G", "F", 14.5956199344714),
+            (SIG, "G", "Sig of F", 0.00337123664626504),
+            (AVG, "WITHIN CELLS", "SS", 13.4833333333333),
+            (AVG, "WITHIN CELLS", "DF", 20.0),
+            (AVG, "TIME", "SS", 107.165),
+            (AVG, "TIME", "F", 79.479604449938),
+            (AVG, "TIME", "Sig of F", 3.03920114360258e-10),
+            (
+                AVG,
+                "TIME",
+                "Sig. (Greenhouse-Geisser)",
+                3.52060950279684e-07,
+            ),
+            (AVG, "TIME", "Sig. (Huynh-Feldt)", 3.39387545661415e-08),
+            (
+                AVG,
+                "TIME",
+                "Partial Eta Sq.",
+                107.165 / (107.165 + 13.4833333333333),
+            ),
+            (AVG, "G BY TIME", "F", 3.24227441285538),
+            (
+                AVG,
+                "G BY TIME",
+                "Sig. (Greenhouse-Geisser)",
+                0.0889731607725137,
+            ),
+            (AVG, "G BY TIME", "Sig. (Huynh-Feldt)", 0.0782778338634328),
+            (MAUCHLY, "TIME", "Mauchly's W", 0.417664194986847),
+            (MAUCHLY, "TIME", "Sig.", 0.0196662976456299),
+            (
+                MAUCHLY,
+                "TIME",
+                "Greenhouse-Geisser Epsilon",
+                0.631977104248407,
+            ),
+            (MAUCHLY, "TIME", "Huynh-Feldt Epsilon", 0.75362760316393),
+            (MAUCHLY, "TIME", "Lower-bound Epsilon", 0.5),
+            (UNI, "TIME / T2", "F", 502.637856863512),
+            (UNI, "TIME / T3", "F", 0.0539528738163426),
+        ],
+    );
+    // AVONLY leaves only the averaged tests of the within-subjects effects
+    let t = run(&format!(
+        "{TIMES}\nMANOVA y1 y2 y3 BY g(1,2) /WSFACTORS=time(3) /PRINT=SIGNIF(AVONLY)."
+    ));
+    assert!(t.iter().all(|t| t.title != MV));
+    check(&t, &[(AVG, "TIME", "F", 79.479604449938)]);
+}
+
+#[test]
+fn a_covariate_constant_over_the_times() {
+    let t = run(&format!(
+        "{TIMES}\nMANOVA y1 y2 y3 BY g(1,2) WITH (x) /WSFACTORS=time(3)."
+    ));
+    let mut rows = four(
+        "TIME (S = 1, M = 0, N = 3)",
+        [
+            (
+                0.610621832583159,
+                6.27278962900322,
+                2.0,
+                8.0,
+                0.0229872165573495,
+            ),
+            (
+                0.389378167416841,
+                6.27278962900321,
+                2.0,
+                8.0,
+                0.0229872165573495,
+            ),
+            (
+                1.5681974072508,
+                6.27278962900321,
+                2.0,
+                8.0,
+                0.0229872165573495,
+            ),
+            (roy(1.5681974072508), 0.0, 0.0, 0.0, 0.0),
+        ],
+    );
+    rows.extend(four(
+        "G BY TIME (S = 1, M = 0, N = 3)",
+        [
+            (
+                0.435857944226233,
+                3.09041270556168,
+                2.0,
+                8.0,
+                0.101287046451649,
+            ),
+            (
+                0.564142055773767,
+                3.09041270556168,
+                2.0,
+                8.0,
+                0.101287046451649,
+            ),
+            (
+                0.77260317639042,
+                3.09041270556168,
+                2.0,
+                8.0,
+                0.101287046451649,
+            ),
+            (roy(0.77260317639042), 0.0, 0.0, 0.0, 0.0),
+        ],
+    ));
+    check_mv(&t, &rows);
+    check(
+        &t,
+        &[
+            (SIG, "G", "F", 11.3448191761442),
+            (SIG, "G", "Sig of F", 0.00828051993682364),
+            (AVG, "TIME", "SS", 3.70687239287257),
+            (AVG, "WITHIN CELLS", "SS", 9.92800795372379),
+            (AVG, "TIME", "F", 3.36037719664999),
+            (AVG, "TIME", "Sig of F", 0.0575303568195991),
+        ],
+    );
+}
+
+#[test]
+fn two_within_factors_with_unequal_groups() {
+    let source = "MANOVA v1 TO v6 BY g(1,3) /WSFACTORS=a(2) b(3) /PRINT=SIGNIF(GG HF).";
+    let t = run(&format!("{CROSSED}\n{source}"));
+    let mut rows = four(
+        "B (S = 1, M = 0, N = 4.5)",
+        [
+            (
+                0.984096281611936,
+                340.331073324821,
+                2.0,
+                11.0,
+                1.28304746563965e-10,
+            ),
+            (
+                0.0159037183880648,
+                340.331073324812,
+                2.0,
+                11.0,
+                1.28304746563984e-10,
+            ),
+            (
+                61.8783769681477,
+                340.331073324812,
+                2.0,
+                11.0,
+                1.28304746563984e-10,
+            ),
+            (roy(61.8783769681477), 0.0, 0.0, 0.0, 0.0),
+        ],
+    );
+    rows.extend(four(
+        "G BY B (S = 2, M = -0.5, N = 4.5)",
+        [
+            (
+                0.655052018192864,
+                2.92227815671817,
+                4.0,
+                24.0,
+                0.0421677390542968,
+            ),
+            (
+                0.344962165904924,
+                3.86433531786293,
+                4.0,
+                22.0,
+                0.0158927590422137,
+            ),
+            (
+                1.89882750845732,
+                4.7470687711433,
+                4.0,
+                20.0,
+                0.00740655983027505,
+            ),
+            (roy(1.89880585388111), 0.0, 0.0, 0.0, 0.0),
+        ],
+    ));
+    rows.extend(four(
+        "G BY A BY B (S = 2, M = -0.5, N = 4.5)",
+        [
+            (
+                0.516884858973503,
+                2.09107780512208,
+                4.0,
+                24.0,
+                0.113412515351866,
+            ),
+            (
+                0.483242149946882,
+                2.4118908197091,
+                4.0,
+                22.0,
+                0.079748627657885,
+            ),
+            (
+                1.0690930855049,
+                2.67273271376224,
+                4.0,
+                20.0,
+                0.0619167963986243,
+            ),
+            (roy(1.06884718818374), 0.0, 0.0, 0.0, 0.0),
+        ],
+    ));
+    check_mv(&t, &rows);
+    check(
+        &t,
+        &[
+            (SIG, "G", "F", 37.7354689357442),
+            (SIG, "G", "Sig of F", 6.66660582904968e-06),
+            (SIG, "A", "F", 27.9058720219849),
+            (SIG, "A", "Sig of F", 0.000193773103872251),
+            (SIG, "G BY A", "F", 26.1170188667034),
+            (SIG, "G BY A", "Sig of F", 4.25104929721713e-05),
+            (AVG, "B", "F", 404.908492127117),
+            (AVG, "B", "Sig. (Greenhouse-Geisser)", 4.84663000939867e-19),
+            (AVG, "G BY B", "F", 6.26781947446548),
+            (AVG, "G BY B", "Sig of F", 0.00133584506646876),
+            (
+                AVG,
+                "G BY B",
+                "Sig. (Greenhouse-Geisser)",
+                0.00139974912282477,
+            ),
+            (AVG, "G BY B", "Sig. (Huynh-Feldt)", 0.00133584506646876),
+            (AVG, "A BY B", "F", 13.6687393674505),
+            (
+                AVG,
+                "A BY B",
+                "Sig. (Greenhouse-Geisser)",
+                0.000331773803609623,
+            ),
+            (AVG, "G BY A BY B", "F", 1.76777068036644),
+            (
+                AVG,
+                "G BY A BY B",
+                "Sig. (Greenhouse-Geisser)",
+                0.182180481343512,
+            ),
+            (MAUCHLY, "B", "Mauchly's W", 0.989648955653761),
+            (MAUCHLY, "B", "Sig.", 0.944379255875143),
+            (
+                MAUCHLY,
+                "B",
+                "Greenhouse-Geisser Epsilon",
+                0.989755002082429,
+            ),
+            (MAUCHLY, "B", "Huynh-Feldt Epsilon", 1.0),
+            (MAUCHLY, "A BY B", "Mauchly's W", 0.797445223152294),
+            (MAUCHLY, "A BY B", "Sig.", 0.287974965458691),
+            (
+                MAUCHLY,
+                "A BY B",
+                "Greenhouse-Geisser Epsilon",
+                0.831562951852962,
+            ),
+        ],
+    );
+    // the same design through GLM: the same sphericity test and averaged tests
+    let g = run(&format!(
+        "{CROSSED}\nGLM v1 TO v6 BY g /WSFACTOR=a 2 Polynomial b 3 Polynomial."
+    ));
+    for (mine, theirs) in [
+        (
+            value(&t, MAUCHLY, "A BY B", "Mauchly's W"),
+            value(&g, "Mauchly's Test of Sphericity", "a * b", "Mauchly's W"),
+        ),
+        (
+            value(&t, MAUCHLY, "B", "Huynh-Feldt Epsilon"),
+            value(
+                &g,
+                "Mauchly's Test of Sphericity",
+                "b",
+                "Epsilon / Huynh-Feldt",
+            ),
+        ),
+        (
+            value(&t, AVG, "G BY A BY B", "F"),
+            value(
+                &g,
+                "Tests of Within-Subjects Effects",
+                "a * b * g / Sphericity Assumed",
+                "F",
+            ),
+        ),
+    ] {
+        assert!(
+            (mine - theirs).abs() < 1e-9 * theirs.abs().max(1.0),
+            "{mine} vs {theirs}"
+        );
+    }
+}
+
+#[test]
+fn several_measures_average_over_the_contrasts_of_each() {
+    let t = run(&format!(
+        "{CROSSED}\nMANOVA v1 TO v6 BY g(1,3) /WSFACTORS=t(3) /MEASURE=p r."
+    ));
+    let amv = "Averaged Multivariate Tests of Significance";
+    check(
+        &t,
+        &[
+            (
+                amv,
+                "T (S = 2, M = -0.5, N = 10.5) / Wilks",
+                "Value",
+                0.0257934056807608,
+            ),
+            (
+                amv,
+                "T (S = 2, M = -0.5, N = 10.5) / Pillais",
+                "Value",
+                0.986826488247559,
+            ),
+            (
+                amv,
+                "G BY T (S = 2, M = 0.5, N = 10.5) / Wilks",
+                "Value",
+                0.383934366615585,
+            ),
+            (
+                amv,
+                "G BY T (S = 2, M = 0.5, N = 10.5) / Pillais",
+                "Value",
+                0.660655646259957,
+            ),
+            (AVG, "T", "F", 107.50582183601),
+            (AVG, "G BY T", "F", 1.08124493019681),
+        ],
+    );
+    assert!(t.iter().any(|t| t.title == MAUCHLY && t.rows.len() == 2));
+}
+
+#[test]
+fn within_designs_simple_effects_and_names() {
+    // MWITHIN b(2) is the mean of the second level of b; WSDESIGN without B BY A leaves it out
+    let t = run(&format!(
+        "{CROSSED}\nMANOVA v1 TO v6 BY g(1,3) /WSFACTORS=a(2) b(3) /WSDESIGN=a, MWITHIN b(2) \
+         /RENAME=mean ab1 ab2 adiff ab3 ab4 /PRINT=TRANSFORM."
+    ));
+    check(
+        &t,
+        &[
+            ("Transformation Matrix", "v1", "mean", 1.0 / 6f64.sqrt()),
+            ("Transformation Matrix", "v1", "adiff", -1.0 / 6f64.sqrt()),
+            ("Transformation Matrix", "v3", "ab1", 0.5),
+            (SIG, "A", "F", 27.9058720219849),
+        ],
+    );
+    // v2 and v5 over the root of 2: the group test is the one-way test of their mean
+    let simple = value(&t, SIG, "G BY MWITHIN B(2)", "F");
+    let s = run(&format!(
+        "{CROSSED}\nCOMPUTE m = (v2 + v5) / 2.\nMANOVA m BY g(1,3)."
+    ));
+    let direct = value(&s, SIG, "G", "F");
+    assert!(
+        (simple - direct).abs() < 1e-9 * direct,
+        "{simple} vs {direct}"
+    );
+}
+
+#[test]
+fn transformations_of_the_dependents() {
+    // the F test of group a on one transformed variable, from R's anova of lm on that variable
+    for (spec, var, f, sig) in [
+        ("REPEATED", "T2", 14.1460896455227, 4.70613564531853e-05),
+        ("HELMERT", "T2", 18.580234174412, 5.62487764418208e-06),
+        ("DIFFERENCE", "T3", 2.65835232370065, 0.0865199420869344),
+        ("SIMPLE", "T2", 10.9457789920231, 0.000269381749792855),
+        ("DEVIATION", "T3", 4.39281075979312, 0.0212205918848656),
+        ("POLYNOMIAL", "T3", 4.39281075979313, 0.0212205918848655),
+        (
+            "BASIS DEVIATION",
+            "T2",
+            10.9457789920231,
+            0.000269381749792857,
+        ),
+        (
+            "ORTHONORM SPECIAL(1 1 1 1 0 -1 2 -1 -1)",
+            "T3",
+            4.39281075979312,
+            0.0212205918848657,
+        ),
+    ] {
+        let t = run(&format!(
+            "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) /TRANSFORM={spec} /PRINT=TRANSFORM /ANALYSIS={var}."
+        ));
+        let got = (value(&t, SIG, "A", "F"), value(&t, SIG, "A", "Sig of F"));
+        assert!(
+            (got.0 - f).abs() < 1e-8 * f && (got.1 - sig).abs() < 1e-8,
+            "{spec}: {got:?} vs {f} {sig}"
+        );
+    }
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) /TRANSFORM(y1 y2 y3)=BASIS DEVIATION \
+         /RENAME=m d1 d2 /PRINT=TRANSFORM /ANALYSIS=d1."
+    ));
+    check(
+        &t,
+        &[
+            ("Transformation Matrix", "y1", "d1", 1.0),
+            ("Transformation Matrix", "y3", "d1", -1.0),
+            ("Transformation Matrix", "y2", "d2", 1.0),
+            ("Transformation Matrix", "y1", "d2", 0.0),
+        ],
+    );
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) /TRANSFORM=ORTHONORM SPECIAL(1 1 1 1 0 -1 2 -1 -1) \
+         /PRINT=TRANSFORM."
+    ));
+    check(
+        &t,
+        &[
+            (
+                "Transformation Matrix",
+                "y1",
+                "T2",
+                std::f64::consts::FRAC_1_SQRT_2,
+            ),
+            ("Transformation Matrix", "y2", "T3", -0.816496580927726),
+        ],
+    );
+}
+
+#[test]
+fn single_df_effect_sizes_and_intervals() {
+    // R: sequential anova of y1 on the polynomial scores of a; coefficients and the inverse
+    // cross products of lm with sum-to-zero coding; Bonferroni and Scheffe multipliers from qt
+    // and qf; the QR decomposition of the design for the orthogonal estimates
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 BY a(1,3) /CONTRAST(a)=POLYNOMIAL /PRINT=SIGNIF(SINGLEDF EFSIZE)."
+    ));
+    check(
+        &t,
+        &[
+            (SIG, "A (1)", "SS", 175.848216598704),
+            (SIG, "A (1)", "F", 21.8961642327665),
+            (SIG, "A (1)", "Sig of F", 5.75326139188984e-05),
+            (SIG, "A (2)", "F", 0.0776285002088577),
+            (SIG, "A", "Partial Eta Sq.", 0.42278601536489),
+        ],
+    );
+    let lower = |extra: &str, column: &str| {
+        let t = run(&format!(
+            "{DATA}\nMANOVA y1 BY a(1,3) /PRINT=PARAMETERS(ESTIM COR ORTHO) {extra}."
+        ));
+        value(&t, "Parameter Estimates", "A / 2", column)
+    };
+    let pe = "Parameter Estimates";
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 BY a(1,3) /PRINT=PARAMETERS(ESTIM COR ORTHO)."
+    ));
+    check(
+        &t,
+        &[
+            (pe, "A / 2", "Coeff.", -2.87055555555555),
+            (pe, "A / 2", "Std. Err.", 0.698626960949053),
+            (
+                "Covariance Factors of Parameter Estimates",
+                "2",
+                "2",
+                0.0607744107744108,
+            ),
+            (
+                "Covariance Factors of Parameter Estimates",
+                "2",
+                "3",
+                -0.0331649831649832,
+            ),
+            (
+                "Correlations of Parameter Estimates",
+                "2",
+                "3",
+                -0.532590015245738,
+            ),
+        ],
+    );
+    let ortho = |p: &str| value(&t, "Orthogonal Estimates", &format!("A / {p}"), "Estimate").abs();
+    assert!((ortho("2") - 13.2607773753541).abs() < 1e-8);
+    assert!((ortho("3") - 0.789578948837154).abs() < 1e-8);
+    for (extra, column, want) in [
+        (
+            "/CINTERVAL=JOINT(.9) UNIVARIATE(BONFER)",
+            "Lower -90%",
+            -4.29734215513124,
+        ),
+        (
+            "/CINTERVAL=JOINT UNIVARIATE(SCHEFFE)",
+            "Lower -95%",
+            -4.66966024282137,
+        ),
+        ("/CINTERVAL=INDIVIDUAL(.9)", "Lower -90%", -4.05630777069438),
+    ] {
+        let got = lower(extra, column);
+        assert!((got - want).abs() < 1e-8, "{extra}: {got} vs {want}");
+    }
+}
+
+#[test]
+fn predicted_means_tables_and_casewise_residuals() {
+    // R: cell means collapsed over b, and the fitted values of lm(y1 ~ a * b + x)
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 BY a(1,3) b(1,2) WITH x /PMEANS=TABLES(a) /RESIDUALS=CASEWISE."
+    ));
+    let cw = "Observed and Predicted Values for Each Case";
+    check(
+        &t,
+        &[
+            (cw, "1", "Predicted", 17.1607978704972),
+            (cw, "1", "Std. Resid.", 1.17370342755635),
+            (cw, "5", "Predicted", 14.6650534108271),
+        ],
+    );
+    assert!(t.iter().any(|t| t.title == "Combined Adjusted Means"));
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 y2 BY a(1,3) b(1,2) /PMEANS=VARIABLES(y1) TABLES(a) /PRINT=DESIGN(OVERALL ONEWAY)."
+    ));
+    check(
+        &t,
+        &[
+            ("Combined Adjusted Means", "y1 / 1", "Weighted Mean", 17.5),
+            (
+                "Combined Adjusted Means",
+                "y1 / 1",
+                "Unweighted Mean",
+                17.47,
+            ),
+            ("Design Matrix", "1", "2", 1.0),
+            ("One-Way Basis Matrix", "3", "2", -1.0),
+        ],
+    );
+    let pm = t
+        .iter()
+        .find(|t| t.title == "Observed and Predicted Means")
+        .expect("predicted means");
+    assert_eq!(pm.rows.len(), 6);
+}
+
+#[test]
+fn covariates_that_vary_over_the_times() {
+    // R: lm of the transformed scores on the groups and the same transformation of v4 to v6
+    let t = run(&format!(
+        "{CROSSED}\nMANOVA v1 v2 v3 BY g(1,3) WITH v4 v5 v6 /WSFACTORS=t(3)."
+    ));
+    check(
+        &t,
+        &[
+            (
+                MV,
+                "T (S = 1, M = 0, N = 3.5) / Wilks",
+                "Value",
+                0.75851989118946,
+            ),
+            (
+                MV,
+                "T (S = 1, M = 0, N = 3.5) / Wilks",
+                "Approx. F",
+                1.4326064514187,
+            ),
+            (MV, "T (S = 1, M = 0, N = 3.5) / Wilks", "Error DF", 9.0),
+            (SIG, "G", "F", 2.9945399902483),
+            (SIG, "G", "Sig of F", 0.0915641637539739),
+        ],
+    );
 }
