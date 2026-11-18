@@ -479,3 +479,83 @@ fn errors() {
     assert!(fails(&format!("{SELECT}NAIVEBAYES y BY a /FORCE FACTORS=y.")).contains("FORCE"));
     assert!(fails(&format!("{SELECT}NAIVEBAYES y BY a /SAVE PREDVAL(x).")).contains("exists"));
 }
+
+/// 24 cases drawn once in R (seed 90211): y with 3 categories, factors a and b (b missing
+/// twice) and a scale x with three far values, so that 10 equal-width bins leave two runs of
+/// empty inner bins. The expected posteriors come from a separate R computation of the
+/// published model: smoothing 1/N for priors and conditionals, the bins merged as described,
+/// and a missing predictor dropped from the case's product.
+#[test]
+fn posteriors_agree_with_r() {
+    let source = "DATA LIST FREE /y a b x.
+BEGIN DATA.
+3 3 1 4.5
+3 3 1 4.6
+3 3 1 5
+3 1 2 5.2
+3 2 . 4.6
+2 2 1 5.2
+2 1 1 3
+1 1 2 2.8
+1 1 1 3.7
+1 1 1 3.6
+3 3 1 5
+1 1 1 2.2
+2 1 1 3.1
+1 3 2 2.6
+3 3 1 4.2
+2 2 1 2.5
+3 3 . 4.7
+3 3 2 3.9
+3 2 1 5
+3 3 2 4.3
+3 3 1 5
+3 3 1 14.2
+3 3 1 0.3
+2 2 1 9.5
+END DATA.
+VARIABLE LEVEL x (SCALE).
+NAIVEBAYES y BY a b WITH x /SUBSET NOSELECTION /SAVE PREDVAL PREDPROB.
+";
+    let mut engine = Engine::default();
+    run(&mut engine, source);
+    let want: [(usize, [f64; 3]); 6] = [
+        (
+            0,
+            [0.000931461545382151, 0.00154392941083891, 0.997524609043779],
+        ),
+        (
+            4,
+            [0.000172870463970526, 0.315488596746209, 0.68433853278982],
+        ),
+        (8, [0.622677849822652, 0.266007696047666, 0.111314454129683]),
+        (
+            16,
+            [0.00116500269185144, 0.00116500269185144, 0.997669994616297],
+        ),
+        (
+            21,
+            [0.00803570082526459, 0.000532777972524392, 0.991431521202211],
+        ),
+        (
+            23,
+            [0.000327996463992934, 0.992189303578625, 0.00748269995738246],
+        ),
+    ];
+    let p: Vec<Vec<Option<f64>>> = (1..=3)
+        .map(|k| saved(&engine, &format!("PredictedProbability_{k}")))
+        .collect();
+    for (case, probabilities) in want {
+        for (k, w) in probabilities.iter().enumerate() {
+            assert!(close(p[k][case].unwrap(), *w), "case {case}: {p:?}");
+        }
+    }
+    let predicted: Vec<f64> = saved(&engine, "PredictedValue")
+        .into_iter()
+        .map(Option::unwrap)
+        .collect();
+    let classes = [
+        3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 3, 1, 1, 1, 3, 2, 3, 3, 3, 3, 3, 3, 3, 2,
+    ];
+    assert_eq!(predicted, classes.map(f64::from));
+}

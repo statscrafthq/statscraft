@@ -481,3 +481,94 @@ KNN s WITH x /PARTITION VARIABLE=part /RESCALE COVARIATE=NONE /FOCALCASES VARIAB
     assert_eq!(value("KNN_NearestNeighbor_CaseNumber_3"), 1.0);
     assert!(close(value("KNN_NearestNeighbor_Distance_2"), 0.6));
 }
+
+/// 20 cases drawn once in R (seed 4417); 15 train, 5 are held out. The expected numbers come
+/// from R as a black box: the covariates rescaled to 2 (x - min) / (max - min) - 1 over the
+/// training cases and g coded one column per category, then class::knn.cv (each training case
+/// from the other training cases) and class::knn (the holdout cases) with k = 3, and the
+/// neighbor distances from dist(). Votes v of class 1 give P(1) = (v + 1) / (3 + 2).
+#[test]
+fn defaults_agree_with_r() {
+    let data = "DATA LIST FREE /id x1 x2 g cls part focal.
+BEGIN DATA.
+1 33.7 -0.24 2 1 1 1
+2 46.3 3.58 1 1 1 0
+3 51.1 5.78 2 2 1 0
+4 47.6 2.15 1 1 1 0
+5 40.7 3.91 2 1 1 0
+6 11.7 0.28 1 1 1 0
+7 31.2 4.66 2 1 1 0
+8 19.8 3.92 1 1 1 0
+9 21.1 7.82 2 2 1 0
+10 11.5 -2.17 1 1 1 0
+11 10.6 8.96 1 2 1 0
+12 33.3 6.76 2 2 1 0
+13 18 3.22 2 1 1 0
+14 15.6 5.94 1 1 1 0
+15 59.5 4.49 1 1 1 0
+16 41.5 2.41 2 1 0 0
+17 43.1 7.75 2 2 0 1
+18 24.8 2.33 1 1 0 1
+19 20.6 5.07 1 1 0 0
+20 20.1 8.17 2 2 0 0
+END DATA.
+";
+    let mut engine = Engine::default();
+    let tables = run_on(
+        &mut engine,
+        &format!(
+            "{data}KNN cls (MLEVEL=N) BY g WITH x1 x2 /PARTITION VARIABLE=part
+              /FOCALCASES VARIABLE=focal /SAVE PREDVAL PREDPROB."
+        ),
+    );
+    let classes = [1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 2];
+    let votes = [3, 3, 2, 3, 1, 3, 2, 2, 2, 3, 2, 2, 1, 2, 2, 3, 1, 3, 2, 1];
+    assert_saved(
+        &engine,
+        "KNN_PredictedValue",
+        &classes.map(|c| Some(f64::from(c))),
+    );
+    assert_saved(
+        &engine,
+        "KNN_Probability_1",
+        &votes.map(|v| Some((f64::from(v) + 1.0) / 5.0)),
+    );
+    let near = find(&tables, "Nearest Neighbors and Distances");
+    let want: [[f64; 7]; 3] = [
+        [
+            1.0,
+            5.0,
+            7.0,
+            13.0,
+            0.798801268604739,
+            0.886420185744829,
+            0.8938071478106,
+        ],
+        [
+            17.0,
+            12.0,
+            3.0,
+            5.0,
+            0.438523217999373,
+            0.482051342883371,
+            0.696973806350635,
+        ],
+        [
+            18.0,
+            8.0,
+            6.0,
+            14.0,
+            0.351358057915086,
+            0.650205570460603,
+            0.749928862592391,
+        ],
+    ];
+    assert_eq!(near.rows.len(), 3);
+    for (row, want) in near.rows.iter().zip(want) {
+        let cells: Vec<f64> = row.iter().map(number).collect();
+        assert!(
+            cells.iter().zip(want).all(|(g, w)| close(*g, w)),
+            "{cells:?}"
+        );
+    }
+}
