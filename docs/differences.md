@@ -1128,6 +1128,16 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - Tables: Case Processing Summary (included cases, those left out for a missing target, a missing value on every predictor or a weight missing or below 0.5, with the weighted N under a weight), Excluded Predictors (only when some were left out), Predictor Ranking (rank, N, the criterion with its statistic, degrees of freedom and significance, the SUMMARY extra criteria for categorical predictors, and whether selected) and Selected Predictors. PLOT SUMMARY charts 1 - Sig. of each predictor in the ranking (Cramer's V or lambda when they rank), selected and other predictors as two series.
 - The global macro variables that list the selected predictors are not created. TIMER stops the command with an error when the testing runs past its limit.
 
+### RESPONSE RATE
+
+- The aggregated dataset that the dialog would make is not created; the command shows the table and the charts only.
+- A case weight multiplies both the numerator and the denominator of the case, so a weight of 2 counts the case twice. Cases with a weight of 0, a negative weight or a missing weight are left out. User-missing values are missing; there is no subcommand to keep them.
+- Both limits are inclusive: a row keeps MINRATE when its cumulative rate is at least the minimum and keeps MAXCOUNT when its cumulative denominator sum is at most the maximum (the manual's wording mixes "above" and "at least"). With both, a row is green only when it keeps both. MAXCOUNT PERCENT is a share of the denominator total of the groups that are kept.
+- `/MINRATE=value` and `/MAXCOUNT=n`, written as in the manual's examples, mean RATE=value and COUNT=n; `/MINRATE=NONE` and `/MAXCOUNT=ALL` are the defaults. FORMULA takes its two values with or without a comma between them. Each subcommand is given once.
+- The table also shows the numerator sums and their cumulative sums, so every rate can be checked by hand. Rates are percentages shown with two decimals. The colours are cell fills that the exports and the window show; the caption names the limits for text output.
+- The two chart panels are two line charts: the rates and cumulative rates by group with a constant series at MINRATE, and the cumulative denominator sum by group with a constant series at MAXCOUNT.
+- Groups left out for a denominator sum of 0 or below are named in a warning; when no group is left the command stops with an error. SPLIT FILE gives one analysis per split.
+
 ### ADP
 
 - **The OUTFILE file holds syntax, not XML.** PREPXML names a file of RECODE, COMPUTE, IF and VARIABLE LEVEL commands that makes the prepared fields; run it (INSERT or INCLUDE) on these or new data. ADP itself leaves the active dataset as it is, and shows one table with each field, its prepared field and level, and what was done or why it was excluded.

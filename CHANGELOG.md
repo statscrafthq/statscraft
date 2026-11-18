@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- RESPONSE RATE: the rate of a numerator over a denominator in each group of a numeric or string variable, in ascending group order, with cumulative sums and cumulative rates; groups whose denominator sum is not positive are left out with a warning. MINRATE (a rate, or cost over revenue with FORMULA) and MAXCOUNT (a count, or a percentage of the total) colour each row green or red and add reference lines to the rate chart and the cumulative count chart. Case weights multiply both values. See [RESPONSE RATE](docs/commands/response-rate.md) and [differences](docs/differences.md).
+
 - Window: Analyze > Neural Networks > Multilayer Perceptron (MLP) and Radial Basis Function (RBF) dialogs: dependents with their level, factors and covariates, rescaling, the partition by shares or a variable, the architecture (automatic or the layers, units and activations), training and stopping choices, tables, charts and saved predictions.
 - Window: the MANOVA (classic) dialog takes repeated measures (within-subjects factors with their levels, measure names, all terms or main effects only, a check that the dependents fill every cell) and a Transform matrix; Frequencies, Descriptives, Means, T Test, Bivariate Correlations and Linear Regression get a Bootstrap section (samples, confidence level, percentile or BCa intervals, simple or stratified sampling) that writes a BOOTSTRAP command in front.
 - Window: Analyze > Classify > Attribute Importance (AIM) and Feature Selection (SELECTPRED), and Transform > Prepare Data for Modeling (ADP) dialogs (grouping variable, variables, criteria, charts; target, predictors, screening, ranking and how many to keep; fields, date, outlier, missing value, merge and transformation steps and the syntax file).

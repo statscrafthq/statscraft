@@ -74,6 +74,7 @@ pub enum Command {
     Twostep(Box<crate::twostep::Twostep>),
     Aim(Box<crate::aim::Aim>),
     Selectpred(Box<crate::aim::Selectpred>),
+    ResponseRate(Box<crate::response_rate::ResponseRate>),
     Detectanomaly(Box<crate::twostep::Detectanomaly>),
     OptimalBinning(Box<crate::optimal_binning::OptimalBinning>),
     Knn(Box<crate::knn::Knn>),

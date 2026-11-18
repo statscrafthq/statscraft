@@ -99,6 +99,7 @@ mod regression;
 mod regression_more;
 mod reliability;
 mod report;
+mod response_rate;
 mod restructure;
 mod roc_analysis;
 mod save_translate;
@@ -401,6 +402,7 @@ pub use report::{
     ReportFormat, ReportFunction, ReportMissing, ReportOffset, ReportString, ReportSummary,
     StringPart, SummaryFormat, SummaryItem,
 };
+pub use response_rate::{MaxCount, ResponseRate};
 pub use roc_analysis::{RocAnalysis, RocCriteria, RocDesign, RocPlot, RocPrint, RocSelect};
 pub use session_commands::{SETTINGS, SettingEffect};
 pub use simulation::{

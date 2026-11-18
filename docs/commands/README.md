@@ -164,6 +164,7 @@ One page per supported command, generated from the same table that the parser an
 | [NAIVEBAYES](naivebayes.md) | Naive Bayes classification of a categorical target, with forward selection of the predictors. |
 | [AIM](aim.md) | Attribute importance: how much each variable sets every group (cluster) apart from all cases. |
 | [SELECTPRED](selectpred.md) | Screens a long list of predictors and ranks them one by one by how well each relates to a target. |
+| [RESPONSE RATE](response-rate.md) | Response rates of a numerator over a denominator in each group, with cumulative rates and limits. |
 | [ADP](adp.md) | Prepares a target and its inputs for modelling and writes the preparation as syntax. |
 | [PROXIMITIES](proximities.md) | Similarities, dissimilarities or distances between cases or variables by one of 37 measures. |
 | [PROXSCAL](proxscal.md) | Multidimensional scaling of one or more proximity matrices by majorization, with optimal transformations. |

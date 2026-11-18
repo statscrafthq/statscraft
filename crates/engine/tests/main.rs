@@ -98,6 +98,7 @@ mod regression;
 mod regression_more;
 mod reliability;
 mod report;
+mod response_rate;
 mod restructure;
 mod robustness;
 mod roc_analysis;

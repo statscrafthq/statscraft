@@ -79,6 +79,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Naivebayes(_)
         | Command::Aim(_)
         | Command::Selectpred(_)
+        | Command::ResponseRate(_)
         | Command::Adp(_)
         | Command::Tree(_)
         | Command::Csdescriptives(_)

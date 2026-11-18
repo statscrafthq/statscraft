@@ -79,6 +79,7 @@ use crate::regression;
 use crate::regression_more;
 use crate::reliability;
 use crate::report;
+use crate::response_rate;
 use crate::restructure;
 use crate::roc_analysis;
 use crate::save_translate;
@@ -2590,6 +2591,33 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "SELECTPRED churned BY region plan WITH spend visits tenure\n\
                   \x20 /EXCEPT VARIABLES=tenure /CRITERIA SIZE=3 RANKING=LRCHISQ /PRINT SUMMARY(CRAMERSV) /PLOT SUMMARY.",
         parse: aim::selectpred,
+    },
+    CommandSpec {
+        name: "RESPONSE RATE",
+        summary: "Response rates of a numerator over a denominator in each group, with cumulative rates and limits.",
+        syntax: "RESPONSE RATE /VARIABLES NUMERATOR=var DENOMINATOR=var GROUP=var\n\
+                 \x20             [/MINRATE RATE=NONE | RATE=value | FORMULA=cost, revenue]\n\
+                 \x20             [/MAXCOUNT COUNT=ALL | COUNT=n | PERCENT=value].\n\
+                 NUMERATOR and DENOMINATOR are numeric; GROUP is numeric or string. Both are summed within\n\
+                 each value of GROUP, and the rate of a group is 100 times its numerator sum over its\n\
+                 denominator sum. Groups go in ascending order of their value; the cumulative rate of a group\n\
+                 adds up the numerator and the denominator over it and every lower group before dividing. A\n\
+                 group whose denominator sum is 0 or below is left out, with a warning. MINRATE sets the\n\
+                 lowest acceptable cumulative rate in percent: a value above 0 and below 100, or 100 times\n\
+                 cost over revenue per response (both above 0). MAXCOUNT sets the highest acceptable\n\
+                 cumulative denominator sum: a whole number, or a percentage (above 0, below 100) of the\n\
+                 denominator total. With either limit, each table row is coloured green when it keeps\n\
+                 every limit given (cumulative rate at least MINRATE, cumulative sum at most MAXCOUNT) and\n\
+                 red when it does not, and the caption states the limits. Table: Response Rates, one row\n\
+                 per group with the sums, the rate, the cumulative sums and the cumulative rate. Charts:\n\
+                 the rates and cumulative rates by group with a line at MINRATE, and the cumulative\n\
+                 denominator sum by group with a line at MAXCOUNT. A case missing on any of the three\n\
+                 variables is left out; a case weight multiplies both values. /MINRATE=value and\n\
+                 /MAXCOUNT=n are short for RATE= and COUNT=. Every word is written in full and each\n\
+                 subcommand given once.",
+        example: "RESPONSE RATE /VARIABLES NUMERATOR=orders DENOMINATOR=letters GROUP=area_rank\n\
+                  \x20 /MINRATE FORMULA=0.6, 30 /MAXCOUNT PERCENT=50.",
+        parse: response_rate::response_rate,
     },
     CommandSpec {
         name: "CLUSTER",
@@ -6645,7 +6673,7 @@ static STRAY: &[&str] = &[
 ];
 
 /// Command names the manual wants written in full, never shortened.
-static IN_FULL: &[&str] = &["SELECTPRED"];
+static IN_FULL: &[&str] = &["SELECTPRED", "RESPONSE RATE"];
 
 fn names() -> impl Iterator<Item = (&'static str, Option<&'static CommandSpec>)> {
     let supported = COMMANDS.iter().map(|spec| (spec.name, Some(spec)));

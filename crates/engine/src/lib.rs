@@ -125,6 +125,7 @@ mod recode;
 mod regression;
 mod reliability;
 mod report;
+mod response_rate;
 mod restructure;
 mod roc;
 mod roc_analysis;
@@ -1302,6 +1303,7 @@ impl Engine {
             | Command::Twostep(_)
             | Command::Knn(_)
             | Command::Aim(_)
+            | Command::ResponseRate(_)
             | Command::Logistic(_)
             | Command::Coxreg(_)
             | Command::Nomreg(_)
@@ -1686,6 +1688,7 @@ impl Engine {
             Command::Naivebayes(command) => self.naivebayes(command),
             Command::Aim(command) => self.aim(command),
             Command::Selectpred(command) => self.selectpred(command),
+            Command::ResponseRate(command) => self.response_rate(command),
             Command::Simplan(command) => self.simplan(command),
             Command::Adp(command) => self.adp(command),
             Command::Logistic(command) => self.logistic(command),
