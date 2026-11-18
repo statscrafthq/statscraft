@@ -11,6 +11,13 @@
 //! derivative-free optimizer polished by numerical Newton steps, independently of the analytic
 //! derivatives used here. MASS::glmmPQL was not used: it maximizes the full likelihood of the
 //! working model and estimates the scale.
+//!
+//! The later tests (repeated measures, the negative binomial, robust covariance, EMMEANS and
+//! SAVE) come from a second such R program on the same data: R side V = W^-1/2 R W^-1/2 with R
+//! block diagonal over persons, the negative binomial k from MASS::glm.nb on the model without
+//! random effects, the sandwich over clinics, the means and contrasts by the delta method with
+//! the step-down adjustments written out, and the saved predictions with the prediction error
+//! variance from the mixed model equations.
 
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
@@ -99,14 +106,15 @@ fn value(tables: &[Table], title: &str, first: &str, column: &str) -> f64 {
     }
 }
 
-/// The numbers of the `index`-th row of a table, by column title.
+/// The numbers of the `index`-th row of a table, by column title (the last part of a grouped
+/// one).
 fn nth(tables: &[Table], title: &str, index: usize, column: &str) -> f64 {
     let t = table(tables, title);
     let c = t
         .column_titles()
         .iter()
-        .position(|h| h == column)
-        .expect("column");
+        .position(|h| h == column || h.ends_with(&format!("/ {column}")))
+        .unwrap_or_else(|| panic!("no column {column} in {title}"));
     match t.rows[index][c] {
         Cell::Number(n) => n,
         ref other => panic!("{title} row {index} {column}: {other:?}"),
@@ -258,7 +266,20 @@ fn errors_for_what_is_not_supported_or_wrong() {
     let cases = [
         (
             format!("{BINARY}GENLINMIXED /FIELDS TARGET=cured /FIXED EFFECTS=dose."),
-            "without RANDOM",
+            "without RANDOM or REPEATED_MEASURES",
+        ),
+        (
+            format!(
+                "{COUNTS}GENLINMIXED /DATA_STRUCTURE SUBJECTS=person REPEATED_MEASURES=person /FIELDS TARGET=score."
+            ),
+            "cannot also be a subject",
+        ),
+        (
+            format!(
+                "{BINARY}GENLINMIXED /DATA_STRUCTURE SUBJECTS=clinic /FIELDS TARGET=cured /FIXED EFFECTS=dose\n\
+                 /RANDOM USE_INTERCEPT=TRUE SUBJECTS=clinic /EMMEANS TABLES=arm."
+            ),
+            "on FIXED",
         ),
         (
             format!(
@@ -288,5 +309,392 @@ fn errors_for_what_is_not_supported_or_wrong() {
     for (source, part) in cases {
         let message = run_err(&source);
         assert!(message.contains(part), "{message}");
+    }
+}
+
+/// The value of a saved numeric field at a case.
+fn saved(engine: &Engine, name: &str, case: usize) -> f64 {
+    match engine.dataset().unwrap().variable(name).unwrap().values() {
+        statscraft_data::Values::Numeric(v) => v.get(case).expect("a value"),
+        _ => panic!("{name} is a string"),
+    }
+}
+
+fn run_engine(source: &str) -> (Engine, Vec<Table>) {
+    let (commands, errors) = parse(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut tables = Vec::new();
+    for command in &commands {
+        match engine.execute(&command.command) {
+            Ok(more) => tables.extend(more),
+            Err(error) => panic!("line {}: {error}", command.first_line),
+        }
+    }
+    (engine, tables)
+}
+
+fn estimates(tables: &[Table], want: &[(&str, f64, f64)]) {
+    let fixed = "Estimates of Fixed Effects";
+    for &(name, b, se) in want {
+        close(value(tables, fixed, name, "Estimate"), b, name);
+        close(value(tables, fixed, name, "Std. Error"), se, name);
+    }
+}
+
+#[test]
+fn poisson_with_ar1_repeated_measures_and_no_random_effects() {
+    let tables = run(&format!(
+        "{COUNTS}GENLINMIXED /DATA_STRUCTURE SUBJECTS=person REPEATED_MEASURES=time COVARIANCE_TYPE=AR1\n\
+         /FIELDS TARGET=visits /TARGET_OPTIONS DISTRIBUTION=POISSON /FIXED EFFECTS=treat time\n\
+         /BUILD_OPTIONS PCONVERGE=1E-10."
+    ));
+    estimates(
+        &tables,
+        &[
+            ("Intercept", 0.90720647677829, 0.5076789297060),
+            ("[treat=1", -0.02792589474591, 0.5740688756182),
+            ("time", 0.48228156469611, 0.4922861607244),
+        ],
+    );
+    let cov = "Estimates of Covariance Parameters";
+    close(
+        nth(&tables, cov, 0, "Estimate"),
+        4.6968162680458,
+        "AR1 variance",
+    );
+    close(nth(&tables, cov, 1, "Estimate"), 0.7307402480839, "AR1 rho");
+    close(
+        nth(&tables, cov, 0, "Std. Error"),
+        1.6174008760196,
+        "its error",
+    );
+    close(
+        nth(&tables, cov, 1, "Std. Error"),
+        0.1037775854393,
+        "its error",
+    );
+    close(
+        value(
+            &tables,
+            "Information Criteria",
+            "-2 Restricted Log Pseudo",
+            "Value",
+        ),
+        153.35645362254,
+        "-2 REPL",
+    );
+}
+
+#[test]
+fn normal_identity_with_repeated_measures_is_mixed_itself() {
+    let glmm = run(&format!(
+        "{COUNTS}GENLINMIXED /DATA_STRUCTURE SUBJECTS=person REPEATED_MEASURES=time COVARIANCE_TYPE=ARH1\n\
+         /FIELDS TARGET=score /FIXED EFFECTS=treat time /RANDOM USE_INTERCEPT=TRUE SUBJECTS=person\n\
+         /BUILD_OPTIONS DF_METHOD=SATTERTHWAITE."
+    ));
+    let mixed = run(&format!(
+        "{COUNTS}MIXED score BY treat WITH time /FIXED=treat time\n\
+         /RANDOM=INTERCEPT | SUBJECT(person) /REPEATED=time | SUBJECT(person) COVTYPE(ARH1)\n\
+         /CRITERIA=SCORING(0) /PRINT=SOLUTION TESTCOV."
+    ));
+    for title in [
+        "Estimates of Fixed Effects",
+        "Estimates of Covariance Parameters",
+        "Type III Tests of Fixed Effects",
+    ] {
+        let (a, b) = (table(&glmm, title), table(&mixed, title));
+        assert_eq!(a.rows.len(), b.rows.len(), "{title}");
+        for (ra, rb) in a.rows.iter().zip(&b.rows) {
+            for (ca, cb) in ra.iter().zip(rb) {
+                match (ca, cb) {
+                    (Cell::Number(x), Cell::Number(y)) => {
+                        assert!(
+                            (x - y).abs() <= 1e-9 * y.abs().max(1.0),
+                            "{title}: {x} vs {y}"
+                        )
+                    }
+                    _ => assert_eq!(ca, cb, "{title}"),
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn robust_covariance_and_marginal_means_of_a_binary_target() {
+    let tables = run(&format!(
+        "{BINARY}GENLINMIXED /DATA_STRUCTURE SUBJECTS=clinic /FIELDS TARGET=cured\n\
+         /FIXED EFFECTS=dose arm /RANDOM USE_INTERCEPT=TRUE SUBJECTS=clinic\n\
+         /BUILD_OPTIONS PCONVERGE=1E-10 COVB=ROBUST\n\
+         /EMMEANS TABLES=arm COMPARE=arm CONTRAST=SIMPLE."
+    ));
+    estimates(
+        &tables,
+        &[
+            ("Intercept", -0.1347679812211, 0.7593674828174),
+            ("dose", -0.2974059371989, 0.2150848030421),
+            ("[arm=1", 0.9593579520799, 0.3948777799728),
+        ],
+    );
+    let fixed = "Estimates of Fixed Effects";
+    close(
+        value(&tables, fixed, "[arm=1", "Sig."),
+        0.01704018543413,
+        "robust p",
+    );
+    let means = "Estimated Marginal Means: arm";
+    let want = [
+        (
+            0.4861171381130,
+            0.08948881555905,
+            0.3171452374886,
+            0.6583232393553,
+        ),
+        (
+            0.2660212905765,
+            0.08640083447823,
+            0.1308310534883,
+            0.4660083487230,
+        ),
+    ];
+    for (i, (m, se, lo, hi)) in want.into_iter().enumerate() {
+        close(nth(&tables, means, i, "Mean"), m, "mean");
+        close(nth(&tables, means, i, "Std. Error"), se, "its error");
+        close(nth(&tables, means, i, "Lower Bound"), lo, "lower");
+        close(nth(&tables, means, i, "Upper Bound"), hi, "upper");
+    }
+    let c = "Contrast Estimates: arm";
+    close(
+        nth(&tables, c, 0, "Contrast Estimate"),
+        0.22009584753652,
+        "contrast",
+    );
+    close(
+        nth(&tables, c, 0, "Std. Error"),
+        0.08525651478379,
+        "its error",
+    );
+    close(nth(&tables, c, 0, "Adj. Sig."), 0.01139766745432, "its p");
+    let f = nth(&tables, "Overall Test: arm", 0, "F");
+    close(f, 2.58157218946470_f64.powi(2), "F of one contrast");
+}
+
+#[test]
+fn negative_binomial_with_k_from_the_model_without_random_effects() {
+    let tables = run(&format!(
+        "{COUNTS}GENLINMIXED /DATA_STRUCTURE SUBJECTS=person /FIELDS TARGET=visits\n\
+         /TARGET_OPTIONS DISTRIBUTION=NEGATIVE_BINOMIAL /FIXED EFFECTS=treat time\n\
+         /RANDOM USE_INTERCEPT=TRUE SUBJECTS=person /BUILD_OPTIONS PCONVERGE=1E-10."
+    ));
+    let summary = table(&tables, "Model Summary");
+    let Cell::Text(name) = &summary.rows[1][1] else {
+        panic!("{:?}", summary.rows[1][1])
+    };
+    let k: f64 = name
+        .trim_start_matches("Negative binomial (")
+        .trim_end_matches(')')
+        .parse()
+        .unwrap();
+    close(k, 0.6984394401926, "k");
+    estimates(
+        &tables,
+        &[
+            ("Intercept", 0.4341251565846, 0.4086046918268),
+            ("[treat=1", 0.3744865917015, 0.4882312145654),
+            ("time", 0.6370681541530, 0.3990057014688),
+        ],
+    );
+    let cov = "Estimates of Covariance Parameters";
+    close(nth(&tables, cov, 0, "Estimate"), 0.407413334663, "variance");
+    close(
+        nth(&tables, cov, 0, "Std. Error"),
+        0.2877848609233,
+        "its error",
+    );
+}
+
+/// A Poisson model with a three-level group (person modulo 3) and a person intercept.
+fn grouped(rest: &str) -> String {
+    format!(
+        "{COUNTS}COMPUTE grp = MOD(person, 3).\n\
+         GENLINMIXED /DATA_STRUCTURE SUBJECTS=person /FIELDS TARGET=visits\n\
+         /TARGET_OPTIONS DISTRIBUTION=POISSON /FIXED EFFECTS=grp time\n\
+         /RANDOM USE_INTERCEPT=TRUE SUBJECTS=person /BUILD_OPTIONS PCONVERGE=1E-10\n{rest}."
+    )
+}
+
+#[test]
+fn pairwise_means_with_sequential_bonferroni() {
+    let tables = run(&grouped(
+        "/EMMEANS TABLES=grp COMPARE=grp /EMMEANS_OPTIONS PADJUST=SEQBONFERRONI",
+    ));
+    let means = "Estimated Marginal Means: grp";
+    let want = [
+        (
+            2.189849984133,
+            0.9476564419167,
+            0.9202882541229,
+            5.210805344438,
+        ),
+        (
+            3.670327558322,
+            1.3254077059035,
+            1.7804783683404,
+            7.566115165966,
+        ),
+        (
+            1.823788311760,
+            0.7903571690213,
+            0.7655131677078,
+            4.345064130083,
+        ),
+    ];
+    for (i, (m, se, lo, hi)) in want.into_iter().enumerate() {
+        close(nth(&tables, means, i, "Mean"), m, "mean");
+        close(nth(&tables, means, i, "Std. Error"), se, "its error");
+        close(nth(&tables, means, i, "Lower Bound"), lo, "lower");
+        close(nth(&tables, means, i, "Upper Bound"), hi, "upper");
+    }
+    let c = "Contrast Estimates: grp";
+    let want = [
+        (
+            -1.4804775741884,
+            1.628463812587,
+            0.7343604682649,
+            -5.231271080181,
+        ),
+        (
+            0.3660616723727,
+            1.233407514891,
+            0.7677257077371,
+            -2.104750484389,
+        ),
+        (
+            1.8465392465612,
+            1.542395816398,
+            0.7088287934725,
+            -1.960129209643,
+        ),
+    ];
+    for (i, (est, se, p, lo)) in want.into_iter().enumerate() {
+        close(nth(&tables, c, i, "Contrast Estimate"), est, "contrast");
+        close(nth(&tables, c, i, "Std. Error"), se, "its error");
+        close(nth(&tables, c, i, "Adj. Sig."), p, "adjusted p");
+        close(
+            nth(&tables, c, i, "Lower Bound"),
+            lo,
+            "adjusted lower bound",
+        );
+    }
+    let o = "Overall Test: grp";
+    close(nth(&tables, o, 0, "F"), 0.7217965170991, "F");
+    close(nth(&tables, o, 0, "Sig."), 0.4903430766602, "its p");
+    close(nth(&tables, o, 0, "df1"), 2.0, "df1");
+}
+
+#[test]
+fn deviation_contrasts_of_the_linear_predictor_with_sequential_sidak() {
+    let tables = run(&grouped(
+        "/EMMEANS TABLES=grp COMPARE=grp CONTRAST=DEVIATION\n\
+         /EMMEANS_OPTIONS SCALE=TRANSFORMED PADJUST=SEQSIDAK",
+    ));
+    let c = "Contrast Estimates: grp";
+    let want = [
+        (
+            -0.1111768855426,
+            0.3441937477926,
+            0.7478931968115,
+            0.5783260452085,
+        ),
+        (
+            0.4052709844034,
+            0.3154570341900,
+            0.3666741984455,
+            1.1301841725324,
+        ),
+    ];
+    for (i, (est, se, p, hi)) in want.into_iter().enumerate() {
+        close(nth(&tables, c, i, "Contrast Estimate"), est, "contrast");
+        close(nth(&tables, c, i, "Std. Error"), se, "its error");
+        close(nth(&tables, c, i, "Adj. Sig."), p, "adjusted p");
+        close(
+            nth(&tables, c, i, "Upper Bound"),
+            hi,
+            "adjusted upper bound",
+        );
+    }
+}
+
+#[test]
+fn save_and_the_model_file() {
+    let file = std::env::temp_dir().join(format!("statscraft-glmm-{}.json", std::process::id()));
+    let (engine, _) = run_engine(&grouped(&format!(
+        "/SAVE PREDICTED_VALUES CONFIDENCE_INTERVALS(ci) PEARSON_RESIDUALS /OUTFILE MODEL='{}'",
+        file.display()
+    )));
+    let want = [
+        (
+            0,
+            1.970277010971,
+            1.150007804714,
+            3.375621873215,
+            -1.403665562365,
+        ),
+        (
+            1,
+            2.1947853004005,
+            1.3232620972741,
+            3.6403086922667,
+            0.5435201797238,
+        ),
+        (
+            30,
+            1.2115385316912,
+            0.6326513763385,
+            2.3201176329806,
+            -1.1006991104254,
+        ),
+        (
+            59,
+            11.410677286623,
+            8.209819349413,
+            15.859491006799,
+            1.654639828488,
+        ),
+    ];
+    for (case, mu, lo, hi, r) in want {
+        close(saved(&engine, "PredictedValue", case), mu, "predicted");
+        close(saved(&engine, "ci_Lower", case), lo, "lower");
+        close(saved(&engine, "ci_Upper", case), hi, "upper");
+        close(
+            saved(&engine, "PearsonResidual", case),
+            r,
+            "Pearson residual",
+        );
+    }
+    let text = std::fs::read_to_string(&file).unwrap();
+    std::fs::remove_file(&file).ok();
+    assert!(
+        text.contains("\"format\": \"statscraft-glmm-model\""),
+        "{text}"
+    );
+    assert!(text.contains("\"link\": \"Log\""), "{text}");
+    assert!(text.contains("0.5395504057"), "{text}");
+}
+
+#[test]
+fn save_the_category_and_probabilities_of_a_binary_target() {
+    let (engine, _) = run_engine(&format!(
+        "{BINARY}GENLINMIXED /DATA_STRUCTURE SUBJECTS=clinic /FIELDS TARGET=cured\n\
+         /FIXED EFFECTS=dose arm /RANDOM USE_INTERCEPT=TRUE SUBJECTS=clinic\n\
+         /SAVE PREDICTED_VALUES(cat) PREDICTED_PROBABILITY(p) CONFIDENCE(conf)."
+    ));
+    for case in 0..96 {
+        let (p0, p1) = (saved(&engine, "p_1", case), saved(&engine, "p_2", case));
+        assert!((p0 + p1 - 1.0).abs() < 1e-12);
+        let category = saved(&engine, "cat", case);
+        assert_eq!(category, if p0 >= 0.5 { 0.0 } else { 1.0 });
+        assert!((saved(&engine, "conf", case) - p0.max(p1)).abs() < 1e-12);
     }
 }

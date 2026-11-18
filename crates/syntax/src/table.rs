@@ -4441,42 +4441,62 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "GENLINMIXED",
-        summary: "Generalized linear mixed model: a target with a normal, binomial, gamma, inverse Gaussian or Poisson distribution and a link, fixed effects and random effects of subjects.",
-        syntax: "GENLINMIXED [/DATA_STRUCTURE SUBJECTS=field[*field...]]\n\
+        summary: "Generalized linear mixed model: a target with a normal, binomial, gamma, inverse Gaussian, Poisson or negative binomial distribution and a link, fixed effects, random effects of subjects and repeated measures.",
+        syntax: "GENLINMIXED [/DATA_STRUCTURE SUBJECTS=field[*field...] [REPEATED_MEASURES=field[*field...]]\n\
+                 \x20         [COVARIANCE_TYPE=DIAGONAL | type]]\n\
                  \x20  /FIELDS TARGET=field [TRIALS=NONE | VALUE(n) | FIELD(field)] [ANALYSIS_WEIGHT=field]\n\
                  \x20         [OFFSET=NONE | VALUE(x) | FIELD(field)]\n\
-                 \x20  [/TARGET_OPTIONS [REFERENCE=value] [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | INVERSE_GAUSSIAN | POISSON]\n\
+                 \x20  [/TARGET_OPTIONS [REFERENCE=value]\n\
+                 \x20         [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | INVERSE_GAUSSIAN | POISSON | NEGATIVE_BINOMIAL]\n\
                  \x20         [LINK=IDENTITY | CLOGLOG | LOG | LOGC | LOGIT | NLOGLOG | POWER | PROBIT] [LINK_PARAMETER=x]]\n\
                  \x20  [/FIXED [EFFECTS=effects] [USE_INTERCEPT=TRUE | FALSE]]\n\
-                 \x20  /RANDOM [EFFECTS=effects] [USE_INTERCEPT=FALSE | TRUE] [SUBJECTS=field[*field...]]\n\
-                 \x20          [COVARIANCE_TYPE=type] [SOLUTION=FALSE | TRUE] ...\n\
+                 \x20  [/RANDOM [EFFECTS=effects] [USE_INTERCEPT=FALSE | TRUE] [SUBJECTS=field[*field...]]\n\
+                 \x20          [COVARIANCE_TYPE=type] [SOLUTION=FALSE | TRUE]] ...\n\
                  \x20  [/BUILD_OPTIONS [TARGET_CATEGORY_ORDER=ASCENDING | DESCENDING | DATA] [MAX_ITERATIONS=100]\n\
                  \x20         [CONFIDENCE_LEVEL=95] [DF_METHOD=RESIDUAL | SATTERTHWAITE | KENWARD_ROGER]\n\
-                 \x20         [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [LCONVERGE=0[(...)]] [HCONVERGE=0[(...)]]\n\
-                 \x20         [SCORING=0] [SINGULAR=1E-12]]\n\
+                 \x20         [COVB=MODEL | ROBUST] [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [LCONVERGE=0[(...)]]\n\
+                 \x20         [HCONVERGE=0[(...)]] [SCORING=0] [SINGULAR=1E-12]]\n\
+                 \x20  [/EMMEANS [TABLES=factor[*factor...]] [COMPARE=factor]\n\
+                 \x20         [CONTRAST=NONE | PAIRWISE | DEVIATION | SIMPLE]] ...\n\
+                 \x20  [/EMMEANS_OPTIONS [CONTROL=covariate(x) ...] [SCALE=ORIGINAL | TRANSFORMED]\n\
+                 \x20         [PADJUST=LSD | SEQBONFERRONI | SEQSIDAK]]\n\
+                 \x20  [/OUTFILE MODEL='file']\n\
+                 \x20  [/SAVE [PREDICTED_VALUES[(name)]] [PREDICTED_PROBABILITY[(root)]] [MAX_CATEGORIES(25)]\n\
+                 \x20         [CONFIDENCE[(name)]] [CONFIDENCE_METHOD(PREDICTEDPROBABILITY | PROBABILITYIMPROVEMENT)]\n\
+                 \x20         [CONFIDENCE_INTERVALS[(root)]] [PEARSON_RESIDUALS[(name)]]]\n\
                  effects: a field, a*b or a BY b, a(b); a field of scale level is a covariate, any other a factor.\n\
-                 type: VARIANCE_COMPONENTS (the default: one variance per effect), IDENTITY, DIAGONAL, UNSTRUCTURED,\n\
-                 COMPOUND_SYMMETRY, AR1, ARH1, ARMA11, CSH or TOEPLITZ, as the types of MIXED.\n\
+                 type: VARIANCE_COMPONENTS (the default on RANDOM: one variance per effect; on DATA_STRUCTURE the\n\
+                 same as DIAGONAL), IDENTITY, DIAGONAL, UNSTRUCTURED, COMPOUND_SYMMETRY, AR1, ARH1, ARMA11, CSH or\n\
+                 TOEPLITZ, as the types of MIXED.\n\
                  Without DISTRIBUTION a scale target is NORMAL, and one with TRIALS or a categorical one of two\n\
                  values BINOMIAL; the link defaults to IDENTITY, LOGIT, POWER(-1) for GAMMA, POWER(-2) for\n\
-                 INVERSE_GAUSSIAN and LOG for POISSON. BINOMIAL takes either events with TRIALS or a target\n\
-                 of two values; then the last value in TARGET_CATEGORY_ORDER (or REFERENCE) is the reference\n\
-                 and the model is for the other one.\n\
+                 INVERSE_GAUSSIAN and LOG for POISSON and NEGATIVE_BINOMIAL. BINOMIAL takes either events with\n\
+                 TRIALS or a target of two values; then the last value in TARGET_CATEGORY_ORDER (or REFERENCE) is\n\
+                 the reference and the model is for the other one.\n\
                  Cases whose target does not fit the distribution, or that miss a field, the offset or a weight\n\
                  above 0, are left out. The fit linearizes the model around the current means and fits the\n\
                  linear mixed model of the working target with the weights that follow from the variance\n\
                  function, by restricted likelihood as MIXED does, then updates the means with the predicted\n\
                  random effects, until no covariance parameter changes by more than PCONVERGE relative to its\n\
-                 size. The scale is 1 for BINOMIAL and POISSON and estimated as the residual variance\n\
-                 otherwise; NORMAL with IDENTITY is MIXED itself. Each RANDOM must name subjects from\n\
-                 DATA_STRUCTURE. MAX_ITERATIONS bounds both loops. Tables: Model Summary, Model Dimension,\n\
-                 Information Criteria (of the working model), Type III Tests of Fixed Effects, Estimates of\n\
-                 Fixed Effects, Estimates of Covariance Parameters with standard errors and Wald intervals, and\n\
-                 the predicted random effects of each RANDOM with SOLUTION=TRUE. Degrees of freedom are the cases\n\
-                 less the rank of the fixed design unless DF_METHOD says otherwise. EMMEANS_OPTIONS is checked\n\
-                 and has no effect. Not supported yet: MULTINOMIAL and NEGATIVE_BINOMIAL, a model without\n\
-                 RANDOM, REPEATED_MEASURES and the other repeated measures keywords, GROUPING, COVB=ROBUST,\n\
-                 INPUTS_CATEGORY_ORDER other than ASCENDING, EMMEANS, SAVE and OUTFILE.",
+                 size. REPEATED_MEASURES orders the cases of each subject by these fields and lets their residuals\n\
+                 be correlated as COVARIANCE_TYPE says; a model needs RANDOM or REPEATED_MEASURES. The scale is 1\n\
+                 for BINOMIAL, POISSON and NEGATIVE_BINOMIAL without repeated measures and estimated otherwise;\n\
+                 NORMAL with IDENTITY is MIXED itself. NEGATIVE_BINOMIAL takes its k from the model without\n\
+                 random effects and keeps it. Each RANDOM must name subjects from DATA_STRUCTURE. MAX_ITERATIONS\n\
+                 bounds both loops. COVB=ROBUST tests with the sandwich covariance over the subjects.\n\
+                 Tables: Model Summary, Model Dimension, Information Criteria (of the working model), Type III\n\
+                 Tests of Fixed Effects, Estimates of Fixed Effects, Estimates of Covariance Parameters with\n\
+                 standard errors and Wald intervals, and the predicted random effects of each RANDOM with\n\
+                 SOLUTION=TRUE. Degrees of freedom are the cases less the rank of the fixed design unless\n\
+                 DF_METHOD says otherwise. EMMEANS gives the means of a fixed effect of factors (the overall\n\
+                 mean without TABLES) with covariates at their mean or CONTROL value, on the scale of the target\n\
+                 or of the link, and with COMPARE the contrasts among the levels of one factor, adjusted by\n\
+                 PADJUST, and their joint F test. SAVE adds the predicted mean (the events for events and trials,\n\
+                 the category for a target of two values), its interval and the Pearson residual; probabilities\n\
+                 and confidence need a categorical target. OUTFILE writes the fixed effects as a JSON model file.\n\
+                 Not supported yet: MULTINOMIAL (and LINK=CAUCHIT), a model with neither RANDOM nor\n\
+                 REPEATED_MEASURES, the spatial and Kronecker covariance types, KRONECKER_MEASURES, SPCOORDS,\n\
+                 GROUPING and INPUTS_CATEGORY_ORDER other than ASCENDING.",
         example: "GENLINMIXED /DATA_STRUCTURE SUBJECTS=clinic /FIELDS TARGET=cured /TARGET_OPTIONS DISTRIBUTION=BINOMIAL LINK=LOGIT /FIXED EFFECTS=dose /RANDOM USE_INTERCEPT=TRUE SUBJECTS=clinic.",
         parse: genlinmixed::genlinmixed,
     },

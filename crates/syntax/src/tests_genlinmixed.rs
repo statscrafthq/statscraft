@@ -125,15 +125,15 @@ fn errors_name_what_is_wrong_or_not_supported_yet() {
             "not supported yet",
         ),
         (
-            "GENLINMIXED /FIELDS TARGET=y /TARGET_OPTIONS DISTRIBUTION=NEGATIVE_BINOMIAL.",
-            "not supported yet",
-        ),
-        (
             "GENLINMIXED /FIELDS TARGET=y /TARGET_OPTIONS LINK=CAUCHIT.",
             "not support",
         ),
         (
-            "GENLINMIXED /DATA_STRUCTURE SUBJECTS=id REPEATED_MEASURES=t /FIELDS TARGET=y.",
+            "GENLINMIXED /DATA_STRUCTURE SUBJECTS=id KRONECKER_MEASURES=t /FIELDS TARGET=y.",
+            "not supported yet",
+        ),
+        (
+            "GENLINMIXED /DATA_STRUCTURE SUBJECTS=id REPEATED_MEASURES=t COVARIANCE_TYPE=SP_POWER /FIELDS TARGET=y.",
             "not supported yet",
         ),
         (
@@ -149,10 +149,6 @@ fn errors_name_what_is_wrong_or_not_supported_yet() {
             "repeated measures",
         ),
         (
-            "GENLINMIXED /FIELDS TARGET=y /BUILD_OPTIONS COVB=ROBUST.",
-            "not supported yet",
-        ),
-        (
             "GENLINMIXED /FIELDS TARGET=y /BUILD_OPTIONS INPUTS_CATEGORY_ORDER=DATA.",
             "not supported yet",
         ),
@@ -161,16 +157,24 @@ fn errors_name_what_is_wrong_or_not_supported_yet() {
             "below 100",
         ),
         (
-            "GENLINMIXED /FIELDS TARGET=y /EMMEANS TABLES=a.",
-            "not supported yet",
+            "GENLINMIXED /FIELDS TARGET=y /EMMEANS TABLES=a CONTRAST=SIMPLE.",
+            "needs COMPARE",
         ),
         (
-            "GENLINMIXED /FIELDS TARGET=y /SAVE PREDICTED_VALUES(p).",
-            "not supported yet",
+            "GENLINMIXED /FIELDS TARGET=y /EMMEANS TABLES=a COMPARE=b.",
+            "not on TABLES",
         ),
         (
-            "GENLINMIXED /FIELDS TARGET=y /OUTFILE MODEL='m.xml'.",
-            "not supported yet",
+            "GENLINMIXED /FIELDS TARGET=y /EMMEANS_OPTIONS CONTROL=x(1) x(2).",
+            "twice",
+        ),
+        (
+            "GENLINMIXED /FIELDS TARGET=y /SAVE PEARSON_RESIDUALS PEARSON_RESIDUALS(r).",
+            "only once",
+        ),
+        (
+            "GENLINMIXED /FIELDS TARGET=y /SAVE MAX_CATEGORIES(0).",
+            "1 or more",
         ),
         (
             "GENLINMIXED /FIELDS TARGET=y TRIALS=VALUE(0).",
@@ -181,4 +185,41 @@ fn errors_name_what_is_wrong_or_not_supported_yet() {
         let message = err(source);
         assert!(message.contains(part), "{source}: {message}");
     }
+}
+
+#[test]
+fn repeated_measures_emmeans_save_and_outfile() {
+    let g = glmm(
+        "GENLINMIXED /DATA_STRUCTURE SUBJECTS=id REPEATED_MEASURES=week COVARIANCE_TYPE=AR1\n\
+         /FIELDS TARGET=n /TARGET_OPTIONS DISTRIBUTION=NEGATIVE_BINOMIAL\n\
+         /FIXED EFFECTS=arm week /BUILD_OPTIONS COVB=ROBUST\n\
+         /EMMEANS /EMMEANS TABLES=arm COMPARE=arm /EMMEANS TABLES=arm*week COMPARE=week CONTRAST=DEVIATION\n\
+         /EMMEANS_OPTIONS CONTROL=age(30) SCALE=TRANSFORMED PADJUST=SEQSIDAK\n\
+         /OUTFILE MODEL='glmm.json'\n\
+         /SAVE PREDICTED_VALUES(fit) CONFIDENCE_INTERVALS PEARSON_RESIDUALS(pr) MAX_CATEGORIES(3)\n\
+         CONFIDENCE_METHOD(PROBABILITYIMPROVEMENT).",
+    );
+    assert_eq!(g.repeated, ["week"]);
+    assert_eq!(g.residual_covtype, CovType::Ar1);
+    assert_eq!(
+        g.distribution,
+        Some(GenlinDistribution::NegativeBinomial(None))
+    );
+    assert!(g.robust && g.transformed);
+    assert_eq!(g.padjust, GenlinAdjust::SeqSidak);
+    assert_eq!(g.control, [("age".to_string(), 30.0)]);
+    assert_eq!(g.emmeans.len(), 3);
+    assert!(g.emmeans[0].tables.is_empty() && g.emmeans[0].compare.is_none());
+    assert_eq!(g.emmeans[1].contrast, GlmmContrast::Pairwise);
+    assert_eq!(g.emmeans[2].tables, ["arm", "week"]);
+    assert_eq!(g.emmeans[2].contrast, GlmmContrast::Deviation);
+    assert_eq!(g.outfile.as_deref(), Some("glmm.json"));
+    let s = g.save.expect("SAVE");
+    assert_eq!(s.predicted.as_deref(), Some("fit"));
+    assert_eq!(s.intervals.as_deref(), Some("CI"));
+    assert_eq!(s.pearson.as_deref(), Some("pr"));
+    assert_eq!((s.max_categories, s.improvement), (3, true));
+    assert!(s.probability.is_none() && s.confidence.is_none());
+    let g = glmm("GENLINMIXED /DATA_STRUCTURE SUBJECTS=id REPEATED_MEASURES=t /FIELDS TARGET=y.");
+    assert_eq!(g.residual_covtype, CovType::Diag);
 }

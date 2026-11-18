@@ -293,6 +293,7 @@ pub use ggraph::{
     Ggraph, GplExpr, GplProgram, GplStatement, GraphDataset, GraphItem, GraphSpec, GraphStat,
     read_gpl,
 };
+pub use genlinmixed::{GenLinMixed, GlmmContrast, GlmmEmmeans, GlmmRandom, GlmmSave};
 pub use glm::{
     Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix,
     LRow, MColumn, Profile, RefCat, Term, WsFactor,

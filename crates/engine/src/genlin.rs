@@ -956,6 +956,39 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
     })
 }
 
+/// k of the negative binomial by maximum likelihood of the model without random effects
+/// (GENLINMIXED estimates it so and then keeps it fixed); None when the fit fails.
+pub(crate) fn negbin_k(
+    y: &[f64],
+    weight: &[f64],
+    offset: &[f64],
+    x: &[Vec<f64>],
+    link: GenlinLink,
+    iterations: usize,
+) -> Option<f64> {
+    let n = y.len();
+    let c = Cases {
+        y: y.to_vec(),
+        m: vec![1.0; n],
+        f: vec![1.0; n],
+        omega: weight.to_vec(),
+        offset: offset.to_vec(),
+    };
+    let criteria = GenlinCriteria {
+        maxiterations: iterations.min(u32::MAX as usize) as u32,
+        ..GenlinCriteria::default()
+    };
+    let spec = Spec {
+        family: Family::NegBin,
+        link,
+        k: None,
+        scale: ScaleMode::Fixed(1.0),
+        criteria: &criteria,
+        full: true,
+    };
+    fit_glm(&c, x, &spec, None).map(|f| f.k)
+}
+
 /// Whether the standard errors come from the expected information: when every iteration
 /// would be Fisher scoring.
 fn expected_information(crit: &GenlinCriteria) -> bool {

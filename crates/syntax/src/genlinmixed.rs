@@ -4,9 +4,10 @@
 //! - Subcommands in any order; FIELDS is required. RANDOM may repeat (one covariance block
 //!   each); every other subcommand appears once. A subcommand is never empty and a keyword
 //!   appears once within it. Names and keywords are written in full.
-//! - DATA_STRUCTURE: SUBJECTS=a*b (or a BY b) is required there. REPEATED_MEASURES,
-//!   KRONECKER_MEASURES, GROUPING and SPCOORDS are not supported yet; COVARIANCE_TYPE only
-//!   shapes repeated measures, so it is read and has no effect.
+//! - DATA_STRUCTURE: SUBJECTS=a*b (or a BY b) is required there. REPEATED_MEASURES=a*b gives
+//!   the residual block of each subject, COVARIANCE_TYPE its structure (DIAGONAL by default;
+//!   the spatial and Kronecker ones are not supported yet, nor KRONECKER_MEASURES, GROUPING and
+//!   SPCOORDS).
 //! - FIELDS: TARGET=name, TRIALS=NONE | VALUE(n) | FIELD(name), ANALYSIS_WEIGHT=name,
 //!   OFFSET=NONE | VALUE(x) | FIELD(name). We also take a bare name or number for TRIALS and
 //!   OFFSET and the spelling ANALYSISWEIGHT.
@@ -16,14 +17,22 @@
 //! - RANDOM: EFFECTS, USE_INTERCEPT (FALSE by default; a block needs an effect or the
 //!   intercept), SUBJECTS, COVARIANCE_TYPE (VARIANCE_COMPONENTS by default), SOLUTION.
 //! - BUILD_OPTIONS: TARGET_CATEGORY_ORDER, INPUTS_CATEGORY_ORDER (ASCENDING only for now),
-//!   MAX_ITERATIONS (100), CONFIDENCE_LEVEL (95), DF_METHOD (RESIDUAL), COVB (MODEL only for
-//!   now), PCONVERGE (1E-6), LCONVERGE and HCONVERGE (0), each with (ABSOLUTE | RELATIVE),
+//!   MAX_ITERATIONS (100), CONFIDENCE_LEVEL (95), DF_METHOD (RESIDUAL), COVB (MODEL | ROBUST),
+//!   PCONVERGE (1E-6), LCONVERGE and HCONVERGE (0), each with (ABSOLUTE | RELATIVE),
 //!   SCORING (0), SINGULAR (1E-12).
-//! - EMMEANS_OPTIONS is checked and has no effect, since EMMEANS is not supported yet.
+//! - EMMEANS may repeat and may be empty: TABLES=a*b, COMPARE=a (one of TABLES), CONTRAST=NONE |
+//!   PAIRWISE | DEVIATION | SIMPLE; COMPARE without CONTRAST compares pairwise, CONTRAST other
+//!   than NONE needs COMPARE. EMMEANS_OPTIONS: CONTROL=x(value) ..., SCALE=ORIGINAL |
+//!   TRANSFORMED, PADJUST=LSD | SEQBONFERRONI | SEQSIDAK.
+//! - OUTFILE MODEL='file'. SAVE: PREDICTED_VALUES, PREDICTED_PROBABILITY, CONFIDENCE,
+//!   CONFIDENCE_INTERVALS and PEARSON_RESIDUALS, each with an optional (name);
+//!   MAX_CATEGORIES(n) and CONFIDENCE_METHOD(PREDICTEDPROBABILITY | PROBABILITYIMPROVEMENT).
 
 use crate::ast::{Command, Value};
 use crate::error::SyntaxError;
-use crate::genlin::{GenlinDistribution, GenlinLink, GenlinOffset, GenlinOrder, GenlinTrials};
+use crate::genlin::{
+    GenlinAdjust, GenlinDistribution, GenlinLink, GenlinOffset, GenlinOrder, GenlinTrials,
+};
 use crate::glm::{Term, term};
 use crate::lexer::{Punct, TokenKind};
 use crate::mixed::{Convergence, CovType, DfMethod};
@@ -40,10 +49,45 @@ pub struct GlmmRandom {
     pub solution: bool,
 }
 
+/// The contrast of one EMMEANS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlmmContrast {
+    None,
+    Pairwise,
+    Deviation,
+    Simple,
+}
+
+/// One EMMEANS subcommand.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlmmEmmeans {
+    /// The factors of TABLES; empty for the overall mean.
+    pub tables: Vec<String>,
+    pub compare: Option<String>,
+    pub contrast: GlmmContrast,
+}
+
+/// SAVE: the names given, or None for a field not saved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlmmSave {
+    pub predicted: Option<String>,
+    pub probability: Option<String>,
+    pub max_categories: usize,
+    pub confidence: Option<String>,
+    /// CONFIDENCE_METHOD(PROBABILITYIMPROVEMENT).
+    pub improvement: bool,
+    /// The root of the _Lower and _Upper fields.
+    pub intervals: Option<String>,
+    pub pearson: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenLinMixed {
     /// DATA_STRUCTURE SUBJECTS.
     pub subjects: Vec<String>,
+    /// DATA_STRUCTURE REPEATED_MEASURES and the structure of their residual block.
+    pub repeated: Vec<String>,
+    pub residual_covtype: CovType,
     pub target: String,
     pub trials: Option<GenlinTrials>,
     pub analysis_weight: Option<String>,
@@ -64,6 +108,15 @@ pub struct GenLinMixed {
     pub hconverge: Convergence,
     pub scoring: usize,
     pub singular: f64,
+    /// COVB=ROBUST.
+    pub robust: bool,
+    pub emmeans: Vec<GlmmEmmeans>,
+    /// EMMEANS_OPTIONS CONTROL, SCALE=TRANSFORMED and PADJUST.
+    pub control: Vec<(String, f64)>,
+    pub transformed: bool,
+    pub padjust: GenlinAdjust,
+    pub outfile: Option<String>,
+    pub save: Option<GlmmSave>,
 }
 
 fn word_is(p: &Parser, word: &str) -> bool {
@@ -91,29 +144,6 @@ fn choice<T: Copy>(p: &mut Parser, table: &[(&str, T)]) -> PResult<T> {
     }
     Err(p.unexpected(&table.iter().map(|(n, _)| *n).collect::<Vec<_>>()))
 }
-
-/// The structures of the residuals under DATA_STRUCTURE.
-const RESIDUAL_TYPES: [&str; 19] = [
-    "DIAGONAL",
-    "AR1",
-    "ARH1",
-    "ARMA11",
-    "COMPOUND_SYMMETRY",
-    "CSH",
-    "IDENTITY",
-    "SP_POWER",
-    "SP_EXPONENTIAL",
-    "SP_GAUSSIAN",
-    "SP_LINEAR",
-    "SP_LINEARLOG",
-    "SP_SPHERICAL",
-    "TOEPLITZ",
-    "UN_AR1",
-    "UN_CS",
-    "UN_UN",
-    "UNSTRUCTURED",
-    "VARIANCE_COMPONENTS",
-];
 
 fn number(p: &mut Parser) -> PResult<f64> {
     p.number().ok_or_else(|| p.unexpected(&["a number"]))
@@ -209,7 +239,8 @@ fn value_or_field(p: &mut Parser) -> PResult<Option<Result<f64, String>>> {
     }
 }
 
-fn covariance_type(p: &mut Parser) -> PResult<CovType> {
+/// COVARIANCE_TYPE; the spatial and Kronecker types belong to the residuals (`residual`).
+fn covariance_type(p: &mut Parser, residual: bool) -> PResult<CovType> {
     let start = p.pos;
     let types = [
         ("DIAGONAL", Some(CovType::Diag)),
@@ -234,9 +265,10 @@ fn covariance_type(p: &mut Parser) -> PResult<CovType> {
     ];
     match choice(p, &types)? {
         Some(t) => Ok(t),
+        None if residual => Err(not_yet(p, start, "this COVARIANCE_TYPE")),
         None => Err(SyntaxError::new(
             p.span_from(start),
-            "this COVARIANCE_TYPE belongs to repeated measures, which GENLINMIXED does not support yet",
+            "this COVARIANCE_TYPE belongs to repeated measures on DATA_STRUCTURE, not to RANDOM",
         )),
     }
 }
@@ -295,7 +327,7 @@ fn random(p: &mut Parser, span_start: usize) -> PResult<GlmmRandom> {
                 "USE_INTERCEPT" => intercept = boolean(p)?,
                 "SUBJECTS" => r.subjects = crossed(p)?,
                 "GROUPING" => return Err(not_yet(p, start, "GROUPING on RANDOM")),
-                "COVARIANCE_TYPE" => r.covtype = covariance_type(p)?,
+                "COVARIANCE_TYPE" => r.covtype = covariance_type(p, false)?,
                 _ => r.solution = boolean(p)?,
             }
             Ok(())
@@ -351,24 +383,177 @@ fn link(p: &mut Parser) -> PResult<Option<GenlinLink>> {
     )?))
 }
 
-fn emmeans_options(p: &mut Parser) -> PResult<()> {
+fn emmeans_options(p: &mut Parser, g: &mut GenLinMixed) -> PResult<()> {
     settings(p, &["CONTROL", "SCALE", "PADJUST"], |p, keyword, _| {
         match keyword {
             "CONTROL" => loop {
-                p.name("a covariate")?;
+                let start = p.pos;
+                let name = p.name("a covariate")?;
+                if g.control.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                    return Err(SyntaxError::new(
+                        p.span_from(start),
+                        format!("{name} is on CONTROL twice"),
+                    ));
+                }
                 p.expect(Punct::LParen)?;
-                number(p)?;
+                let v = number(p)?;
                 p.expect(Punct::RParen)?;
+                g.control.push((name, v));
                 p.eat(Punct::Comma);
                 if at_end(p) || at_setting(p) {
                     break;
                 }
             },
-            "SCALE" => choice(p, &[("ORIGINAL", ()), ("TRANSFORMED", ())])?,
-            _ => choice(p, &[("LSD", ()), ("SEQBONFERRONI", ()), ("SEQSIDAK", ())])?,
+            "SCALE" => g.transformed = choice(p, &[("ORIGINAL", false), ("TRANSFORMED", true)])?,
+            _ => {
+                g.padjust = choice(
+                    p,
+                    &[
+                        ("LSD", GenlinAdjust::Lsd),
+                        ("SEQBONFERRONI", GenlinAdjust::SeqBonferroni),
+                        ("SEQSIDAK", GenlinAdjust::SeqSidak),
+                    ],
+                )?
+            }
         }
         Ok(())
     })
+}
+
+/// One EMMEANS; it may be empty (the overall mean).
+fn emmeans(p: &mut Parser, span_start: usize) -> PResult<GlmmEmmeans> {
+    let mut e = GlmmEmmeans {
+        tables: Vec::new(),
+        compare: None,
+        contrast: GlmmContrast::None,
+    };
+    let mut contrast = None;
+    if !at_end(p) {
+        settings(p, &["TABLES", "COMPARE", "CONTRAST"], |p, keyword, _| {
+            match keyword {
+                "TABLES" => e.tables = crossed(p)?,
+                "COMPARE" => e.compare = Some(p.name("a factor")?),
+                _ => {
+                    contrast = Some(choice(
+                        p,
+                        &[
+                            ("NONE", GlmmContrast::None),
+                            ("PAIRWISE", GlmmContrast::Pairwise),
+                            ("DEVIATION", GlmmContrast::Deviation),
+                            ("SIMPLE", GlmmContrast::Simple),
+                        ],
+                    )?)
+                }
+            }
+            Ok(())
+        })?;
+    }
+    if let Some(c) = &e.compare
+        && !e.tables.iter().any(|t| t.eq_ignore_ascii_case(c))
+    {
+        return Err(SyntaxError::new(
+            p.span_from(span_start),
+            format!("COMPARE names {c}, which is not on TABLES"),
+        ));
+    }
+    e.contrast = match (contrast, &e.compare) {
+        (Some(c), Some(_)) => c,
+        (None, Some(_)) => GlmmContrast::Pairwise,
+        (Some(GlmmContrast::None) | None, None) => GlmmContrast::None,
+        (Some(_), None) => {
+            return Err(SyntaxError::new(
+                p.span_from(span_start),
+                "CONTRAST needs COMPARE",
+            ));
+        }
+    };
+    Ok(e)
+}
+
+/// SAVE: keywords with an optional name in parentheses.
+fn save(p: &mut Parser) -> PResult<GlmmSave> {
+    let mut s = GlmmSave {
+        predicted: None,
+        probability: None,
+        max_categories: 25,
+        confidence: None,
+        improvement: false,
+        intervals: None,
+        pearson: None,
+    };
+    let keywords = [
+        "PREDICTED_VALUES",
+        "PREDICTED_PROBABILITY",
+        "MAX_CATEGORIES",
+        "CONFIDENCE_METHOD",
+        "CONFIDENCE_INTERVALS",
+        "CONFIDENCE",
+        "PEARSON_RESIDUALS",
+    ];
+    let mut seen: Vec<&str> = Vec::new();
+    if at_end(p) {
+        return Err(p.unexpected(&keywords));
+    }
+    while !at_end(p) {
+        let start = p.pos;
+        let Some(&keyword) = keywords.iter().find(|k| word_is(p, k)) else {
+            return Err(p.unexpected(&keywords));
+        };
+        p.pos += 1;
+        if seen.contains(&keyword) {
+            return Err(SyntaxError::new(
+                p.span_from(start),
+                format!("{keyword} may be given only once"),
+            ));
+        }
+        seen.push(keyword);
+        let given = p.eat(Punct::LParen);
+        let name = |p: &mut Parser, default: &str| -> PResult<Option<String>> {
+            Ok(Some(if given {
+                p.name("a field name")?
+            } else {
+                default.to_string()
+            }))
+        };
+        match keyword {
+            "PREDICTED_VALUES" => s.predicted = name(p, "PredictedValue")?,
+            "PREDICTED_PROBABILITY" => s.probability = name(p, "PredictedProbability")?,
+            "CONFIDENCE" => s.confidence = name(p, "Confidence")?,
+            "CONFIDENCE_INTERVALS" => s.intervals = name(p, "CI")?,
+            "PEARSON_RESIDUALS" => s.pearson = name(p, "PearsonResidual")?,
+            "MAX_CATEGORIES" => {
+                if !given {
+                    return Err(p.unexpected(&["'('"]));
+                }
+                let at = p.pos;
+                let n = whole(p, keyword)?;
+                if n == 0 {
+                    return Err(SyntaxError::new(
+                        p.span_from(at),
+                        "MAX_CATEGORIES is 1 or more",
+                    ));
+                }
+                s.max_categories = n;
+            }
+            _ => {
+                if !given {
+                    return Err(p.unexpected(&["'('"]));
+                }
+                s.improvement = choice(
+                    p,
+                    &[
+                        ("PREDICTEDPROBABILITY", false),
+                        ("PROBABILITYIMPROVEMENT", true),
+                    ],
+                )?;
+            }
+        }
+        if given {
+            p.expect(Punct::RParen)?;
+        }
+        p.eat(Punct::Comma);
+    }
+    Ok(s)
 }
 
 pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
@@ -378,6 +563,8 @@ pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
     };
     let mut g = GenLinMixed {
         subjects: Vec::new(),
+        repeated: Vec::new(),
+        residual_covtype: CovType::Diag,
         target: String::new(),
         trials: None,
         analysis_weight: None,
@@ -400,6 +587,13 @@ pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
         hconverge: off,
         scoring: 0,
         singular: 1e-12,
+        robust: false,
+        emmeans: Vec::new(),
+        control: Vec::new(),
+        transformed: false,
+        padjust: GenlinAdjust::Lsd,
+        outfile: None,
+        save: None,
     };
     let mut seen: Vec<&str> = Vec::new();
     let mut power = false;
@@ -423,7 +617,7 @@ pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
             return Err(p.subcommand_error("GENLINMIXED", &[]));
         };
         p.pos += 1;
-        if name != "RANDOM" {
+        if name != "RANDOM" && name != "EMMEANS" {
             if seen.contains(&name) {
                 return Err(SyntaxError::new(
                     p.span_from(start),
@@ -447,12 +641,8 @@ pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
                     |p, keyword, start| {
                         match keyword {
                             "SUBJECTS" => g.subjects = crossed(p)?,
-                            // it shapes the repeated measures only
-                            "COVARIANCE_TYPE" => {
-                                let names: Vec<(&str, ())> =
-                                    RESIDUAL_TYPES.iter().map(|n| (*n, ())).collect();
-                                choice(p, &names)?;
-                            }
+                            "REPEATED_MEASURES" => g.repeated = crossed(p)?,
+                            "COVARIANCE_TYPE" => g.residual_covtype = covariance_type(p, true)?,
                             other => return Err(not_yet(p, start, other)),
                         }
                         Ok(())
@@ -535,13 +725,6 @@ pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
                                 if p.eat_word("MULTINOMIAL") {
                                     return Err(not_yet(p, start, "DISTRIBUTION=MULTINOMIAL"));
                                 }
-                                if p.eat_word("NEGATIVE_BINOMIAL") {
-                                    return Err(not_yet(
-                                        p,
-                                        start,
-                                        "DISTRIBUTION=NEGATIVE_BINOMIAL",
-                                    ));
-                                }
                                 g.distribution = Some(choice(
                                     p,
                                     &[
@@ -549,6 +732,10 @@ pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
                                         ("BINOMIAL", GenlinDistribution::Binomial),
                                         ("GAMMA", GenlinDistribution::Gamma),
                                         ("INVERSE_GAUSSIAN", GenlinDistribution::InverseGaussian),
+                                        (
+                                            "NEGATIVE_BINOMIAL",
+                                            GenlinDistribution::NegativeBinomial(None),
+                                        ),
                                         ("POISSON", GenlinDistribution::Poisson),
                                     ],
                                 )?);
@@ -634,11 +821,7 @@ pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
                                     ],
                                 )?
                             }
-                            "COVB" => {
-                                if choice(p, &[("MODEL", false), ("ROBUST", true)])? {
-                                    return Err(not_yet(p, start, "COVB=ROBUST"));
-                                }
-                            }
+                            "COVB" => g.robust = choice(p, &[("MODEL", false), ("ROBUST", true)])?,
                             "PCONVERGE" => g.pconverge = convergence(p, keyword)?,
                             "LCONVERGE" => g.lconverge = convergence(p, keyword)?,
                             "HCONVERGE" => g.hconverge = convergence(p, keyword)?,
@@ -659,8 +842,15 @@ pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
                     },
                 )?;
             }
-            "EMMEANS_OPTIONS" => emmeans_options(p)?,
-            other => return Err(not_yet(p, start, &format!("subcommand {other}"))),
+            "EMMEANS_OPTIONS" => emmeans_options(p, &mut g)?,
+            "EMMEANS" => g.emmeans.push(emmeans(p, start)?),
+            "OUTFILE" => {
+                settings(p, &["MODEL"], |p, _, _| {
+                    g.outfile = Some(p.file("a file name")?);
+                    Ok(())
+                })?;
+            }
+            _ => g.save = Some(save(p)?),
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

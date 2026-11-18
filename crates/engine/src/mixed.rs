@@ -1149,12 +1149,19 @@ struct Infer<'a> {
     /// DFMETHOD(RESIDUAL): n - rank X for every test; Satterthwaite otherwise.
     residual_df: Option<f64>,
     kr: Option<Kr>,
+    /// GENLINMIXED COVB=ROBUST: the sandwich covariance; the df stay those of C.
+    robust: Option<Matrix>,
 }
 
 impl Infer<'_> {
-    /// The covariance of the fixed effects that the tests use: Kenward-Roger's adjusted one or C.
+    /// The covariance of the fixed effects that the tests use: Kenward-Roger's adjusted one,
+    /// the robust one or C.
     fn cov(&self) -> &Matrix {
-        self.kr.as_ref().map_or(&self.e.a_inv, |k| &k.phi_a)
+        match (&self.kr, &self.robust) {
+            (Some(k), _) => &k.phi_a,
+            (None, Some(r)) => r,
+            (None, None) => &self.e.a_inv,
+        }
     }
 
     /// l b with its standard error and degrees of freedom.
@@ -1170,6 +1177,10 @@ impl Infer<'_> {
         let df = self
             .residual_df
             .unwrap_or_else(|| satterthwaite(var, &grad, self.sigma));
+        let var = match &self.robust {
+            Some(r) => dot(l, &mat_vec(r, l)),
+            None => var,
+        };
         (b, var.sqrt(), df)
     }
 
@@ -1225,6 +1236,29 @@ impl Infer<'_> {
                 .collect();
             combined_df(&nus)
         });
+        if let Some(r) = &self.robust {
+            // the Wald F with the robust covariance, over its own directions
+            let lrl: Matrix = l
+                .iter()
+                .map(|x| l.iter().map(|y| dot(x, &mat_vec(r, y))).collect())
+                .collect();
+            let shift: Vec<f64> = l
+                .iter()
+                .zip(a)
+                .map(|(row, a)| dot(row, &e.beta) - a)
+                .collect();
+            let dirs = directions(&lrl);
+            if dirs.is_empty() {
+                return None;
+            }
+            let qr = dirs.len();
+            let f = dirs
+                .iter()
+                .map(|(d, v)| dot(v, &shift).powi(2) / d)
+                .sum::<f64>()
+                / qr as f64;
+            return Some((qr, df, f));
+        }
         Some((q, df, f))
     }
 }
@@ -2154,7 +2188,7 @@ impl Engine {
     fn mixed_fit(
         &mut self,
         command: &Mixed,
-        glmm: Option<&genlinmixed::Glmm>,
+        glmm: Option<&genlinmixed::Glmm<'_>>,
     ) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();
@@ -2605,12 +2639,18 @@ impl Engine {
         } else {
             None
         };
+        let robust = glmm.filter(|g| g.command.robust).and_then(|g| {
+            let r = genlinmixed::robust(&model, e, command.df_method, &mut warnings);
+            g.robust_used.set(r.is_some());
+            r
+        });
         let inf = Infer {
             model: &model,
             e,
             sigma,
             residual_df: (command.df_method == DfMethod::Residual).then_some(residual_df),
             kr,
+            robust,
         };
         let mut tables = Vec::new();
         // labels shared by the tables: each RANDOM's subject suffix and the owner of each of
@@ -3092,7 +3132,10 @@ impl Engine {
             d: &d,
             fit: &fixed,
             // H only serves the estimability checks of TEST and EMMEANS
-            h: if command.tests.is_empty() && command.emmeans.is_empty() {
+            h: if command.tests.is_empty()
+                && command.emmeans.is_empty()
+                && glmm.is_none_or(|g| g.command.emmeans.is_empty())
+            {
                 Vec::new()
             } else {
                 fixed.h()
@@ -3109,6 +3152,14 @@ impl Engine {
                 .tests
                 .iter()
                 .any(|t| t.random.iter().any(|r| !r.is_empty()));
+        // GENLINMIXED intervals of the saved means
+        let glmm_intervals = glmm.is_some_and(|g| {
+            g.command
+                .save
+                .as_ref()
+                .is_some_and(|s| s.intervals.is_some())
+        });
+        let with_df = with_df || glmm_intervals;
         let needs_predict = with_df || command.save.iter().any(|(t, _)| *t == MixedTemp::Sepred);
         let predict = needs_predict.then(|| {
             Predict::new(
@@ -3439,6 +3490,22 @@ impl Engine {
         for em in &command.emmeans {
             tables.extend(part.emmeans(em, &label_of, &level_of)?);
         }
+        let after = match glmm {
+            Some(g) => {
+                let after = g.after(
+                    &model,
+                    &fitted.th,
+                    &part,
+                    predict.as_ref(),
+                    &names,
+                    &label_of,
+                    &mut warnings,
+                )?;
+                tables.extend(after.tables);
+                Some((after.saved, after.model))
+            }
+            None => None,
+        };
         for w in warnings {
             self.warn(match glmm {
                 Some(_) => genlinmixed::renamed(&w),
@@ -3501,6 +3568,16 @@ impl Engine {
                 }
             }
             self.save_mixed(command, &d.case, &values, &dep_text, cases)?;
+        }
+        if let Some((saved, model_file)) = after {
+            if let (Some(file), Some(value)) =
+                (glmm.and_then(|g| g.command.outfile.as_ref()), &model_file)
+            {
+                self.write_json("GENLINMIXED", file, "model", value)?;
+            }
+            if !saved.is_empty() {
+                self.save_glmm(saved)?;
+            }
         }
         Ok(tables)
     }
