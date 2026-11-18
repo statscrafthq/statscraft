@@ -31,8 +31,8 @@ pub struct State {
     /// The command's name, when its first words name one.
     pub command: Option<&'static str>,
     comment: bool,
-    /// The lines between BEGIN DATA and END DATA, BEGIN CHART and END CHART, or BEGIN GPL and
-    /// END GPL: the block's second word.
+    /// The lines between BEGIN DATA and END DATA, BEGIN CHART and END CHART, BEGIN GPL and END
+    /// GPL, or BEGIN EXPR and END EXPR: the block's second word.
     data: Option<&'static str>,
 }
 
@@ -247,6 +247,7 @@ pub fn line_with(text: &str, state: &mut State, macros: &[String]) -> Vec<(Range
                 "BEGIN DATA" => Some("DATA"),
                 "BEGIN CHART" => Some("CHART"),
                 "BEGIN GPL" => Some("GPL"),
+                "BEGIN EXPR" => Some("EXPR"),
                 _ => None,
             };
         }
@@ -540,6 +541,16 @@ mod tests {
             [
                 ("BEGIN CHART", Kind::Command),
                 ("END CHART.", Kind::Command)
+            ]
+        );
+        // and so is a simulation model
+        assert_eq!(
+            kinds("BEGIN EXPR\nCOMPUTE y = 2 * x.\nEND EXPR.\nEXECUTE."),
+            [
+                ("BEGIN EXPR", Kind::Command),
+                ("END EXPR.", Kind::Command),
+                ("EXECUTE", Kind::Command),
+                (".", Kind::Period),
             ]
         );
         // and so is a chart program
