@@ -399,6 +399,9 @@ fn strata(data: &Dataset, names: &[String]) -> Result<Vec<Vec<usize>>, Error> {
     Ok(out)
 }
 
+/// The values of every resample, and the BCa accelerations, per bootstrapped statistic.
+type Resampled = (Vec<Vec<f64>>, Option<Vec<f64>>);
+
 impl Engine {
     /// The errors BOOTSTRAP finds before the procedure runs: imputed data, or a split variable
     /// among its variables.
@@ -511,62 +514,67 @@ impl Engine {
             .collect();
 
         let warnings = std::mem::take(&mut self.warnings);
-        let groups = strata(&data, &strata_names)?;
-        let case_weights = crate::descriptives::case_weights(&data)?;
-        let weight_name = data.weight_variable().map(str::to_string);
-        let mut values: Vec<Vec<f64>> = vec![Vec::new(); spots.len()];
-        for _ in 0..spec.samples {
-            let picks = draw(
-                &mut self.random.borrow_mut(),
-                &groups,
-                case_weights.as_deref(),
-            );
-            let mut sample = data.clone();
-            sample.take_cases(&picks)?;
-            if let Some(name) = &weight_name {
-                sample.set_numeric_values(name, vec![Some(1.0); picks.len()])?;
+        // resampling replaces the dataset run by run; whatever happens, the original comes back
+        let resampled = (|| -> Result<Resampled, Error> {
+            let groups = strata(&data, &strata_names)?;
+            let case_weights = crate::descriptives::case_weights(&data)?;
+            let weight_name = data.weight_variable().map(str::to_string);
+            let mut values: Vec<Vec<f64>> = vec![Vec::new(); spots.len()];
+            for _ in 0..spec.samples {
+                let picks = draw(
+                    &mut self.random.borrow_mut(),
+                    &groups,
+                    case_weights.as_deref(),
+                );
+                let mut sample = data.clone();
+                sample.take_cases(&picks)?;
+                if let Some(name) = &weight_name {
+                    sample.set_numeric_values(name, vec![Some(1.0); picks.len()])?;
+                }
+                for (v, x) in values.iter_mut().zip(self.rerun(command, sample, &spots)) {
+                    v.push(x);
+                }
             }
-            for (v, x) in values.iter_mut().zip(self.rerun(command, sample, &spots)) {
-                v.push(x);
-            }
-        }
-        let accelerations: Option<Vec<f64>> = match spec.bca {
-            false => None,
-            true => {
-                let frequency = |c: usize| case_weights.as_ref().map_or(1.0, |w| w[c]);
-                let total: f64 = (0..data.case_count()).map(frequency).sum();
-                let mut influence: Vec<Vec<(f64, f64)>> = vec![Vec::new(); spots.len()];
-                for stratum in &groups {
-                    let size: f64 = stratum.iter().map(|&c| frequency(c)).sum();
-                    for &case in stratum {
-                        let f = frequency(case);
-                        let mut sample = data.clone();
-                        match (&weight_name, &case_weights) {
-                            (Some(name), Some(w)) if f > 1.0 => {
-                                let mut less: Vec<Option<f64>> =
-                                    w.iter().map(|&x| Some(x)).collect();
-                                less[case] = Some(f - 1.0);
-                                sample.set_numeric_values(name, less)?;
+            let accelerations: Option<Vec<f64>> = match spec.bca {
+                false => None,
+                true => {
+                    let frequency = |c: usize| case_weights.as_ref().map_or(1.0, |w| w[c]);
+                    let total: f64 = (0..data.case_count()).map(frequency).sum();
+                    let mut influence: Vec<Vec<(f64, f64)>> = vec![Vec::new(); spots.len()];
+                    for stratum in &groups {
+                        let size: f64 = stratum.iter().map(|&c| frequency(c)).sum();
+                        for &case in stratum {
+                            let f = frequency(case);
+                            let mut sample = data.clone();
+                            match (&weight_name, &case_weights) {
+                                (Some(name), Some(w)) if f > 1.0 => {
+                                    let mut less: Vec<Option<f64>> =
+                                        w.iter().map(|&x| Some(x)).collect();
+                                    less[case] = Some(f - 1.0);
+                                    sample.set_numeric_values(name, less)?;
+                                }
+                                _ => {
+                                    let keep: Vec<bool> =
+                                        (0..data.case_count()).map(|c| c != case).collect();
+                                    sample.select_cases(&keep)?;
+                                }
                             }
-                            _ => {
-                                let keep: Vec<bool> =
-                                    (0..data.case_count()).map(|c| c != case).collect();
-                                sample.select_cases(&keep)?;
+                            let left = self.rerun(command, sample, &spots);
+                            for ((list, t), x) in influence.iter_mut().zip(&original).zip(left) {
+                                let l = (size - 1.0) * (t - x) * total / size;
+                                list.push((l, f));
                             }
-                        }
-                        let left = self.rerun(command, sample, &spots);
-                        for ((list, t), x) in influence.iter_mut().zip(&original).zip(left) {
-                            let l = (size - 1.0) * (t - x) * total / size;
-                            list.push((l, f));
                         }
                     }
+                    Some(influence.iter().map(|l| acceleration(l)).collect())
                 }
-                Some(influence.iter().map(|l| acceleration(l)).collect())
-            }
-        };
+            };
+            Ok((values, accelerations))
+        })();
         self.dataset = Some(after);
         self.case_numbers = numbers;
         self.warnings = warnings;
+        let (values, accelerations) = resampled?;
 
         let level = spec.cilevel;
         let short = values
