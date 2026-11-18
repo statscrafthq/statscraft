@@ -1087,4 +1087,41 @@ fn without_group_differences_the_fit_is_plum_and_nomreg() {
             );
         }
     }
+#[test]
+fn pearson_residual_of_events_and_trials_is_on_the_proportion_scale() {
+    // 8 groups of 5 rows drawn once in R (seed 20261118): a covariate x, m trials and r events
+    // from a logistic model with a group intercept. The expected numbers come from a separate
+    // R program for this check: restricted pseudo likelihood iterated to a relative change of
+    // the group variance below 1e-11, then (r/m - mu) / sqrt(mu (1 - mu) / m). On the counts,
+    // (r - m mu) / sqrt(mu (1 - mu)), the first residual would be 0.0526968 instead.
+    let (engine, _) = run_engine(
+        "DATA LIST FREE /grp x r m.
+BEGIN DATA
+1 1.9 5 6 1 2.5 6 7 1 3.4 13 14 1 1.4 11 13 1 1.3 8 9 2 1 3 8 2 2.2 4 8 2 0.9 6 11
+2 3.4 7 14 2 2.3 10 15 3 3.5 7 7 3 3.8 13 15 3 2.6 6 8 3 3.7 10 12 3 3.1 10 11
+4 1.5 3 9 4 2.4 8 13 4 3.7 10 10 4 3.8 6 8 4 0.8 2 7 5 2.7 5 9 5 1.2 5 13 5 3 9 13
+5 2.5 4 9 5 3.1 11 14 6 0.9 2 5 6 3 7 14 6 3.6 3 5 6 1.5 5 7 6 2.6 5 7 7 3 1 7
+7 3 4 9 7 2.5 5 11 7 0.8 4 14 7 1.2 2 14 8 2.1 4 5 8 2.9 9 11 8 1.6 11 14 8 0.2 3 6
+8 3.6 5 7
+END DATA.
+GENLINMIXED /DATA_STRUCTURE SUBJECTS=grp /FIELDS TARGET=r TRIALS=FIELD(m)
+ /TARGET_OPTIONS DISTRIBUTION=BINOMIAL LINK=LOGIT /FIXED EFFECTS=x
+ /RANDOM USE_INTERCEPT=TRUE SUBJECTS=grp /BUILD_OPTIONS PCONVERGE=1E-12
+ /SAVE PREDICTED_VALUES PEARSON_RESIDUALS.",
+    );
+    // case, predicted events, Pearson residual
+    let want = [
+        (0, 4.9802069384143, 0.021513391483724),
+        (1, 6.0456041888311, -0.050230747136051),
+        (16, 8.0404526267228, -0.023097082892074),
+        (39, 5.8822038301413, -0.9102624246984),
+    ];
+    for (case, events, r) in want {
+        close(saved(&engine, "PredictedValue", case), events, "predicted");
+        close(
+            saved(&engine, "PearsonResidual", case),
+            r,
+            "Pearson residual",
+        );
+    }
 }
