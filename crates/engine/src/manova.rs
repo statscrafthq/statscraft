@@ -28,15 +28,19 @@
 
 use crate::descriptives::{case_weights, number};
 use crate::dist::{f_p, f_quantile, t_p, t_quantile};
-use crate::glm::{Data, box_m_stats, multivariate, relative_eigenvalues, sweep_in_order};
+use crate::glm::{
+    Data, box_m_stats, multivariate, power_f, power_lambda, power_t, relative_eigenvalues,
+    sweep_in_order,
+};
 use crate::matrix::{Matrix, inverse};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::Values;
 use statscraft_syntax::{
-    Contrast, Manova, ManovaDesign, ManovaEffect, ManovaError, ManovaInterval, ManovaItem,
-    ManovaPrint, ManovaTransform, VarItem,
+    Contrast, FactorCriteria, Manova, ManovaCriterion, ManovaDesign, ManovaDiscrim, ManovaEffect,
+    ManovaError, ManovaInterval, ManovaItem, ManovaPcomps, ManovaPower, ManovaPrint,
+    ManovaTransform, Rotation, VarItem,
 };
 
 const EPS: f64 = 1e-8;
@@ -1134,6 +1138,13 @@ impl Engine {
             }
         });
         let pr = &d.print;
+        let iv = &d.cinterval;
+        let wide = (pr.parameters && terms.iter().any(|t| t.cols.len() > 1)) || q > 1;
+        if iv.multivariate == Some(ManovaCriterion::Roy) && iv.joint && p > 1 && wide {
+            return Err(err(
+                "CINTERVAL JOINT MULTIVARIATE(ROY) for a term of more than one df needs the distribution of the largest root, which is not supported yet; use INDIVIDUAL or another type",
+            ));
+        }
         let mut out = Vec::new();
         let averaged = within.filter(|w| w.per > 1);
         if p == 1 {
@@ -1148,6 +1159,7 @@ impl Engine {
                 rank,
                 s.n,
                 pr.efsize,
+                d.power,
                 &cap(&format!("{} using {method} sums of squares", names[0])),
             ));
         } else if !(averaged.is_some() && pr.avonly) {
@@ -1165,7 +1177,51 @@ impl Engine {
                     groups.push((format!("{}{suffix}", row.label), t));
                 }
             }
-            out.extend(multivariate_tables(&groups, &names, pr, &cap(method)));
+            out.extend(multivariate_tables(
+                &groups,
+                &names,
+                pr,
+                d.power,
+                &cap(method),
+            ));
+            if let Some(dc) = &d.discrim {
+                // the estimates of each effect's parameters (the covariates' coefficients for
+                // the regression), dependents across
+                let order: Vec<usize> = (0..nx).chain(nx + p..dim).collect();
+                let (full, swept) = sweep_in_order(&zwz, &order, EPS);
+                let mut estimates: Vec<Vec<(String, Vec<f64>)>> = Vec::new();
+                if let (Some(_), Some((se, _))) = (&regression, &default_error) {
+                    let (m, swept) = sweep_in_order(se, &(p..p + q).collect::<Vec<_>>(), EPS);
+                    estimates.push(
+                        (0..q)
+                            .filter(|&k| swept[p + k])
+                            .map(|k| (s.cont[cv[k]].clone(), (0..p).map(|j| m[j][p + k]).collect()))
+                            .collect(),
+                    );
+                }
+                for row in tests.iter().filter(|r| r.test.is_some()) {
+                    estimates.push(
+                        terms[row.term]
+                            .cols
+                            .clone()
+                            .filter(|&c| swept[c] && !row.single)
+                            .map(|c| {
+                                (
+                                    format!("{}", c + 1),
+                                    (0..p).map(|j| full[nx + j][c]).collect(),
+                                )
+                            })
+                            .collect(),
+                    );
+                }
+                out.extend(discriminant_tables(
+                    dc,
+                    &groups,
+                    &estimates,
+                    &names,
+                    &cap(method),
+                ));
+            }
         }
         if let Some(w) = averaged {
             out.extend(averaged_tables(
@@ -1175,6 +1231,7 @@ impl Engine {
                 default,
                 s.n,
                 pr,
+                d.power,
                 &cap(method),
             ));
         }
@@ -1185,8 +1242,7 @@ impl Engine {
                 *dfe,
                 &names,
                 &covs,
-                &d.cinterval,
-                pr.efsize,
+                Est::new(d, p),
                 &cap(&error_name(default)),
             ));
         }
@@ -1218,6 +1274,9 @@ impl Engine {
                     &correlations(&cov),
                     format!("{what}; standard deviations on the diagonal"),
                 ));
+            }
+            if let (Some(pc), true) = (&d.pcomps, p > 1) {
+                out.extend(principal_components(pc, &names, &cov, &what));
             }
             if pr.error_stddev {
                 out.push(table(
@@ -1474,6 +1533,7 @@ impl Engine {
         rank: usize,
         n: f64,
         efsize: bool,
+        power: Option<ManovaPower>,
         caption: &str,
     ) -> Table {
         let mut rows = Vec::new();
@@ -1489,6 +1549,13 @@ impl Engine {
             ];
             if efsize {
                 r.push(number(t.map(|t| t.h[0][0] / (t.h[0][0] + t.e[0][0]))));
+            }
+            if let Some(w) = power {
+                let lp = t
+                    .zip(f)
+                    .map(|(t, (f, _))| power_f(f, t.dfh, t.dfe, w.f_alpha));
+                r.push(number(lp.map(|x| x.0)));
+                r.push(number(lp.map(|x| x.1)));
             }
             r
         };
@@ -1554,6 +1621,9 @@ impl Engine {
         let mut columns = plain(&["Source of Variation", "SS", "DF", "MS", "F", "Sig of F"]);
         if efsize {
             columns.extend(plain(&["Partial Eta Sq."]));
+        }
+        if power.is_some() {
+            columns.extend(plain(&["Noncent. Parameter", "Observed Power"]));
         }
         let mut t = table(
             "Tests of Significance",
@@ -1756,6 +1826,7 @@ fn correlations(cov: &Matrix) -> Matrix {
 /// variables: for each measure the sums over its variables of the hypothesis and error sums of
 /// squares, with the df times their number; with several measures also the multivariate tests
 /// of those summed matrices.
+#[allow(clippy::too_many_arguments)]
 fn averaged_tables(
     w: &Within,
     tests: &[Row],
@@ -1763,6 +1834,7 @@ fn averaged_tables(
     default: ManovaError,
     n: f64,
     pr: &ManovaPrint,
+    power: Option<ManovaPower>,
     caption: &str,
 ) -> Vec<Table> {
     let k = w.per;
@@ -1836,6 +1908,9 @@ fn averaged_tables(
     if pr.efsize {
         columns.extend(plain(&["Partial Eta Sq."]));
     }
+    if power.is_some() {
+        columns.extend(plain(&["Noncent. Parameter", "Observed Power"]));
+    }
     let mut errors: Vec<ManovaError> = vec![default];
     for t in tests {
         if !errors.contains(&t.error) {
@@ -1883,6 +1958,11 @@ fn averaged_tables(
                 }
                 if pr.efsize {
                     row.push(number(Some(ssh / (ssh + sse))));
+                }
+                if let Some(w) = power {
+                    let lp = ok.then(|| power_f(f, dfh, dfe, w.f_alpha));
+                    row.push(number(lp.map(|x| x.0)));
+                    row.push(number(lp.map(|x| x.1)));
                 }
                 rows.push(row);
             }
@@ -1933,7 +2013,7 @@ fn averaged_tables(
             efsize: pr.efsize,
             ..ManovaPrint::default()
         };
-        for mut t in multivariate_tables(&groups, &w.measures, &only, caption) {
+        for mut t in multivariate_tables(&groups, &w.measures, &only, power, caption) {
             t.title = format!("Averaged {}", t.title);
             out.push(t);
         }
@@ -1945,6 +2025,7 @@ fn multivariate_tables(
     groups: &[(String, &Test)],
     names: &[String],
     pr: &ManovaPrint,
+    power: Option<ManovaPower>,
     caption: &str,
 ) -> Vec<Table> {
     let mut out = Vec::new();
@@ -2019,6 +2100,25 @@ fn multivariate_tables(
             if pr.efsize {
                 row.push(number((t.ok() && eta.is_finite()).then_some(eta)));
             }
+            if let Some(w) = power {
+                // EXACT: with one hypothesis df every criterion is Hotelling's T^2 with its
+                // exact F; APPROXIMATE: each criterion's eta squared over one less it, times
+                // the error df of its F (Roy's root has no F)
+                let lp = if w.exact {
+                    let (q, total) = (re as f64, l.iter().sum::<f64>());
+                    (t.ok() && t.dfh == 1.0 && t.dfe > q - 1.0).then(|| {
+                        let lambda = total * t.dfe;
+                        (lambda, power_lambda(lambda, q, t.dfe - q + 1.0, w.f_alpha))
+                    })
+                } else {
+                    ok.then(|| {
+                        let lambda = d2 * eta / (1.0 - eta);
+                        (lambda, power_lambda(lambda, d1, d2, w.f_alpha))
+                    })
+                };
+                row.push(number(lp.map(|x| x.0)));
+                row.push(number(lp.map(|x| x.1)));
+            }
             mv.push(row);
         }
         let total: f64 = l.iter().sum();
@@ -2062,6 +2162,11 @@ fn multivariate_tables(
             if pr.efsize {
                 row.push(number(Some(t.h[j][j] / (t.h[j][j] + t.e[j][j]))));
             }
+            if let Some(w) = power {
+                let lp = t.ok().then(|| power_f(f, t.dfh, t.dfe, w.f_alpha));
+                row.push(number(lp.map(|x| x.0)));
+                row.push(number(lp.map(|x| x.1)));
+            }
             uni.push(row);
         }
         // Roy-Bargmann stepdown: Cholesky factors of E and E + H
@@ -2088,11 +2193,14 @@ fn multivariate_tables(
         }
     }
     let note = Some(caption.to_string());
-    let eta = if pr.efsize {
+    let mut eta = if pr.efsize {
         plain(&["Partial Eta Sq."])
     } else {
         Vec::new()
     };
+    if power.is_some() {
+        eta.extend(plain(&["Noncent. Parameter", "Observed Power"]));
+    }
     if pr.multiv {
         let mut columns = plain(&[
             "Effect",
@@ -2182,44 +2290,406 @@ fn multivariate_tables(
     out
 }
 
+/// How the estimates are shown: the interval, EFSIZE, the significance level of POWER for t
+/// tests and the number of dependents (for multivariate intervals).
+#[derive(Clone, Copy)]
+struct Est {
+    iv: ManovaInterval,
+    efsize: bool,
+    power: Option<f64>,
+    p: usize,
+}
+
+impl Est {
+    fn new(d: &ManovaDesign, p: usize) -> Est {
+        Est {
+            iv: d.cinterval,
+            efsize: d.print.efsize,
+            power: d.power.map(|w| w.t_alpha),
+            p,
+        }
+    }
+
+    fn columns(&self) -> Vec<(String, String)> {
+        let pct = format!("{}", (self.iv.level * 1e8).round() / 1e6);
+        let mut columns = plain(&["Std. Err.", "t-Value", "Sig. t"]);
+        columns.push((String::new(), format!("Lower -{pct}%")));
+        columns.push((String::new(), "CL- Upper".into()));
+        if self.efsize {
+            columns.extend(plain(&["Partial Eta Sq."]));
+        }
+        if self.power.is_some() {
+            columns.extend(plain(&["Noncent. Parameter", "Observed Power"]));
+        }
+        columns
+    }
+}
+
+/// The multiplier of the standard error for the interval of an estimate in a family of `nh`
+/// (the hypothesis df of a joint interval) with `ne` error df and `p` dependents.
+fn multiplier(iv: &ManovaInterval, p: usize, nh: f64, ne: f64) -> f64 {
+    let alpha = 1.0 - iv.level;
+    // the multivariate types mean nothing for one dependent
+    let Some(kind) = iv.multivariate.filter(|_| p > 1) else {
+        return if !iv.joint {
+            t_quantile(alpha / 2.0, ne)
+        } else if iv.bonferroni {
+            t_quantile(alpha / (2.0 * nh), ne)
+        } else {
+            (nh * f_quantile(alpha, nh, ne)).sqrt()
+        };
+    };
+    // an individual multivariate interval is a family with one hypothesis df
+    let nh = if iv.joint { nh } else { 1.0 };
+    let p = p as f64;
+    let s = p.min(nh);
+    // each criterion's critical value of the largest root over one less it, from its F
+    let c = match kind {
+        ManovaCriterion::Bonferroni => return t_quantile(alpha / (2.0 * p * nh), ne),
+        ManovaCriterion::Roy if s == 1.0 => {
+            let (d1, d2) = (p.max(nh), ne - p.max(nh) + 1.0);
+            d1 * f_quantile(alpha, d1, d2) / d2
+        }
+        // the largest-root distribution for s > 1 is refused before the tables are made
+        ManovaCriterion::Roy => f64::NAN,
+        ManovaCriterion::Wilks => {
+            let b = p * p + nh * nh - 5.0;
+            let r = if b > 0.0 {
+                ((p * p * nh * nh - 4.0) / b).sqrt()
+            } else {
+                1.0
+            };
+            let d1 = p * nh;
+            let d2 = (ne - (p - nh + 1.0) / 2.0) * r - (d1 - 2.0) / 2.0;
+            let w = (1.0 + d1 * f_quantile(alpha, d1, d2) / d2).powf(-r);
+            (1.0 - w) / w
+        }
+        ManovaCriterion::Hotelling => {
+            let (m, n) = (((nh - p).abs() - 1.0) / 2.0, (ne - p - 1.0) / 2.0);
+            let (d1, d2) = (s * (2.0 * m + s + 1.0), 2.0 * (s * n + 1.0));
+            s * d1 * f_quantile(alpha, d1, d2) / d2
+        }
+        ManovaCriterion::Pillai => {
+            let (d1, d2) = (s * p.max(nh), s * (ne - p + s));
+            let d = f_quantile(alpha, d1, d2) * d1 / d2;
+            let v = s * d / (d + 1.0);
+            v / (1.0 - v)
+        }
+    };
+    (ne * c).sqrt()
+}
+
+/// An orthogonal rotation of `loadings` (variables down), with Kaiser normalization, and a
+/// note when it did not converge.
+fn rotated(loadings: &Matrix, kind: Rotation) -> (Matrix, Option<String>) {
+    let criteria = FactorCriteria {
+        iterate: 1000,
+        rconverge: 1e-10,
+        ..FactorCriteria::default()
+    };
+    let mut warnings = Vec::new();
+    let r = crate::factor::orthogonal(loadings, kind, &criteria, &mut warnings);
+    let note = (!warnings.is_empty()).then(|| "the rotation did not converge".to_string());
+    (r.pattern, note)
+}
+
+/// A table of variables down and `m` columns named `word 1`, `word 2` and so on.
+fn columns_table(
+    title: &str,
+    word: &str,
+    rows: Vec<Vec<Cell>>,
+    heads: usize,
+    m: usize,
+    caption: String,
+) -> Table {
+    let mut columns = plain(&vec![""; heads]);
+    columns.extend((1..=m).map(|k| (String::new(), format!("{word} {k}"))));
+    table(title, heads, columns, rows, Some(caption))
+}
+
+/// PCOMPS: the principal components of the error correlation and covariance matrices after
+/// the covariates. The loadings are each eigenvector times the root of its eigenvalue, with
+/// a positive column sum; MINEIGEN drops the smaller components, NCOMP (at least 2) limits
+/// the ones rotated.
+fn principal_components(
+    pc: &ManovaPcomps,
+    names: &[String],
+    cov: &Matrix,
+    caption: &str,
+) -> Vec<Table> {
+    let p = names.len();
+    let cor: Matrix = (0..p)
+        .map(|i| {
+            (0..p)
+                .map(|j| cov[i][j] / (cov[i][i] * cov[j][j]).sqrt())
+                .collect()
+        })
+        .collect();
+    let mut out = Vec::new();
+    for (on, m, what) in [
+        (pc.cor, &cor, "error correlation matrix"),
+        (pc.cov, cov, "error variance-covariance matrix"),
+    ] {
+        if !on {
+            continue;
+        }
+        let pairs = crate::matrix::symmetric_eigen(m);
+        let total: f64 = pairs.iter().map(|x| x.0).sum();
+        let mut cum = 0.0;
+        let rows = pairs
+            .iter()
+            .enumerate()
+            .map(|(i, (value, _))| {
+                cum += value;
+                vec![
+                    text(format!("{}", i + 1)),
+                    number(Some(*value)),
+                    number(Some(100.0 * value / total)),
+                    number(Some(100.0 * cum / total)),
+                ]
+            })
+            .collect();
+        let cap = format!("Of the {what}; {caption}");
+        out.push(table(
+            "Principal Components",
+            1,
+            plain(&["Component", "Eigenvalue", "Pct of Var", "Cum Pct"]),
+            rows,
+            Some(cap.clone()),
+        ));
+        let kept = pairs
+            .iter()
+            .take_while(|(v, _)| *v > 0.0 && *v >= pc.min_eigen)
+            .count();
+        if kept == 0 {
+            continue;
+        }
+        let mut loadings = crate::factor::eigen_loadings(&pairs, kept);
+        crate::factor::reflect(&mut loadings, kept);
+        let rows = |l: &Matrix| -> Vec<Vec<Cell>> {
+            names
+                .iter()
+                .zip(l)
+                .map(|(n, r)| {
+                    let mut row = vec![text(n.clone())];
+                    row.extend(r.iter().map(|v| number(Some(*v))));
+                    row
+                })
+                .collect()
+        };
+        out.push(columns_table(
+            "Component Loadings",
+            "Component",
+            rows(&loadings),
+            1,
+            kept,
+            cap.clone(),
+        ));
+        let r = pc.ncomp.unwrap_or(p).max(2).min(kept);
+        if pc.rotate != Rotation::None && r >= 2 {
+            let first: Matrix = loadings.iter().map(|row| row[..r].to_vec()).collect();
+            let (l, note) = rotated(&first, pc.rotate);
+            let cap = match note {
+                Some(n) => format!("{cap}; {n}"),
+                None => cap,
+            };
+            out.push(columns_table(
+                "Rotated Component Loadings",
+                "Component",
+                rows(&l),
+                1,
+                r,
+                format!(
+                    "{cap}; {} rotation",
+                    format!("{:?}", pc.rotate).to_uppercase()
+                ),
+            ));
+        }
+    }
+    out
+}
+
+/// DISCRIM: for each multivariate effect (and the covariates), the discriminant functions
+/// H v = lambda E v that the dimension reduction tests keep at ALPHA, each scaled so that its
+/// variance within the error is 1 (v' E v / dfe = 1) and signed so that its correlations with
+/// the dependents add up to more than 0. Standardized coefficients multiply by the error
+/// standard deviations; ESTIM gives the effect's parameter estimates times the coefficients.
+fn discriminant_tables(
+    dc: &ManovaDiscrim,
+    groups: &[(String, &Test)],
+    estimates: &[Vec<(String, Vec<f64>)>],
+    names: &[String],
+    caption: &str,
+) -> Vec<Table> {
+    let p = names.len();
+    let (mut raw, mut stan, mut est, mut cor, mut rot) = (vec![], vec![], vec![], vec![], vec![]);
+    let (mut most, mut most_rotated) = (0, 0);
+    let mut notes: Vec<String> = Vec::new();
+    for ((label, t), estimates) in groups.iter().zip(estimates) {
+        let Some(l) = crate::matrix::cholesky(&t.e).filter(|_| t.ok()) else {
+            continue;
+        };
+        let (roots, re) = t.roots();
+        let mut k = 0;
+        while k < roots.len() && dc.alpha > 0.0 {
+            let wilks: f64 = roots[k..].iter().map(|x| 1.0 / (1.0 + x)).product();
+            let (f, d1, d2) = rao(wilks, re as f64 - k as f64, t.dfh - k as f64, t.dfe);
+            let sig = f_p(f, d1, d2);
+            if sig.is_nan() || sig > dc.alpha {
+                break;
+            }
+            k += 1;
+        }
+        if k == 0 {
+            continue;
+        }
+        // with E = L L', the eigenvectors u of L^-1 H L^-T give v = L^-T u
+        let Some((li, _)) = inverse(&l) else {
+            continue;
+        };
+        let lt = crate::matrix::transpose(&li);
+        let m = crate::matrix::multiply(&crate::matrix::multiply(&li, &t.h), &lt);
+        let pairs = crate::matrix::symmetric_eigen(&m);
+        let mut v: Matrix = (0..p)
+            .map(|i| {
+                (0..k)
+                    .map(|f| (0..p).map(|a| lt[i][a] * pairs[f].1[a]).sum::<f64>() * t.dfe.sqrt())
+                    .collect()
+            })
+            .collect();
+        let sd: Vec<f64> = (0..p).map(|i| (t.e[i][i] / t.dfe).sqrt()).collect();
+        let mut c: Matrix = (0..p)
+            .map(|i| {
+                (0..k)
+                    .map(|f| (0..p).map(|a| t.e[i][a] * v[a][f]).sum::<f64>() / t.dfe / sd[i])
+                    .collect()
+            })
+            .collect();
+        let signs = crate::factor::reflect(&mut c, k);
+        v.iter_mut()
+            .for_each(|row| row.iter_mut().zip(&signs).for_each(|(x, s)| *x *= s));
+        most = most.max(k);
+        let push = |to: &mut Vec<Vec<Cell>>, rows: Vec<(String, Vec<f64>)>| {
+            for (i, (n, r)) in rows.into_iter().enumerate() {
+                let mut row = vec![
+                    text(if i == 0 { label.clone() } else { String::new() }),
+                    text(n),
+                ];
+                row.extend(r.iter().map(|x| number(Some(*x))));
+                to.push(row);
+            }
+        };
+        let by_name = |m: &Matrix| -> Vec<(String, Vec<f64>)> {
+            names.iter().cloned().zip(m.iter().cloned()).collect()
+        };
+        push(&mut raw, by_name(&v));
+        let s: Matrix = (0..p)
+            .map(|i| v[i].iter().map(|x| x * sd[i]).collect())
+            .collect();
+        push(&mut stan, by_name(&s));
+        push(
+            &mut est,
+            estimates
+                .iter()
+                .map(|(n, b)| {
+                    let row = (0..k)
+                        .map(|f| (0..p).map(|j| b[j] * v[j][f]).sum())
+                        .collect();
+                    (n.clone(), row)
+                })
+                .collect(),
+        );
+        push(&mut cor, by_name(&c));
+        if dc.rotate != Rotation::None && k >= 2 {
+            let (r, note) = rotated(&c, dc.rotate);
+            notes.extend(note.map(|n| format!("{label}: {n}")));
+            most_rotated = most_rotated.max(k);
+            push(&mut rot, by_name(&r));
+        }
+    }
+    let pad = |rows: Vec<Vec<Cell>>, m: usize| -> Vec<Vec<Cell>> {
+        rows.into_iter()
+            .map(|mut r| {
+                r.resize(m + 2, Cell::Empty);
+                r
+            })
+            .collect()
+    };
+    let mut out = Vec::new();
+    let note = format!("{caption}; functions kept at ALPHA {}", dc.alpha);
+    for (on, title, rows, m) in [
+        (dc.raw, "Raw Discriminant Function Coefficients", raw, most),
+        (
+            dc.stan,
+            "Standardized Discriminant Function Coefficients",
+            stan,
+            most,
+        ),
+        (
+            dc.estim,
+            "Estimates of Effects for Canonical Variables",
+            est,
+            most,
+        ),
+        (
+            dc.cor,
+            "Correlations between Dependent and Canonical Variables",
+            cor,
+            most,
+        ),
+        (
+            true,
+            "Rotated Correlations between Dependent and Canonical Variables",
+            rot,
+            most_rotated,
+        ),
+    ] {
+        if on && !rows.is_empty() {
+            let mut cap = note.clone();
+            if title.starts_with("Rotated") {
+                cap = format!(
+                    "{cap}; {} rotation",
+                    format!("{:?}", dc.rotate).to_uppercase()
+                );
+                for n in &notes {
+                    cap = format!("{cap}; {n}");
+                }
+            }
+            out.push(columns_table(title, "Function", pad(rows, m), 2, m, cap));
+        }
+    }
+    out
+}
+
 /// t, its two-sided significance, the confidence interval CINTERVAL asks for (`nh` estimates
-/// in the joint family) and with EFSIZE the partial eta squared t^2 / (t^2 + df).
-fn t_cells(b: f64, se: f64, df: f64, iv: &ManovaInterval, nh: f64, efsize: bool) -> Vec<Cell> {
+/// in the joint family), with EFSIZE the partial eta squared t^2 / (t^2 + df) and with POWER
+/// the noncentrality |t| and the power of the two-sided test.
+fn t_cells(b: f64, se: f64, df: f64, nh: f64, est: Est) -> Vec<Cell> {
     let ok = se > 0.0 && df > 0.0;
     let t = b / se;
-    let alpha = 1.0 - iv.level;
-    let half = if !ok {
-        f64::NAN
-    } else if !iv.joint {
-        t_quantile(alpha / 2.0, df) * se
-    } else if iv.bonferroni {
-        t_quantile(alpha / (2.0 * nh), df) * se
+    let half = if ok {
+        multiplier(&est.iv, est.p, nh, df) * se
     } else {
-        (nh * f_quantile(alpha, nh, df)).sqrt() * se
+        f64::NAN
     };
+    let half = half.is_finite().then_some(half);
     let mut cells = vec![
         number(Some(b)),
         number(ok.then_some(se)),
         number(ok.then_some(t)),
         number(ok.then(|| t_p(t, df))),
-        number(Some(b - half)),
-        number(Some(b + half)),
+        number(half.map(|h| b - h)),
+        number(half.map(|h| b + h)),
     ];
-    if efsize {
+    if est.efsize {
         cells.push(number(ok.then(|| t * t / (t * t + df))));
     }
-    cells
-}
-
-fn estimate_columns(iv: &ManovaInterval, efsize: bool) -> Vec<(String, String)> {
-    let pct = format!("{}", (iv.level * 1e8).round() / 1e6);
-    let mut columns = plain(&["Std. Err.", "t-Value", "Sig. t"]);
-    columns.push((String::new(), format!("Lower -{pct}%")));
-    columns.push((String::new(), "CL- Upper".into()));
-    if efsize {
-        columns.extend(plain(&["Partial Eta Sq."]));
+    if let Some(alpha) = est.power {
+        let (c, power) = power_t(t, df, alpha);
+        cells.push(number(ok.then_some(c)));
+        cells.push(number(ok.then_some(power)));
     }
-    columns
+    cells
 }
 
 /// The within-error regression of the dependents on the covariates. `se` is the error SSCP of
@@ -2229,8 +2699,7 @@ fn coefficients(
     dfe: f64,
     names: &[String],
     covs: &[String],
-    iv: &ManovaInterval,
-    efsize: bool,
+    est: Est,
     caption: &str,
 ) -> Table {
     let p = names.len();
@@ -2247,16 +2716,15 @@ fn coefficients(
                     m[j][c],
                     (m[j][j] / dfe * m[c][c]).sqrt(),
                     dfe,
-                    iv,
                     nq,
-                    efsize,
+                    est,
                 ));
             }
             rows.push(row);
         }
     }
     let mut columns = plain(&["Dependent", "Covariate", "B"]);
-    columns.extend(estimate_columns(iv, efsize));
+    columns.extend(est.columns());
     table(
         "Regression Coefficients",
         2,
@@ -2280,8 +2748,8 @@ fn parameters(
     d: &ManovaDesign,
     caption: &str,
 ) -> Table {
-    let (iv, efsize) = (&d.cinterval, d.print.efsize);
     let p = names.len();
+    let est = Est::new(d, p);
     let mut rows = Vec::new();
     for (j, name) in names.iter().enumerate() {
         for (i, term) in terms.iter().enumerate() {
@@ -2308,9 +2776,8 @@ fn parameters(
                         full[nx + j][c],
                         (mse * full[c][c]).sqrt(),
                         dfe,
-                        iv,
                         nh,
-                        efsize,
+                        est,
                     ));
                 }
                 rows.push(row);
@@ -2324,7 +2791,7 @@ fn parameters(
                     .map(|(a, c)| full[a][c])
                     .sum();
                 let mut row = head("NEGSUM".into());
-                row.extend(t_cells(b, (mse * v).sqrt(), dfe, iv, nh, efsize));
+                row.extend(t_cells(b, (mse * v).sqrt(), dfe, nh, est));
                 rows.push(row);
             }
         }
@@ -2335,7 +2802,7 @@ fn parameters(
         Vec::new()
     };
     columns.extend(plain(&["Term", "Parameter", "Coeff."]));
-    columns.extend(estimate_columns(iv, efsize));
+    columns.extend(est.columns());
     let heads = if p > 1 { 3 } else { 2 };
     table(
         "Parameter Estimates",

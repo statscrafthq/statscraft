@@ -320,9 +320,9 @@ pub use loglinear::{
 };
 pub use loops::{RepeatItem, command_text, substitute};
 pub use manova::{
-    Manova, ManovaDesign, ManovaEffect, ManovaError, ManovaFactors, ManovaInterval, ManovaItem,
-    ManovaOmeans, ManovaPmeans, ManovaPrint, ManovaTerm, ManovaTransform,
-    effect_label as manova_effect_label,
+    Manova, ManovaCriterion, ManovaDesign, ManovaDiscrim, ManovaEffect, ManovaError, ManovaFactors,
+    ManovaInterval, ManovaItem, ManovaOmeans, ManovaPcomps, ManovaPmeans, ManovaPower, ManovaPrint,
+    ManovaTerm, ManovaTransform, effect_label as manova_effect_label,
 };
 pub use matrix::{
     CallStatement, DataFormat, ExprKind, Field, Index, Labels, LoopIndex, MExpr, MatrixGet,

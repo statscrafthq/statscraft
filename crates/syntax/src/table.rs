@@ -3269,7 +3269,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20        [ERROR[(SSCP COV COR STDDEV)]]]\n\
                  \x20  [/OMEANS=[VARIABLES(varlist)] TABLES(factor [BY factor] | CONSTANT, ...)]\n\
                  \x20  [/PMEANS[=[VARIABLES(dependents)] [TABLES(factor [BY factor] | CONSTANT, ...)]]]\n\
-                 \x20  [/CINTERVAL=[INDIVIDUAL | JOINT][(level)] [UNIVARIATE(SCHEFFE | BONFER)]] [/RESIDUALS[=CASEWISE]]\n\
+                 \x20  [/CINTERVAL=[INDIVIDUAL | JOINT][(level)]\n\
+                 \x20             [UNIVARIATE(SCHEFFE | BONFER) | MULTIVARIATE(ROY | PILLAI | WILKS | HOTELLING | BONFER)]]\n\
+                 \x20  [/POWER[=[F(alpha)] [T(alpha)] [APPROXIMATE | EXACT]]] [/RESIDUALS[=CASEWISE]]\n\
+                 \x20  [/PCOMPS=[COR] [COV] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX | NOROTATE)]] [NCOMP(n)]\n\
+                 \x20           [MINEIGEN(value)] [ALL]]\n\
+                 \x20  [/DISCRIM[=[RAW] [STAN] [ESTIM] [COR] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX)]] [ALL]\n\
+                 \x20            [ALPHA(value)]]]\n\
                  \x20  [/ANALYSIS=dependents [WITH covariates]] [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]]\n\
                  \x20  [/DESIGN=term [term ...]] [/DESIGN ...].\n\
                  term: effect [+ effect ...] [= n] [VS WITHIN | RESIDUAL | WR | n], or CONSTANT, or MUPLUS before a term;\n\
@@ -3332,9 +3338,36 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  unweighted means over the factors named; PMEANS observed, adjusted and estimated cell means with\n\
                  residuals, for the VARIABLES named, and with TABLES the adjusted means over the other factors,\n\
                  weighted by cell size and not; RESIDUALS each case's observed and predicted values and residuals.\n\
-                 Not supported yet: POWER, PLOT, PCOMPS, DISCRIM, MATRIX, CINTERVAL MULTIVARIATE, RESIDUALS PLOT,\n\
-                 PMEANS PLOT, PRINT DESIGN other than OVERALL and ONEWAY, PARAMETERS(OPTIMAL), ANALYSIS with\n\
-                 WSFACTORS, and groups of analyses on ANALYSIS.",
+                 POWER adds two columns to every F test (alpha .05, or F(alpha)) and every t test of an estimate\n\
+                 (two-sided, alpha .05, or T(alpha)): the noncentrality, F times its hypothesis df or |t|, and the\n\
+                 observed power from the noncentral F or t, always computed exactly. In the multivariate tests,\n\
+                 APPROXIMATE (the default) uses each criterion's eta squared over one less it, times the error df\n\
+                 of its F, and gives Roys none; EXACT gives all four the noncentrality of Hotelling's T-squared,\n\
+                 the trace times the error df, when the effect has one hypothesis df, and gives nothing otherwise.\n\
+                 With several dependents, CINTERVAL MULTIVARIATE widens the intervals of the estimates so they hold\n\
+                 for all dependents together: PILLAI, WILKS and HOTELLING find the critical largest root through\n\
+                 that statistic's F approximation, BONFER splits alpha over the dependents and the family. With\n\
+                 INDIVIDUAL the family is one parameter, and ROY, PILLAI, WILKS and HOTELLING then all give\n\
+                 Hotelling's T-squared interval; with JOINT it is the term's parameters. With one dependent\n\
+                 MULTIVARIATE is ignored.\n\
+                 PCOMPS, with several dependents, finds the principal components of the error matrix after the\n\
+                 covariates, as correlations (COR) or as variances and covariances (COV): the eigenvalues with\n\
+                 their share of the total, and loadings (each eigenvector times the root of its eigenvalue) for\n\
+                 the components whose eigenvalue reaches MINEIGEN (0 by default). ROTATE turns the first NCOMP\n\
+                 of them (all by default, at least 2) by VARIMAX unless another type is named, with Kaiser\n\
+                 normalization; a rotation carries over to later PCOMPS until NOROTATE. ALL means COR, COV and\n\
+                 ROTATE.\n\
+                 DISCRIM describes every multivariate effect, and the covariates, by its discriminant functions:\n\
+                 the eigenvectors of the hypothesis matrix relative to the error matrix, scaled to a variance of 1\n\
+                 within the error. Functions are kept in order while the dimension reduction test of a function\n\
+                 and the ones after it has Sig. at most ALPHA (0.25 by default; 1 keeps all, 0 none). RAW gives the\n\
+                 coefficients, STAN the coefficients times the error standard deviations, ESTIM the effect's\n\
+                 parameter estimates (or the covariates' coefficients) times the coefficients, COR each\n\
+                 dependent's correlation with each function within the error, ROTATE those correlations rotated\n\
+                 when two or more functions are kept. DISCRIM alone gives RAW, STAN, ESTIM and COR; ALL also ROTATE.\n\
+                 Not supported yet: PLOT, MATRIX, JOINT MULTIVARIATE(ROY) intervals for a term of\n\
+                 more than one df, RESIDUALS PLOT, PMEANS PLOT, PRINT DESIGN other than OVERALL and ONEWAY,\n\
+                 PARAMETERS(OPTIMAL), ANALYSIS with WSFACTORS, and groups of analyses on ANALYSIS.",
         example: "MANOVA score1 score2 BY method(1,3) school(1,2) WITH pretest /PRINT=SIGNIF(EIGEN) /DESIGN.\n\
                   MANOVA t1 t2 t3 BY method(1,3) /WSFACTORS=trial(3) /PRINT=SIGNIF(GG HF) /DESIGN.",
         parse: manova::manova,

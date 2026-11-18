@@ -513,10 +513,24 @@ struct Flags {
     alpha: f64,
 }
 
-fn power_f(f: f64, df1: f64, df2: f64, alpha: f64) -> (f64, f64) {
+/// The noncentrality F times df1 and the power of the F test at `alpha`.
+pub(crate) fn power_f(f: f64, df1: f64, df2: f64, alpha: f64) -> (f64, f64) {
     let lambda = f * df1;
-    let critical = f_quantile(alpha, df1, df2);
-    (lambda, 1.0 - noncentral_f_cdf(critical, df1, df2, lambda))
+    (lambda, power_lambda(lambda, df1, df2, alpha))
+}
+
+/// The power of an F test at `alpha` with noncentrality `lambda`.
+pub(crate) fn power_lambda(lambda: f64, df1: f64, df2: f64, alpha: f64) -> f64 {
+    1.0 - noncentral_f_cdf(f_quantile(alpha, df1, df2), df1, df2, lambda)
+}
+
+/// The noncentrality |t| and the power of the two-sided t test at `alpha`.
+pub(crate) fn power_t(t: f64, df: f64, alpha: f64) -> (f64, f64) {
+    let (c, crit) = (t.abs(), t_quantile(alpha / 2.0, df));
+    (
+        c,
+        1.0 - noncentral_t_cdf(crit, df, c) + noncentral_t_cdf(-crit, df, c),
+    )
 }
 
 /// The columns and rows of an F test table: SS, df, MS, F, Sig. and the optional statistics.
@@ -1911,12 +1925,9 @@ fn parameter_table(
                 row.push(number(Some(t * t / (t * t + dfe))));
             }
             if flags.opower {
-                let c = t.abs();
-                let tcrit = t_quantile(flags.alpha / 2.0, dfe);
+                let (c, power) = power_t(t, dfe, flags.alpha);
                 row.push(number(Some(c)));
-                row.push(number(Some(
-                    1.0 - noncentral_t_cdf(tcrit, dfe, c) + noncentral_t_cdf(-tcrit, dfe, c),
-                )));
+                row.push(number(Some(power)));
             }
             rows.push(row);
         }
@@ -3645,10 +3656,7 @@ fn multivariate_rows(
             }
             if flags.opower {
                 let lambda = df2 * eta / (1.0 - eta);
-                let power = ok.then(|| {
-                    let crit = f_quantile(flags.alpha, df1, df2);
-                    1.0 - noncentral_f_cdf(crit, df1, df2, lambda)
-                });
+                let power = ok.then(|| power_lambda(lambda, df1, df2, flags.alpha));
                 row.push(number(ok.then_some(lambda)));
                 row.push(number(power));
             }

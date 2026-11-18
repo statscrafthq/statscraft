@@ -15,6 +15,9 @@
 //!   to the next term.
 //! - ERROR, CONTRAST(f)=type, PARTITION(f)[=(n, m*k ...)], METHOD (UNIQUE, SEQUENTIAL,
 //!   CONSTANT, NOCONSTANT, QR, CHOLESKY), PRINT and NOPRINT, OMEANS, PMEANS, ANALYSIS.
+//! - POWER: F(a) and T(a) levels strictly between 0 and 1 (.05 each), APPROXIMATE or EXACT; a new
+//!   POWER replaces the old one. CINTERVAL MULTIVARIATE needs a type in parentheses. PCOMPS and
+//!   DISCRIM: ROTATE without a type means VARIMAX; a PCOMPS rotation lasts until NOROTATE.
 //! - MWITHIN f(n) starts a term (the constant within level n of f) or nests like WITHIN.
 //! - Repeated measures: WSFACTORS (names, each group closed by its number of levels) must be the
 //!   first subcommand; WSDESIGN takes terms of within-subjects factors without MUPLUS,
@@ -25,6 +28,7 @@
 
 use crate::ast::{Command, VarItem};
 use crate::error::SyntaxError;
+use crate::factor::Rotation;
 use crate::glm::{Contrast, contrast, list_until};
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
@@ -133,6 +137,52 @@ pub struct ManovaInterval {
     pub level: f64,
     pub joint: bool,
     pub bonferroni: bool,
+    /// MULTIVARIATE(type): intervals that hold over all the dependents together.
+    pub multivariate: Option<ManovaCriterion>,
+}
+
+/// The criterion of CINTERVAL MULTIVARIATE.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManovaCriterion {
+    Roy,
+    Pillai,
+    Wilks,
+    Hotelling,
+    Bonferroni,
+}
+
+/// POWER: the significance levels of the F and t tests whose power is shown, and whether
+/// the multivariate power uses the exact noncentrality (one hypothesis df only).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ManovaPower {
+    pub f_alpha: f64,
+    pub t_alpha: f64,
+    pub exact: bool,
+}
+
+/// PCOMPS: principal components of the error correlation and covariance matrices.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ManovaPcomps {
+    pub cor: bool,
+    pub cov: bool,
+    /// Rotation::None for no rotation.
+    pub rotate: Rotation,
+    /// NCOMP: how many components to rotate; None for all.
+    pub ncomp: Option<usize>,
+    pub min_eigen: f64,
+}
+
+/// DISCRIM: the discriminant analysis of each multivariate effect.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ManovaDiscrim {
+    pub raw: bool,
+    pub stan: bool,
+    pub estim: bool,
+    pub cor: bool,
+    /// Rotation::None for no rotation of the correlations.
+    pub rotate: Rotation,
+    /// A function is kept while the test of it and the later ones has Sig. at most this.
+    pub alpha: f64,
 }
 
 /// The settings a DESIGN uses.
@@ -156,6 +206,9 @@ pub struct ManovaDesign {
     pub rename: Option<Vec<Option<String>>>,
     pub cinterval: ManovaInterval,
     pub residuals: bool,
+    pub power: Option<ManovaPower>,
+    pub pcomps: Option<ManovaPcomps>,
+    pub discrim: Option<ManovaDiscrim>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -185,7 +238,38 @@ pub struct Manova {
     pub omeans: Option<ManovaOmeans>,
 }
 
-const KNOWN: [&str; 5] = ["POWER", "PLOT", "PCOMPS", "DISCRIM", "MATRIX"];
+const KNOWN: [&str; 2] = ["PLOT", "MATRIX"];
+
+/// `(VARIMAX | EQUAMAX | QUARTIMAX | NOROTATE)` after ROTATE; VARIMAX when no parentheses follow.
+fn rotate(p: &mut Parser) -> PResult<Rotation> {
+    if !p.eat(Punct::LParen) {
+        return Ok(Rotation::Varimax);
+    }
+    let kinds = [
+        ("VARIMAX", Rotation::Varimax),
+        ("EQUAMAX", Rotation::Equamax),
+        ("QUARTIMAX", Rotation::Quartimax),
+        ("NOROTATE", Rotation::None),
+    ];
+    let Some(&(_, kind)) = kinds.iter().find(|(k, _)| p.eat_keyword(k)) else {
+        return Err(p.unexpected(&kinds.map(|(k, _)| k)));
+    };
+    p.expect(Punct::RParen)?;
+    Ok(kind)
+}
+
+/// A number in parentheses that `ok` accepts, else the error `what`.
+fn number_in_parens(p: &mut Parser, ok: impl Fn(f64) -> bool, what: &str) -> PResult<f64> {
+    p.expect(Punct::LParen)?;
+    let at = p.pos;
+    match p.number() {
+        Some(x) if ok(x) => {
+            p.expect(Punct::RParen)?;
+            Ok(x)
+        }
+        _ => Err(SyntaxError::new(p.span_from(at), what.to_string())),
+    }
+}
 
 fn error_term(p: &mut Parser) -> PResult<ManovaError> {
     if let Some(n) = p.number() {
@@ -641,8 +725,12 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
             level: 0.95,
             joint: false,
             bonferroni: false,
+            multivariate: None,
         },
         residuals: false,
+        power: None,
+        pcomps: None,
+        discrim: None,
     };
     let mut last_design = false;
     let mut first = true;
@@ -771,16 +859,154 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
                         return Err(p.unexpected(&["SCHEFFE", "BONFER"]));
                     }
                     p.expect(Punct::RParen)?;
-                } else if p.at_keyword("MULTIVARIATE") {
-                    return Err(SyntaxError::new(
-                        p.span(),
-                        "CINTERVAL MULTIVARIATE of MANOVA is not supported yet; INDIVIDUAL, JOINT and UNIVARIATE are",
-                    ));
+                    d.cinterval.multivariate = None;
+                } else if p.eat_keyword("MULTIVARIATE") {
+                    p.expect(Punct::LParen)?;
+                    let kinds = [
+                        ("ROY", ManovaCriterion::Roy),
+                        ("PILLAI", ManovaCriterion::Pillai),
+                        ("WILKS", ManovaCriterion::Wilks),
+                        ("HOTELLING", ManovaCriterion::Hotelling),
+                        ("BONFER", ManovaCriterion::Bonferroni),
+                    ];
+                    let Some(&(_, kind)) = kinds.iter().find(|(k, _)| p.eat_keyword(k)) else {
+                        return Err(p.unexpected(&kinds.map(|(k, _)| k)));
+                    };
+                    p.expect(Punct::RParen)?;
+                    d.cinterval.multivariate = Some(kind);
                 } else {
-                    return Err(p.unexpected(&["INDIVIDUAL", "JOINT", "UNIVARIATE"]));
+                    return Err(p.unexpected(&[
+                        "INDIVIDUAL",
+                        "JOINT",
+                        "UNIVARIATE",
+                        "MULTIVARIATE",
+                    ]));
                 }
                 p.eat(Punct::Comma);
             }
+        } else if p.eat_keyword("POWER") {
+            p.eat(Punct::Eq);
+            let mut power = ManovaPower {
+                f_alpha: 0.05,
+                t_alpha: 0.05,
+                exact: false,
+            };
+            while !at_end(p) {
+                if p.eat_keyword("APPROXIMATE") {
+                    power.exact = false;
+                } else if p.eat_keyword("EXACT") {
+                    power.exact = true;
+                } else {
+                    let f = p.eat_word("F");
+                    if !f && !p.eat_word("T") {
+                        return Err(p.unexpected(&["F", "T", "APPROXIMATE", "EXACT"]));
+                    }
+                    p.expect(Punct::LParen)?;
+                    let at = p.pos;
+                    let a = match p.number() {
+                        Some(a) if a > 0.0 && a < 1.0 => a,
+                        _ => {
+                            return Err(SyntaxError::new(
+                                p.span_from(at),
+                                "the significance level for power is a number between 0 and 1",
+                            ));
+                        }
+                    };
+                    p.expect(Punct::RParen)?;
+                    if f {
+                        power.f_alpha = a;
+                    } else {
+                        power.t_alpha = a;
+                    }
+                }
+                p.eat(Punct::Comma);
+            }
+            d.power = Some(power);
+        } else if p.eat_keyword("PCOMPS") {
+            p.eat(Punct::Eq);
+            let mut o = ManovaPcomps {
+                cor: false,
+                cov: false,
+                // a rotation stays until NOROTATE cancels it
+                rotate: d.pcomps.map_or(Rotation::None, |o| o.rotate),
+                ncomp: None,
+                min_eigen: 0.0,
+            };
+            while !at_end(p) {
+                if p.eat_keyword("COR") {
+                    o.cor = true;
+                } else if p.eat_keyword("COV") {
+                    o.cov = true;
+                } else if p.eat_keyword("ALL") {
+                    (o.cor, o.cov) = (true, true);
+                    if o.rotate == Rotation::None {
+                        o.rotate = Rotation::Varimax;
+                    }
+                } else if p.eat_keyword("ROTATE") {
+                    o.rotate = rotate(p)?;
+                } else if p.eat_keyword("NCOMP") {
+                    let n = number_in_parens(
+                        p,
+                        |x| x >= 1.0 && x.fract() == 0.0,
+                        "NCOMP is a whole number of at least 1",
+                    )?;
+                    o.ncomp = Some(n as usize);
+                } else if p.eat_keyword("MINEIGEN") {
+                    o.min_eigen =
+                        number_in_parens(p, |x| x >= 0.0, "MINEIGEN is a number of at least 0")?;
+                } else {
+                    return Err(p.unexpected(&["COR", "COV", "ROTATE", "NCOMP", "MINEIGEN", "ALL"]));
+                }
+                p.eat(Punct::Comma);
+            }
+            d.pcomps = Some(o);
+        } else if p.eat_keyword("DISCRIM") {
+            p.eat(Punct::Eq);
+            let mut o = ManovaDiscrim {
+                raw: false,
+                stan: false,
+                estim: false,
+                cor: false,
+                rotate: Rotation::None,
+                alpha: 0.25,
+            };
+            let mut any = false;
+            while !at_end(p) {
+                let mut shown = true;
+                if p.eat_keyword("RAW") {
+                    o.raw = true;
+                } else if p.eat_keyword("STAN") {
+                    o.stan = true;
+                } else if p.eat_keyword("ESTIM") {
+                    o.estim = true;
+                } else if p.eat_keyword("COR") {
+                    o.cor = true;
+                } else if p.eat_keyword("ROTATE") {
+                    o.rotate = rotate(p)?;
+                    o.cor = true;
+                } else if p.eat_keyword("ALL") {
+                    (o.raw, o.stan, o.estim, o.cor) = (true, true, true, true);
+                    o.rotate = Rotation::Varimax;
+                } else if p.eat_keyword("ALPHA") {
+                    o.alpha = number_in_parens(
+                        p,
+                        |x| (0.0..=1.0).contains(&x),
+                        "ALPHA is a number from 0 to 1",
+                    )?;
+                    shown = false;
+                } else {
+                    return Err(
+                        p.unexpected(&["RAW", "STAN", "ESTIM", "COR", "ROTATE", "ALL", "ALPHA"])
+                    );
+                }
+                any |= shown;
+                p.eat(Punct::Comma);
+            }
+            // DISCRIM alone (or with ALPHA only) shows every table but the rotation
+            if !any {
+                (o.raw, o.stan, o.estim, o.cor) = (true, true, true, true);
+            }
+            d.discrim = Some(o);
         } else if p.eat_keyword("RESIDUALS") {
             p.eat(Punct::Eq);
             while !at_end(p) {
@@ -1004,7 +1230,6 @@ mod tests {
     fn partitions_and_unsupported_parts() {
         let m = manova("MANOVA y BY t(1,12) /PARTITION(t)=(3*2,4) /DESIGN t(2).");
         assert_eq!(m.designs[0].partitions[0].1, vec![2, 2, 2, 4]);
-        assert!(error("MANOVA y BY t(1,3) /POWER.").contains("not supported yet"));
         assert!(
             error("MANOVA y BY t(1,3) /PRINT=PARAMETERS(OPTIMAL).").contains("not supported yet")
         );
@@ -1013,6 +1238,73 @@ mod tests {
         assert!(error("MANOVA y1 y2 /WSFACTORS=w(2) /WSDESIGN=CONSTANT.").contains("WSDESIGN"));
         assert!(error("MANOVA y BY t(3,1).").contains("minimum first"));
         assert!(error("MANOVA y BY t(1,3) /DESIGN t = 11.").contains("1 to 10"));
+    }
+
+    #[test]
+    fn power_levels_and_multivariate_intervals() {
+        // POWER alone: both levels .05, approximate; a later POWER replaces the earlier one
+        let m = manova(
+            "MANOVA y1 y2 BY g(1,2) /POWER /DESIGN /POW=T(.1) EXA F(.01) \
+             /CINT=JOINT(.9) MULT(HOT) /DESIGN /CINTERVAL=UNIV(BONFER).",
+        );
+        let power = |i: usize| m.designs[i].power.unwrap();
+        assert_eq!(
+            (power(0).f_alpha, power(0).t_alpha, power(0).exact),
+            (0.05, 0.05, false)
+        );
+        assert_eq!(
+            (power(1).f_alpha, power(1).t_alpha, power(1).exact),
+            (0.01, 0.1, true)
+        );
+        assert_eq!(m.designs[0].cinterval.multivariate, None);
+        let iv = m.designs[1].cinterval;
+        assert_eq!((iv.level, iv.joint), (0.9, true));
+        assert_eq!(iv.multivariate, Some(ManovaCriterion::Hotelling));
+        assert_eq!(m.designs[2].cinterval.multivariate, None);
+        assert!(m.designs[2].cinterval.bonferroni);
+        for (word, kind) in [
+            ("ROY", ManovaCriterion::Roy),
+            ("PILL", ManovaCriterion::Pillai),
+            ("WIL", ManovaCriterion::Wilks),
+            ("BONFER", ManovaCriterion::Bonferroni),
+        ] {
+            let m = manova(&format!("MANOVA y1 y2 /CINTERVAL MULTIVARIATE({word})."));
+            assert_eq!(m.designs[0].cinterval.multivariate, Some(kind));
+        }
+        assert!(error("MANOVA y /POWER F(1).").contains("between 0 and 1"));
+        let e = error("MANOVA y /POWER ALPHA(.1).");
+        assert!(e.contains("unexpected word ALPHA"), "{e}");
+        assert!(error("MANOVA y /CINTERVAL MULTIVARIATE(SCHEFFE).").contains("SCHEFFE"));
+    }
+
+    #[test]
+    fn principal_components_and_discriminant_settings() {
+        // a rotation carries over to the next PCOMPS until NOROTATE; DISCRIM alone shows all
+        // but the rotation, and ROTATE brings the correlations it rotates
+        let m = manova(
+            "MANOVA y1 y2 BY g(1,3) /PCOMPS COR ROT(EQUAMAX) NCOMP(2) MINEIG(.5) /DISCRIM /DESIGN \
+             /PCOMPS COV /DISCRIM RAW ROTATE(QUARTIMAX) ALPHA(1) /DESIGN \
+             /PCOMPS=ALL ROTATE(NOROTATE) /DISCRIM=ALL /DESIGN.",
+        );
+        let pc = |i: usize| m.designs[i].pcomps.unwrap();
+        let dc = |i: usize| m.designs[i].discrim.unwrap();
+        assert!(pc(0).cor && !pc(0).cov);
+        assert_eq!(
+            (pc(0).rotate, pc(0).ncomp, pc(0).min_eigen),
+            (Rotation::Equamax, Some(2), 0.5)
+        );
+        assert!(!pc(1).cor && pc(1).cov && pc(1).ncomp.is_none());
+        assert_eq!(pc(1).rotate, Rotation::Equamax);
+        assert!(pc(2).cor && pc(2).cov);
+        assert_eq!(pc(2).rotate, Rotation::None);
+        assert!(dc(0).raw && dc(0).stan && dc(0).estim && dc(0).cor);
+        assert_eq!((dc(0).rotate, dc(0).alpha), (Rotation::None, 0.25));
+        assert!(dc(1).raw && !dc(1).stan && !dc(1).estim && dc(1).cor);
+        assert_eq!((dc(1).rotate, dc(1).alpha), (Rotation::Quartimax, 1.0));
+        assert_eq!(dc(2).rotate, Rotation::Varimax);
+        assert!(error("MANOVA y1 y2 /PCOMPS NCOMP(0).").contains("NCOMP"));
+        assert!(error("MANOVA y1 y2 /DISCRIM ALPHA(2).").contains("ALPHA"));
+        assert!(error("MANOVA y1 y2 /DISCRIM ROTATE(PROMAX).").contains("unexpected"));
     }
 
     #[test]
@@ -1056,6 +1348,7 @@ mod tests {
         let term = &d.terms.as_ref().unwrap()[0];
         assert!(term.effects[0].crossed.is_empty() && !term.effects[0].is_constant());
         assert!(error("MANOVA y /PMEANS PLOT.").contains("not supported yet"));
-        assert!(error("MANOVA y /CINTERVAL MULTIVARIATE(ROY).").contains("not supported yet"));
+        let e = error("MANOVA y /CINTERVAL MULTIVARIATE.");
+        assert!(e.contains("unexpected end of command"), "{e}");
     }
 }

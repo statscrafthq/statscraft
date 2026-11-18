@@ -525,7 +525,7 @@ fn unsupported_parts_say_so() {
             "MANOVA y1 BY a(1,3) /PRINT=DESIGN(BIAS).",
             "not supported yet",
         ),
-        ("MANOVA y1 BY a(1,3) /DISCRIM.", "not supported yet"),
+        ("MANOVA y1 BY a(1,3) /PLOT=BOXPLOTS.", "not supported yet"),
         ("MANOVA y1 y2 /TRANSFORM=SPECIAL(1 1 1).", "square matrix"),
         ("MANOVA y1 y2 /RENAME=a.", "RENAME gives 1 names"),
     ] {
@@ -1246,6 +1246,252 @@ fn covariates_that_vary_over_the_times() {
             (MV, "T (S = 1, M = 0, N = 3.5) / Wilks", "Error DF", 9.0),
             (SIG, "G", "F", 2.9945399902483),
             (SIG, "G", "Sig of F", 0.0915641637539739),
+        ],
+    );
+}
+
+#[test]
+fn observed_power_of_f_and_t_tests() {
+    // R: the noncentrality is F times its hypothesis df (|t| for a t test) and the power is
+    // the upper tail of the noncentral F (two tails of the noncentral t) beyond the critical
+    // value, from qf, pf, qt and pt with ncp
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 BY a(1,3) b(1,2) /PRINT=PARAMETERS /POWER=F(.1) T(.01)."
+    ));
+    let pe = "Parameter Estimates";
+    check(
+        &t,
+        &[
+            (SIG, "A", "Noncent. Parameter", 22.0291628046903),
+            (SIG, "A", "Observed Power", 0.993881938010872),
+            (pe, "A / 2", "t-Value", -4.1178788549549),
+            (pe, "A / 2", "Noncent. Parameter", 4.1178788549549),
+            (pe, "A / 2", "Observed Power", 0.900526361942133),
+        ],
+    );
+    // multivariate (approximate): each criterion's eta squared over one less it, times the
+    // error df of its F; Roy's root has no F and so no power
+    let source = "MANOVA y1 y2 y3 BY a(1,3) b(1,2) WITH x";
+    let t = run(&format!("{DATA}\n{source} /POWER."));
+    let a = "A (S = 2, M = 0, N = 11)";
+    let b = "B (S = 1, M = 0.5, N = 11)";
+    let mut expected = Vec::new();
+    for (row, lambda, power) in [
+        (
+            format!("{a} / Pillais"),
+            38.7714682424973,
+            0.997785078884834,
+        ),
+        (format!("{a} / Wilks"), 45.9884119424279, 0.999555121062253),
+        (
+            format!("{a} / Hotellings"),
+            53.339182490171,
+            0.999918092410058,
+        ),
+        (format!("{b} / Wilks"), 34.0050232200048, 0.997582910535303),
+        ("A / y2".to_string(), 0.5025349018029, 0.0853371324502979),
+        ("B / y3".to_string(), 21.4542719833618, 0.99370167216524),
+    ] {
+        let title = if row.contains('(') { MV } else { UNI };
+        expected.push((title, row.clone(), "Noncent. Parameter", lambda));
+        expected.push((title, row, "Observed Power", power));
+    }
+    let expected: Vec<(&str, &str, &str, f64)> = expected
+        .iter()
+        .map(|(t, r, c, v)| (*t, r.as_str(), *c, *v))
+        .collect();
+    check(&t, &expected);
+    let mv = t.iter().find(|t| t.title == MV).unwrap();
+    let roys = row_keys(mv)
+        .iter()
+        .position(|k| *k == format!("{a} / Roys"))
+        .unwrap();
+    assert!(matches!(mv.rows[roys].last(), Some(Cell::Empty)));
+    // EXACT with one hypothesis df: Hotelling's trace times the error df, for every criterion;
+    // an effect of more hypothesis df gets none
+    let t = run(&format!("{DATA}\n{source} /POWER=EXACT F(.05)."));
+    for name in ["Pillais", "Roys"] {
+        let row = format!("{b} / {name}");
+        check(
+            &t,
+            &[
+                (MV, &row, "Noncent. Parameter", 36.8387751550052),
+                (MV, &row, "Observed Power", 0.998773481027223),
+            ],
+        );
+    }
+    let mv = t.iter().find(|t| t.title == MV).unwrap();
+    let pillais = row_keys(mv)
+        .iter()
+        .position(|k| *k == format!("{a} / Pillais"))
+        .unwrap();
+    assert!(matches!(mv.rows[pillais].last(), Some(Cell::Empty)));
+}
+
+#[test]
+fn multivariate_intervals_of_the_estimates() {
+    // R: the multipliers from the F approximation of each criterion (qf) at level .9 for the
+    // three dependents, the error df 26 and a family of 2 (the term A) or 1; one df makes
+    // every criterion Hotelling's T^2: sqrt(3 * 26 / 24 * qf(.9, 3, 24))
+    let k = |cint: &str, row: &str| {
+        let t = run(&format!(
+            "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) b(1,2) WITH x /PRINT=PARAMETERS /CINTERVAL={cint}."
+        ));
+        let (title, coeff) = if row.ends_with("/ x") {
+            ("Regression Coefficients", "B")
+        } else {
+            ("Parameter Estimates", "Coeff.")
+        };
+        let b = value(&t, title, row, coeff);
+        (b - value(&t, title, row, "Lower -90%")) / value(&t, title, row, "Std. Err.")
+    };
+    for (cint, row, want) in [
+        (
+            "JOINT(.9) MULTIVARIATE(PILLAI)",
+            "y1 / A / 2",
+            3.91276237209361,
+        ),
+        (
+            "JOINT(.9) MULTIVARIATE(WILKS)",
+            "y2 / A / 3",
+            3.71775646520788,
+        ),
+        ("JOINT(.9) MULT(HOTELLING)", "y3 / A / 2", 3.59580342940298),
+        (
+            "JOINT(.9) MULTIVARIATE(BONFER)",
+            "y1 / A / 2",
+            2.55894238571891,
+        ),
+        ("JOINT(.9) MULTIVARIATE(PILLAI)", "y1 / x", 2.75027571871239),
+        (
+            "INDIVIDUAL(.9) MULTIVARIATE(ROY)",
+            "y2 / A / 2",
+            2.75027571871239,
+        ),
+        (
+            "INDIVIDUAL(.9) MULTIVARIATE(WILKS)",
+            "y2 / B / 4",
+            2.75027571871239,
+        ),
+    ] {
+        let got = k(cint, row);
+        assert!((got - want).abs() < 1e-8, "{cint} {row}: {got} vs {want}");
+    }
+    let message = run_error(&format!(
+        "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) b(1,2) /PRINT=PARAMETERS /CINTERVAL=JOINT MULTIVARIATE(ROY)."
+    ));
+    assert!(message.contains("largest root"), "{message}");
+}
+
+#[test]
+fn principal_components_of_the_error_matrices() {
+    // R: eigen of the within-cell covariance after x (and of its correlations), loadings as
+    // vectors times root values with positive column sums; varimax of the first two with
+    // Kaiser normalization, columns by their sums of squares (R's varimax stops a little early,
+    // so the reference turns the pair by the exact angle until it no longer moves)
+    let pc = |extra: &str| {
+        run(&format!(
+            "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) b(1,2) WITH x /PCOMPS {extra} /DESIGN."
+        ))
+    };
+    let t = pc("COR ROTATE(VARIMAX) NCOMP(1)");
+    let (cl, rl) = ("Component Loadings", "Rotated Component Loadings");
+    check(
+        &t,
+        &[
+            ("Principal Components", "1", "Eigenvalue", 1.17204642061415),
+            ("Principal Components", "2", "Pct of Var", 32.390149102827),
+            (cl, "y1", "Component 2", 0.911373857439108),
+            (cl, "y3", "Component 3", -0.661462270041933),
+            (rl, "y2", "Component 1", 0.763767173077893),
+            (rl, "y1", "Component 2", 0.998375184931312),
+            (rl, "y3", "Component 2", 0.0602758749460019),
+        ],
+    );
+    let rotated = t.iter().find(|t| t.title == rl).unwrap();
+    assert_eq!(rotated.column_titles().len(), 3);
+    let t = pc("COV MINEIGEN(1.5)");
+    check(
+        &t,
+        &[
+            ("Principal Components", "3", "Eigenvalue", 1.4443934345362),
+            ("Principal Components", "1", "Cum Pct", 51.9140760702648),
+            (cl, "y2", "Component 1", 2.38291759138411),
+            (cl, "y1", "Component 2", 1.97040804877439),
+        ],
+    );
+    let loadings = t.iter().find(|t| t.title == cl).unwrap();
+    assert_eq!(loadings.column_titles().len(), 3);
+    assert!(!t.iter().any(|t| t.title == rl));
+}
+
+#[test]
+fn discriminant_functions_of_each_effect() {
+    // R: the eigenvectors of E^-1 H scaled to unit variance within the error (the scaling of
+    // MASS::lda for one factor), signed so their correlations with the dependents add up to
+    // more than 0; the estimates are the sum-to-zero coefficients times them; dimension
+    // reduction Sig. 6.2e-05 for both roots and 0.066 for the second; the rotation as for
+    // PCOMPS
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) /DISCRIM=ALL ALPHA(.25) /DESIGN."
+    ));
+    let raw = "Raw Discriminant Function Coefficients";
+    let rc = "Rotated Correlations between Dependent and Canonical Variables";
+    check(
+        &t,
+        &[
+            (raw, "A / y1", "Function 1", 0.401975529748379),
+            (raw, "A / y3", "Function 2", 0.478627565660424),
+            (
+                "Standardized Discriminant Function Coefficients",
+                "A / y2",
+                "Function 1",
+                -0.712408044959842,
+            ),
+            (
+                "Correlations between Dependent and Canonical Variables",
+                "A / y3",
+                "Function 2",
+                0.91253639365901,
+            ),
+            (
+                "Estimates of Effects for Canonical Variables",
+                "A / 2",
+                "Function 1",
+                -1.09421700242209,
+            ),
+            (
+                "Estimates of Effects for Canonical Variables",
+                "A / 3",
+                "Function 2",
+                0.615471445385073,
+            ),
+            (rc, "A / y3", "Function 1", 0.896070453770352),
+            (rc, "A / y1", "Function 2", 0.87391198572509),
+        ],
+    );
+    // at ALPHA .05 only the first function is kept, so nothing is rotated
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) /DISCRIM RAW ROTATE ALPHA(.05) /DESIGN."
+    ));
+    let table = t.iter().find(|t| t.title == raw).unwrap();
+    assert_eq!(table.column_titles().len(), 3);
+    assert!(!t.iter().any(|t| t.title == rc));
+    // the covariate: a canonical correlation analysis against the within-cell error
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) b(1,2) WITH x /DISCRIM RAW ESTIM /DESIGN."
+    ));
+    let r = "WITHIN CELLS Regression";
+    check(
+        &t,
+        &[
+            (raw, &format!("{r} / y2"), "Function 1", 0.216860369097278),
+            (
+                "Estimates of Effects for Canonical Variables",
+                &format!("{r} / x"),
+                "Function 1",
+                0.672566919263979,
+            ),
         ],
     );
 }

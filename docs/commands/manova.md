@@ -19,7 +19,13 @@ MANOVA dependents [BY factors (min,max) [factors (min,max) ...]] [WITH covariate
          [ERROR[(SSCP COV COR STDDEV)]]]
    [/OMEANS=[VARIABLES(varlist)] TABLES(factor [BY factor] | CONSTANT, ...)]
    [/PMEANS[=[VARIABLES(dependents)] [TABLES(factor [BY factor] | CONSTANT, ...)]]]
-   [/CINTERVAL=[INDIVIDUAL | JOINT][(level)] [UNIVARIATE(SCHEFFE | BONFER)]] [/RESIDUALS[=CASEWISE]]
+   [/CINTERVAL=[INDIVIDUAL | JOINT][(level)]
+              [UNIVARIATE(SCHEFFE | BONFER) | MULTIVARIATE(ROY | PILLAI | WILKS | HOTELLING | BONFER)]]
+   [/POWER[=[F(alpha)] [T(alpha)] [APPROXIMATE | EXACT]]] [/RESIDUALS[=CASEWISE]]
+   [/PCOMPS=[COR] [COV] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX | NOROTATE)]] [NCOMP(n)]
+            [MINEIGEN(value)] [ALL]]
+   [/DISCRIM[=[RAW] [STAN] [ESTIM] [COR] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX)]] [ALL]
+             [ALPHA(value)]]]
    [/ANALYSIS=dependents [WITH covariates]] [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]]
    [/DESIGN=term [term ...]] [/DESIGN ...].
 ```
@@ -44,7 +50,15 @@ GG and HF add the significance with both df times the epsilon; AVONLY drops the 
 
 Tables: Cases; with one dependent, Tests of Significance (each error term and the terms tested against it, the regression, (Model), (Total), R-squared); with several, Multivariate Tests of Significance (Pillais, Wilks, Hotellings with their F approximations, and Roys as the largest root over one plus it) and Univariate F-tests. SIGNIF adds Eigenvalues and Canonical Correlations (EIGEN), Dimension Reduction Analysis (DIMENR), the Hypothesis SSCP Matrix (HYPOTH), Roy-Bargmann Stepdown F-tests (STEPDOWN), a test for each degree of freedom of a term, each column entered after the ones before it (SINGLEDF), partial eta squared for every F and t test (EFSIZE), or only a Wilks table (BRIEF); NOPRINT SIGNIF(MULTIV) or (UNIV) drops a default table. PARAMETERS gives each design column's estimate with its standard error from the term's error term, t, Sig. and an interval (CINTERVAL: INDIVIDUAL at the level given, 0.95 by default; JOINT with Scheffe or Bonferroni multipliers over the term's parameters), NEGSUM minus their sum per term, ORTHO the orthogonal estimates of the design columns in order (their squares add up to the sequential sums of squares), COR the covariance factors and correlations of the estimates; ERROR the error matrices after the covariates; TRANSFORM the transformation matrix; DESIGN the design matrix of the cells (OVERALL) and each factor's one-way basis (ONEWAY). CELLINFO gives cell means with 95% intervals and the within-cell matrices; HOMOGENEITY Cochran's C, the Bartlett-Box F and Box's M; OMEANS weighted and unweighted means over the factors named; PMEANS observed, adjusted and estimated cell means with residuals, for the VARIABLES named, and with TABLES the adjusted means over the other factors, weighted by cell size and not; RESIDUALS each case's observed and predicted values and residuals.
 
-Not supported yet: POWER, PLOT, PCOMPS, DISCRIM, MATRIX, CINTERVAL MULTIVARIATE, RESIDUALS PLOT, PMEANS PLOT, PRINT DESIGN other than OVERALL and ONEWAY, PARAMETERS(OPTIMAL), ANALYSIS with WSFACTORS, and groups of analyses on ANALYSIS.
+POWER adds two columns to every F test (alpha .05, or F(alpha)) and every t test of an estimate (two-sided, alpha .05, or T(alpha)): the noncentrality, F times its hypothesis df or \|t\|, and the observed power from the noncentral F or t, always computed exactly. In the multivariate tests, APPROXIMATE (the default) uses each criterion's eta squared over one less it, times the error df of its F, and gives Roys none; EXACT gives all four the noncentrality of Hotelling's T-squared, the trace times the error df, when the effect has one hypothesis df, and gives nothing otherwise.
+
+With several dependents, CINTERVAL MULTIVARIATE widens the intervals of the estimates so they hold for all dependents together: PILLAI, WILKS and HOTELLING find the critical largest root through that statistic's F approximation, BONFER splits alpha over the dependents and the family. With INDIVIDUAL the family is one parameter, and ROY, PILLAI, WILKS and HOTELLING then all give Hotelling's T-squared interval; with JOINT it is the term's parameters. With one dependent MULTIVARIATE is ignored.
+
+PCOMPS, with several dependents, finds the principal components of the error matrix after the covariates, as correlations (COR) or as variances and covariances (COV): the eigenvalues with their share of the total, and loadings (each eigenvector times the root of its eigenvalue) for the components whose eigenvalue reaches MINEIGEN (0 by default). ROTATE turns the first NCOMP of them (all by default, at least 2) by VARIMAX unless another type is named, with Kaiser normalization; a rotation carries over to later PCOMPS until NOROTATE. ALL means COR, COV and ROTATE.
+
+DISCRIM describes every multivariate effect, and the covariates, by its discriminant functions: the eigenvectors of the hypothesis matrix relative to the error matrix, scaled to a variance of 1 within the error. Functions are kept in order while the dimension reduction test of a function and the ones after it has Sig. at most ALPHA (0.25 by default; 1 keeps all, 0 none). RAW gives the coefficients, STAN the coefficients times the error standard deviations, ESTIM the effect's parameter estimates (or the covariates' coefficients) times the coefficients, COR each dependent's correlation with each function within the error, ROTATE those correlations rotated when two or more functions are kept. DISCRIM alone gives RAW, STAN, ESTIM and COR; ALL also ROTATE.
+
+Not supported yet: PLOT, MATRIX, JOINT MULTIVARIATE(ROY) intervals for a term of more than one df, RESIDUALS PLOT, PMEANS PLOT, PRINT DESIGN other than OVERALL and ONEWAY, PARAMETERS(OPTIMAL), ANALYSIS with WSFACTORS, and groups of analyses on ANALYSIS.
 
 ## Example
 

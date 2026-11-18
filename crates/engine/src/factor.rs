@@ -513,7 +513,7 @@ fn initial_communalities(r: &Matrix, inv: Option<&Matrix>) -> Vec<f64> {
 }
 
 /// Flips the sign of every column whose sum is negative.
-fn reflect(loadings: &mut Matrix, m: usize) -> Vec<f64> {
+pub(crate) fn reflect(loadings: &mut Matrix, m: usize) -> Vec<f64> {
     let signs: Vec<f64> = (0..m)
         .map(
             |j| match loadings.iter().map(|row| row[j]).sum::<f64>() < 0.0 {
@@ -531,7 +531,7 @@ fn reflect(loadings: &mut Matrix, m: usize) -> Vec<f64> {
 }
 
 /// The first m eigenvectors times the square roots of the absolute eigenvalues.
-fn eigen_loadings(pairs: &[(f64, Vec<f64>)], m: usize) -> Matrix {
+pub(crate) fn eigen_loadings(pairs: &[(f64, Vec<f64>)], m: usize) -> Matrix {
     let p = pairs.len();
     (0..p)
         .map(|i| {
