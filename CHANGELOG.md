@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Windows: running a plugin (for each table, its description and the update check) no longer flashes a console window.
+
 ## 0.19.0 (2026-11-18)
 
 - Plugins can update themselves: a plugin that says `"updates": true` in its description answers `--update-check` with the version, https address and SHA-256 of its newer program, Edit > Settings > Plugins checks once a day (or with Check now) and shows "Version X is available" with an Update button, which downloads the program, checks its SHA-256 and replaces the old one, leaving it in place if anything fails. See [plugins](docs/plugins.md).

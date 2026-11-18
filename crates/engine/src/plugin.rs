@@ -430,11 +430,20 @@ fn run(
     input: Option<Vec<u8>>,
     time: Duration,
 ) -> Result<Vec<u8>, String> {
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // a plugin is a console program: without this, Windows flashes a console window each run
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command
         .spawn()
         .map_err(|e| format!("the plugin {} cannot start: {e}", program.display()))?;
     // written and read on threads of their own, so a large table cannot block both sides
