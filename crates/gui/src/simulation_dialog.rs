@@ -256,10 +256,6 @@ impl SimInputRow {
         if keyword.is_empty() {
             return Ok(text);
         }
-        let cut = !self.min.trim().is_empty() || !self.max.trim().is_empty();
-        if cut && !can_cut(keyword) {
-            return Err(format!("{who}: a {keyword} distribution cannot be cut"));
-        }
         let mut given = Vec::new();
         for ((p, label), value) in params.iter().zip(&self.params) {
             let what = format!("{who}: {label}");
@@ -271,8 +267,9 @@ impl SimInputRow {
             given.push(format!("{p}={value}"));
         }
         text += &format!(" TYPE=MANUAL DISTRIBUTION={keyword}({})", given.join(" "));
+        // the cut fields are hidden for a distribution that cannot be cut: leftovers are ignored
         for (word, value) in [("MINVAL", &self.min), ("MAXVAL", &self.max)] {
-            if !value.trim().is_empty() {
+            if can_cut(keyword) && !value.trim().is_empty() {
                 let n = finite(value, &format!("{who}: {word}"))?;
                 text += &format!(" {word}={}", number(n));
             }

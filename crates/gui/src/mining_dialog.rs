@@ -617,33 +617,43 @@ impl PrepareData {
         sub(&mut text, "PREPDATETIME", dates);
 
         let mut screening = Vec::new();
-        let missing = number(within(
-            &self.max_missing,
-            "the percent missing",
-            0.0,
-            false,
-            100.0,
-        )?);
+        // a limit whose check is off is greyed out in the dialog, so its text is not read
+        let missing = match self.screen_missing {
+            true => number(within(
+                &self.max_missing,
+                "the percent missing",
+                0.0,
+                false,
+                100.0,
+            )?),
+            false => "50".into(),
+        };
         limit(
             &mut screening,
             "PCTMISSING",
             (self.screen_missing, true),
             ("MAXPCT", missing, "50"),
         );
-        let categories = count(&self.max_categories, 1, "the most categories")?.to_string();
+        let categories = match self.screen_categories {
+            true => count(&self.max_categories, 1, "the most categories")?.to_string(),
+            false => "100".into(),
+        };
         limit(
             &mut screening,
             "UNIQUECAT",
             (self.screen_categories, true),
             ("MAXCAT", categories, "100"),
         );
-        let single = number(within(
-            &self.max_single,
-            "the percent in one category",
-            0.0,
-            false,
-            100.0,
-        )?);
+        let single = match self.screen_single {
+            true => number(within(
+                &self.max_single,
+                "the percent in one category",
+                0.0,
+                false,
+                100.0,
+            )?),
+            false => "95".into(),
+        };
         limit(
             &mut screening,
             "SINGLECAT",
@@ -723,7 +733,10 @@ impl PrepareData {
         sub(&mut text, "RESCALE", rescale);
 
         // the three tests on the target share one p value; each is on by default
-        let p = within(&self.pvalue, "the p value", 0.0, true, 1.0)?;
+        let p = match self.merge_supervised || self.binning || self.selection {
+            true => within(&self.pvalue, "the p value", 0.0, true, 1.0)?,
+            false => 0.05,
+        };
         let mut transform = Vec::new();
         let tested = |name: &str, on: bool, (yes, no): (&str, &str)| match (on, p != 0.05) {
             (true, true) => Some(format!("{name}={yes}(PVALUE={})", number(p))),
