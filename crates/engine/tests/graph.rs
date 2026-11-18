@@ -606,9 +606,9 @@ fn interval_needs_a_chart_and_a_function_it_fits() {
              error bars",
         ),
         (
-            "GRAPH /BAR=COUNT BY store /INTERVAL CI.",
-            "GRAPH: INTERVAL draws error bars around means and medians; Count is not supported \
-             yet",
+            "GRAPH /BAR=CUFREQ BY store /INTERVAL CI.",
+            "GRAPH: INTERVAL draws error bars around means, medians, counts and percentages; \
+             Cumulative Count is not supported yet",
         ),
         (
             "GRAPH /BAR=MEDIAN(basket) BY store /INTERVAL SE(1).",

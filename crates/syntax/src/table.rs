@@ -96,6 +96,7 @@ use crate::ts_more;
 use crate::tsmodel;
 use crate::twostep;
 use crate::varcomp;
+use crate::xgraph;
 
 /// One supported command: its name, its help text and its parser.
 pub struct CommandSpec {
@@ -4778,6 +4779,45 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  X2 outside a scatterplot and a mix of elements other than those above.",
         example: "IGRAPH /X1=VAR(store) TYPE=CATEGORICAL /Y=VAR(basket) TYPE=SCALE /COLOR=VAR(daypart) /BAR (MEAN).",
         parse: igraph::igraph,
+    },
+    CommandSpec {
+        name: "XGRAPH",
+        summary: "Charts from one expression: summaries as bars or lines, clustered, stacked and paneled, population pyramids, binned histograms, dot plots and boxes.",
+        syntax: "XGRAPH [CHART=] (y [+ y ...]) [> var | 1] [BY x [> var] [BY z [> var]]]\n\
+                 \x20  [/BIN START=AUTO | n SIZE=AUTO | WIDTH(n) | COUNT(n)] [/DISPLAY DOT=ASYMMETRIC | SYMMETRIC | FLAT]\n\
+                 \x20  [/DISTRIBUTION TYPE=NORMAL] [/COORDINATE SPLIT=NO | YES] [/ERRORBAR CI(level) | STDDEV(n) | SE(n)]\n\
+                 \x20  [/MISSING USE=LISTWISE | VARIABLEWISE REPORT=NO | YES]\n\
+                 \x20  [/PANEL COLVAR=varlist [COLOP=CROSS | NEST] ROWVAR=varlist [ROWOP=CROSS | NEST]]\n\
+                 \x20  [/TEMPLATE FILE='file'] [/TITLES TITLE='line' ['line'] SUBTITLE='line' FOOTNOTE='line' ['line']].\n\
+                 y: var [function] [element], (var + var ...) [function] [element], or [count function] [element].\n\
+                 x, z: var [c] or [s], $CASENUM [LABEL=var], or 1, the stand-in for the y variables.\n\
+                 function: COUNT PCT CUPCT CUFREQ (no variable); VALUE; MINIMUM MAXIMUM VALIDN SUM CUSUM MEAN\n\
+                 STDDEV VARIANCE MEDIAN GMEDIAN MODE, PTILE(p), PLT PGT NLT NGT(x), PIN NIN(low, high).\n\
+                 element: BAR (the default), LINE, HISTOBAR, POINT, BOX. Square brackets are typed as shown,\n\
+                 one keyword in each; names and keywords are written in full, each subcommand at most once.\n\
+                 BAR and LINE draw the function of y for every category of x. A variable after > on y stacks\n\
+                 the bars; one after > on x clusters them; z gives the series when neither is there. Every\n\
+                 further dimension (a second cluster, or z next to a stack or cluster) repeats the chart for\n\
+                 each of its categories, as PANEL does. Several y variables, joined with +, need the 1 where\n\
+                 they form the categories, the series or the stack. [VALUE] draws a bar for every case, the\n\
+                 cases numbered on the axis that holds $CASENUM or named by its LABEL variable; a variable on\n\
+                 the other axis gives a chart for each of its categories. [COLOR] and [PATTERN] after a stack\n\
+                 or cluster variable are accepted and change nothing.\n\
+                 COORDINATE SPLIT=YES turns a bar chart into a population pyramid: horizontal bars with a\n\
+                 series for each category of z. HISTOBAR counts the cases in bins of a scale x and draws a\n\
+                 histogram for each category of z, all with the same bins, which BIN sets (by default as\n\
+                 FREQUENCIES makes them; COUNT(n) gives n bins from the start to the largest value).\n\
+                 DISTRIBUTION adds the normal curve of each histogram. POINT puts a dot for every case at its\n\
+                 x value; DISPLAY stacks equal values up from 1 (ASYMMETRIC), around 0 (SYMMETRIC) or not at\n\
+                 all (FLAT). BOX draws Tukey boxes of the y variable by x, side by side by the x cluster or z.\n\
+                 ERRORBAR adds bars to counts and percentages (CI: Jeffreys' interval; SE and STDDEV: n times\n\
+                 the binomial spread of the count), means, and medians (CI only). MISSING USE=LISTWISE leaves\n\
+                 out a case missing on any y variable, VARIABLEWISE only from that variable; REPORT=YES keeps\n\
+                 categories of missing values. TITLES lines may hold )DATE, )TIME and )CHART. TEMPLATE is\n\
+                 accepted and ignored with a warning. With SPLIT FILE each group gets its charts.",
+        example: "XGRAPH CHART=(spend [MEAN] [BAR]) BY region[c] > channel[c] BY season[c]\n\
+                  \x20 /ERRORBAR SE(1) /TITLES TITLE='Spend by region'.",
+        parse: xgraph::xgraph,
     },
     CommandSpec {
         name: "PPLOT",

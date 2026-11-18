@@ -212,6 +212,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "GGRAPH",
             "BEGIN GPL",
             "IGRAPH",
+            "XGRAPH",
             "PPLOT",
             "NPPLOT",
             "ROC",

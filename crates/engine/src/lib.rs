@@ -1342,6 +1342,7 @@ impl Engine {
             | Command::Graph(_)
             | Command::Ggraph(_)
             | Command::Igraph(_)
+            | Command::Xgraph(_)
             | Command::Report(_)
             | Command::Summarize(_)
             | Command::OlapCubes(_)
@@ -1747,6 +1748,7 @@ impl Engine {
             Command::Graph(command) => self.graph(command),
             Command::Ggraph(command) => self.ggraph(command),
             Command::Igraph(command) => self.igraph(command),
+            Command::Xgraph(command) => self.xgraph(command),
             Command::Report(command) => self.report(command),
             Command::Summarize(command) => self.summarize(command),
             Command::OlapCubes(command) => self.olap_cubes(command),

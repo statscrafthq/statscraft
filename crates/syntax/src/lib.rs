@@ -211,6 +211,8 @@ mod tests_timeseries;
 mod tests_twostep;
 #[cfg(test)]
 mod tests_varcomp;
+#[cfg(test)]
+mod tests_xgraph;
 mod timeseries;
 mod tree;
 mod ts_models;
@@ -218,6 +220,7 @@ mod ts_more;
 mod tsmodel;
 mod twostep;
 mod varcomp;
+mod xgraph;
 
 pub use adp::{Adp, AdpDuration, AdpLevels, AdpRescale};
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
@@ -436,6 +439,9 @@ pub use tsmodel::{
 };
 pub use twostep::{AnomalySave, ClusterCount, Detectanomaly, Twostep};
 pub use varcomp::{Varcomp, VarcompMethod, VarcompOutfile, VarcompPrint};
+pub use xgraph::{
+    Xgraph, XgraphAxis, XgraphBinSize, XgraphDim, XgraphDot, XgraphElement, XgraphStat, XgraphY,
+};
 
 use parser::Parser;
 use table::Resolution;

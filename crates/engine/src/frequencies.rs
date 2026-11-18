@@ -570,7 +570,17 @@ impl Histogram<'_> {
         if pairs.is_empty() {
             return Err("no values to chart".into());
         }
-        let (first, width, counts) = bins(pairs);
+        self.binned(bins(pairs), all, valid)
+    }
+
+    /// The chart of bins already counted: the index of the first bin's lower bound in widths,
+    /// the width and the summed weight in each bin.
+    pub(crate) fn binned(
+        &self,
+        (first, width, counts): (f64, f64, Vec<f64>),
+        all: &[(f64, f64)],
+        valid: f64,
+    ) -> Result<Chart, String> {
         let edge = |i: usize| tidy((first + i as f64) * width);
         let categories: Vec<Category> = (0..counts.len())
             .map(|i| {
@@ -653,7 +663,7 @@ impl Histogram<'_> {
 /// weight, rounded up; the width is the range over that number moved to the nearest of 1, 2 or
 /// 5 times a power of ten, at least 1 when every value is whole, and the bins start at a
 /// multiple of it.
-fn bins(pairs: &[(f64, f64)]) -> (f64, f64, Vec<f64>) {
+pub(crate) fn bins(pairs: &[(f64, f64)]) -> (f64, f64, Vec<f64>) {
     let (min, max) = (pairs[0].0, pairs[pairs.len() - 1].0);
     let total: f64 = pairs.iter().map(|p| p.1).sum();
     let count = (total.max(1.0).log2().ceil() + 1.0).max(1.0);

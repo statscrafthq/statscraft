@@ -122,6 +122,7 @@ mod twostep;
 mod varcomp;
 mod vega_lite;
 mod workbook;
+mod xgraph;
 
 /// A test file left out of this list or of reference_main.rs would never be built.
 #[test]

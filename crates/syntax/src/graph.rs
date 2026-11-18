@@ -184,6 +184,20 @@ pub enum GraphChart {
         outliers: bool,
         extremes: bool,
     },
+    /// Made by XGRAPH: a dot per case at its value, stacked as `dot` says.
+    Dots {
+        variable: String,
+        dot: crate::xgraph::XgraphDot,
+    },
+    /// Made by XGRAPH: a histogram with bins of `width` from `start`; with `bins`, that many,
+    /// the last one holding its upper bound.
+    Binned {
+        variable: String,
+        normal: bool,
+        start: f64,
+        width: f64,
+        bins: Option<usize>,
+    },
 }
 
 /// What an error bar spans.
@@ -315,14 +329,24 @@ fn chart_keyword(
 
 /// Quoted lines of TITLE, SUBTITLE or FOOTNOTE, at most `most` of them.
 pub(crate) fn lines(p: &mut Parser, what: &str, most: usize) -> PResult<Vec<String>> {
+    lines_up_to(p, what, most, 72)
+}
+
+/// Quoted lines of at most `longest` characters, at most `most` of them.
+pub(crate) fn lines_up_to(
+    p: &mut Parser,
+    what: &str,
+    most: usize,
+    longest: usize,
+) -> PResult<Vec<String>> {
     p.eat(Punct::Eq);
     let start = p.pos;
     let mut out = Vec::new();
     while let Some(TokenKind::Str(_)) = p.peek() {
         let line_start = p.pos;
         let line = p.string("a quoted line")?;
-        if line.chars().count() > 72 {
-            let message = format!("a line of {what} has at most 72 characters");
+        if line.chars().count() > longest {
+            let message = format!("a line of {what} has at most {longest} characters");
             return Err(SyntaxError::new(p.span_from(line_start), message));
         }
         out.push(line);
@@ -593,7 +617,7 @@ fn interval(p: &mut Parser) -> PResult<GraphInterval> {
 
 /// `CI [level] | STERROR [n] | SE [n] | STDDEV [n]`, the number bare or in parentheses: the
 /// interval of ERRORBAR and of INTERVAL.
-fn interval_spec(p: &mut Parser) -> PResult<GraphInterval> {
+pub(crate) fn interval_spec(p: &mut Parser) -> PResult<GraphInterval> {
     let keywords = ["CI", "STERROR", "SE", "STDDEV"];
     let Some(k) = keywords.iter().position(|k| p.at_keyword(k)) else {
         return Err(p.unexpected(&keywords));
@@ -641,7 +665,7 @@ fn panel_variables(p: &mut Parser) -> PResult<Vec<String>> {
 /// `COLVAR=varlist [COLOP=CROSS | NEST] ROWVAR=varlist [ROWOP=CROSS | NEST]`, at least one of
 /// COLVAR and ROWVAR. A panel is a chart of its own, so CROSS and NEST both give a chart per
 /// combination that has cases.
-fn panel(p: &mut Parser) -> PResult<GraphPanel> {
+pub(crate) fn panel(p: &mut Parser) -> PResult<GraphPanel> {
     let mut panel = GraphPanel::default();
     let keywords = ["COLVAR", "ROWVAR", "COLOP", "ROWOP"];
     while !at_end(p) {

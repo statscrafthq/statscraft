@@ -46,7 +46,7 @@ use crate::chart::{
 };
 use crate::crosstabs::Key;
 use crate::descriptives::{case_weights, summarize};
-use crate::dist::{beta_i, t_quantile};
+use crate::dist::{beta_i, solve, t_quantile};
 use crate::examine::Distribution;
 use crate::format::{Stat, procedure_format};
 use crate::frequencies::Histogram;
@@ -61,6 +61,7 @@ use statscraft_syntax::{
 use std::cmp::Ordering;
 
 mod igraph;
+mod xgraph;
 
 /// The most categories a chart can show.
 pub(crate) const MOST_CATEGORIES: usize = 3000;
@@ -394,18 +395,50 @@ fn bar_lengths(
     }
 }
 
+/// How far the error bar of a count `w` of the `whole` reaches below and above it, as a count
+/// or as a percentage (PCT): a confidence interval is Jeffreys' interval of the proportion
+/// with the weights rounded, SE and STDDEV are n times the binomial spread of the count.
+fn count_bar(interval: GraphInterval, function: F, w: f64, whole: f64) -> [f64; 2] {
+    if whole <= 0.0 {
+        return [f64::NAN; 2];
+    }
+    let scale = match function {
+        F::Pct => 100.0 / whole,
+        _ => 1.0,
+    };
+    let p = w / whole;
+    match interval {
+        GraphInterval::Ci(level) => {
+            let (w, whole) = (w.round(), whole.round());
+            let alpha = 1.0 - level / 100.0;
+            let quantile = |q: f64| solve(|x| beta_i(w + 0.5, whole - w + 0.5, x) - q, 0.0, 1.0);
+            // the ends as counts, then on the scale of the value
+            let (low, high) = (
+                whole * quantile(alpha / 2.0),
+                whole * quantile(1.0 - alpha / 2.0),
+            );
+            [(w - low) * scale, (high - w) * scale]
+        }
+        GraphInterval::Se(n) | GraphInterval::StdDev(n) => {
+            let m = n * (whole * p * (1.0 - p)).sqrt() * scale;
+            [m, m]
+        }
+    }
+}
+
 /// INTERVAL takes means, and medians with a confidence interval: the functions the error bars
 /// have a formula for.
 fn check_interval(interval: GraphInterval, function: F) -> Result<(), Error> {
     match (function, interval) {
-        (F::Mean, _) | (F::Median, GraphInterval::Ci(_)) => Ok(()),
+        (F::Mean | F::Count | F::Pct, _) | (F::Median, GraphInterval::Ci(_)) => Ok(()),
         (F::Median, _) => Err(Error(
             "GRAPH: the error bars of a median are its confidence interval; give INTERVAL CI, \
              or use MEAN for SE and STDDEV"
                 .into(),
         )),
         (other, _) => Err(Error(format!(
-            "GRAPH: INTERVAL draws error bars around means and medians; {} is not supported yet",
+            "GRAPH: INTERVAL draws error bars around means, medians, counts and percentages; {} \
+             is not supported yet",
             function_name(other, None)
         ))),
     }
@@ -654,16 +687,29 @@ impl Context<'_> {
             Some(interval) => {
                 let mut margins = vec![vec![f64::NAN; n_categories]; n_series];
                 let mut lower = margins.clone();
+                // the cases counted in the chart, the base of a count's interval
+                let counted: f64 = (0..n_series)
+                    .flat_map(|s| (0..n_categories).map(move |k| (s, k)))
+                    .filter(|&(s, k)| items[item_of(s, k)].function.counts_cases())
+                    .map(|(s, k)| values[s][k])
+                    .sum();
                 for s in 0..n_series {
                     for k in 0..n_categories {
                         let function = items[item_of(s, k)].function;
-                        [lower[s][k], margins[s][k]] =
-                            bar_lengths(interval, function, &cells[s][k])?;
+                        [lower[s][k], margins[s][k]] = match function.counts_cases() {
+                            true => count_bar(interval, function, values[s][k], counted),
+                            false => bar_lengths(interval, function, &cells[s][k])?,
+                        };
                     }
                 }
-                // only a series with a median has bars that differ below and above
+                // only a series with a median or a count interval has bars that differ below and
+                // above
                 let uneven = |s: usize| {
-                    (0..n_categories).any(|k| items[item_of(s, k)].function == F::Median)
+                    (0..n_categories).any(|k| {
+                        let function = items[item_of(s, k)].function;
+                        function == F::Median
+                            || (function.counts_cases() && matches!(interval, GraphInterval::Ci(_)))
+                    })
                 };
                 for (s, l) in lower.iter_mut().enumerate() {
                     if !uneven(s) {
@@ -1412,6 +1458,14 @@ impl Context<'_> {
                 outliers,
                 extremes,
             } => self.boxes(variable, by, *outliers, *extremes)?,
+            GraphChart::Dots { variable, dot } => self.dots(variable, *dot)?,
+            GraphChart::Binned {
+                variable,
+                normal,
+                start,
+                width,
+                bins,
+            } => self.binned(variable, *normal, *start, *width, *bins)?,
         };
         if interval.is_some() && chart.grouping == Some(Grouping::Stacked) {
             return Err(Error(
