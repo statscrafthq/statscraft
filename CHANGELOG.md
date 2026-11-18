@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.19.1 (2026-11-18)
 
 - Windows: running a plugin (for each table, its description and the update check) no longer flashes a console window.
 
