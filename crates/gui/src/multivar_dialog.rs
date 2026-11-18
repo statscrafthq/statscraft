@@ -62,6 +62,18 @@ pub const MANOVA_PRINT: [(&str, &str); 8] = [
     ("STEPDOWN", "Stepdown F tests"),
 ];
 
+/// The matrices MANOVA /TRANSFORM can build, as the keyword and the label; the first is no
+/// transformation. SPECIAL needs a typed matrix and is left out.
+pub const MANOVA_TRANSFORMS: [(&str, &str); 7] = [
+    ("", "None"),
+    ("DEVIATION", "Deviation"),
+    ("SIMPLE", "Simple"),
+    ("DIFFERENCE", "Difference"),
+    ("HELMERT", "Helmert"),
+    ("REPEATED", "Repeated"),
+    ("POLYNOMIAL", "Polynomial"),
+];
+
 /// MANOVA, the older command for analysis of variance of one or several dependents.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Manova {
@@ -78,6 +90,18 @@ pub struct Manova {
     pub main_effects: bool,
     /// One flag per entry of `MANOVA_PRINT`.
     pub print: [bool; 8],
+    /// Within-subjects factors: name and number of levels. The dependents are then the cells,
+    /// the last factor changing fastest, once for each measure.
+    pub ws_factors: Vec<(String, String)>,
+    /// Measure names, separated by blanks; empty for one unnamed measure.
+    pub measure: String,
+    /// WSDESIGN with the main effects of the within-subjects factors only.
+    pub ws_main_effects: bool,
+    /// Index into `MANOVA_TRANSFORMS`; cannot be combined with within-subjects factors.
+    pub transform: usize,
+    pub orthonorm: bool,
+    /// The transposed inverse of the matrix instead of the matrix itself.
+    pub basis: bool,
 }
 
 impl Manova {
@@ -117,7 +141,22 @@ impl Manova {
         }
         let mut text = format!("MANOVA {dependents} BY {}", factors.join(" "));
         if !self.covariates.is_empty() {
-            text.push_str(&format!(" WITH {}", self.covariates.join(" ")));
+            // with repeated measures a bare covariate would need one per cell; in parentheses
+            // it is one value per case, constant over the cells
+            let list = self.covariates.join(" ");
+            match self.ws_factors.is_empty() {
+                true => text.push_str(&format!(" WITH {list}")),
+                false => text.push_str(&format!(" WITH ({list})")),
+            }
+        }
+        text.push_str(&self.within_subjects()?);
+        if self.transform != 0 {
+            let flags = [(self.orthonorm, "ORTHONORM "), (self.basis, "BASIS ")];
+            let flags: String = flags.iter().filter(|f| f.0).map(|f| f.1).collect();
+            text.push_str(&format!(
+                "\n  /TRANSFORM={flags}{}",
+                MANOVA_TRANSFORMS[self.transform].0
+            ));
         }
         if self.error != 0 {
             text.push_str(&format!("\n  /ERROR={}", MANOVA_ERRORS[self.error].0));
@@ -144,6 +183,55 @@ impl Manova {
             text.push_str(&format!("\n  /DESIGN={}", self.factors.join(" ")));
         }
         text.push('.');
+        Ok(text)
+    }
+
+    /// WSFACTORS, MEASURE and WSDESIGN; the first must follow the variables directly.
+    fn within_subjects(&self) -> Result<String, String> {
+        if self.ws_factors.is_empty() {
+            return Ok(String::new());
+        }
+        if self.transform != 0 {
+            return Err("within-subjects factors and Transform cannot be used together".into());
+        }
+        let mut groups = Vec::new();
+        let mut names: Vec<String> = Vec::new();
+        let mut cells = 1;
+        for (name, levels) in &self.ws_factors {
+            let name = new_name(name, "a within-subjects factor name")?;
+            if names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+                return Err(format!("the within-subjects factor {name} is named twice"));
+            }
+            let levels = whole(levels, &format!("the levels of {name}"), 2)?;
+            cells *= levels as usize;
+            groups.push(format!("{name}({levels})"));
+            names.push(name);
+        }
+        let measures: Vec<String> = self
+            .measure
+            .split_whitespace()
+            .map(|m| new_name(m, "a measure name"))
+            .collect::<Result<_, _>>()?;
+        let expected = cells * measures.len().max(1);
+        if self.dependents.len() != expected {
+            return Err(format!(
+                "the within-subjects factors need {expected} dependents (levels multiplied{}), got {}",
+                if measures.len() > 1 {
+                    ", times the measures"
+                } else {
+                    ""
+                },
+                self.dependents.len()
+            ));
+        }
+        let mut text = format!("\n  /WSFACTORS={}", groups.join(" "));
+        if !measures.is_empty() {
+            text.push_str(&format!("\n  /MEASURE={}", measures.join(" ")));
+        }
+        if self.ws_main_effects && self.ws_factors.len() > 1 {
+            let main: Vec<&str> = self.ws_factors.iter().map(|f| f.0.trim()).collect();
+            text.push_str(&format!("\n  /WSDESIGN={}", main.join(" ")));
+        }
         Ok(text)
     }
 }
@@ -478,6 +566,63 @@ mod tests {
 
     fn v(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn manova_within_subjects_and_transform() {
+        let data = Dataset::new(0);
+        let mut d = Manova {
+            dependents: v(&["t1", "t2", "t3", "t4"]),
+            factors: v(&["g"]),
+            ranges: [("g".to_string(), ("1".to_string(), "2".to_string()))]
+                .into_iter()
+                .collect(),
+            ws_factors: vec![("trial".into(), "2".into()), ("dose".into(), "2".into())],
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax(&data).unwrap(),
+            "MANOVA t1 t2 t3 t4 BY g(1,2)\n  /WSFACTORS=trial(2) dose(2)."
+        );
+        d.covariates = v(&["x"]);
+        assert!(
+            d.syntax(&data)
+                .unwrap()
+                .starts_with("MANOVA t1 t2 t3 t4 BY g(1,2) WITH (x)\n")
+        );
+        d.covariates.clear();
+        d.ws_main_effects = true;
+        d.measure = "score".into();
+        assert_eq!(
+            d.syntax(&data).unwrap(),
+            "MANOVA t1 t2 t3 t4 BY g(1,2)\n  /WSFACTORS=trial(2) dose(2)\n  /MEASURE=score\n  \
+             /WSDESIGN=trial dose."
+        );
+        d.measure = "a b".into();
+        assert!(d.syntax(&data).unwrap_err().contains("need 8 dependents"));
+        d.measure.clear();
+        d.dependents.pop();
+        assert!(d.syntax(&data).unwrap_err().contains("need 4 dependents"));
+        d.dependents.push("t4".into());
+        d.ws_factors[1].1 = "1".into();
+        assert!(d.syntax(&data).unwrap_err().contains("levels of dose"));
+        d.ws_factors[1] = ("trial".into(), "2".into());
+        assert!(d.syntax(&data).unwrap_err().contains("named twice"));
+        d.ws_factors.truncate(1);
+        d.dependents.truncate(2);
+        d.transform = 4;
+        assert!(
+            d.syntax(&data)
+                .unwrap_err()
+                .contains("cannot be used together")
+        );
+        d.ws_factors.clear();
+        d.orthonorm = true;
+        d.basis = true;
+        assert_eq!(
+            d.syntax(&data).unwrap(),
+            "MANOVA t1 t2 BY g(1,2)\n  /TRANSFORM=ORTHONORM BASIS HELMERT."
+        );
     }
 
     #[test]

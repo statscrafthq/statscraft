@@ -3,7 +3,8 @@
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::dialogs::labelled_range;
 use crate::multivar_dialog::{
-    KNN_LEVELS, KNN_METRICS, KNN_SAVE, Knn, MANOVA_ERRORS, MANOVA_PRINT, Manova, Pls,
+    KNN_LEVELS, KNN_METRICS, KNN_SAVE, Knn, MANOVA_ERRORS, MANOVA_PRINT, MANOVA_TRANSFORMS, Manova,
+    Pls,
 };
 use crate::stats_dialogs_view::small_field;
 use eframe::egui::{self, Ui};
@@ -31,6 +32,61 @@ pub fn manova(ui: &mut Ui, data: &Dataset, d: &mut Manova, picked: &mut Vec<Stri
     }
     target_list(ui, "Covariates", &mut d.covariates, picked);
     ui.add_space(6.0);
+    egui::CollapsingHeader::new("Repeated measures").show(ui, |ui| {
+        ui.weak("The dependents are the cells of the factors, the last factor changing fastest");
+        ui.weak("Covariates then stay as they are over the cells, one value per case");
+        let mut remove = None;
+        for (i, (name, levels)) in d.ws_factors.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label("Factor");
+                ui.add(egui::TextEdit::singleline(name).desired_width(90.0));
+                ui.label("levels");
+                small_field(ui, true, levels);
+                if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    remove = Some(i);
+                }
+            });
+        }
+        if let Some(i) = remove {
+            d.ws_factors.remove(i);
+        }
+        if ui.button("Add within-subjects factor").clicked() {
+            d.ws_factors.push((String::new(), "2".into()));
+        }
+        if !d.ws_factors.is_empty() {
+            field(ui, "Measure names (optional)", &mut d.measure, 120.0);
+            ui.horizontal(|ui| {
+                ui.label("Within-subjects terms");
+                ui.radio_value(&mut d.ws_main_effects, false, "All interactions");
+                ui.radio_value(&mut d.ws_main_effects, true, "Main effects only");
+            });
+            let cells: Option<usize> = d
+                .ws_factors
+                .iter()
+                .map(|f| f.1.trim().parse::<usize>().ok())
+                .product();
+            let measures = d.measure.split_whitespace().count().max(1);
+            if let Some(cells) = cells {
+                ui.weak(format!(
+                    "Needs {} dependents, it has {}",
+                    cells * measures,
+                    d.dependents.len()
+                ));
+            }
+        }
+    });
+    egui::CollapsingHeader::new("Transform").show(ui, |ui| {
+        ui.add_enabled_ui(d.ws_factors.is_empty(), |ui| {
+            choice(ui, "Matrix", &MANOVA_TRANSFORMS, &mut d.transform);
+            ui.add_enabled_ui(d.transform != 0, |ui| {
+                ui.checkbox(&mut d.orthonorm, "Make the rows orthonormal");
+                ui.checkbox(&mut d.basis, "Use the transposed inverse of the matrix");
+            });
+        });
+        if !d.ws_factors.is_empty() {
+            ui.weak("Not available with repeated measures, which transform the dependents");
+        }
+    });
     egui::CollapsingHeader::new("Model").show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label("Terms");

@@ -9,6 +9,7 @@ mod analyze_dialogs;
 mod app;
 mod bayes_dialog;
 mod bayes_dialog_view;
+mod bootstrap_dialog;
 mod brand;
 mod catpca_dialog;
 mod catpca_dialog_view;

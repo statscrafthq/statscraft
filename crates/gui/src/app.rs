@@ -413,8 +413,8 @@ impl Dialog {
 
     fn syntax(&self, data: &Dataset) -> Result<String, String> {
         match self {
-            Dialog::Frequencies(d) => d.syntax(),
-            Dialog::Descriptives(d) => d.syntax(),
+            Dialog::Frequencies(d) => d.bootstrap.before(d.syntax()?),
+            Dialog::Descriptives(d) => d.bootstrap.before(d.syntax()?),
             Dialog::Explore(d) => d.syntax(),
             Dialog::Crosstabs(d) => d.syntax(),
             Dialog::CustomTables(d, _) => d.syntax(),
@@ -462,10 +462,10 @@ impl Dialog {
                 }
                 d.syntax()
             }
-            Dialog::Means(d) => d.syntax(),
-            Dialog::TTest(d) => d.syntax(is_string(data, &d.grouping)),
+            Dialog::Means(d) => d.bootstrap.before(d.syntax()?),
+            Dialog::TTest(d) => d.bootstrap.before(d.syntax(is_string(data, &d.grouping))?),
             Dialog::Oneway(d) => d.syntax(),
-            Dialog::Correlations(d) => d.syntax(),
+            Dialog::Correlations(d) => d.bootstrap.before(d.syntax()?),
             Dialog::Mrsets(d) => {
                 let strings = d.variables.iter().filter(|n| is_string(data, n)).count();
                 if strings > 0 && strings < d.variables.len() {
@@ -505,7 +505,9 @@ impl Dialog {
                 }
                 d.syntax(is_string(data, &d.dependent))
             }
-            Dialog::Regression(d) => numeric(data, d.variables()).and_then(|()| d.syntax()),
+            Dialog::Regression(d) => numeric(data, d.variables())
+                .and_then(|()| d.syntax())
+                .and_then(|t| d.bootstrap.before(t)),
             Dialog::Reliability(d) => numeric(data, &d.items).and_then(|()| d.syntax()),
             Dialog::NparTests(d) => numeric(data, d.variables()).and_then(|()| d.syntax()),
             Dialog::PartialCorr(d) => {
@@ -5674,6 +5676,7 @@ fn dialog_body(
             ui.checkbox(&mut d.quartiles, "Quartiles");
             field(ui, "Cut points for equal groups:", &mut d.ntiles, 50.0);
             field(ui, "Percentiles:", &mut d.percentiles, 180.0);
+            d.bootstrap.view(ui, picked);
         }
         Dialog::Descriptives(d) => {
             target_list(ui, "Variables", &mut d.variables, picked);
@@ -5685,6 +5688,7 @@ fn dialog_body(
                 "Leave out a case missing on any listed variable",
             );
             ui.checkbox(&mut d.save_z_scores, "Save z-scores as new variables");
+            d.bootstrap.view(ui, picked);
         }
         Dialog::Explore(d) => {
             target_list(ui, "Dependent variables", &mut d.dependents, picked);
@@ -5874,59 +5878,65 @@ fn dialog_body(
                 }
             });
         }
-        Dialog::Means(d) => means_body(ui, d, picked),
-        Dialog::TTest(d) => match d.kind {
-            TTestKind::OneSample => {
-                target_list(ui, "Test variables", &mut d.variables, picked);
-                field(ui, "Test value", &mut d.test_value, 70.0);
-                t_test_options(ui, d);
-            }
-            TTestKind::Independent => {
-                target_list(ui, "Test variables", &mut d.variables, picked);
-                target_one(ui, "Grouping variable", &mut d.grouping, picked);
-                ui.horizontal(|ui| {
-                    ui.radio_value(&mut d.cut_point, false, "Values");
-                    ui.add(
-                        TextEdit::singleline(&mut d.group1)
-                            .desired_width(60.0)
-                            .hint_text("1"),
-                    );
-                    if !d.cut_point {
-                        ui.label("and");
-                        ui.add(
-                            TextEdit::singleline(&mut d.group2)
-                                .desired_width(60.0)
-                                .hint_text("2"),
-                        );
-                    }
-                    ui.radio_value(&mut d.cut_point, true, "Cut point");
-                });
-                t_test_options(ui, d);
-            }
-            TTestKind::Paired => {
-                ui.strong("Pairs");
-                let mut remove = None;
-                for (i, (a, b)) in d.pairs.iter().enumerate() {
+        Dialog::Means(d) => {
+            means_body(ui, d, picked);
+            d.bootstrap.view(ui, picked);
+        }
+        Dialog::TTest(d) => {
+            match d.kind {
+                TTestKind::OneSample => {
+                    target_list(ui, "Test variables", &mut d.variables, picked);
+                    field(ui, "Test value", &mut d.test_value, 70.0);
+                    t_test_options(ui, d);
+                }
+                TTestKind::Independent => {
+                    target_list(ui, "Test variables", &mut d.variables, picked);
+                    target_one(ui, "Grouping variable", &mut d.grouping, picked);
                     ui.horizontal(|ui| {
-                        ui.label(format!("{a}  with  {b}"));
-                        if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
-                            remove = Some(i);
+                        ui.radio_value(&mut d.cut_point, false, "Values");
+                        ui.add(
+                            TextEdit::singleline(&mut d.group1)
+                                .desired_width(60.0)
+                                .hint_text("1"),
+                        );
+                        if !d.cut_point {
+                            ui.label("and");
+                            ui.add(
+                                TextEdit::singleline(&mut d.group2)
+                                    .desired_width(60.0)
+                                    .hint_text("2"),
+                            );
                         }
+                        ui.radio_value(&mut d.cut_point, true, "Cut point");
                     });
+                    t_test_options(ui, d);
                 }
-                if let Some(i) = remove {
-                    d.pairs.remove(i);
+                TTestKind::Paired => {
+                    ui.strong("Pairs");
+                    let mut remove = None;
+                    for (i, (a, b)) in d.pairs.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{a}  with  {b}"));
+                            if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                                remove = Some(i);
+                            }
+                        });
+                    }
+                    if let Some(i) = remove {
+                        d.pairs.remove(i);
+                    }
+                    if ui
+                        .add_enabled(picked.len() >= 2, egui::Button::new("Add pair"))
+                        .clicked()
+                    {
+                        let first = picked.remove(0);
+                        d.pairs.push((first, picked.remove(0)));
+                    }
+                    t_test_options(ui, d);
                 }
-                if ui
-                    .add_enabled(picked.len() >= 2, egui::Button::new("Add pair"))
-                    .clicked()
-                {
-                    let first = picked.remove(0);
-                    d.pairs.push((first, picked.remove(0)));
-                }
-                t_test_options(ui, d);
             }
-        },
+            d.bootstrap.view(ui, picked);
+        }
         Dialog::Oneway(d) => {
             target_list(ui, "Dependent variables", &mut d.dependents, picked);
             target_one(ui, "Factor", &mut d.factor, picked);
@@ -5978,6 +5988,7 @@ fn dialog_body(
                 &mut d.listwise,
                 "Leave out a case missing on any listed variable",
             );
+            d.bootstrap.view(ui, picked);
         }
         Dialog::Mrsets(d) => {
             ui.horizontal(|ui| {
@@ -6456,7 +6467,10 @@ fn dialog_body(
             ui.strong("Save");
             checkboxes(ui, &TREE_SAVE, &mut d.save);
         }
-        Dialog::Regression(d) => stats_dialogs_view::regression(ui, d, picked),
+        Dialog::Regression(d) => {
+            stats_dialogs_view::regression(ui, d, picked);
+            d.bootstrap.view(ui, picked);
+        }
         Dialog::Reliability(d) => stats_dialogs_view::reliability(ui, d, picked),
         Dialog::NparTests(d) => stats_dialogs_view::npar_tests(ui, d, picked),
         Dialog::PartialCorr(d) => stats_dialogs_view::partial_corr(ui, d, picked),

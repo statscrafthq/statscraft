@@ -1,6 +1,7 @@
 //! The state of every Analyze and Transform dialog and the syntax it builds. A dialog never
 //! touches data: OK runs the syntax, Paste puts it in the syntax editor.
 
+use crate::bootstrap_dialog::Bootstrap;
 use crate::syntax_text::{names, number, probability, quote, value};
 use statscraft_data::{Dataset, Value};
 
@@ -40,6 +41,7 @@ pub struct Frequencies {
     pub order: usize,
     /// No table for a variable with more values than this (LIMIT); empty for no limit.
     pub limit: String,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Frequencies {
@@ -53,6 +55,7 @@ impl Default for Frequencies {
             tables: true,
             order: 0,
             limit: String::new(),
+            bootstrap: Default::default(),
         }
     }
 }
@@ -164,6 +167,7 @@ pub struct Descriptives {
     pub statistics: [bool; 10],
     pub save_z_scores: bool,
     pub listwise: bool,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Descriptives {
@@ -175,6 +179,7 @@ impl Default for Descriptives {
             ],
             save_z_scores: false,
             listwise: false,
+            bootstrap: Default::default(),
         }
     }
 }

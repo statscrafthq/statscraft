@@ -3,6 +3,7 @@
 //! defaults.
 
 use crate::analyze_dialogs::keywords;
+use crate::bootstrap_dialog::Bootstrap;
 use crate::syntax_text::{names, number, quote, value};
 use statscraft_data::Dataset;
 
@@ -123,6 +124,7 @@ pub struct Regression {
     pub constant: bool,
     /// Index into `REGRESSION_MISSING`.
     pub missing: usize,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Regression {
@@ -141,6 +143,7 @@ impl Default for Regression {
             removal: "0.10".into(),
             constant: true,
             missing: 0,
+            bootstrap: Default::default(),
         }
     }
 }

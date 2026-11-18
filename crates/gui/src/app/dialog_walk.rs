@@ -11,6 +11,7 @@ use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, Means, MrGroup, MultResponse, Oneway, TTest, TTestKind,
     Tree,
 };
+use crate::bootstrap_dialog::Bootstrap;
 use crate::catpca_dialog::{Catpca, CatpcaVariable};
 use crate::catreg_dialog::{CategoricalRegression, CatregVariable};
 use crate::conjoint_dialog::{
@@ -781,6 +782,18 @@ fn minimal(out: &Path) -> Vec<Dialog> {
 }
 
 /// Each dialog with every option on, or the last of a choice.
+/// A bootstrap section with every option set, few samples to keep the walk quick.
+fn boot() -> Bootstrap {
+    Bootstrap {
+        on: true,
+        samples: s("20"),
+        level: s("90"),
+        bca: true,
+        stratified: true,
+        strata: v(&["gender"]),
+    }
+}
+
 fn maximal(out: &Path) -> Vec<Dialog> {
     let plan = out.join("max_plan.json").to_string_lossy().into_owned();
     let terms = |list: &[&[&str]]| Terms {
@@ -806,12 +819,14 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             tables: true,
             order: 3,
             limit: s("20"),
+            bootstrap: boot(),
         }),
         Dialog::Descriptives(Descriptives {
             variables: v(&["age", "monthly_spend"]),
             statistics: [true; 10],
             save_z_scores: true,
             listwise: true,
+            bootstrap: boot(),
         }),
         Dialog::Explore(Explore {
             dependents: v(&["age", "monthly_spend"]),
@@ -963,6 +978,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             spct_within: true,
             anova: true,
             linearity: true,
+            bootstrap: boot(),
         }),
         Dialog::Oneway(Oneway {
             dependents: v(&["age", "monthly_spend"]),
@@ -986,6 +1002,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             descriptives: true,
             cross_products: true,
             listwise: true,
+            bootstrap: boot(),
         }),
         Dialog::Mrsets(Mrsets {
             delete: false,
@@ -1170,6 +1187,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             save: [true; 17],
             constant: true,
             missing: 2,
+            bootstrap: boot(),
             ..Default::default()
         }),
         Dialog::Reliability(Reliability {
@@ -2386,6 +2404,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         d.listwise = true;
         d.effect_sizes = true;
         d.standardizer = 2;
+        d.bootstrap = boot();
         list.push(Dialog::TTest(d));
     }
     for kind in ChartKind::ALL {
@@ -2808,6 +2827,21 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         sequential: true,
         main_effects: true,
         print: [true; 8],
+        ws_factors: vec![(s("visit"), s("2"))],
+        measure: s("spend"),
+        ws_main_effects: true,
+        transform: 0,
+        orthonorm: false,
+        basis: false,
+    }))));
+    list.push(Dialog::Advanced(Advanced::Manova(Box::new(Manova {
+        dependents: v(&["monthly_spend", "q1_satisfaction"]),
+        factors: v(&["region"]),
+        ranges: [(s("region"), (s("1"), s("5")))].into_iter().collect(),
+        transform: 4,
+        orthonorm: true,
+        basis: true,
+        ..Default::default()
     }))));
     list.push(Dialog::Advanced(Advanced::Pls(Box::new(Pls {
         scale: v(&["monthly_spend", "q2_recommend"]),

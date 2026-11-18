@@ -1,6 +1,7 @@
 //! The Explore, Compare Means, Correlate, Multiple Response and Tree dialogs. Options left as
 //! they are add nothing to the syntax, so the command runs with its own defaults.
 
+use crate::bootstrap_dialog::Bootstrap;
 use crate::dialogs::whole;
 use crate::syntax_text::{confidence, names, number, probability, quote, value};
 
@@ -54,6 +55,7 @@ pub struct Means {
     pub spct_within: bool,
     pub anova: bool,
     pub linearity: bool,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Means {
@@ -68,6 +70,7 @@ impl Default for Means {
             spct_within: false,
             anova: false,
             linearity: false,
+            bootstrap: Default::default(),
         }
     }
 }
@@ -154,6 +157,7 @@ pub struct TTest {
     pub effect_sizes: bool,
     /// Index into `STANDARDIZERS`, for the paired test.
     pub standardizer: usize,
+    pub bootstrap: Bootstrap,
 }
 
 impl TTest {
@@ -171,6 +175,7 @@ impl TTest {
             listwise: false,
             effect_sizes: true,
             standardizer: 0,
+            bootstrap: Default::default(),
         }
     }
 
@@ -386,6 +391,7 @@ pub struct Correlations {
     /// Pearson only.
     pub cross_products: bool,
     pub listwise: bool,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Correlations {
@@ -400,6 +406,7 @@ impl Default for Correlations {
             descriptives: false,
             cross_products: false,
             listwise: false,
+            bootstrap: Default::default(),
         }
     }
 }
