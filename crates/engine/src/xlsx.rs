@@ -35,25 +35,41 @@ pub fn write_xlsx_parts<'a>(
     if one_sheet {
         // no frozen header rows here: every table has its own header
         let sheet = workbook.add_worksheet().set_name("Tables")?;
-        let (mut top, mut widths, mut all_plain) = (0, Vec::new(), true);
-        let mut freeze = Some(u16::MAX);
+        let (mut top, mut widths, mut any_plain) = (0, Vec::new(), false);
+        // the widths a plugin gave, which win over what other tables' cells need
+        let mut given: Vec<Option<f64>> = Vec::new();
+        let mut freeze: Option<u16> = None;
         for (item, notes) in items {
-            all_plain &= matches!(item, Item::Table(t) if t.style.plain);
-            // an item that freezes nothing (a chart, a table without the setting) keeps none
-            let n = match item {
-                Item::Table(t) => t.style.freeze_columns,
-                Item::Chart(_) => None,
-            };
-            freeze = freeze.zip(n).map(|(a, b)| a.min(b));
+            if let Item::Table(t) = item {
+                any_plain |= t.style.plain;
+                // the tables share their columns: the fewest any table asks for stay in view;
+                // a table without the setting (one no plugin decorated) does not mind
+                if let Some(n) = t.style.freeze_columns {
+                    freeze = Some(freeze.map_or(n, |f| f.min(n)));
+                }
+                let shift = usize::from(t.stacked());
+                for w in t.style.column_widths.iter().filter(|w| w.col >= shift) {
+                    let c = w.col - shift;
+                    if given.len() <= c {
+                        given.resize(c + 1, None);
+                    }
+                    given[c] = Some(given[c].map_or(w.width, |g: f64| g.max(w.width)));
+                }
+            }
             top = put_item(sheet, item, (top, 0), notes, &mut widths)? + 1;
         }
+        for (width, given) in widths.iter_mut().zip(&given) {
+            if let Some(g) = given {
+                *width = *g;
+            }
+        }
         set_widths(sheet, &widths)?;
-        // plain tables have only the plugin's lines: the sheet's grid would draw the rest
-        if all_plain && top > 0 {
+        // plain tables have only the plugin's lines, and the others draw all of theirs: the
+        // sheet's grid would only add lines the plugin left out
+        if any_plain {
             sheet.set_screen_gridlines(false);
         }
-        // the tables share their columns: the fewest any table asks for stay in view
-        if let Some(n) = freeze.filter(|&n| n > 0 && n < u16::MAX) {
+        if let Some(n) = freeze.filter(|&n| n > 0) {
             sheet.set_freeze_panes(0, n)?;
         }
     } else {

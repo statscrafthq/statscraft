@@ -146,6 +146,11 @@ fn one_sheet_freezes_columns_and_captions_take_their_look() {
     };
     let style = |n| TableStyle {
         freeze_columns: Some(n),
+        plain: true,
+        column_widths: vec![ColumnWidth {
+            col: 0,
+            width: 12.0,
+        }],
         caption: Some(caption.clone()),
         title: Some(Decoration {
             text: Some("#1f4e5a".into()),
@@ -164,11 +169,21 @@ fn one_sheet_freezes_columns_and_captions_take_their_look() {
         sheet.contains("xSplit=\"2\"") && !sheet.contains("ySplit"),
         "{sheet}"
     );
-    // a table that freezes nothing keeps the sheet unfrozen
+    // a table no plugin decorated (no frozen columns, not plain, no widths) changes nothing:
+    // the plugin's frozen columns, hidden grid and column widths hold for the whole sheet
     let mut loose = other.clone();
-    loose.style.freeze_columns = None;
+    loose.style = TableStyle::default();
+    loose.rows[0][0] = Cell::Text("a long label that would widen the first column".into());
     let parts_loose = written_all("caption-loose", &[&table, &loose], true);
-    assert!(!parts_loose["xl/worksheets/sheet1.xml"].contains("xSplit"));
+    let sheet = &parts_loose["xl/worksheets/sheet1.xml"];
+    // the decorated table asks for 3
+    assert!(sheet.contains("xSplit=\"3\""), "{sheet}");
+    assert!(sheet.contains("showGridLines=\"0\""), "{sheet}");
+    let first = sheet.split("<col ").nth(1).unwrap();
+    assert!(
+        first.starts_with("min=\"1\" max=\"1\" width=\"12.7"),
+        "{first}"
+    );
     // title, header, two body rows, then the caption
     assert_eq!(value(&parts, "A5").as_deref(), Some("Filter: all"));
     let font = font_of(&parts, "A5");
