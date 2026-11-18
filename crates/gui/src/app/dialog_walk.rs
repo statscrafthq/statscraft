@@ -40,6 +40,7 @@ use crate::legacy_scaling_dialog::{Anacor, LegacyScaling, LegacyVariable, Scalin
 use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::mca_dialog::{Mca, McaVariable};
 use crate::mds_dialog::Prefscal;
+use crate::mining_dialog::{Aim, FeatureSelection, PrepareData};
 use crate::model_dialogs::{
     Categorical, ClusterMeasure, Discriminant, FactorAnalysis, FactorContrast, Hierarchical,
     KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
@@ -653,6 +654,21 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         variables: v(&["age"]),
         ..Default::default()
     }));
+    list.push(Dialog::Aim(Box::new(Aim {
+        group: s("region"),
+        continuous: v(&["age"]),
+        ..Default::default()
+    })));
+    list.push(Dialog::FeatureSelection(Box::new(FeatureSelection {
+        target: s("plan"),
+        covariates: v(&["age", "monthly_spend"]),
+        ..Default::default()
+    })));
+    list.push(Dialog::PrepareData(Box::new(PrepareData {
+        inputs: v(&["age", "monthly_spend"]),
+        outfile: out.join("min_prep.sps").to_string_lossy().into_owned(),
+        ..Default::default()
+    })));
     let (cj_plan, _, _) = conjoint_files(out, "min", "a (1 2) b (1 2) c (1 2)", 0);
     list.push(Dialog::Advanced(Advanced::Conjoint(Box::new(
         Design::Generate(OrthogonalPlan {
@@ -2410,6 +2426,73 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         print: [true, true, true],
         ..Default::default()
     }));
+    list.push(Dialog::Aim(Box::new(Aim {
+        group: s("region"),
+        categorical: v(&["gender", "plan"]),
+        continuous: v(&["age", "monthly_spend"]),
+        bonferroni: false,
+        ci: s("90"),
+        hide_not_significant: true,
+        reference_lines: false,
+        include: true,
+        category_plot: true,
+        cluster_plot: 2,
+        error_bar: true,
+        importance: true,
+        by_variable: true,
+        pvalue: true,
+    })));
+    list.push(Dialog::FeatureSelection(Box::new(FeatureSelection {
+        target: s("plan"),
+        level: 3,
+        factors: v(&["region", "gender"]),
+        covariates: v(&["age", "monthly_spend"]),
+        except: v(&["gender"]),
+        screening: true,
+        pct_missing: s("60"),
+        pct_equal: s("90"),
+        pct_unequal: s("80"),
+        min_sd: s("0.5"),
+        min_cv: s("0.01"),
+        auto_size: false,
+        size: s("2"),
+        pcutoff: s("0.1"),
+        ranking: 2,
+        show_unselected: s("1"),
+        timer: s("1"),
+        include: true,
+        print: [true; 4],
+        plot: true,
+    })));
+    list.push(Dialog::PrepareData(Box::new(PrepareData {
+        target: s("monthly_spend"),
+        inputs: v(&["age", "region", "plan"]),
+        date_reference: s("2025-01-01"),
+        date_unit: 2,
+        time_reference: s("12:00:00"),
+        time_unit: 1,
+        extract: [true; 6],
+        max_missing: s("40"),
+        max_categories: s("50"),
+        screen_single: true,
+        max_single: s("90"),
+        max_ordinal: s("8"),
+        min_continuous: s("4"),
+        cutoff: s("2.5"),
+        outliers_to_missing: true,
+        replace_target: true,
+        reorder_input: true,
+        rescale_input: 1,
+        min: s("0"),
+        max: s("1"),
+        merge_unsupervised: true,
+        min_pct: s("20"),
+        pvalue: s("0.1"),
+        suffix_target: s("_t"),
+        suffix_input: s("_p"),
+        outfile: out.join("max_prep.sps").to_string_lossy().into_owned(),
+        ..Default::default()
+    })));
     list.push(Dialog::RocCurve(RocCurve {
         tests: v(&["age", "monthly_spend"]),
         state: s("plan"),

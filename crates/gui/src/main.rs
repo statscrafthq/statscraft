@@ -55,6 +55,8 @@ mod mca_dialog;
 mod mca_dialog_view;
 mod mds_dialog;
 mod mds_dialog_view;
+mod mining_dialog;
+mod mining_dialog_view;
 mod model_dialogs;
 mod model_dialogs_view;
 mod model_more_dialog;

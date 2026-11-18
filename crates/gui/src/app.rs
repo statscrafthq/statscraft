@@ -31,6 +31,7 @@ use crate::graph_dialogs_view;
 use crate::imputation_dialog::Imputation;
 use crate::legacy_scaling_dialog::{LegacyScaling, ScalingKind};
 use crate::loglinear_dialog::GeneralLoglinear;
+use crate::mining_dialog::{Aim, FeatureSelection, PrepareData};
 use crate::model_dialogs::{
     Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures, Univariate,
 };
@@ -245,6 +246,9 @@ pub(crate) enum Dialog {
     KMeans(KMeans),
     Hierarchical(Hierarchical),
     TwoStep(TwoStep),
+    Aim(Box<Aim>),
+    FeatureSelection(Box<FeatureSelection>),
+    PrepareData(Box<PrepareData>),
     Anomaly(Anomaly),
     Discriminant(Discriminant),
     Logistic(Logistic),
@@ -301,6 +305,9 @@ impl Dialog {
             Dialog::KMeans(_) => "K-Means Cluster Analysis",
             Dialog::Hierarchical(_) => "Hierarchical Cluster Analysis",
             Dialog::TwoStep(_) => "TwoStep Cluster Analysis",
+            Dialog::Aim(_) => "Attribute Importance",
+            Dialog::FeatureSelection(_) => "Feature Selection",
+            Dialog::PrepareData(_) => "Prepare Data for Modeling",
             Dialog::Anomaly(_) => "Identify Unusual Cases",
             Dialog::Discriminant(_) => "Discriminant Analysis",
             Dialog::Logistic(_) => "Logistic Regression",
@@ -367,6 +374,9 @@ impl Dialog {
             Dialog::KMeans(_) => Dialog::KMeans(Default::default()),
             Dialog::Hierarchical(_) => Dialog::Hierarchical(Default::default()),
             Dialog::TwoStep(_) => Dialog::TwoStep(Default::default()),
+            Dialog::Aim(_) => Dialog::Aim(Default::default()),
+            Dialog::FeatureSelection(_) => Dialog::FeatureSelection(Default::default()),
+            Dialog::PrepareData(_) => Dialog::PrepareData(Default::default()),
             Dialog::Anomaly(_) => Dialog::Anomaly(Default::default()),
             Dialog::Discriminant(_) => Dialog::Discriminant(Default::default()),
             Dialog::Logistic(_) => Dialog::Logistic(Default::default()),
@@ -497,6 +507,9 @@ impl Dialog {
             // the label variable may be a string
             Dialog::Hierarchical(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
             Dialog::TwoStep(d) => numeric(data, &d.continuous).and_then(|()| d.syntax()),
+            Dialog::Aim(d) => numeric(data, &d.continuous).and_then(|()| d.syntax()),
+            Dialog::FeatureSelection(d) => numeric(data, &d.covariates).and_then(|()| d.syntax()),
+            Dialog::PrepareData(d) => d.syntax(),
             Dialog::Anomaly(d) => numeric(data, &d.scale).and_then(|()| d.syntax()),
             Dialog::Discriminant(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
             // a string covariate is categorical, a string dependent has its two values
@@ -1934,6 +1947,12 @@ impl App {
                         if ui.button("TwoStep Cluster...").clicked() {
                             self.open_dialog(Dialog::TwoStep(Default::default()));
                         }
+                        if ui.button("Attribute Importance (AIM)...").clicked() {
+                            self.open_dialog(Dialog::Aim(Default::default()));
+                        }
+                        if ui.button("Feature Selection (SELECTPRED)...").clicked() {
+                            self.open_dialog(Dialog::FeatureSelection(Default::default()));
+                        }
                         if ui.button("Identify Unusual Cases...").clicked() {
                             self.open_dialog(Dialog::Anomaly(Default::default()));
                         }
@@ -2206,6 +2225,10 @@ impl App {
                     (
                         "Optimal Binning...",
                         Dialog::OptimalBinning(Default::default()),
+                    ),
+                    (
+                        "Prepare Data for Modeling (ADP)...",
+                        Dialog::PrepareData(Default::default()),
                     ),
                     (
                         "Automatic Recode...",
@@ -6406,6 +6429,9 @@ fn dialog_body(
         Dialog::KMeans(d) => model_dialogs_view::k_means(ui, d, picked),
         Dialog::Hierarchical(d) => model_dialogs_view::hierarchical(ui, d, picked),
         Dialog::TwoStep(d) => twostep_dialog_view::two_step(ui, d, picked),
+        Dialog::Aim(d) => crate::mining_dialog_view::aim(ui, d, picked),
+        Dialog::FeatureSelection(d) => crate::mining_dialog_view::feature_selection(ui, d, picked),
+        Dialog::PrepareData(d) => crate::mining_dialog_view::prepare_data(ui, d, picked),
         Dialog::Anomaly(d) => twostep_dialog_view::anomaly(ui, d, picked),
         Dialog::Discriminant(d) => model_dialogs_view::discriminant(ui, d, picked),
         Dialog::Logistic(d) => model_dialogs_view::logistic(ui, d, picked),

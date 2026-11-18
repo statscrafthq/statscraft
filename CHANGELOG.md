@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Analyze > Classify > Attribute Importance (AIM) and Feature Selection (SELECTPRED), and Transform > Prepare Data for Modeling (ADP) dialogs (grouping variable, variables, criteria, charts; target, predictors, screening, ranking and how many to keep; fields, date, outlier, missing value, merge and transformation steps and the syntax file).
 - Window: Analyze > Classify > Naive Bayes (NAIVEBAYES: target, factors and covariates, predictor selection, bins, training partition, printed tables, saved predictions and model file), Analyze > Scale > Multidimensional Unfolding (PREFSCAL: preference table columns, sources, similarities, transformation, model, start, penalty, dimensions, tables and charts) and File > Output Management Start and End (OMS and OMSEND: kinds of output, commands and tables, destination format and file, tag, whether the output also shows in the results) dialogs.
 - The syntax editor leaves the chart program between BEGIN GPL and END GPL, and the model between BEGIN EXPR and END EXPR, plain, as it does inline data.
 - Window: Analyze > Mixed Models > Generalized Linear (GENLINMIXED: target with distribution and link, trials, offset and analysis weight, fixed effects as main effects or custom terms, any number of random blocks with subjects, covariance type and predicted effects, and the estimation options).
