@@ -10,6 +10,7 @@ mod areg;
 mod arima;
 mod autorecode;
 mod bayes;
+mod bootstrap;
 mod catpca;
 mod catreg;
 pub mod chart;
@@ -786,6 +787,10 @@ pub struct Engine {
     temporary: Option<Box<split::Saved>>,
     /// N OF CASES, waiting for the next data pass.
     case_limit: Option<usize>,
+    /// BOOTSTRAP, waiting for the next procedure.
+    bootstrap: Option<Box<syntax::Bootstrap>>,
+    /// The BOOTSTRAP of the running procedure.
+    bootstrap_run: Option<Box<syntax::Bootstrap>>,
     /// The random number generators; expressions draw from them through a shared reference.
     random: std::cell::RefCell<random::Random>,
     /// While a procedure runs on a split group or the filtered cases: the case number in the
@@ -1617,6 +1622,7 @@ impl Engine {
                 self.case_limit = Some(self.case_limit.map_or(n, |limit| limit.min(n)));
             }
             Command::Sample(sample) => self.sample(sample)?,
+            Command::Bootstrap(spec) => self.bootstrap = Some(spec.clone()),
             Command::DoRepeat(repeat) => return self.do_repeat(repeat),
             Command::Matrix(program) => return self.matrix(program),
             Command::Loop(_) => unreachable!("collect_loop takes LOOP"),
@@ -1643,6 +1649,11 @@ impl Engine {
 
     /// The procedures, on the dataset as it is now.
     fn run_procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
+        if let Some(spec) = self.bootstrap_run.take() {
+            let tables = self.bootstrapped(command, &spec);
+            self.bootstrap_run = Some(spec);
+            return tables;
+        }
         let mut tables = match command {
             Command::Frequencies(command) => self.frequencies(command),
             Command::Ctables(command) => self.ctables(command),

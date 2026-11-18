@@ -10,6 +10,7 @@ mod autorecode;
 mod bayes;
 mod bayes_loglinear;
 mod bayes_models;
+mod bootstrap;
 mod catpca;
 mod catreg;
 mod cell_stats;

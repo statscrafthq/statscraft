@@ -7,6 +7,7 @@ use crate::alscal;
 use crate::anova;
 use crate::ast::Command;
 use crate::bayes;
+use crate::bootstrap;
 use crate::catpca;
 use crate::catreg;
 use crate::cluster;
@@ -831,6 +832,24 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  by SET SEED or MTINDEX; a new session starts from the default seed.",
         example: "SAMPLE 500 FROM 3420.",
         parse: selection::sample,
+    },
+    CommandSpec {
+        name: "BOOTSTRAP",
+        summary: "Give the next procedure bootstrap bias, standard errors and confidence intervals.",
+        syntax: "BOOTSTRAP [/SAMPLING METHOD=SIMPLE | STRATIFIED(STRATA=varlist)]\n\
+                 \x20 [/VARIABLES [TARGET=varlist] [INPUT=varlist]]\n\
+                 \x20 [/CRITERIA [CILEVEL=95 | level] [CITYPE=PERCENTILE | BCA] [NSAMPLES=1000 | n]]\n\
+                 \x20 [/MISSING [USERMISSING=EXCLUDE | INCLUDE]].\n\
+                 Keywords are written in full. The next procedure runs on the data and then again on n\n\
+                 resamples drawn with replacement (within each stratum for STRATIFIED), with the generator\n\
+                 SET SEED or MTINDEX starts. Cases with a missing value in a TARGET, INPUT or STRATA variable\n\
+                 leave the analysis; user-missing values of nominal and ordinal variables count as valid\n\
+                 with USERMISSING=INCLUDE. DESCRIPTIVES, FREQUENCIES, MEANS, CORRELATIONS, T-TEST and\n\
+                 REGRESSION add Bias, Std. Error and the interval (percentile or BCa) to their main\n\
+                 statistics; any other procedure warns and runs without resampling. RESIDUAL and WILD\n\
+                 resampling are not supported yet.",
+        example: "BOOTSTRAP /VARIABLES INPUT=height weight /CRITERIA CITYPE=BCA NSAMPLES=2000.",
+        parse: bootstrap::bootstrap,
     },
     CommandSpec {
         name: "AUTORECODE",

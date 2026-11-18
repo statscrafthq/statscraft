@@ -171,6 +171,7 @@ pub enum Command {
     /// `N OF CASES n`
     NOfCases(u64),
     Sample(Sample),
+    Bootstrap(Box<crate::bootstrap::Bootstrap>),
     /// DO REPEAT with its body, the commands up to END REPEAT, which are parsed again for each
     /// set of replacements.
     DoRepeat(DoRepeat),

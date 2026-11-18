@@ -238,6 +238,26 @@ impl Engine {
 
     /// Runs a procedure as the split, the filter and TEMPORARY say.
     pub(crate) fn procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
+        if let Some(spec) = self.bootstrap.take() {
+            if crate::bootstrap::supports(command) {
+                self.check_bootstrap(&spec)?;
+                if self.case_limit.is_some() {
+                    self.warn("BOOTSTRAP after N OF CASES: the resamples come from the cases N OF CASES keeps");
+                }
+                self.bootstrap_run = Some(spec);
+            } else {
+                self.warn(format!(
+                    "BOOTSTRAP is not applied to {} yet: it ran on the data as usual",
+                    crate::bootstrap::name(command)
+                ));
+            }
+        }
+        let result = self.procedure_pass(command);
+        self.bootstrap_run = None;
+        result
+    }
+
+    fn procedure_pass(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.begin_pass()?;
         let before = self.dataset.clone();
         // TREE, DETECTANOMALY, OPTIMAL BINNING, MULTIPLE CORRESPONDENCE, CATPCA and the complex samples procedures ignore SPLIT FILE, as
@@ -494,6 +514,21 @@ fn group_name(names: Option<&[String]>, values: &[String]) -> String {
     let pairs = names.unwrap_or_default().iter().zip(values);
     let pairs: Vec<String> = pairs.map(|(n, v)| format!("{n} = {v}")).collect();
     pairs.join(", ")
+}
+
+/// `full` with the variables a procedure added to `after`, which held the cases `cases` of it;
+/// system-missing (or blank) in the other cases.
+pub(crate) fn write_back_cases(
+    full: Dataset,
+    cases: Vec<usize>,
+    after: &Dataset,
+) -> Result<Dataset, Error> {
+    let group = Group {
+        values: Vec::new(),
+        titles: Vec::new(),
+        cases,
+    };
+    write_back(full, &[group], std::slice::from_ref(after), &[true])
 }
 
 /// The full dataset with the variables the procedure added to any group where it ran, in order

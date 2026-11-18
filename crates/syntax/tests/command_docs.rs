@@ -71,6 +71,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "N OF CASES",
             "N",
             "SAMPLE",
+            "BOOTSTRAP",
         ],
     ),
     (

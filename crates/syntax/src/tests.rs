@@ -1116,6 +1116,7 @@ fn command_names_resolve_from_their_words() {
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
     assert_eq!(command_names().len(), 270);
+    assert_eq!(command_names().len(), 253);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }
@@ -1297,4 +1298,33 @@ fn do_if_block_commands() {
     assert_eq!(err("DO IF.").expected[0], "a value");
     assert_eq!(err("ELSE age < 3.").expected, ["end of command"]);
     assert_eq!(err("END IF age.").expected, ["end of command"]);
+}
+
+#[test]
+fn bootstrap_takes_its_subcommands_in_full() {
+    let Command::Bootstrap(b) = one(
+        "BOOTSTRAP /SAMPLING METHOD=STRATIFIED(STRATA=region) /VARIABLES TARGET=y INPUT=a b \
+         /CRITERIA CILEVEL=90 CITYPE=BCA NSAMPLES=500 /MISSING USERMISSING=INCLUDE.",
+    ) else {
+        panic!("not BOOTSTRAP")
+    };
+    assert_eq!(b.strata, [VarItem::Name("region".into())]);
+    assert_eq!(b.input.len(), 2);
+    assert_eq!((b.cilevel, b.bca, b.samples), (90.0, true, 500));
+    assert!(b.include_user_missing);
+    let Command::Bootstrap(b) = one("BOOTSTRAP.") else {
+        panic!("not BOOTSTRAP")
+    };
+    assert_eq!((b.cilevel, b.bca, b.samples), (95.0, false, 1000));
+    let Command::Bootstrap(b) = one("BOOTSTRAP /VARIABLES ANALYSIS(INPUTS=a b).") else {
+        panic!("not BOOTSTRAP")
+    };
+    assert_eq!(b.input.len(), 2);
+    let message = |source: &str| err(source).message;
+    assert!(message("BOOTSTRAP /CRIT NSAMPLES=10.").contains("unknown subcommand"));
+    assert!(message("BOOTSTRAP /CRITERIA NSAMPLES=10 NSAMPLES=20.").contains("twice"));
+    assert!(message("BOOTSTRAP /CRITERIA NSAMPLES=10 /CRITERIA CILEVEL=90.").contains("twice"));
+    assert!(message("BOOTSTRAP /MISSING.").contains("empty"));
+    assert!(message("BOOTSTRAP /CRITERIA CILEVEL=100.").contains("CILEVEL"));
+    assert!(message("BOOTSTRAP /SAMPLING METHOD=WILD(RESIDUALS=r).").contains("not supported"));
 }

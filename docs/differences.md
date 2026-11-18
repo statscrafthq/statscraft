@@ -369,6 +369,16 @@ This page lists, by topic and command:
 - MEANS, CORRELATIONS and EXAMINE leave undefined skewness and kurtosis empty. The CORRELATIONS listwise descriptives, the EXAMINE hinges with small weights, percentiles of small groups, CINTERVAL, listwise totals and the default descriptives table follow the documentation (GNU PSPP differs).
 - Levene's test is based on the mean.
 
+### BOOTSTRAP
+
+- Bootstrap results are added to DESCRIPTIVES (mean, standard deviation, variance, skewness, kurtosis), FREQUENCIES (mean, median, standard deviation, variance, skewness, kurtosis, percentiles), MEANS (mean, median, grouped median, standard deviation, variance, skewness, kurtosis, harmonic and geometric mean), CORRELATIONS (Pearson correlations), T-TEST (means, standard deviations, mean differences) and REGRESSION (the B coefficients). Any other procedure after BOOTSTRAP warns and runs on the data without resampling. RESIDUAL and WILD resampling are not supported yet.
+- In a table whose statistics are columns, each bootstrapped column becomes a group: Statistic, then Bootstrap with Bias, Std. Error and the interval's Lower and Upper. In a table whose statistics are rows (FREQUENCIES, CORRELATIONS), four rows follow each bootstrapped row. A caption gives the number of resamples. FREQUENCIES draws no charts under BOOTSTRAP.
+- A resample draws its cases one by one, uniformly (under WEIGHT in proportion to the weights, the total weight rounded), from the generator SET SEED or MTINDEX starts. This gives the same distribution as the binomial chain of the algorithm, but other random numbers.
+- A resample in which the procedure fails, or does not give a statistic (a category missing from it, a correlation with a constant), leaves that statistic out; its results rest on the resamples that gave it, and a warning says so.
+- The BCa bias correction counts the resample values at or below the original value over B + 1, as the algorithm gives; R's boot counts those strictly below over B, so its BCa limits differ a little. With a weight, the jackknife lowers one case's weight by 1 (drops it when its weight is 1 or less).
+- With SPLIT FILE each group is resampled on its own. Variables a procedure saves (DESCRIPTIVES z-scores, REGRESSION SAVE) come from the run on the original data; cases BOOTSTRAP left out get system-missing.
+- The older form of the variable lists, VARIABLES ANALYSIS(TARGET=... INPUT=...) and SAMPLING(STRATA=...), is accepted too.
+
 ### FREQUENCIES
 
 - Percentiles and the median use (W + 1) p as documented. GNU PSPP's default uses another definition, and with weights that are not whole numbers it leaves the formula.

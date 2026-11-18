@@ -70,6 +70,7 @@ One page per supported command, generated from the same table that the parser an
 | [N OF CASES](n-of-cases.md) | Keep only the first n cases from the next data pass on. |
 | [N](n.md) | Short for N OF CASES. |
 | [SAMPLE](sample.md) | Keep a random sample of the cases. |
+| [BOOTSTRAP](bootstrap.md) | Give the next procedure bootstrap bias, standard errors and confidence intervals. |
 
 ## Transformations
 
