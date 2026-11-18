@@ -713,6 +713,7 @@ pub struct PartialCorr {
     pub zero_order: bool,
     /// Each zero-order correlation from the cases valid on its pair.
     pub pairwise: bool,
+    pub bootstrap: Bootstrap,
 }
 
 impl PartialCorr {

@@ -14,6 +14,7 @@
 use crate::agreement_dialog::{FleissKappa, Ratio, WeightedKappa};
 use crate::analyze_dialogs::keywords;
 use crate::bayes_dialog::Bayesian;
+use crate::bootstrap_dialog::Bootstrap;
 use crate::catpca_dialog::Catpca;
 use crate::conjoint_dialog::Design;
 use crate::correspondence_dialog::Correspondence;
@@ -266,14 +267,18 @@ impl Advanced {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         match self {
             // the dependent may be a string, the factors too
-            Advanced::Ordinal(d) => numeric(data, &d.covariates).and_then(|()| d.syntax()),
+            Advanced::Ordinal(d) => numeric(data, &d.covariates)
+                .and_then(|()| d.syntax())
+                .and_then(|t| d.bootstrap.before(t)),
             Advanced::Multinomial(d) => {
                 let string = match data.variable(&d.dependent) {
                     Ok(v) => v.is_string(),
                     Err(_) if d.dependent.trim().is_empty() => false,
                     Err(_) => return Err(format!("{} is no longer a variable", d.dependent)),
                 };
-                numeric(data, &d.covariates).and_then(|()| d.syntax(string))
+                numeric(data, &d.covariates)
+                    .and_then(|()| d.syntax(string))
+                    .and_then(|t| d.bootstrap.before(t))
             }
             Advanced::Mixed(d) => numeric(data, std::iter::once(&d.dependent).chain(&d.covariates))
                 .and_then(|()| d.syntax()),
@@ -761,6 +766,7 @@ pub struct Ordinal {
     /// User-missing values count as valid.
     pub include: bool,
     pub tests: Vec<ContrastTest>,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Ordinal {
@@ -782,6 +788,7 @@ impl Default for Ordinal {
             delta: "0".into(),
             include: false,
             tests: Vec::new(),
+            bootstrap: Default::default(),
         }
     }
 }
@@ -961,6 +968,7 @@ pub struct Multinomial {
     pub iterations: String,
     pub halvings: String,
     pub include: bool,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Multinomial {
@@ -990,6 +998,7 @@ impl Default for Multinomial {
             iterations: "100".into(),
             halvings: "5".into(),
             include: false,
+            bootstrap: Default::default(),
         }
     }
 }

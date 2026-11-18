@@ -4,6 +4,7 @@
 
 use crate::advanced_dialogs::coefficient;
 use crate::analyze_dialogs::{DUNNETT_SIDES, POST_HOC_TESTS, keywords};
+use crate::bootstrap_dialog::Bootstrap;
 use crate::dialogs::whole;
 use crate::stats_dialogs::{Block, parse, percent};
 use crate::syntax_text::{names, number, probability, quote};
@@ -811,6 +812,7 @@ pub struct Logistic {
     pub removal: String,
     pub iterations: String,
     pub constant: bool,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Logistic {
@@ -830,6 +832,7 @@ impl Default for Logistic {
             removal: "0.10".into(),
             iterations: "20".into(),
             constant: true,
+            bootstrap: Default::default(),
         }
     }
 }
@@ -1105,6 +1108,7 @@ pub struct Univariate {
     pub alpha: String,
     /// The columns of MMATRIX (Multivariate only).
     pub m_matrix: Vec<MColumn>,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Univariate {
@@ -1141,6 +1145,7 @@ impl Default for Univariate {
             print: [false; 9],
             alpha: "0.05".into(),
             m_matrix: Vec::new(),
+            bootstrap: Default::default(),
         }
     }
 }
@@ -1495,6 +1500,7 @@ pub struct RepeatedMeasures {
     /// One flag per entry of the first three of `GLM_PRINT`.
     pub print: [bool; 3],
     pub alpha: String,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for RepeatedMeasures {
@@ -1510,6 +1516,7 @@ impl Default for RepeatedMeasures {
             sstype: DEFAULT_SUM_OF_SQUARES,
             print: [false; 3],
             alpha: "0.05".into(),
+            bootstrap: Default::default(),
         }
     }
 }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The window: the Bootstrap section is now also in the Crosstabs, Explore, One-Way ANOVA, Partial Correlations, Logistic Regression, Multinomial Logistic, Ordinal, Univariate, Multivariate and Repeated Measures dialogs, and Bivariate Correlations writes a BOOTSTRAP line before each of its two commands when Kendall or Spearman is ticked.
+
 - RESPONSE RATE: the rate of a numerator over a denominator in each group of a numeric or string variable, in ascending group order, with cumulative sums and cumulative rates; groups whose denominator sum is not positive are left out with a warning. MINRATE (a rate, or cost over revenue with FORMULA) and MAXCOUNT (a count, or a percentage of the total) colour each row green or red and add reference lines to the rate chart and the cumulative count chart. Case weights multiply both values. See [RESPONSE RATE](docs/commands/response-rate.md) and [differences](docs/differences.md).
 
 - GENLINMIXED: the multinomial distribution, the default for a categorical target of three or more values. An ordinal target gets thresholds and a cumulative link (LOGIT, PROBIT, CLOGLOG, NLOGLOG or CAUCHIT), a nominal one the generalized logit against its reference category with its own parameters and random effects for each other category; SAVE gives the predicted category, the probabilities (cumulative for an ordinal target), the confidence and the intervals of the probabilities, and OUTFILE names the categories. Checked against a separate R calculation and, with no group variation, against PLUM and NOMREG. SAVE PEARSON_RESIDUALS of a multinomial target still gives a "not supported yet" error. See [differences](docs/differences.md).

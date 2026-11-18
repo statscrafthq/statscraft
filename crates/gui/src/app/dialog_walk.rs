@@ -847,6 +847,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             bootstrap: boot(),
         }),
         Dialog::Explore(Explore {
+            bootstrap: boot(),
             dependents: v(&["age", "monthly_spend"]),
             factors: v(&["gender"]),
             id: s("resp_id"),
@@ -859,6 +860,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             missing: ExploreMissing::Report,
         }),
         Dialog::Crosstabs(Crosstabs {
+            bootstrap: boot(),
             rows: v(&["gender"]),
             columns: v(&["region"]),
             layers: v(&["q5_1"]),
@@ -999,6 +1001,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             bootstrap: boot(),
         }),
         Dialog::Oneway(Oneway {
+            bootstrap: boot(),
             dependents: v(&["age", "monthly_spend"]),
             factor: s("region"),
             statistics: [true; 4],
@@ -1225,6 +1228,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             icc_test_value: s("0.5"),
         }),
         Dialog::PartialCorr(PartialCorr {
+            bootstrap: boot(),
             variables: v(&["age", "monthly_spend"]),
             controls: v(&["q2_recommend"]),
             one_tailed: true,
@@ -1434,6 +1438,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         }),
         Dialog::Logistic(Logistic {
+            bootstrap: boot(),
             dependent: s("q5_1"),
             blocks: vec![
                 Block {
@@ -1462,6 +1467,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         }),
         Dialog::Univariate(Univariate {
+            bootstrap: boot(),
             dependent: s("monthly_spend"),
             factors: v(&["region", "gender"]),
             covariates: v(&["age"]),
@@ -1497,6 +1503,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         }),
         Dialog::Univariate(Univariate {
+            bootstrap: boot(),
             multivariate: true,
             dependents: v(&["monthly_spend", "q1_satisfaction", "q2_recommend"]),
             factors: v(&["region", "gender"]),
@@ -1534,6 +1541,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         }),
         Dialog::RepeatedMeasures(RepeatedMeasures {
+            bootstrap: boot(),
             within: vec![WithinFactor {
                 name: s("mention"),
                 levels: s("3"),
@@ -1546,6 +1554,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             alpha: s("0.01"),
         }),
         Dialog::Advanced(Advanced::Ordinal(Ordinal {
+            bootstrap: boot(),
             dependent: s("q1_satisfaction"),
             factors: v(&["gender"]),
             covariates: v(&["age"]),
@@ -1568,6 +1577,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             }],
         })),
         Dialog::Advanced(Advanced::Multinomial(Multinomial {
+            bootstrap: boot(),
             dependent: s("plan"),
             base: 2,
             base_value: s("BASIC"),

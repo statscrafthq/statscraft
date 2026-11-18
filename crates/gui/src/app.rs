@@ -419,8 +419,8 @@ impl Dialog {
         match self {
             Dialog::Frequencies(d) => d.bootstrap.before(d.syntax()?),
             Dialog::Descriptives(d) => d.bootstrap.before(d.syntax()?),
-            Dialog::Explore(d) => d.syntax(),
-            Dialog::Crosstabs(d) => d.syntax(),
+            Dialog::Explore(d) => d.bootstrap.before(d.syntax()?),
+            Dialog::Crosstabs(d) => d.bootstrap.before(d.syntax()?),
             Dialog::CustomTables(d, _) => d.syntax(),
             Dialog::Compute(d, label) => {
                 let mut text = d.syntax()?;
@@ -468,8 +468,8 @@ impl Dialog {
             }
             Dialog::Means(d) => d.bootstrap.before(d.syntax()?),
             Dialog::TTest(d) => d.bootstrap.before(d.syntax(is_string(data, &d.grouping))?),
-            Dialog::Oneway(d) => d.syntax(),
-            Dialog::Correlations(d) => d.bootstrap.before(d.syntax()?),
+            Dialog::Oneway(d) => d.bootstrap.before(d.syntax()?),
+            Dialog::Correlations(d) => d.syntax(),
             Dialog::Mrsets(d) => {
                 let strings = d.variables.iter().filter(|n| is_string(data, n)).count();
                 if strings > 0 && strings < d.variables.len() {
@@ -514,9 +514,9 @@ impl Dialog {
                 .and_then(|t| d.bootstrap.before(t)),
             Dialog::Reliability(d) => numeric(data, &d.items).and_then(|()| d.syntax()),
             Dialog::NparTests(d) => numeric(data, d.variables()).and_then(|()| d.syntax()),
-            Dialog::PartialCorr(d) => {
-                numeric(data, d.variables.iter().chain(&d.controls)).and_then(|()| d.syntax())
-            }
+            Dialog::PartialCorr(d) => numeric(data, d.variables.iter().chain(&d.controls))
+                .and_then(|()| d.syntax())
+                .and_then(|t| d.bootstrap.before(t)),
             Dialog::FactorAnalysis(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
             Dialog::KMeans(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
             // the label variable may be a string
@@ -530,7 +530,7 @@ impl Dialog {
             Dialog::Rbf(d) => numeric(data, &d.common.covariates).and_then(|()| d.syntax()),
             Dialog::Discriminant(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
             // a string covariate is categorical, a string dependent has its two values
-            Dialog::Logistic(d) => d.syntax(),
+            Dialog::Logistic(d) => d.bootstrap.before(d.syntax()?),
             // factors may be strings
             Dialog::Univariate(d) => numeric(
                 data,
@@ -538,10 +538,11 @@ impl Dialog {
                     .chain(&d.dependents)
                     .chain(&d.covariates),
             )
-            .and_then(|()| d.syntax()),
-            Dialog::RepeatedMeasures(d) => {
-                numeric(data, d.dependents.iter().chain(&d.covariates)).and_then(|()| d.syntax())
-            }
+            .and_then(|()| d.syntax())
+            .and_then(|t| d.bootstrap.before(t)),
+            Dialog::RepeatedMeasures(d) => numeric(data, d.dependents.iter().chain(&d.covariates))
+                .and_then(|()| d.syntax())
+                .and_then(|t| d.bootstrap.before(t)),
             Dialog::Advanced(d) => d.syntax(data),
             Dialog::Restructure(d) => d.syntax(),
             Dialog::SortVariables(d) => d.syntax(),
@@ -5730,6 +5731,7 @@ fn dialog_body(
             for missing in ExploreMissing::ALL {
                 ui.radio_value(&mut d.missing, missing, missing.label());
             }
+            d.bootstrap.view(ui, picked);
         }
         Dialog::Crosstabs(d) => {
             target_list(ui, "Rows", &mut d.rows, picked);
@@ -5747,6 +5749,7 @@ fn dialog_body(
                     ui.add(TextEdit::singleline(&mut d.cmh_odds).desired_width(50.0));
                 });
             });
+            d.bootstrap.view(ui, picked);
         }
         Dialog::CustomTables(d, draft) => {
             target_list(ui, "Rows (categories or sets)", &mut d.rows, picked);
@@ -5967,6 +5970,7 @@ fn dialog_body(
                     "Leave out a case missing on any listed variable",
                 );
             });
+            d.bootstrap.view(ui, picked);
         }
         Dialog::Correlations(d) => {
             target_list(ui, "Variables", &mut d.variables, picked);
@@ -6481,7 +6485,10 @@ fn dialog_body(
         }
         Dialog::Reliability(d) => stats_dialogs_view::reliability(ui, d, picked),
         Dialog::NparTests(d) => stats_dialogs_view::npar_tests(ui, d, picked),
-        Dialog::PartialCorr(d) => stats_dialogs_view::partial_corr(ui, d, picked),
+        Dialog::PartialCorr(d) => {
+            stats_dialogs_view::partial_corr(ui, d, picked);
+            d.bootstrap.view(ui, picked);
+        }
         Dialog::FactorAnalysis(d) => model_dialogs_view::factor(ui, d, picked),
         Dialog::KMeans(d) => model_dialogs_view::k_means(ui, d, picked),
         Dialog::Hierarchical(d) => model_dialogs_view::hierarchical(ui, d, picked),
@@ -6493,9 +6500,18 @@ fn dialog_body(
         Dialog::Mlp(d) => neural_dialog_view::mlp(ui, d, picked),
         Dialog::Rbf(d) => neural_dialog_view::rbf(ui, d, picked),
         Dialog::Discriminant(d) => model_dialogs_view::discriminant(ui, d, picked),
-        Dialog::Logistic(d) => model_dialogs_view::logistic(ui, d, picked),
-        Dialog::Univariate(d) => model_dialogs_view::univariate(ui, d, picked),
-        Dialog::RepeatedMeasures(d) => model_dialogs_view::repeated_measures(ui, d, picked),
+        Dialog::Logistic(d) => {
+            model_dialogs_view::logistic(ui, d, picked);
+            d.bootstrap.view(ui, picked);
+        }
+        Dialog::Univariate(d) => {
+            model_dialogs_view::univariate(ui, d, picked);
+            d.bootstrap.view(ui, picked);
+        }
+        Dialog::RepeatedMeasures(d) => {
+            model_dialogs_view::repeated_measures(ui, d, picked);
+            d.bootstrap.view(ui, picked);
+        }
         Dialog::ChartBuilder(d) => graph_dialogs_view::chart_builder(ui, d, picked),
         Dialog::ProbabilityPlot(d) => graph_dialogs_view::probability_plot(ui, d, picked),
         Dialog::RocCurve(d) => graph_dialogs_view::roc(ui, d, picked),

@@ -309,6 +309,7 @@ pub struct Oneway {
     pub listwise: bool,
     /// Confidence level in percent.
     pub confidence: String,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Oneway {
@@ -324,6 +325,7 @@ impl Default for Oneway {
             alpha: "0.05".into(),
             listwise: false,
             confidence: "95".into(),
+            bootstrap: Default::default(),
         }
     }
 }
@@ -450,7 +452,7 @@ impl Correlations {
             if !statistics.is_empty() {
                 text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
             }
-            commands.push(format!("{text}{missing}."));
+            commands.push(self.bootstrap.before(format!("{text}{missing}."))?);
         }
         if self.kendall || self.spearman {
             // Spearman alone is what NONPAR CORR gives without /PRINT
@@ -459,10 +461,11 @@ impl Correlations {
                 (false, true) => Some("KENDALL"),
                 _ => None,
             };
-            commands.push(format!(
+            // BOOTSTRAP covers only the next procedure, so each command gets its own
+            commands.push(self.bootstrap.before(format!(
                 "NONPAR CORR /VARIABLES={list}{}{missing}.",
                 print(which)
-            ));
+            ))?);
         }
         Ok(commands.join("\n"))
     }
@@ -510,6 +513,7 @@ pub struct Explore {
     /// Tests of normality (NPPLOT; the plots themselves are not drawn).
     pub normality: bool,
     pub missing: ExploreMissing,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Explore {
@@ -525,6 +529,7 @@ impl Default for Explore {
             percentiles: false,
             normality: false,
             missing: ExploreMissing::Listwise,
+            bootstrap: Default::default(),
         }
     }
 }
@@ -1200,6 +1205,24 @@ mod tests {
              /PRINT=ONETAIL NOSIG\n  /MISSING=LISTWISE."
         );
         assert_eq!(runs(&syntax), 3);
+    }
+
+    #[test]
+    fn bootstrap_comes_before_each_of_the_two_commands() {
+        let d = Correlations {
+            variables: v(&["q1_satisfaction", "q2_recommend"]),
+            spearman: true,
+            bootstrap: Bootstrap {
+                on: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax().unwrap(),
+            "BOOTSTRAP.\nCORRELATIONS /VARIABLES=q1_satisfaction q2_recommend.\n\
+             BOOTSTRAP.\nNONPAR CORR /VARIABLES=q1_satisfaction q2_recommend."
+        );
     }
 
     #[test]

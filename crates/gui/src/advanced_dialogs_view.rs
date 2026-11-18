@@ -284,6 +284,7 @@ fn ordinal(ui: &mut Ui, d: &mut Ordinal, picked: &mut Vec<String>) {
         ui.weak("INTERCEPT stands for the thresholds");
         tests_editor(ui, &mut d.tests);
     });
+    d.bootstrap.view(ui, picked);
 }
 
 fn multinomial(ui: &mut Ui, d: &mut Multinomial, picked: &mut Vec<String>) {
@@ -358,6 +359,7 @@ fn multinomial(ui: &mut Ui, d: &mut Multinomial, picked: &mut Vec<String>) {
         iteration_fields(ui, &mut d.ci_level, &mut d.iterations, &mut d.halvings);
         ui.checkbox(&mut d.include, "Treat user-missing values as valid");
     });
+    d.bootstrap.view(ui, picked);
 }
 
 fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {

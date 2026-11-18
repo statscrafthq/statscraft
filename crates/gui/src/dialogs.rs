@@ -254,6 +254,7 @@ pub struct Crosstabs {
     pub statistics: [bool; 15],
     /// The common odds ratio CMH tests against.
     pub cmh_odds: String,
+    pub bootstrap: Bootstrap,
 }
 
 impl Default for Crosstabs {
@@ -265,6 +266,7 @@ impl Default for Crosstabs {
             cells: [true, false, false, false, false, false, false, false],
             statistics: [false; 15],
             cmh_odds: "1".into(),
+            bootstrap: Default::default(),
         }
     }
 }
