@@ -255,6 +255,21 @@ pub struct Crosstabs {
     /// The common odds ratio CMH tests against.
     pub cmh_odds: String,
     pub bootstrap: Bootstrap,
+    /// How the significance of the tests is found: asymptotic only, Monte Carlo or exact.
+    pub method: CrosstabsMethod,
+    /// Monte Carlo: the confidence level in percent and the number of samples.
+    pub mc_level: String,
+    pub mc_samples: String,
+    /// Exact: the most minutes per table, 0 for no limit.
+    pub exact_minutes: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum CrosstabsMethod {
+    #[default]
+    Asymptotic,
+    MonteCarlo,
+    Exact,
 }
 
 impl Default for Crosstabs {
@@ -267,6 +282,10 @@ impl Default for Crosstabs {
             statistics: [false; 15],
             cmh_odds: "1".into(),
             bootstrap: Default::default(),
+            method: CrosstabsMethod::Asymptotic,
+            mc_level: "99".into(),
+            mc_samples: "10000".into(),
+            exact_minutes: "5".into(),
         }
     }
 }
@@ -308,6 +327,33 @@ impl Crosstabs {
         }
         if !statistics.is_empty() {
             text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
+        }
+        match self.method {
+            CrosstabsMethod::Asymptotic => {}
+            CrosstabsMethod::MonteCarlo => {
+                text.push_str("\n  /METHOD=MC");
+                let level = self.mc_level.trim().parse::<f64>().ok();
+                match level.filter(|l| *l > 0.0 && *l < 100.0) {
+                    Some(99.0) => {}
+                    Some(l) => text.push_str(&format!(" CIN({})", number(l))),
+                    None => {
+                        return Err(
+                            "the confidence level is a percentage above 0 and below 100".into()
+                        );
+                    }
+                }
+                match whole(&self.mc_samples, 1, "the number of samples")? {
+                    None | Some(10000) => {}
+                    Some(n) => text.push_str(&format!(" SAMPLES({n})")),
+                }
+            }
+            CrosstabsMethod::Exact => {
+                text.push_str("\n  /METHOD=EXACT");
+                match whole(&self.exact_minutes, 0, "the time limit")? {
+                    None | Some(5) => {}
+                    Some(n) => text.push_str(&format!(" TIMER({n})")),
+                }
+            }
         }
         text.push('.');
         Ok(text)
@@ -1424,6 +1470,20 @@ mod tests {
             "the common odds ratio must be a number above 0"
         );
         d.cmh_odds = "2.5".into();
+        // the significance by Monte Carlo or exactly
+        d.method = CrosstabsMethod::MonteCarlo;
+        d.mc_samples = "500".into();
+        assert!(
+            d.syntax()
+                .unwrap()
+                .ends_with("\n  /METHOD=MC SAMPLES(500).")
+        );
+        d.mc_level = "100".into();
+        assert!(d.syntax().is_err());
+        d.method = CrosstabsMethod::Exact;
+        d.exact_minutes = "0".into();
+        assert!(d.syntax().unwrap().ends_with("\n  /METHOD=EXACT TIMER(0)."));
+        d.method = CrosstabsMethod::Asymptotic;
         let syntax = d.syntax().unwrap();
         assert!(syntax.ends_with(
             "/STATISTICS=CHISQ CORR PHI CC LAMBDA UC GAMMA D BTAU CTAU ETA KAPPA RISK MCNEMAR CMH(2.5)."

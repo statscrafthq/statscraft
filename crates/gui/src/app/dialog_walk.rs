@@ -29,8 +29,8 @@ use crate::data_dialogs::{
 use crate::data_tools_dialog::{DataValidation, DatasetComparison, DictionaryCopy};
 use crate::dialogs::testing::{fixture, open, v};
 use crate::dialogs::{
-    Adjust, Autorecode, Categories, Compute, Count, Crosstabs, CustomTables, Descriptives,
-    Frequencies, Letters, NewValue, OldValue, Rank, Recode, RecodeRule, Subtotal,
+    Adjust, Autorecode, Categories, Compute, Count, Crosstabs, CrosstabsMethod, CustomTables,
+    Descriptives, Frequencies, Letters, NewValue, OldValue, Rank, Recode, RecodeRule, Subtotal,
 };
 use crate::forecast_more_dialog::{Areg, Spectra, TwoSls};
 use crate::genlin_dialog::GeneralizedLinear;
@@ -867,6 +867,18 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             cells: [true; 8],
             statistics: [true; 15],
             cmh_odds: s("2"),
+            method: CrosstabsMethod::MonteCarlo,
+            mc_level: s("95"),
+            mc_samples: s("200"),
+            ..Default::default()
+        }),
+        Dialog::Crosstabs(Crosstabs {
+            rows: v(&["gender"]),
+            columns: v(&["plan"]),
+            statistics: [true; 15],
+            method: CrosstabsMethod::Exact,
+            exact_minutes: s("1"),
+            ..Default::default()
         }),
         Dialog::CustomTables(
             CustomTables {

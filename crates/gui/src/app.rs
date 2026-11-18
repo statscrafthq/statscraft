@@ -21,9 +21,10 @@ use crate::data_dialogs::{
 };
 use crate::dialogs::{
     Adjust, Autorecode, CROSSTABS_CELLS, CROSSTABS_CMH, CROSSTABS_STATISTICS, Categories, Compute,
-    Count, Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS, Descriptives, FREQUENCIES_ORDERS,
-    FREQUENCIES_STATISTICS, Frequencies, Letters, NewValue, OldValue, RANK_FRACTIONS,
-    RANK_FUNCTIONS, RANK_TIES, Rank, Recode, RecodeRule, Subtotal, is_set, label_command,
+    Count, Crosstabs, CrosstabsMethod, CustomTables, DESCRIPTIVES_STATISTICS, Descriptives,
+    FREQUENCIES_ORDERS, FREQUENCIES_STATISTICS, Frequencies, Letters, NewValue, OldValue,
+    RANK_FRACTIONS, RANK_FUNCTIONS, RANK_TIES, Rank, Recode, RecodeRule, Subtotal, is_set,
+    label_command,
 };
 use crate::edits::{self, Field};
 use crate::graph_dialogs::{ChartBuilder, ProbabilityPlot, RocCurve};
@@ -5747,6 +5748,30 @@ fn dialog_body(
                 ui.add_enabled_ui(d.statistics[CROSSTABS_CMH], |ui| {
                     ui.label("Test common odds ratio equals");
                     ui.add(TextEdit::singleline(&mut d.cmh_odds).desired_width(50.0));
+                });
+            });
+            ui.add_space(6.0);
+            ui.strong("Significance");
+            ui.radio_value(
+                &mut d.method,
+                CrosstabsMethod::Asymptotic,
+                "Asymptotic only",
+            );
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut d.method, CrosstabsMethod::MonteCarlo, "Monte Carlo:");
+                ui.add_enabled_ui(d.method == CrosstabsMethod::MonteCarlo, |ui| {
+                    ui.label("confidence level, %");
+                    ui.add(TextEdit::singleline(&mut d.mc_level).desired_width(40.0));
+                    ui.label("samples");
+                    ui.add(TextEdit::singleline(&mut d.mc_samples).desired_width(60.0));
+                });
+            });
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut d.method, CrosstabsMethod::Exact, "Exact:");
+                ui.add_enabled_ui(d.method == CrosstabsMethod::Exact, |ui| {
+                    ui.label("at most");
+                    ui.add(TextEdit::singleline(&mut d.exact_minutes).desired_width(40.0));
+                    ui.label("minutes per table (0: no limit)");
                 });
             });
             d.bootstrap.view(ui, picked);
