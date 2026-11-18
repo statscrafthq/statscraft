@@ -697,11 +697,20 @@ impl App {
         let ctx = ctx.clone();
         // the listener thread hands each request to the window and waits for the reply
         let server = live::serve(live::endpoint_file(), move |request| {
+            // files from a second start are checked here and the reply goes at once, so that
+            // start does not wait behind a run; the window opens them when the run is done
+            let open = request.action == Action::OpenFiles;
+            if open {
+                request.files_to_open()?;
+            }
             let (reply, answer) = mpsc::channel();
             sender
                 .send((request, reply))
                 .map_err(|_| vec![Failure::plain("session", "the window is closing")])?;
             ctx.request_repaint();
+            if open {
+                return Ok(String::new());
+            }
             answer.recv().unwrap_or_else(|_| {
                 Err(vec![Failure::plain(
                     "session",
@@ -768,17 +777,21 @@ impl App {
                 app.status = Err(error_text(&errors));
             }
         }
-        for arg in args {
-            let path = PathBuf::from(arg);
+        app.open_args(args.iter().map(PathBuf::from));
+        app
+    }
+
+    /// Opens the files the program starts with, or that a second start hands over.
+    fn open_args(&mut self, paths: impl IntoIterator<Item = PathBuf>) {
+        for path in paths {
             if is_syntax_file(&path) {
-                app.load_syntax(path);
+                self.load_syntax(path);
             } else if is_output_file(&path) {
-                app.open_output(path);
+                self.open_output(path);
             } else {
-                app.open_data(path);
+                self.open_data(path);
             }
         }
-        app
     }
 
     /// Puts syntax in the one run queue of the session; it runs on a worker thread once the
@@ -950,6 +963,15 @@ impl App {
                     let _ = reply.send(Err(errors));
                 }
             },
+            Action::OpenFiles => {
+                // checked on the listener thread, which has replied already
+                // (un-minimize first: a minimized window ignores Focus)
+                let root = egui::ViewportId::ROOT;
+                let ctx = &self.ctx;
+                ctx.send_viewport_cmd_to(root, egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd_to(root, egui::ViewportCommand::Focus);
+                self.open_args(request.files);
+            }
             _ => self.answer_windows(request, reply),
         }
     }

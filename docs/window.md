@@ -25,7 +25,7 @@ With no data given, the program starts with one empty data window, a place to op
 - File > Open output opens a Statscraft output file (.scout) in an output window of its own, by running `OUTPUT OPEN FILE='...'.`. See [saving output](#saving-output).
 - File > Recent files lists the ten files opened or saved last.
 - Files dropped on the window from the file manager open too. A .sav or .zsav file opens as data, a workbook or text file in the Open Data dialog, a .sps file in a syntax window and each .scout file in an output window. One data file and one syntax file open at a time; the status bar names the files left out.
-- The installer on Windows, and the packages for macOS and Linux, let a double-click on a .sav, .zsav, .sps or .scout file open it in Statscraft. On macOS this is not yet tested on a Mac.
+- The installer on Windows, and the packages for macOS and Linux, let a double-click on a .sav, .zsav, .sps or .scout file open it in Statscraft. On macOS this is not yet tested on a Mac. When Statscraft runs already, the file opens in that window and its session, and the window comes to the front; starting Statscraft from the menu without a file still opens a new window.
 
 ## Exporting data
 

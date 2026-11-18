@@ -119,11 +119,24 @@ mod updates;
 mod windows;
 
 use eframe::egui;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let fonts = fonts::definitions();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let send = |files| {
+        let wait = std::time::Duration::from_secs(1);
+        statscraft_engine::live::open_in_window(
+            &statscraft_engine::live::endpoint_file(),
+            files,
+            wait,
+        )
+        .is_ok()
+    };
+    if hand_off(&args, send) {
+        return ExitCode::SUCCESS;
+    }
+    let fonts = fonts::definitions();
     let settings = settings::Settings::load();
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Statscraft")
@@ -164,6 +177,17 @@ fn main() -> ExitCode {
     }
 }
 
+/// Hands the files of a double-click to the window that runs already, so they open in its
+/// session; false when there are none, or no window took them in time, and this start opens its
+/// own window. A start with no files (the Start menu) always opens a new window.
+fn hand_off(args: &[String], send: impl FnOnce(Vec<PathBuf>) -> bool) -> bool {
+    let files: Option<Vec<PathBuf>> = args.iter().map(|a| std::path::absolute(a).ok()).collect();
+    match files {
+        Some(files) if !files.is_empty() => send(files),
+        _ => false,
+    }
+}
+
 /// The window icon. On Windows the executable also carries it, from build.rs.
 fn icon() -> egui::IconData {
     eframe::icon_data::from_png_bytes(include_bytes!("../icons/statscraft-256.png"))
@@ -175,6 +199,23 @@ mod tests {
     #[test]
     fn icon_decodes() {
         assert_eq!(super::icon().width, 256);
+    }
+
+    #[test]
+    fn only_files_are_handed_to_a_running_window() {
+        use super::{PathBuf, hand_off};
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let mut sent = Vec::new();
+        assert!(hand_off(&args(&["survey.sav", "job.sps"]), |files| {
+            sent = files;
+            true
+        }));
+        let here = std::env::current_dir().unwrap();
+        assert_eq!(sent, [here.join("survey.sav"), here.join("job.sps")]);
+        // no window took them: this start opens its own
+        assert!(!hand_off(&args(&["survey.sav"]), |_| false));
+        // no files: a new window, without asking
+        assert!(!hand_off(&[], |_: Vec<PathBuf>| panic!("nothing to send")));
     }
 }
 

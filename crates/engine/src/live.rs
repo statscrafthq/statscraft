@@ -49,6 +49,9 @@ pub enum Action {
     Save,
     /// Runs the text of `window`, or its `lines`, as the window's own Run does.
     RunWindow,
+    /// Opens `files` as the window opens the files it starts with: a second start of the
+    /// program hands its files to the running window this way.
+    OpenFiles,
 }
 
 /// A change to the text of a syntax window. Lines count from 1.
@@ -100,6 +103,9 @@ pub struct Request {
     /// Save may replace a file that is not the window's own.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub overwrite: bool,
+    /// The files of an OpenFiles request, as absolute paths.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<PathBuf>,
 }
 
 impl Request {
@@ -138,6 +144,21 @@ impl Request {
         }
         session.set_work_dir(dir.to_path_buf())?;
         session.run(&self.source, self.lines)
+    }
+
+    /// The files of an OpenFiles request. Each must be an absolute path to an existing file,
+    /// else the whole request is refused and the caller opens its files itself.
+    pub fn files_to_open(&self) -> Result<&[PathBuf], Vec<Failure>> {
+        if self.files.is_empty() {
+            return Err(window_failure("give the files to open"));
+        }
+        match self.files.iter().find(|f| !f.is_absolute() || !f.is_file()) {
+            Some(bad) => Err(window_failure(format!(
+                "{} is not an existing file given by its absolute path",
+                bad.display()
+            ))),
+            None => Ok(&self.files),
+        }
     }
 }
 
@@ -700,7 +721,23 @@ fn connection(
 }
 
 /// Sends a request to the window named in `file` and waits for the reply, however long the run.
-pub fn send(file: &Path, mut request: Request) -> Response {
+pub fn send(file: &Path, request: Request) -> Response {
+    exchange(file, request, None)
+}
+
+/// Asks the window named in `file` to open `files` (absolute paths), waiting at most `wait` to
+/// connect and again for the reply. The window replies before it opens them.
+pub fn open_in_window(file: &Path, files: Vec<PathBuf>, wait: Duration) -> Response {
+    let request = Request {
+        action: Action::OpenFiles,
+        files,
+        ..Request::default()
+    };
+    exchange(file, request, Some(wait))
+}
+
+/// Sends a request and reads the reply; without `wait`, the reply may take as long as the run.
+fn exchange(file: &Path, mut request: Request, wait: Option<Duration>) -> Response {
     let not_running = |why: String| {
         let message = format!("no Statscraft window is running ({why}); start statscraft-gui");
         vec![Failure::plain("session", message)]
@@ -717,9 +754,14 @@ pub fn send(file: &Path, mut request: Request) -> Response {
         )));
     }
     request.token = endpoint.token;
-    let stream = TcpStream::connect_timeout(&endpoint.address, Duration::from_secs(5))
+    let connect = wait.unwrap_or(Duration::from_secs(5));
+    let stream = TcpStream::connect_timeout(&endpoint.address, connect)
         .map_err(|e| not_running(format!("{}: {e}", endpoint.address)))?;
     let failed = |e: String| vec![Failure::plain("session", e)];
+    stream
+        .set_read_timeout(wait)
+        .and_then(|()| stream.set_write_timeout(wait))
+        .map_err(|e| failed(e.to_string()))?;
     let mut line = serde_json::to_string(&request).map_err(|e| failed(e.to_string()))?;
     line.push('\n');
     (&stream)
@@ -1209,6 +1251,79 @@ mod tests {
         desk.create(None, String::new(), Some(other.clone()), true);
         let held = save(&mut desk, Some(&other), true).unwrap_err();
         assert!(held[0].message.contains("holds"), "{held:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_open_files_request_survives_the_wire() {
+        let files = vec![
+            PathBuf::from("/data/survey.sav"),
+            PathBuf::from("/data/job.sps"),
+        ];
+        let request = Request {
+            action: Action::OpenFiles,
+            files: files.clone(),
+            ..Request::default()
+        };
+        let text = serde_json::to_string(&request).unwrap();
+        assert!(text.contains(r#""action":"open_files""#), "{text}");
+        let back: Request = serde_json::from_str(&text).unwrap();
+        assert_eq!((back.action, back.files), (Action::OpenFiles, files));
+        // other requests carry no files and older ones still read
+        let run: Request = serde_json::from_str(r#"{"action":"run"}"#).unwrap();
+        assert!(run.files.is_empty());
+    }
+
+    /// The window answers at once with the files to open; only existing files given by their
+    /// absolute path pass, and a window that does not answer in time counts as none.
+    #[test]
+    fn the_window_takes_files_to_open_and_refuses_anything_else() {
+        let dir = folder("open-files");
+        let data = dir.join("survey.sav");
+        std::fs::write(&data, b"x").unwrap();
+        let endpoint = dir.join("gui.json");
+        let (sender, opened) = std::sync::mpsc::channel();
+        let server = serve(endpoint.clone(), move |request| {
+            let files = request.files_to_open()?.to_vec();
+            sender.send(files).unwrap();
+            Ok(String::new())
+        })
+        .unwrap();
+        let wait = Duration::from_secs(1);
+        assert_eq!(
+            open_in_window(&endpoint, vec![data.clone()], wait),
+            Ok(String::new())
+        );
+        assert_eq!(opened.try_recv().unwrap(), vec![data.clone()]);
+        let refused = |files: Vec<PathBuf>| {
+            let errors = open_in_window(&endpoint, files, wait).unwrap_err();
+            assert!(
+                errors[0].message.contains("not an existing file"),
+                "{errors:?}"
+            );
+        };
+        refused(vec![data.clone(), dir.join("missing.sps")]);
+        refused(vec![dir.clone()]);
+        refused(vec![PathBuf::from("survey.sav")]);
+        assert!(
+            opened.try_recv().is_err(),
+            "nothing refused reaches the window"
+        );
+        drop(server);
+        // no window: the endpoint file is gone with it
+        assert!(open_in_window(&endpoint, vec![data.clone()], wait).is_err());
+        // a window that takes the connection but does not answer counts as none too
+        let silent = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = silent.local_addr().unwrap();
+        let token = "t".to_string();
+        write_private(
+            &endpoint,
+            &serde_json::to_string(&Endpoint { address, token }).unwrap(),
+        )
+        .unwrap();
+        let started = std::time::Instant::now();
+        assert!(open_in_window(&endpoint, vec![data], Duration::from_millis(200)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(2));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

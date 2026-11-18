@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The window: a double-click on a .sav, .sps or other Statscraft file while Statscraft runs opens the file in the running window and its session, instead of a second program with its own session (where a syntax file found no data).
 - The Crosstabs dialog chooses how the significance is found: asymptotic only, Monte Carlo (confidence level and samples) or exact (with a time limit).
 - Excel export with all tables on one sheet: a table no plugin decorated no longer spoils the rest; the plugin's column widths and frozen columns hold for the whole sheet, and the grid stays hidden.
 - MANOVA: POWER adds the noncentrality and observed power to the F tests (univariate, multivariate, averaged) and to the t tests of the estimates, with F(alpha), T(alpha) and APPROXIMATE or EXACT multivariate power; CINTERVAL MULTIVARIATE(ROY, PILLAI, WILKS, HOTELLING or BONFER) gives intervals of the estimates that hold over all dependents; PCOMPS gives the principal components of the error correlation or covariance matrix (with rotation), and DISCRIM the discriminant functions of each multivariate effect and the covariates (raw and standardized coefficients, effect estimates, correlations, rotation, ALPHA). Checked against R (noncentral F and t, the F quantiles of each criterion, eigen, MASS::lda and varimax). Joint Roy intervals for a term of more than one df still give a "not supported yet" error. See [differences](docs/differences.md).
