@@ -634,7 +634,9 @@ mod tests {
             }],
             ..ok.clone()
         };
-        assert!(cut_uniform.syntax(&data()).is_err());
+        // a uniform input cannot be cut; its hidden cut fields are left out
+        let text = cut_uniform.syntax(&data()).unwrap();
+        assert!(!text.contains("MINVAL"), "{text}");
         let no_file = SimPlan {
             model: "t = a".into(),
             ..ok.clone()
