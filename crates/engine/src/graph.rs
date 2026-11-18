@@ -687,17 +687,19 @@ impl Context<'_> {
             Some(interval) => {
                 let mut margins = vec![vec![f64::NAN; n_categories]; n_series];
                 let mut lower = margins.clone();
-                // the cases counted in the chart, the base of a count's interval
+                // the weighted cases of a bar, and those counted in the whole chart: the base of a
+                // count's interval (the drawn value of a PCT bar is already a percentage)
+                let weight = |s: usize, k: usize| cells[s][k].iter().map(|c| c.1).sum::<f64>();
                 let counted: f64 = (0..n_series)
                     .flat_map(|s| (0..n_categories).map(move |k| (s, k)))
                     .filter(|&(s, k)| items[item_of(s, k)].function.counts_cases())
-                    .map(|(s, k)| values[s][k])
+                    .map(|(s, k)| weight(s, k))
                     .sum();
                 for s in 0..n_series {
                     for k in 0..n_categories {
                         let function = items[item_of(s, k)].function;
                         [lower[s][k], margins[s][k]] = match function.counts_cases() {
-                            true => count_bar(interval, function, values[s][k], counted),
+                            true => count_bar(interval, function, weight(s, k), counted),
                             false => bar_lengths(interval, function, &cells[s][k])?,
                         };
                     }
