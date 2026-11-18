@@ -60,11 +60,13 @@ pub fn glmm(ui: &mut Ui, d: &mut GenlinMixed, picked: &mut Vec<String>) {
         target_one(ui, "Analysis weight", &mut d.weight, picked);
         field(
             ui,
-            "Reference value of a binomial target",
+            "Reference value of a binomial or nominal target",
             &mut d.reference,
             60.0,
         );
-        ui.weak("Empty: the last value in the order below; the model is for the other value");
+        ui.weak(
+            "Empty: the last value in the order below; a binomial model is for the other value",
+        );
     });
     egui::CollapsingHeader::new("Fixed effects").show(ui, |ui| {
         ui.horizontal(|ui| {

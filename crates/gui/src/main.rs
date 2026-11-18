@@ -90,6 +90,8 @@ mod regression_more_dialog;
 mod regression_more_dialog_view;
 mod reports_dialog;
 mod reports_dialog_view;
+mod response_rate_dialog;
+mod response_rate_dialog_view;
 mod roc_analysis_dialog;
 mod roc_analysis_dialog_view;
 mod scaling_dialog;

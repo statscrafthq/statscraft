@@ -10,7 +10,7 @@ use statscraft_data::Dataset;
 use statscraft_syntax::{GenlinDistribution as D, GenlinLink as L, link_allowed};
 
 /// The distributions, keyword and label; the first, none written, lets the target decide.
-pub const GLMM_DISTRIBUTIONS: [(&str, &str); 7] = [
+pub const GLMM_DISTRIBUTIONS: [(&str, &str); 8] = [
     ("", "Automatic"),
     ("NORMAL", "Normal"),
     ("BINOMIAL", "Binomial"),
@@ -18,10 +18,11 @@ pub const GLMM_DISTRIBUTIONS: [(&str, &str); 7] = [
     ("INVERSE_GAUSSIAN", "Inverse Gaussian"),
     ("POISSON", "Poisson"),
     ("NEGATIVE_BINOMIAL", "Negative binomial"),
+    ("MULTINOMIAL", "Multinomial"),
 ];
 
 /// The links, keyword and label; the first, none written, is the distribution's own.
-pub const GLMM_LINKS: [(&str, &str); 9] = [
+pub const GLMM_LINKS: [(&str, &str); 10] = [
     ("", "Default of the distribution"),
     ("IDENTITY", "Identity"),
     ("LOG", "Log"),
@@ -31,6 +32,7 @@ pub const GLMM_LINKS: [(&str, &str); 9] = [
     ("NLOGLOG", "Negative log-log"),
     ("LOGC", "Log complement"),
     ("POWER", "Power"),
+    ("CAUCHIT", "Cauchit"),
 ];
 
 /// The structures of the random effects of a block; the first is the default.
@@ -282,21 +284,29 @@ impl GenlinMixed {
             "INVERSE_GAUSSIAN" => Some(D::InverseGaussian),
             "POISSON" => Some(D::Poisson),
             "NEGATIVE_BINOMIAL" => Some(D::NegativeBinomial(None)),
+            "MULTINOMIAL" => Some(D::Multinomial),
             _ => None,
         }
     }
 
     /// Link `i` of `GLMM_LINKS` goes with the distribution chosen; any does with automatic.
     pub fn link_allowed(&self, i: usize) -> bool {
-        let link = match GLMM_LINKS[i].0 {
-            "IDENTITY" => L::Identity,
-            "LOG" => L::Log,
-            "LOGIT" => L::Logit,
-            "PROBIT" => L::Probit,
-            "CLOGLOG" => L::Cloglog,
-            "NLOGLOG" => L::Nloglog,
-            "LOGC" => L::Logc,
-            "POWER" => L::Power(1.0),
+        // a multinomial target takes the cumulative form of the link, as the parser reads it
+        let multinomial = self.kind() == Some(D::Multinomial);
+        let link = match (GLMM_LINKS[i].0, multinomial) {
+            ("IDENTITY", _) => L::Identity,
+            ("LOG", _) => L::Log,
+            ("LOGIT", false) => L::Logit,
+            ("LOGIT", true) => L::CumLogit,
+            ("PROBIT", false) => L::Probit,
+            ("PROBIT", true) => L::CumProbit,
+            ("CLOGLOG", false) => L::Cloglog,
+            ("CLOGLOG", true) => L::CumCloglog,
+            ("NLOGLOG", false) => L::Nloglog,
+            ("NLOGLOG", true) => L::CumNloglog,
+            ("LOGC", _) => L::Logc,
+            ("POWER", _) => L::Power(1.0),
+            ("CAUCHIT", _) => L::CumCauchit,
             _ => return true,
         };
         self.kind().is_none_or(|d| link_allowed(d, link))
@@ -381,6 +391,7 @@ impl GenlinMixed {
                 ));
             }
         }
+        // the reference of a nominal multinomial target, or of a binomial one
         let reference = self.reference.trim();
         if !reference.is_empty() {
             let string = data.variable(target).is_ok_and(|v| v.is_string());
@@ -705,6 +716,33 @@ mod tests {
              /FIELDS TARGET=cured\n  /TARGET_OPTIONS DISTRIBUTION=NEGATIVE_BINOMIAL\n  \
              /FIXED EFFECTS=dose age."
         );
+    }
+
+    #[test]
+    fn a_multinomial_target_takes_the_cumulative_links_and_a_reference() {
+        let mut d = model();
+        d.distribution = 7;
+        d.link = 9;
+        d.reference = "2".into();
+        assert!(
+            syntax(&d)
+                .unwrap()
+                .contains("/TARGET_OPTIONS DISTRIBUTION=MULTINOMIAL LINK=CAUCHIT REFERENCE=2")
+        );
+        let allowed: Vec<&str> = (0..GLMM_LINKS.len())
+            .filter(|&i| d.link_allowed(i))
+            .map(|i| GLMM_LINKS[i].0)
+            .collect();
+        assert_eq!(
+            allowed,
+            ["", "LOGIT", "PROBIT", "CLOGLOG", "NLOGLOG", "CAUCHIT"]
+        );
+        // the other distributions never take the Cauchit link
+        d.distribution = 2;
+        assert!(syntax(&d).unwrap_err().contains("does not go with"));
+        d.distribution = 7;
+        d.link = 2;
+        assert!(syntax(&d).unwrap_err().contains("does not go with"));
     }
 
     #[test]

@@ -44,6 +44,7 @@ use crate::nptests_dialog::{NpKind, Nptests};
 use crate::output;
 use crate::output_view;
 use crate::power_dialog::{POWER_MENU, PowerAnalysis};
+use crate::response_rate_dialog::ResponseRate;
 use crate::roc_analysis_dialog::RocAnalysis;
 use crate::settings::{Settings, usable_position, usable_size};
 use crate::settings_window::{self, Section};
@@ -272,6 +273,7 @@ pub(crate) enum Dialog {
     OptimalBinning(OptimalBinning),
     // boxed: large dialogs
     RocAnalysis(Box<RocAnalysis>),
+    ResponseRate(ResponseRate),
     ControlCharts(Box<ControlCharts>),
     Catreg(Box<CategoricalRegression>),
 }
@@ -333,6 +335,7 @@ impl Dialog {
             Dialog::VarianceComponents(_) => "Variance Components",
             Dialog::OptimalBinning(_) => "Optimal Binning",
             Dialog::RocAnalysis(_) => "ROC Analysis",
+            Dialog::ResponseRate(_) => "Response Rate",
             Dialog::ControlCharts(_) => "Control Charts",
             Dialog::Catreg(_) => "Categorical Regression",
         }
@@ -406,6 +409,7 @@ impl Dialog {
             Dialog::VarianceComponents(_) => Dialog::VarianceComponents(Default::default()),
             Dialog::OptimalBinning(_) => Dialog::OptimalBinning(Default::default()),
             Dialog::RocAnalysis(_) => Dialog::RocAnalysis(Default::default()),
+            Dialog::ResponseRate(_) => Dialog::ResponseRate(Default::default()),
             Dialog::ControlCharts(_) => Dialog::ControlCharts(Default::default()),
             Dialog::Catreg(_) => Dialog::Catreg(Default::default()),
         }
@@ -562,6 +566,7 @@ impl Dialog {
                 numeric(data, &d.tests).and_then(|()| d.syntax(is_string(data, &d.state)))
             }
             Dialog::RocAnalysis(d) => d.syntax(data),
+            Dialog::ResponseRate(d) => d.syntax(data),
             Dialog::ControlCharts(d) => d.syntax(data),
             Dialog::Catreg(d) => d.syntax(),
         }
@@ -1993,6 +1998,9 @@ impl App {
                         }
                         if ui.button("ROC Analysis...").clicked() {
                             self.open_dialog(Dialog::RocAnalysis(Default::default()));
+                        }
+                        if ui.button("Response Rate...").clicked() {
+                            self.open_dialog(Dialog::ResponseRate(Default::default()));
                         }
                         if ui.button("Nearest Neighbor...").clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Knn(Default::default())));
@@ -6495,6 +6503,7 @@ fn dialog_body(
         Dialog::VarianceComponents(d) => model_more_dialog_view::variance_components(ui, d, picked),
         Dialog::OptimalBinning(d) => model_more_dialog_view::optimal_binning(ui, d, picked),
         Dialog::RocAnalysis(d) => crate::roc_analysis_dialog_view::roc_analysis(ui, d, picked),
+        Dialog::ResponseRate(d) => crate::response_rate_dialog_view::response_rate(ui, d, picked),
         Dialog::ControlCharts(d) => crate::spchart_dialog_view::control_charts(ui, d, picked),
         Dialog::Catreg(d) => crate::catreg_dialog_view::catreg(ui, d, picked),
         Dialog::Advanced(d) => advanced_dialogs_view::body(ui, data, d, picked, folder),

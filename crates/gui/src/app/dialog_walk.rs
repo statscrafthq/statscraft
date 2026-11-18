@@ -55,6 +55,7 @@ use crate::oms_dialog::{Oms, Omsend};
 use crate::proportions_dialog::{Proportions, ProportionsKind};
 use crate::proximities_dialog::Distances;
 use crate::reports_dialog::{Codebook, OlapCubes, OlapDifference, Summarize};
+use crate::response_rate_dialog::ResponseRate;
 use crate::roc_analysis_dialog::RocAnalysis;
 use crate::simulation_dialog::{
     CorrelationRow, FixedRow, SaveCases, SimInputRow, SimPlan, SimRun, Simulation,
@@ -423,6 +424,17 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             }],
             ..Default::default()
         }))),
+        Dialog::Advanced(Advanced::Glmm(Box::new(GenlinMixed {
+            subjects: v(&["region"]),
+            target: s("q1_satisfaction"),
+            distribution: 7,
+            inputs: v(&["age"]),
+            random: vec![RandomBlock {
+                subjects: v(&["region"]),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))),
         Dialog::Advanced(Advanced::Correspondence(Correspondence {
             row: table_variable("region", "1", "5", &[]),
             column: table_variable("q6_mention1", "1", "6", &[]),
@@ -726,6 +738,12 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         value: s("1"),
         ..Default::default()
     })));
+    list.push(Dialog::ResponseRate(ResponseRate {
+        numerator: s("q1_satisfaction"),
+        denominator: s("age"),
+        group: s("region"),
+        ..Default::default()
+    }));
     list.push(Dialog::ControlCharts(Box::new(ControlCharts {
         process: s("age"),
         group: s("region"),
@@ -2647,6 +2665,20 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         })));
     }
+    for (min_rate, max_count) in [(1, 1), (2, 2)] {
+        list.push(Dialog::ResponseRate(ResponseRate {
+            numerator: s("q1_satisfaction"),
+            denominator: s("age"),
+            group: s("region"),
+            min_rate,
+            rate: s("5"),
+            cost: s("0.6"),
+            revenue: s("30"),
+            max_count,
+            count: s("600"),
+            percent: s("50"),
+        }));
+    }
     list.push(Dialog::ControlCharts(Box::new(ControlCharts {
         process: s("age"),
         group: s("region"),
@@ -2788,6 +2820,25 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         }],
         ..Default::default()
     }))));
+    // an ordinal target with a cumulative link, and a nominal one with its reference
+    for (target, subjects, link, reference) in [
+        ("q1_satisfaction", "region", 9, ""),
+        ("plan", "region", 0, "BASIC"),
+    ] {
+        list.push(Dialog::Advanced(Advanced::Glmm(Box::new(GenlinMixed {
+            subjects: v(&[subjects]),
+            target: s(target),
+            distribution: 7,
+            link,
+            reference: s(reference),
+            inputs: v(&["age"]),
+            random: vec![RandomBlock {
+                subjects: v(&[subjects]),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))));
+    }
     list.push(Dialog::Advanced(Advanced::Glmm(Box::new(GenlinMixed {
         subjects: v(&["region"]),
         repeated: v(&["resp_id"]),
@@ -6487,6 +6538,7 @@ fn family(dialog: &Dialog) -> usize {
         | Dialog::ProbabilityPlot(_)
         | Dialog::RocCurve(_)
         | Dialog::RocAnalysis(_)
+        | Dialog::ResponseRate(_)
         | Dialog::ControlCharts(_) => 2,
         Dialog::Regression(_)
         | Dialog::Reliability(_)
