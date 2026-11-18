@@ -1205,7 +1205,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
                  \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE | REPORT]\n\
                  \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
-                 \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].\n\
+                 \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART]\n\
+                 \x20         [/METHOD=MC [CIN(99)] [SAMPLES(10000)] | EXACT [TIMER(5)]].\n\
                  First a Case Processing Summary: per table the valid, missing and total cases (weighted).\n\
                  One table per pair of row and column variable; layer variables split it into blocks.\n\
                  NOTABLES leaves out the tables, as CELLS=NONE does, keeping the statistics.\n\
@@ -1238,7 +1239,19 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  that occur. TABLES then names only variables of VARIABLES, and TO and ALL follow their order there.\n\
                  MISSING=REPORT (integer mode only) shows the user-missing values of the rows and columns\n\
                  marked (missing): their cells hold counts, nothing else, and stay out of totals, percentages\n\
-                 and statistics; the cases count as missing.",
+                 and statistics; the cases count as missing.\n\
+                 METHOD adds significances computed from the tables that share the observed row and column\n\
+                 totals, next to the asymptotic ones, on whole counts (cells rounded, or truncated with\n\
+                 TRUNCATE). EXACT walks all such tables with a network of partial tables: the chi-square\n\
+                 table gets the exact two-sided significance and the point probability of Pearson, the\n\
+                 likelihood ratio, Fisher's test (any size) and the linear-by-linear association (also\n\
+                 one-sided); the measures tables an Exact Significance column for phi, Cramer's V, the\n\
+                 contingency coefficient, lambda (not the symmetric value), Goodman and Kruskal's tau, the\n\
+                 uncertainty coefficient, Kendall's tau-b and tau-c, Somers' d, Spearman, Pearson's R and\n\
+                 kappa. TIMER(minutes) bounds each statistic (0: no bound); one that runs over, or would\n\
+                 need too much memory, keeps only its asymptotic value, with a warning. MC instead draws SAMPLES random tables with those\n\
+                 totals from the SET SEED generator and shows the share at least as extreme with its\n\
+                 interval at CIN percent. Gamma, eta, McNemar-Bowker and CMH stay asymptotic.",
         example: "CROSSTABS /TABLES=region BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.",
         parse: procedures::crosstabs,
     },

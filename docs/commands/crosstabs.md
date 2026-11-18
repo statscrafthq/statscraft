@@ -12,7 +12,8 @@ CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]
           [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]
           [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE | REPORT]
           [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]
-          [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].
+          [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART]
+          [/METHOD=MC [CIN(99)] [SAMPLES(10000)] | EXACT [TIMER(5)]].
 ```
 
 First a Case Processing Summary: per table the valid, missing and total cases (weighted).
@@ -38,6 +39,8 @@ BARCHART adds a clustered bar chart per table: a cluster per row category, a bar
 VARIABLES switches to integer mode: a range follows each list (it covers the whole list) and values are cut to whole numbers. Rows and columns are every value of the range, with or without cases; a value outside it makes the case missing. The statistics use the values that occur. TABLES then names only variables of VARIABLES, and TO and ALL follow their order there.
 
 MISSING=REPORT (integer mode only) shows the user-missing values of the rows and columns marked (missing): their cells hold counts, nothing else, and stay out of totals, percentages and statistics; the cases count as missing.
+
+METHOD adds significances computed from the tables that share the observed row and column totals, next to the asymptotic ones, on whole counts (cells rounded, or truncated with TRUNCATE). EXACT walks all such tables with a network of partial tables: the chi-square table gets the exact two-sided significance and the point probability of Pearson, the likelihood ratio, Fisher's test (any size) and the linear-by-linear association (also one-sided); the measures tables an Exact Significance column for phi, Cramer's V, the contingency coefficient, lambda (not the symmetric value), Goodman and Kruskal's tau, the uncertainty coefficient, Kendall's tau-b and tau-c, Somers' d, Spearman, Pearson's R and kappa. TIMER(minutes) bounds each statistic (0: no bound); one that runs over, or would need too much memory, keeps only its asymptotic value, with a warning. MC instead draws SAMPLES random tables with those totals from the SET SEED generator and shows the share at least as extreme with its interval at CIN percent. Gamma, eta, McNemar-Bowker and CMH stay asymptotic.
 
 ## Example
 

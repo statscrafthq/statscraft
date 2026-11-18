@@ -21,6 +21,7 @@ mod complex_samples;
 mod conjoint;
 mod correspondence;
 mod coxreg;
+mod crosstabs_exact;
 mod cs_cox;
 mod cs_pps;
 mod cs_regression;

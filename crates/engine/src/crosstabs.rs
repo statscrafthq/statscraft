@@ -4,13 +4,17 @@
 use crate::chart::{
     self, Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic, Tier,
 };
+use crate::crosstabs_exact::{Found, Input, Outcome, Stat, significances};
 use crate::crosstabs_measures::{Counts, cmh, mcnemar as mcnemar_test, risk};
 use crate::descriptives::{case_weights, number};
 use crate::dist::chi_square_p;
+use crate::random::Random;
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
-use statscraft_syntax::{Crosstabs, CrosstabsCell as C, CrosstabsMeasure, VarItem, WeightCount};
+use statscraft_syntax::{
+    Crosstabs, CrosstabsCell as C, CrosstabsMeasure, CrosstabsMethod, VarItem, WeightCount,
+};
 use std::cmp::Ordering;
 
 /// A category: the value of a case.
@@ -91,7 +95,7 @@ pub(crate) struct Block {
 }
 
 /// A weight or count as a whole number, as `/COUNT` asks.
-fn whole(value: f64, truncate: bool) -> f64 {
+pub(crate) fn whole(value: f64, truncate: bool) -> f64 {
     if truncate {
         value.trunc()
     } else {
@@ -491,6 +495,7 @@ fn tables(
     command: &Crosstabs,
     ranges: &[(String, f64, f64)],
     (shown, outline): (&Shown, &Shown),
+    (random, warnings): (&mut Random, &mut Vec<String>),
 ) -> Result<Crosstab, Error> {
     let variables: Vec<Variable> = names
         .iter()
@@ -599,6 +604,20 @@ fn tables(
     let title: Vec<String> = variables.iter().map(|v| outline.variable(v)).collect();
     let title = title.join(" by ");
     let mut out = Vec::new();
+    let sigs: Vec<Found> = match command.method {
+        Some(method) => (blocks.iter())
+            .map(|b| {
+                block_significances(
+                    b,
+                    &variables,
+                    command,
+                    method,
+                    (&mut *random, &mut *warnings),
+                )
+            })
+            .collect(),
+        None => vec![Vec::new(); blocks.len()],
+    };
 
     if !command.cells.is_empty() && !shown_blocks.is_empty() {
         // the columns of every layer; a layer without one of them leaves its cells blank
@@ -668,7 +687,8 @@ fn tables(
         let mut note = None;
         let tests: Vec<_> = blocks
             .iter()
-            .map(|b| {
+            .zip(&sigs)
+            .map(|(b, sigs)| {
                 let mut rows = match command.chisq {
                     true => b.tests(numeric),
                     false => vec![(
@@ -690,27 +710,59 @@ fn tables(
                         None => note = Some("The McNemar test needs a square table: the same values, at least two, in the rows and the columns."),
                     }
                 }
-                (b, rows)
+                (b, with_significance(rows, sigs, b.rows.len() == 2 && b.columns.len() == 2))
             })
             .collect();
-        let exact = tests
-            .iter()
-            .any(|(_, rows)| rows.iter().any(|(_, v)| v[3].is_some()));
+        // the value, df and asymptotic significance, then each group of columns some row fills
+        let groups: [&[usize]; 5] = [&[0, 1, 2], &[3, 4], &[5], &[6, 7, 8], &[9, 10, 11]];
+        let filled = |group: &[usize]| {
+            (tests.iter()).any(|(_, rows)| rows.iter().any(|(_, v)| v[group[0]].is_some()))
+        };
+        let shown: Vec<usize> = (groups.iter().enumerate())
+            .filter(|&(k, g)| k == 0 || filled(g))
+            .flat_map(|(_, g)| g.iter().copied())
+            .collect();
         let mut columns: Vec<String> = layer_names().collect();
         let headers = columns.len() + 1;
-        columns
-            .extend(["Statistic", "Value", "df", "Asymptotic Sig. (2-tailed)"].map(String::from));
-        if exact {
-            columns.extend(["Exact Sig. (2-tailed)", "Exact Sig. (1-tailed)"].map(String::from));
+        columns.push("Statistic".into());
+        let mut column_groups = vec![Vec::new(); columns.len()];
+        let interval = |side: &str| match command.method {
+            Some(CrosstabsMethod::MonteCarlo { level, .. }) => {
+                vec![side.to_string(), format!("{level}% Confidence Interval")]
+            }
+            _ => Vec::new(),
+        };
+        for &k in &shown {
+            let (name, group) = match k {
+                0 => ("Value", Vec::new()),
+                1 => ("df", Vec::new()),
+                2 => ("Asymptotic Sig. (2-tailed)", Vec::new()),
+                3 => ("Exact Sig. (2-tailed)", Vec::new()),
+                4 => ("Exact Sig. (1-tailed)", Vec::new()),
+                5 => ("Point Probability", Vec::new()),
+                6 => (
+                    "Significance",
+                    vec!["Monte Carlo Sig. (2-tailed)".to_string()],
+                ),
+                7 => ("Lower Bound", interval("Monte Carlo Sig. (2-tailed)")),
+                8 => ("Upper Bound", interval("Monte Carlo Sig. (2-tailed)")),
+                9 => (
+                    "Significance",
+                    vec!["Monte Carlo Sig. (1-tailed)".to_string()],
+                ),
+                10 => ("Lower Bound", interval("Monte Carlo Sig. (1-tailed)")),
+                _ => ("Upper Bound", interval("Monte Carlo Sig. (1-tailed)")),
+            };
+            columns.push(name.into());
+            column_groups.push(group);
         }
         let mut rows = Vec::new();
         for (block, block_tests) in tests {
             for (name, values) in block_tests {
                 let mut row = layer_cells(block);
                 row.push(Cell::Text(name.into()));
-                let shown = if exact { 5 } else { 3 };
-                row.extend(values[..shown].iter().map(|v| match v {
-                    Some(v) if v.is_finite() => Cell::Number(*v),
+                row.extend(shown.iter().map(|&k| match values[k] {
+                    Some(v) if v.is_finite() => Cell::Number(v),
                     _ => Cell::Empty,
                 }));
                 rows.push(row);
@@ -720,7 +772,7 @@ fn tables(
             caption: note.map(String::from),
             title: format!("Chi-Square Tests: {title}"),
             row_headers: headers,
-            column_groups: vec![Vec::new(); columns.len()],
+            column_groups,
             columns,
             rows,
             ..Table::default()
@@ -728,7 +780,7 @@ fn tables(
     }
     if !command.measures.is_empty() {
         out.extend(measure_tables(
-            &blocks,
+            (&blocks, &sigs),
             &variables,
             command,
             (shown, &title),
@@ -891,7 +943,7 @@ fn square(block: &Block, variables: &[Variable]) -> Option<Vec<Vec<f64>>> {
 /// The Symmetric Measures and Directional Measures tables, a block of lines per layer. A layer
 /// with one row or column has only its case count.
 fn measure_tables(
-    blocks: &[Block],
+    (blocks, sigs): (&[Block], &[Found]),
     variables: &[Variable],
     command: &Crosstabs,
     (shown, title): (&Shown, &str),
@@ -908,7 +960,12 @@ fn measure_tables(
     let mut risks = Vec::new();
     let mut notes: Vec<&str> = Vec::new();
     let mut notes_risk = false;
-    for block in blocks {
+    for (block, sigs) in blocks.iter().zip(sigs) {
+        let method_cells = |name: &str, dependent: u8| {
+            let stat = Stat::of(name, dependent);
+            let found = sigs.iter().find(|(s, _)| Some(*s) == stat);
+            measure_cells(command.method, found.map(|(_, o)| o))
+        };
         let layer: Vec<Cell> = (2..variables.len())
             .zip(&block.layer)
             .map(|(v, k)| Cell::Text(shown.value(&variables[v], k)))
@@ -959,6 +1016,7 @@ fn measure_tables(
             group_shown = l.group;
             row.push(Cell::Text(l.name.into()));
             row.extend([Some(l.value), l.ase, l.t, l.sig].map(number));
+            row.extend(method_cells(l.name, l.dependent));
             symmetric.push(row);
         }
         let mut row = layer.clone();
@@ -969,6 +1027,7 @@ fn measure_tables(
             Cell::Empty,
             Cell::Empty,
         ]);
+        row.extend(measure_cells(command.method, None));
         symmetric.push(row);
         if command.measures.contains(&CrosstabsMeasure::Risk) {
             if (block.rows.len(), block.columns.len()) == (2, 2) {
@@ -1031,6 +1090,7 @@ fn measure_tables(
                     ),
                 }));
                 row.extend([Some(l.value), l.ase, l.t, l.sig].map(number));
+                row.extend(method_cells(l.name, l.dependent));
                 directional.push(row);
             }
         }
@@ -1046,10 +1106,24 @@ fn measure_tables(
         columns.extend(std::iter::repeat_n(String::new(), labels));
         let headers = columns.len();
         columns.extend(leaves.map(String::from));
+        let mut column_groups = vec![Vec::new(); columns.len()];
+        match command.method {
+            Some(CrosstabsMethod::Exact { .. }) => {
+                columns.push("Exact Significance".into());
+                column_groups.push(Vec::new());
+            }
+            Some(CrosstabsMethod::MonteCarlo { level, .. }) => {
+                let group = "Monte Carlo Significance".to_string();
+                let interval = vec![group.clone(), format!("{level}% Confidence Interval")];
+                columns.extend(["Significance", "Lower Bound", "Upper Bound"].map(String::from));
+                column_groups.extend([vec![group], interval.clone(), interval]);
+            }
+            None => {}
+        }
         Table {
             title: format!("{name}: {title}"),
             row_headers: headers,
-            column_groups: vec![Vec::new(); columns.len()],
+            column_groups,
             columns,
             rows,
             ..Table::default()
@@ -1095,6 +1169,137 @@ fn measure_tables(
     out
 }
 
+/// The exact or Monte Carlo cells of a measures line: its significance, or that with its
+/// interval; none without METHOD.
+fn measure_cells(method: Option<CrosstabsMethod>, outcome: Option<&Outcome>) -> Vec<Cell> {
+    let mut cells = match method {
+        None => Vec::new(),
+        Some(CrosstabsMethod::Exact { .. }) => vec![Cell::Empty],
+        Some(CrosstabsMethod::MonteCarlo { .. }) => vec![Cell::Empty; 3],
+    };
+    match outcome {
+        Some(Outcome::Exact { two, .. }) => cells[0] = Cell::Number(*two),
+        Some(Outcome::MonteCarlo { two, .. }) => {
+            for (cell, v) in cells.iter_mut().zip(two) {
+                *cell = Cell::Number(*v);
+            }
+        }
+        None => {}
+    }
+    cells
+}
+
+/// The rows of the chi-square table widened for METHOD: 3 and 4 the exact two- and one-sided
+/// significance, 5 the point probability, 6 to 8 and 9 to 11 the Monte Carlo two- and one-sided
+/// significance with its interval. Fisher's test of a table larger than 2 x 2 gets a row of
+/// its own; that of a 2 x 2 table keeps its exact values, adding the point probability.
+type Row = (&'static str, [Option<f64>; 12]);
+
+fn with_significance(
+    rows: Vec<(&'static str, [Option<f64>; 5])>,
+    sigs: &[(Stat, Outcome)],
+    two_by_two: bool,
+) -> Vec<Row> {
+    let mut out: Vec<Row> = (rows.into_iter())
+        .map(|(name, v)| {
+            let mut wide = [None; 12];
+            wide[..5].copy_from_slice(&v);
+            (name, wide)
+        })
+        .collect();
+    let fisher = sigs.iter().any(|(s, _)| *s == Stat::Fisher);
+    let ratio = out.iter().position(|(n, _)| *n == "Likelihood Ratio");
+    if let (true, false, Some(at)) = (fisher, two_by_two, ratio) {
+        out.insert(at + 1, ("Fisher's Exact Test", [None; 12]));
+    }
+    for (name, v) in &mut out {
+        let Some(stat) = Stat::of(name, 0) else {
+            continue;
+        };
+        let Some((_, outcome)) = sigs.iter().find(|(s, _)| *s == stat) else {
+            continue;
+        };
+        let kept = stat == Stat::Fisher && two_by_two;
+        match *outcome {
+            Outcome::Exact { two, one, point } => {
+                if !kept {
+                    (v[3], v[4]) = (Some(two), one);
+                }
+                v[5] = Some(point);
+            }
+            Outcome::MonteCarlo { two, one } if !kept => {
+                for k in 0..3 {
+                    v[6 + k] = Some(two[k]);
+                    v[9 + k] = one.map(|o| o[k]);
+                }
+            }
+            Outcome::MonteCarlo { .. } => {}
+        }
+    }
+    out
+}
+
+/// The exact or Monte Carlo significance of the statistics the command asks for, on one block.
+fn block_significances(
+    block: &Block,
+    variables: &[Variable],
+    command: &Crosstabs,
+    method: CrosstabsMethod,
+    (random, warnings): (&mut Random, &mut Vec<String>),
+) -> Found {
+    use CrosstabsMeasure as M;
+    let mut stats = Vec::new();
+    if command.chisq {
+        stats.extend([Stat::Pearson, Stat::Ratio, Stat::Fisher, Stat::Linear]);
+    }
+    for m in &command.measures {
+        stats.extend_from_slice(match m {
+            M::Phi | M::Cc => &[Stat::Pearson][..],
+            M::Lambda => &[
+                Stat::LambdaRows,
+                Stat::LambdaColumns,
+                Stat::TauRows,
+                Stat::TauColumns,
+            ],
+            M::Uc => &[Stat::Ratio],
+            M::Btau | M::Ctau | M::D => &[Stat::Concordance],
+            M::Corr => &[Stat::Spearman, Stat::Linear],
+            M::Kappa => &[Stat::Kappa],
+            _ => &[],
+        });
+    }
+    let mut unique = Vec::new();
+    for s in stats {
+        if !unique.contains(&s) {
+            unique.push(s);
+        }
+    }
+    let numeric = !variables[0].is_string() && !variables[1].is_string();
+    let value = |k: &Key| match k {
+        Key::Number(n) => *n,
+        Key::Text(_) => 0.0,
+    };
+    // ascending rows, as the measures take them
+    let mut f = block.counts.clone();
+    let mut row_values: Vec<f64> = block.rows.iter().map(value).collect();
+    if command.descending {
+        f.reverse();
+        row_values.reverse();
+    }
+    let column_values: Vec<f64> = block.columns.iter().map(value).collect();
+    let square = match unique.contains(&Stat::Kappa) {
+        true => square(block, variables),
+        false => None,
+    };
+    let input = Input {
+        f: &f,
+        values: numeric.then_some((&row_values[..], &column_values[..])),
+        square: square.as_deref(),
+        truncate: block.truncate,
+    };
+    significances(&input, &unique, method, random, warnings)
+}
+
 /// Integer mode: the names of a TABLES list, where TO and ALL follow the order of VARIABLES.
 fn listed(items: &[VarItem], ranges: &[(String, f64, f64)]) -> Result<Vec<String>, Error> {
     let position = |name: &str| {
@@ -1132,6 +1337,7 @@ impl Engine {
         let mut out = Vec::new();
         let mut charts = Vec::new();
         let mut summary = Vec::new();
+        let mut warnings = Vec::new();
         // integer mode: every variable of VARIABLES with its range, a later range replacing an
         // earlier one
         let mut ranges: Vec<(String, f64, f64)> = Vec::new();
@@ -1171,14 +1377,21 @@ impl Engine {
                     .collect();
             }
             for names in combinations {
-                let (tables, chart, row) =
-                    tables(data, &names, command, &ranges, (&shown, &outline))?;
+                let (tables, chart, row) = tables(
+                    data,
+                    &names,
+                    command,
+                    &ranges,
+                    (&shown, &outline),
+                    (&mut self.random.borrow_mut(), &mut warnings),
+                )?;
                 out.extend(tables);
                 charts.extend(chart);
                 summary.push(row);
             }
         }
         self.charts.extend(charts);
+        self.warnings.extend(warnings);
         let mut columns = vec![String::new()];
         let mut column_groups = vec![Vec::new()];
         for group in ["Valid", "Missing", "Total"] {

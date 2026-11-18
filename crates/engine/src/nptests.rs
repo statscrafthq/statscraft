@@ -190,7 +190,7 @@ fn beta_quantile(q: f64, a: f64, b: f64) -> f64 {
 }
 
 /// The share of draws at or above `observed` and its confidence interval at `level` percent.
-fn monte_carlo(at_or_above: usize, samples: usize, level: f64) -> [f64; 3] {
+pub(crate) fn monte_carlo(at_or_above: usize, samples: usize, level: f64) -> [f64; 3] {
     let n = samples as f64;
     let p = at_or_above as f64 / n;
     let z = normal_quantile(1.0 - (1.0 - level / 100.0) / 2.0);

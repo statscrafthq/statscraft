@@ -230,7 +230,7 @@ const NPAR_SUBCOMMANDS: [&str; 18] = [
 ];
 
 /// A number in parentheses or after '=', for settings such as CIN(99).
-fn setting(p: &mut Parser) -> PResult<f64> {
+pub(crate) fn setting(p: &mut Parser) -> PResult<f64> {
     let parenthesized = p.eat(Punct::LParen);
     if !parenthesized {
         p.eat(Punct::Eq);

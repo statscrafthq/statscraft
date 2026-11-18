@@ -96,6 +96,7 @@ fn crosstabs() {
             barchart: false,
             ranges: Vec::new(),
             report: false,
+            method: None,
         })
     );
     assert_eq!(
@@ -118,6 +119,7 @@ fn crosstabs() {
             barchart: false,
             ranges: Vec::new(),
             report: false,
+            method: None,
         })
     );
     // integer mode: a range after a list covers the whole list; fractions are cut off
@@ -238,6 +240,76 @@ fn crosstabs() {
         err("CROSSTABS a BY b /FORMAT=NOBOX.")
             .message
             .contains("NOBOX in CROSSTABS /FORMAT is not supported yet")
+    );
+}
+
+#[test]
+fn crosstabs_method() {
+    let method = |source: &str| match one(source) {
+        Command::Crosstabs(c) => c.method,
+        _ => panic!(),
+    };
+    use CrosstabsMethod as M;
+    assert_eq!(method("CROSSTABS a BY b."), None);
+    assert_eq!(
+        method("CROSSTABS a BY b /METHOD=EXACT."),
+        Some(M::Exact { minutes: 5.0 })
+    );
+    assert_eq!(
+        method("CROSSTABS a BY b /METH=EXA TIM(0)."),
+        Some(M::Exact { minutes: 0.0 })
+    );
+    assert_eq!(
+        method("CROSSTABS a BY b /METHOD=MC."),
+        Some(M::MonteCarlo {
+            level: 99.0,
+            samples: 10_000
+        })
+    );
+    assert_eq!(
+        method("CROSSTABS a BY b /STATISTICS=CHISQ /METHOD=MC SAMPLES(500) CIN(95)."),
+        Some(M::MonteCarlo {
+            level: 95.0,
+            samples: 500
+        })
+    );
+    for (source, message) in [
+        (
+            "CROSSTABS a BY b /METHOD=MC TIMER(2).",
+            "MC takes only CIN and SAMPLES",
+        ),
+        (
+            "CROSSTABS a BY b /METHOD=EXACT CIN(95).",
+            "EXACT takes only TIMER",
+        ),
+        ("CROSSTABS a BY b /METHOD=EXACT MC.", "exclude each other"),
+        (
+            "CROSSTABS a BY b /METHOD=MC CIN(100).",
+            "CIN needs a level from 0.01 to 99.9",
+        ),
+        (
+            "CROSSTABS a BY b /METHOD=MC SAMPLES(0).",
+            "SAMPLES needs a whole number",
+        ),
+        (
+            "CROSSTABS a BY b /METHOD=MC SAMPLES(2.5).",
+            "SAMPLES needs a whole number",
+        ),
+        (
+            "CROSSTABS a BY b /METHOD=EXACT TIMER(-1).",
+            "TIMER needs a whole number",
+        ),
+        (
+            "CROSSTABS a BY b /METHOD=MC CIN(95) CIN(90).",
+            "CIN is given twice",
+        ),
+    ] {
+        let error = err(source).message;
+        assert!(error.contains(message), "{source}: {error}");
+    }
+    assert_eq!(
+        err("CROSSTABS a BY b /METHOD=ASYMPTOTIC.").expected,
+        ["MC", "EXACT"]
     );
 }
 

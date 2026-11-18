@@ -1,8 +1,8 @@
 //! Parsers of the statistical procedures DESCRIPTIVES and CROSSTABS.
 
 use crate::ast::{
-    Command, Crosstabs, CrosstabsCell, DescriptiveStatistic as Stat, Descriptives, VarItem,
-    WeightCount,
+    Command, Crosstabs, CrosstabsCell, CrosstabsMethod, DescriptiveStatistic as Stat, Descriptives,
+    VarItem, WeightCount,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -42,7 +42,7 @@ const STATISTICS: [(&str, &[Stat]); 14] = [
     ),
 ];
 
-const CROSSTABS_SUBCOMMANDS: [&str; 3] = ["WRITE", "METHOD", "EXACT"];
+const CROSSTABS_SUBCOMMANDS: [&str; 2] = ["WRITE", "EXACT"];
 
 const CELLS: [(&str, &[CrosstabsCell]); 10] = [
     ("COUNT", &[CrosstabsCell::Count]),
@@ -246,6 +246,73 @@ fn crosstabs_table(p: &mut Parser) -> PResult<Vec<Vec<VarItem>>> {
     Ok(dimensions)
 }
 
+/// `MC [CIN(level)] [SAMPLES(n)]` or `EXACT [TIMER(minutes)]`, each setting at most once.
+fn crosstabs_method(p: &mut Parser) -> PResult<CrosstabsMethod> {
+    let exact = if p.eat_word("MC") {
+        false
+    } else if p.eat_keyword("EXACT") {
+        true
+    } else {
+        return Err(p.unexpected(&["MC", "EXACT"]));
+    };
+    let (mut level, mut samples, mut minutes) = (99.0, 10_000.0, 5.0);
+    let mut seen: Vec<&str> = Vec::new();
+    while !at_end(p) {
+        let at = p.pos;
+        let names: &[&str] = if exact {
+            &["TIMER"]
+        } else {
+            &["CIN", "SAMPLES"]
+        };
+        let Some(&name) = names.iter().find(|n| p.at_keyword(n)) else {
+            let other = ["MC", "EXACT", "CIN", "SAMPLES", "TIMER"];
+            if other.iter().any(|n| p.at_keyword(n)) {
+                let message = match exact {
+                    true => "EXACT takes only TIMER; MC and EXACT exclude each other",
+                    false => "MC takes only CIN and SAMPLES; MC and EXACT exclude each other",
+                };
+                return Err(SyntaxError::new(p.span_from(at), message));
+            }
+            return Err(p.unexpected(names));
+        };
+        p.pos += 1;
+        if seen.contains(&name) {
+            let message = format!("{name} is given twice");
+            return Err(SyntaxError::new(p.span_from(at), message));
+        }
+        seen.push(name);
+        let value = crate::npar::setting(p)?;
+        let (ok, rule) = match name {
+            "CIN" => ((0.01..=99.9).contains(&value), "a level from 0.01 to 99.9"),
+            "SAMPLES" => (
+                value.fract() == 0.0 && (1.0..=1e9).contains(&value),
+                "a whole number from 1 to 1000000000",
+            ),
+            _ => (
+                value.fract() == 0.0 && value >= 0.0,
+                "a whole number of minutes, 0 for no limit",
+            ),
+        };
+        if !ok {
+            let message = format!("{name} needs {rule}, got {value}");
+            return Err(SyntaxError::new(p.span_from(at), message));
+        }
+        match name {
+            "CIN" => level = value,
+            "SAMPLES" => samples = value,
+            _ => minutes = value,
+        }
+        p.eat(Punct::Comma);
+    }
+    Ok(match exact {
+        true => CrosstabsMethod::Exact { minutes },
+        false => CrosstabsMethod::MonteCarlo {
+            level,
+            samples: samples as u64,
+        },
+    })
+}
+
 pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
     let mut command = Crosstabs {
         tables: Vec::new(),
@@ -260,6 +327,7 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         barchart: false,
         ranges: Vec::new(),
         report: false,
+        method: None,
     };
     let mut cells: Option<Vec<CrosstabsCell>> = None;
     let mut no_tables = false;
@@ -464,6 +532,9 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
             no_tables = last([2, 3]).map_or(no_tables, |c| c == 3);
         } else if p.eat_keyword("BARCHART") {
             command.barchart = true;
+        } else if p.eat_keyword("METHOD") {
+            p.eat(Punct::Eq);
+            command.method = Some(crosstabs_method(p)?);
         } else {
             return Err(p.subcommand_error("CROSSTABS", &CROSSTABS_SUBCOMMANDS));
         }

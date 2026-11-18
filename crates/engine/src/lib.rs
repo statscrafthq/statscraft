@@ -25,6 +25,7 @@ mod correlations;
 mod correspondence;
 mod coxreg;
 mod crosstabs;
+mod crosstabs_exact;
 mod crosstabs_measures;
 mod ctables;
 mod curvefit;

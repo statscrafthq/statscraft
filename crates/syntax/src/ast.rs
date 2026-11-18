@@ -994,6 +994,17 @@ pub struct Crosstabs {
     /// `/MISSING=REPORT` (integer mode): user-missing values are shown in the tables, marked,
     /// but left out of totals, percentages and statistics.
     pub report: bool,
+    /// `/METHOD`: exact or Monte Carlo significance next to the asymptotic one.
+    pub method: Option<CrosstabsMethod>,
+}
+
+/// CROSSTABS /METHOD.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CrosstabsMethod {
+    /// `EXACT TIMER(minutes)`: at most that long per statistic, no limit with 0.
+    Exact { minutes: f64 },
+    /// `MC CIN(level) SAMPLES(n)`: the confidence level in percent and the tables drawn.
+    MonteCarlo { level: f64, samples: u64 },
 }
 
 /// A measure of association of CROSSTABS /STATISTICS.
