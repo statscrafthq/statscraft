@@ -1087,6 +1087,8 @@ fn without_group_differences_the_fit_is_plum_and_nomreg() {
             );
         }
     }
+}
+
 #[test]
 fn pearson_residual_of_events_and_trials_is_on_the_proportion_scale() {
     // 8 groups of 5 rows drawn once in R (seed 20261118): a covariate x, m trials and r events
