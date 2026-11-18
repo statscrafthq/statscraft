@@ -13,15 +13,20 @@
 //!   USERMISSING=EXCLUDE, PREFIX='Model', no method subcommand is EXPERTMODELER with both
 //!   types and TRYSEASONAL=YES.
 //! - INDEPENDENT may mark a variable as an event with [E] after it; events enter linearly,
-//!   which is how every predictor enters here, so the mark is accepted and has no effect.
-//! - TRANSFERFUNCTION, OUTLIER, AUTOOUTLIER DETECT=ON and OUTPMML are not supported yet.
+//!   which is how the expert modeler enters every predictor, so the mark has no effect.
+//! - TRANSFERFUNCTION (repeatable; the last one naming a predictor wins) gives predictors of a
+//!   custom ARIMA model numerator and denominator lags (plain and seasonal), differencing, a
+//!   delay and a transformation. AUTOOUTLIER (once per block) turns on the outlier search for
+//!   the types listed, additive and level shift by default; OUTLIER (repeatable) names one
+//!   outlier by its case or date and type.
+//! - OUTPMML is not supported yet.
 
-use crate::ast::{Command, VarItem};
+use crate::ast::{CasePoint, Command, VarItem};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
-use crate::ts_models::{error, number, whole};
+use crate::ts_models::{case_point, error, number, whole};
 
 /// A goodness-of-fit measure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +95,50 @@ pub struct TsArima {
     pub sd: u32,
     pub constant: bool,
     pub transform: TsTransform,
+}
+
+/// How a predictor enters a custom ARIMA model. Lag lists are as written (see TsArima).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TsTransfer {
+    /// Empty for ALL.
+    pub variables: Vec<VarItem>,
+    pub num: Vec<u32>,
+    pub snum: Vec<u32>,
+    pub den: Vec<u32>,
+    pub sden: Vec<u32>,
+    pub d: u32,
+    pub sd: u32,
+    pub delay: u32,
+    pub transform: TsTransform,
+}
+
+/// The kinds of outliers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutlierType {
+    Additive,
+    LevelShift,
+    Innovational,
+    Transient,
+    SeasonalAdditive,
+    LocalTrend,
+    AdditivePatch,
+}
+
+pub const OUTLIER_TYPES: [(&str, OutlierType); 7] = [
+    ("ADDITIVE", OutlierType::Additive),
+    ("LEVELSHIFT", OutlierType::LevelShift),
+    ("INNOVATIONAL", OutlierType::Innovational),
+    ("TRANSIENT", OutlierType::Transient),
+    ("SEASONALADDITIVE", OutlierType::SeasonalAdditive),
+    ("LOCALTREND", OutlierType::LocalTrend),
+    ("ADDITIVEPATCH", OutlierType::AdditivePatch),
+];
+
+/// An outlier named by OUTLIER.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TsOutlier {
+    pub location: CasePoint,
+    pub kind: OutlierType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -185,6 +234,10 @@ pub struct TsModelBlock {
     pub outfile: Option<String>,
     pub prefix: String,
     pub method: TsMethod,
+    pub transfers: Vec<TsTransfer>,
+    /// AUTOOUTLIER: the types DETECT=ON searches for (empty for DETECT=OFF); None without it.
+    pub detect: Option<Vec<OutlierType>>,
+    pub outliers: Vec<TsOutlier>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -560,6 +613,9 @@ pub(crate) fn tsmodel(p: &mut Parser) -> PResult<Command> {
                     exsmooth: true,
                     seasonal: true,
                 },
+                transfers: Vec::new(),
+                detect: None,
+                outliers: Vec::new(),
             };
             while !at_end(p) {
                 let at = p.pos;
@@ -584,10 +640,10 @@ pub(crate) fn tsmodel(p: &mut Parser) -> PResult<Command> {
         let methods = ["EXPERTMODELER", "EXSMOOTH", "ARIMA"];
         let Some(&sub) = methods
             .iter()
-            .chain(&["AUTOOUTLIER"])
+            .chain(&["AUTOOUTLIER", "TRANSFERFUNCTION", "OUTLIER"])
             .find(|n| p.eat_word(n))
         else {
-            return Err(p.subcommand_error("TSMODEL", &["TRANSFERFUNCTION", "OUTLIER"]));
+            return Err(p.subcommand_error("TSMODEL", &[]));
         };
         let Some((block, method_given)) = blocks.last_mut() else {
             return Err(error(p, start, format!("/{sub} comes after a /MODEL")));
@@ -595,28 +651,85 @@ pub(crate) fn tsmodel(p: &mut Parser) -> PResult<Command> {
         if at_end(p) {
             return Err(error(p, start, format!("/{sub} is empty")));
         }
-        if sub == "AUTOOUTLIER" {
-            while !at_end(p) {
-                let at = p.pos;
-                if keyword(p, &mut seen, &["DETECT", "TYPE"])? == "DETECT" {
-                    if one_of(p, &[("OFF", false), ("ON", true)])? {
-                        return Err(not_supported(p, at, "AUTOOUTLIER DETECT=ON"));
-                    }
-                } else {
-                    let types = [
-                        "ADDITIVE",
-                        "LEVELSHIFT",
-                        "INNOVATIONAL",
-                        "TRANSIENT",
-                        "SEASONALADDITIVE",
-                        "LOCALTREND",
-                        "ADDITIVEPATCH",
-                    ];
-                    let table: Vec<(&str, ())> = types.iter().map(|n| (*n, ())).collect();
-                    bracketed(p, |p| one_of(p, &table))?;
+        match sub {
+            "AUTOOUTLIER" => {
+                if block.detect.is_some() {
+                    return Err(error(
+                        p,
+                        start,
+                        "/AUTOOUTLIER is given twice in a MODEL block",
+                    ));
                 }
+                let (mut on, mut types) = (false, None);
+                while !at_end(p) {
+                    if keyword(p, &mut seen, &["DETECT", "TYPE"])? == "DETECT" {
+                        on = one_of(p, &[("OFF", false), ("ON", true)])?;
+                    } else {
+                        types = Some(bracketed(p, |p| one_of(p, &OUTLIER_TYPES))?);
+                    }
+                }
+                // DETECT=OFF keeps an empty list so that a second AUTOOUTLIER is caught
+                block.detect = Some(match on {
+                    true => types.unwrap_or(vec![OutlierType::Additive, OutlierType::LevelShift]),
+                    false => Vec::new(),
+                });
+                continue;
             }
-            continue;
+            "TRANSFERFUNCTION" => {
+                let mut t = TsTransfer::default();
+                let lags = |p: &mut Parser| bracketed(p, |p| whole(p, 0, "a lag"));
+                while !at_end(p) {
+                    let names = [
+                        "VARIABLES",
+                        "NUM",
+                        "NUMSEASONAL",
+                        "DENOM",
+                        "DENOMSEASONAL",
+                        "DIFF",
+                        "DIFFSEASONAL",
+                        "DELAY",
+                        "TRANSFORM",
+                    ];
+                    match keyword(p, &mut seen, &names)? {
+                        "VARIABLES" => t.variables = variables(p)?,
+                        "NUM" => t.num = lags(p)?,
+                        "NUMSEASONAL" => t.snum = lags(p)?,
+                        "DENOM" => t.den = lags(p)?,
+                        "DENOMSEASONAL" => t.sden = lags(p)?,
+                        "DIFF" => t.d = whole(p, 0, "DIFF")?,
+                        "DIFFSEASONAL" => t.sd = whole(p, 0, "DIFFSEASONAL")?,
+                        "DELAY" => t.delay = whole(p, 0, "DELAY")?,
+                        _ => t.transform = transform(p)?,
+                    }
+                }
+                if t.variables.contains(&VarItem::All) {
+                    t.variables.clear();
+                }
+                block.transfers.push(t);
+                continue;
+            }
+            "OUTLIER" => {
+                let (mut location, mut kind) = (None, None);
+                while !at_end(p) {
+                    if keyword(p, &mut seen, &["LOCATION", "TYPE"])? == "LOCATION" {
+                        let at = p.pos;
+                        p.expect(Punct::LBracket)?;
+                        location = case_point(p)?;
+                        p.expect(Punct::RBracket)?;
+                        if location.is_none() {
+                            return Err(error(p, at, "LOCATION takes a case number or a date"));
+                        }
+                    } else {
+                        kind = Some(one_of(p, &OUTLIER_TYPES[..6])?);
+                    }
+                }
+                let (Some(location), Some(kind)) = (location, kind) else {
+                    return Err(error(p, start, "OUTLIER needs LOCATION= and TYPE="));
+                };
+                block.outliers.push(TsOutlier { location, kind });
+                continue;
+            }
+            _ => {}
         }
         if *method_given {
             return Err(error(

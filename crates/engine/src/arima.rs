@@ -68,8 +68,139 @@ pub(crate) struct Structure {
     pub(crate) d: usize,
     pub(crate) sd: usize,
     pub(crate) s: usize,
+    /// The number of regressor parameters: one per column, or the sum of the transfer lengths.
     pub(crate) regressors: usize,
     pub(crate) constant: bool,
+    /// How each regressor column enters (TSMODEL); empty: each at lag 0 with one coefficient.
+    pub(crate) transfers: Vec<Transfer>,
+}
+
+/// A transfer function of one regressor column: Num(B) / Den(B) applied to the column, with
+/// Num = (w0 - w1 B - ...)(1 - W1 B^s - ...) and Den = (1 - d1 B - ...)(1 - D1 B^s - ...).
+/// Its parameters, in order: w0, the numerator lags, the seasonal numerator lags, the
+/// denominator lags, the seasonal denominator lags.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Transfer {
+    pub(crate) num: Vec<usize>,
+    pub(crate) snum: Vec<usize>,
+    pub(crate) den: Vec<usize>,
+    pub(crate) sden: Vec<usize>,
+    pub(crate) s: usize,
+    /// An innovational outlier: the column also passes through MA / (AR Delta) of the noise
+    /// and starts from 0.
+    pub(crate) innovational: bool,
+}
+
+impl Transfer {
+    pub(crate) fn len(&self) -> usize {
+        1 + self.num.len() + self.snum.len() + self.den.len() + self.sden.len()
+    }
+
+    /// The numerator and denominator polynomials (coefficients of B^0, B^1, ...).
+    fn polynomials(&self, c: &[f64]) -> (Vec<f64>, Vec<f64>) {
+        let (w0, rest) = c.split_at(1);
+        let (num, rest) = rest.split_at(self.num.len());
+        let (snum, rest) = rest.split_at(self.snum.len());
+        let (den, sden) = rest.split_at(self.den.len());
+        // w0 - w1 B - ...: lag 0 is a coefficient of its own, not a factor
+        let mut numerator = lag_poly(&self.num, num, 1);
+        numerator[0] = w0[0];
+        (
+            product(&numerator, &lag_poly(&self.snum, snum, self.s)),
+            product(
+                &lag_poly(&self.den, den, 1),
+                &lag_poly(&self.sden, sden, self.s),
+            ),
+        )
+    }
+}
+
+/// Num(B) / Den(B) applied to `u` (den[0] = 1). Values before the first valid one are taken
+/// as that one (0 when `zero_start`), and the output before the series as Num(1) / Den(1)
+/// times it; from a missing value after the first valid one on, the output is missing.
+pub(crate) fn ratio_filter(
+    num: &[f64],
+    den: &[f64],
+    u: &[Option<f64>],
+    zero_start: bool,
+) -> Values {
+    let first = match zero_start {
+        true => 0.0,
+        false => u.iter().flatten().next().copied().unwrap_or(0.0),
+    };
+    let level = if first == 0.0 {
+        0.0
+    } else {
+        num.iter().sum::<f64>() / den.iter().sum::<f64>() * first
+    };
+    let started = u.iter().position(Option::is_some).unwrap_or(u.len());
+    let mut v: Vec<f64> = Vec::with_capacity(u.len());
+    let mut broken = false;
+    let mut out = Vec::with_capacity(u.len());
+    for t in 0..u.len() {
+        let mut s = 0.0;
+        for (j, c) in num.iter().enumerate() {
+            let value = match t.checked_sub(j) {
+                Some(k) if k >= started => u[k],
+                _ => Some(first),
+            };
+            match value {
+                Some(x) => s += c * x,
+                None => broken = true,
+            }
+        }
+        for (j, c) in den.iter().enumerate().skip(1) {
+            s -= c * t.checked_sub(j).map_or(level, |k| v[k]);
+        }
+        v.push(s);
+        out.push((!broken).then_some(s));
+        // a filter without lags forgets a missing value at once
+        broken &= num.len() > 1 || den.len() > 1;
+    }
+    out
+}
+
+/// The full autoregressive polynomial with the differencing, and the moving-average one, of
+/// the noise (coefficients of B^0, B^1, ...).
+pub(crate) fn noise_polynomials(st: &Structure, theta: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let (phi, c) = arma(st, theta);
+    let ar: Vec<f64> = std::iter::once(1.0).chain(phi.iter().map(|v| -v)).collect();
+    let ma: Vec<f64> = std::iter::once(1.0).chain(c).collect();
+    (product(&ar, &st.difference()), ma)
+}
+
+/// The sum of the regressor effects; None when a transfer denominator is not stable.
+pub(crate) fn effects(st: &Structure, theta: &[f64], x: &[Values]) -> Option<Values> {
+    let [_, _, _, _, reg, _] = st.split(theta);
+    let len = x.first().map_or(0, Vec::len);
+    let mut total: Values = vec![Some(0.0); len];
+    let mut at = 0;
+    for (i, column) in x.iter().enumerate() {
+        let part: Values = match st.transfers.get(i) {
+            None => {
+                let c = reg[at];
+                at += 1;
+                column.iter().map(|v| v.map(|v| c * v)).collect()
+            }
+            Some(tr) => {
+                let (mut num, mut den) = tr.polynomials(&reg[at..at + tr.len()]);
+                at += tr.len();
+                let phi: Vec<f64> = den[1..].iter().map(|c| -c).collect();
+                if !stationary(&phi) {
+                    return None;
+                }
+                if tr.innovational {
+                    let (ar, ma) = noise_polynomials(st, theta);
+                    (num, den) = (product(&num, &ma), product(&den, &ar));
+                }
+                ratio_filter(&num, &den, column, tr.innovational)
+            }
+        };
+        for (t, v) in total.iter_mut().zip(part) {
+            *t = t.zip(v).map(|(a, b)| a + b);
+        }
+    }
+    Some(total)
 }
 
 impl Structure {
@@ -112,7 +243,7 @@ impl Structure {
 }
 
 /// The product of two polynomials in B.
-fn product(a: &[f64], b: &[f64]) -> Vec<f64> {
+pub(crate) fn product(a: &[f64], b: &[f64]) -> Vec<f64> {
     let mut out = vec![0.0; a.len() + b.len() - 1];
     for (i, x) in a.iter().enumerate() {
         for (j, y) in b.iter().enumerate() {
@@ -407,7 +538,7 @@ fn scaled_residuals(
     start: usize,
     stop: usize,
 ) -> Option<(Vec<f64>, f64, usize)> {
-    let z = adjusted(st, theta, y, x);
+    let z = adjusted(st, theta, y, x)?;
     let filtered = kalman(st, theta, &z, start, stop)?;
     let used: Vec<(f64, f64)> = filtered
         .steps
@@ -425,22 +556,22 @@ fn scaled_residuals(
     Some((r, ssq, n))
 }
 
-/// The series less the regressors times their coefficients.
-fn adjusted(st: &Structure, theta: &[f64], y: &[Option<f64>], x: &[Vec<Option<f64>>]) -> Values {
-    let [_, _, _, _, reg, _] = st.split(theta);
-    (0..y.len())
-        .map(|t| {
-            let mut v = y[t]?;
-            for (c, column) in reg.iter().zip(x) {
-                v -= c * column[t]?;
-            }
-            Some(v)
-        })
-        .collect()
+/// The series less the regressor effects.
+fn adjusted(
+    st: &Structure,
+    theta: &[f64],
+    y: &[Option<f64>],
+    x: &[Vec<Option<f64>>],
+) -> Option<Values> {
+    if x.is_empty() {
+        return Some(y.to_vec());
+    }
+    let e = effects(st, theta, x)?;
+    Some((0..y.len()).map(|t| Some(y[t]? - e[t]?)).collect())
 }
 
 /// Solves a small linear system; None when singular.
-fn solve(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
+pub(crate) fn solve(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
     let (inv, _) = inverse(&a.to_vec())?;
     Some(
         (0..b.len())
@@ -586,7 +717,17 @@ pub(crate) fn initial_values(
 ) -> Vec<f64> {
     let poly = st.difference();
     let dy = differenced(y, &poly);
-    let dx: Vec<Values> = x.iter().map(|c| differenced(c, &poly)).collect();
+    // an innovational outlier is a pulse on the differenced scale
+    let dx: Vec<Values> = x
+        .iter()
+        .enumerate()
+        .map(
+            |(i, c)| match st.transfers.get(i).is_some_and(|t| t.innovational) {
+                true => c.clone(),
+                false => differenced(c, &poly),
+            },
+        )
+        .collect();
     let mut columns = dx.clone();
     if st.constant {
         columns.push(vec![Some(1.0); y.len()]);
@@ -595,15 +736,25 @@ pub(crate) fn initial_values(
         true => Vec::new(),
         false => least_squares(&dy, &columns).unwrap_or_else(|| vec![0.0; columns.len()]),
     };
-    let reg: Vec<f64> = match given.reg.len() == st.regressors {
-        true => given.reg.clone(),
-        false => ls[..st.regressors].to_vec(),
+    // a transfer function starts from the regression coefficient at lag 0, its other
+    // parameters from 0
+    let lag0 = ls[..x.len()].to_vec();
+    let reg: Vec<f64> = match (given.reg.len() == st.regressors, st.transfers.is_empty()) {
+        (true, _) => given.reg.clone(),
+        (false, true) => lag0.clone(),
+        (false, false) => st
+            .transfers
+            .iter()
+            .zip(&lag0)
+            .flat_map(|(t, c)| std::iter::once(*c).chain(vec![0.0; t.len() - 1]))
+            .collect(),
     };
     // the differenced series less the regressors
+    let at_lag0 = if st.transfers.is_empty() { &reg } else { &lag0 };
     let w: Values = (0..y.len())
         .map(|t| {
             let mut v = dy[t]?;
-            for (c, column) in reg.iter().zip(&dx) {
+            for (c, column) in at_lag0.iter().zip(&dx) {
                 v -= c * column[t]?;
             }
             Some(v)
@@ -905,22 +1056,16 @@ pub(crate) fn exact_prediction(
     start: usize,
     origin: usize,
 ) -> Option<Prediction> {
-    let z = adjusted(st, theta, y, x);
+    let z = adjusted(st, theta, y, x)?;
     let filtered = kalman(st, theta, &z, start, origin)?;
     let mut fit = vec![None; y.len()];
     let mut se = vec![None; y.len()];
-    let [_, _, _, _, reg, _] = st.split(theta);
+    let added = match x.is_empty() {
+        true => vec![Some(0.0); y.len()],
+        false => effects(st, theta, x)?,
+    };
     for (t, pred, f, _) in filtered.steps {
-        let mut v = pred;
-        for (c, column) in reg.iter().zip(x) {
-            match column[t] {
-                Some(xv) => v += c * xv,
-                None => {
-                    v = f64::NAN;
-                    break;
-                }
-            }
-        }
+        let v = added[t].map_or(f64::NAN, |a| pred + a);
         if v.is_finite() {
             fit[t] = Some(v);
             se[t] = Some(f.sqrt());
@@ -1042,6 +1187,7 @@ impl Engine {
             s: 1,
             regressors: regressors.len(),
             constant,
+            transfers: Vec::new(),
         };
         if !st.sar.is_empty() || !st.sma.is_empty() || st.sd > 0 {
             let Some(s) = self.ts_period(spec.period) else {
@@ -1477,7 +1623,7 @@ fn conditional(
     let [_, _, _, _, reg, _] = st.split(theta);
     let delta = st.difference();
     let reach = st.reach();
-    let z = adjusted(st, theta, y, x);
+    let z = adjusted(st, theta, y, x).unwrap_or_else(|| vec![None; y.len()]);
     let len = y.len();
     let regression = |t: usize| -> Option<f64> {
         let mut v = 0.0;

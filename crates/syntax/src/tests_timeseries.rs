@@ -375,6 +375,30 @@ fn tsmodel_blocks_and_globals() {
             seasonal: true
         }
     ));
+    let Command::Tsmodel(t) = command(
+        "TSMODEL /MODEL DEPENDENT=a INDEPENDENT=b c /ARIMA AR=1 MA=0 \
+         /TRANSFERFUNCTION VARIABLES=c NUM=[1 2] DENOM=1 DIFF=1 DELAY=2 TRANSFORM=LN \
+         /TRANSFERFUNCTION DENOMSEASONAL=1 /AUTOOUTLIER DETECT=ON TYPE=[TRANSIENT LOCALTREND] \
+         /OUTLIER LOCATION=[YEAR 2001 MONTH 3] TYPE=LEVELSHIFT /OUTLIER LOCATION=[7] TYPE=ADDITIVE.",
+    ) else {
+        panic!("not TSMODEL");
+    };
+    let m = &t.models[0];
+    assert_eq!(m.transfers.len(), 2);
+    assert_eq!(m.transfers[0].variables, [VarItem::Name("c".into())]);
+    assert_eq!(
+        (m.transfers[0].num.clone(), m.transfers[0].den.clone()),
+        (vec![1, 2], vec![1])
+    );
+    assert_eq!((m.transfers[0].d, m.transfers[0].delay), (1, 2));
+    assert_eq!(m.transfers[0].transform, TsTransform::Ln);
+    assert!(m.transfers[1].variables.is_empty() && m.transfers[1].sden == [1]);
+    assert_eq!(
+        m.detect,
+        Some(vec![OutlierType::Transient, OutlierType::LocalTrend])
+    );
+    assert_eq!(m.outliers[1].location, CasePoint::Case(7));
+    assert_eq!(m.outliers[0].kind, OutlierType::LevelShift);
     let Command::Tsapply(a) = command(
         "TSAPPLY /AUXILIARY REESTIMATE=YES /MODEL FILE='m.json' KEEP=['Model_1' 'Model_2'].",
     ) else {
@@ -391,9 +415,14 @@ fn tsmodel_blocks_and_globals() {
             "before the first",
         ),
         ("TSMODEL /EXSMOOTH TYPE=HOLT.", "after a /MODEL"),
+        ("TSMODEL /MODEL DEPENDENT=a /OUTLIER LOCATION=[2].", "TYPE="),
         (
-            "TSMODEL /MODEL DEPENDENT=a /OUTLIER LOCATION=[2] TYPE=ADDITIVE.",
-            "not supported",
+            "TSMODEL /MODEL DEPENDENT=a /OUTLIER LOCATION=[3] TYPE=ADDITIVEPATCH.",
+            "unexpected word ADDITIVEPATCH",
+        ),
+        (
+            "TSMODEL /MODEL DEPENDENT=a /AUTOOUTLIER DETECT=ON /AUTOOUTLIER DETECT=OFF.",
+            "twice",
         ),
         (
             "TSMODEL /MODELSUMMARY PRINT=[NONE MODELFIT] /MODEL DEPENDENT=a.",

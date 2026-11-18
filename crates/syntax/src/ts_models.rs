@@ -31,7 +31,7 @@ use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
 
 /// One start or end of a range: None for FIRST, LAST, END or nothing.
-fn case_point(p: &mut Parser) -> PResult<Option<CasePoint>> {
+pub(crate) fn case_point(p: &mut Parser) -> PResult<Option<CasePoint>> {
     if p.eat_keyword("FIRST") || p.eat_keyword("LAST") || p.eat_word("END") {
         return Ok(None);
     }

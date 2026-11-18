@@ -3735,7 +3735,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20                    | WINTERSMULTIPLICATIVE [TRANSFORM=NONE | SQRT | LN]\n\
                  \x20        | /ARIMA AR=lags MA=lags [ARSEASONAL=lags] [MASEASONAL=lags] [DIFF=d] [DIFFSEASONAL=D]\n\
                  \x20                 [CONSTANT=YES | NO] [TRANSFORM=NONE | SQRT | LN]]\n\
-                 \x20       [/AUTOOUTLIER DETECT=OFF] [/MODEL ...].\n\
+                 \x20       [/TRANSFERFUNCTION [VARIABLES=ALL | predictors] [NUM=lags] [NUMSEASONAL=lags]\n\
+                 \x20                          [DENOM=lags] [DENOMSEASONAL=lags] [DIFF=d] [DIFFSEASONAL=D]\n\
+                 \x20                          [DELAY=b] [TRANSFORM=NONE | SQRT | LN]] ...\n\
+                 \x20       [/AUTOOUTLIER DETECT=OFF | ON [TYPE=[ADDITIVE LEVELSHIFT INNOVATIONAL TRANSIENT\n\
+                 \x20                    SEASONALADDITIVE LOCALTREND ADDITIVEPATCH]]]\n\
+                 \x20       [/OUTLIER LOCATION=[case | date] TYPE=type] ... [/MODEL ...].\n\
                  Every series of DEPENDENT gets its own model, named PREFIX_1, PREFIX_2 and so on. Global\n\
                  subcommands come first; words are written in full and a list goes in square brackets.\n\
                  The season length is SEASONLENGTH, else the period of the DATE variables. The model is\n\
@@ -3743,15 +3748,22 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  case after it to the end of PREDICT. Smoothing weights minimize the sum of squared\n\
                  one-step errors, from start values found by smoothing backwards. ARIMA models are fitted\n\
                  by exact maximum likelihood; a single lag value is an order (AR=2: lags 1 and 2), a list\n\
-                 of two or more names the lags. Predictors enter ARIMA models as regressors at lag 0 ([E]\n\
-                 after a name is accepted). The expert modeler fits every fitting smoothing method and a\n\
-                 search of ARIMA orders and keeps the model with the smallest normalized BIC. Output:\n\
-                 the model description, a summary of the fit measures across models, a table of the fit\n\
-                 measures and the Ljung-Box Q(18) by model, and on request parameters, residual\n\
-                 autocorrelations, forecasts and charts. OUTFILE writes the models to a JSON file for\n\
-                 TSAPPLY. SAVE adds root_series_model variables (Predicted, LCL, UCL, NResidual). Not\n\
-                 supported yet: TRANSFERFUNCTION, OUTLIER, AUTOOUTLIER DETECT=ON, OUTPMML and the\n\
-                 MODELSUMMARY charts.",
+                 of two or more names the lags. In a custom ARIMA model each predictor passes through a\n\
+                 ratio of lag polynomials: TRANSFERFUNCTION sets the numerator lags (lag 0 is always in)\n\
+                 and denominator lags, plain and seasonal, and how the predictor is transformed,\n\
+                 differenced and shifted by DELAY first; the last one naming a predictor counts. Without\n\
+                 it a predictor enters at lag 0, and the expert modeler enters every predictor so ([E]\n\
+                 after a name is accepted). OUTLIER puts an outlier of the type given at a case number\n\
+                 or a DATE point; AUTOOUTLIER DETECT=ON searches the ARIMA model (custom or expert) for\n\
+                 outliers of the types listed (additive and level shift by default), keeping those that\n\
+                 stay significant when estimated with the model. The expert modeler fits every fitting\n\
+                 smoothing method and a search of ARIMA orders and keeps the model with the smallest\n\
+                 normalized BIC. Output: the model description, a summary of the fit measures across\n\
+                 models, a table of the fit measures, the Ljung-Box Q(18) and the number of outliers by\n\
+                 model, and on request parameters (with an Outliers table), residual autocorrelations,\n\
+                 forecasts and charts. OUTFILE writes the models to a JSON file for TSAPPLY. SAVE adds\n\
+                 root_series_model variables (Predicted, LCL, UCL, NResidual). Not supported yet:\n\
+                 OUTPMML, the MODELSUMMARY charts and transfer functions chosen by the expert modeler.",
         example: "TSMODEL /MODELDETAILS PRINT=[PARAMETERS FORECASTS] /MODEL DEPENDENT=bookings /EXSMOOTH TYPE=HOLT.",
         parse: tsmodel::tsmodel,
     },

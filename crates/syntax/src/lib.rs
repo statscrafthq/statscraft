@@ -435,8 +435,9 @@ pub use ts_more::{
     SpectraWindow, TwoStage,
 };
 pub use tsmodel::{
-    ES_TYPES, EsType, FilterCount, FitMeasure, TsArima, TsMethod, TsModelBlock, TsModelFile,
-    TsOutput, TsSave, TsTransform, Tsapply, Tsmodel,
+    ES_TYPES, EsType, FilterCount, FitMeasure, OUTLIER_TYPES, OutlierType, TsArima, TsMethod,
+    TsModelBlock, TsModelFile, TsOutlier, TsOutput, TsSave, TsTransfer, TsTransform, Tsapply,
+    Tsmodel,
 };
 pub use twostep::{AnomalySave, ClusterCount, Detectanomaly, Twostep};
 pub use varcomp::{Varcomp, VarcompMethod, VarcompOutfile, VarcompPrint};

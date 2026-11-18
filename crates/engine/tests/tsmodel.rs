@@ -143,7 +143,7 @@ fn arima_through_tsmodel_matches_arima_and_the_reference() {
     let (mu, _) = parameter(&tables, "ARIMA Model Parameters", "Constant");
     // the ARIMA command with the same stopping rules gives the same estimates
     let (arima, _) = run(&format!(
-        "{}ARIMA y /MODEL=(1,0,1) /MXITER=50 /SSQPCT=1E-6 /PAREPS=1E-6.\n",
+        "{}ARIMA y /MODEL=(1,0,1) /MXITER=200 /SSQPCT=1E-12 /PAREPS=1E-9.\n",
         data("y", ARMA)
     ));
     assert!(close(ar, arima_estimate(&arima, "AR1"), 1e-12));
@@ -429,15 +429,7 @@ fn tsmodel_errors_and_unsupported_parts() {
     let base = data("y", TREND);
     for (syntax, wanted) in [
         (
-            "TSMODEL /MODEL DEPENDENT=y /OUTLIER LOCATION=[3] TYPE=ADDITIVE.",
-            "not supported",
-        ),
-        (
-            "TSMODEL /MODEL DEPENDENT=y /TRANSFERFUNCTION NUM=[1].",
-            "not supported",
-        ),
-        (
-            "TSMODEL /MODEL DEPENDENT=y /AUTOOUTLIER DETECT=ON.",
+            "TSMODEL /MODEL DEPENDENT=y OUTPMML='m.xml'.",
             "not supported",
         ),
         (
@@ -459,6 +451,238 @@ fn tsmodel_errors_and_unsupported_parts() {
         (
             "TSMODEL /AUXILIARY CILEVEL=100 /MODEL DEPENDENT=y.",
             "CILEVEL",
+        ),
+    ] {
+        let message = error(&format!("{base}{syntax}\n"));
+        assert!(message.contains(wanted), "{syntax}: {message}");
+    }
+}
+
+/// An invented predictor (an AR(1) series around 50) and a dependent made from it by the
+/// transfer function (1 + 1.5 B) / (1 - 0.6 B) plus AR(1) noise, random draws rounded.
+const TF_X: &str = "50 49.8 53 50.5 50.7 53.4 55.7 54.6 55 53.8 57.3 55.7 55.4 55.5 55.5 52.3 \
+53.4 53 50.3 52.1 46.3 54.9 50.8 48.9 53.3 51.1 51.6 49.5 50.5 51.6 49.4 49.8 51 51.4 50.8 50.4 \
+51.2 49.8 49.6 51.5 50.3 52.6 50.7 52.7 48.4 48.5 55.1 56.2 49.8 49.4 55.5 55.9 58.5 53.7 53.8 \
+53.9 51.1 54.9 53.4 49.3 47.5 52 57.8 50 51.8 50.5 53.7 48.7 50.9 51.1 47.7 53.3 49.9 56.3 54.1 \
+47.2 49 49.9 54.3 57.6";
+const TF_Y: &str = "13.14 15.31 17.33 19.96 17.47 19.96 28.7 35.12 37.19 38.82 40.67 45.81 \
+46.24 47.51 48.4 44.55 37.5 33.32 30.99 25 20.04 16.93 23.31 16.69 16.25 21.68 22.26 20.18 16.56 \
+16.1 18.03 14.44 14.54 17.75 18.36 16.94 16.14 16.09 15.24 14.76 16.35 16.75 20.43 22.3 21.84 \
+12.27 15.36 30.03 31.76 22.61 23.53 34.38 42.97 46.25 43.03 40.53 34.69 32.07 35.22 29.86 20.19 \
+17.12 25.49 32.06 27.57 24.26 23.09 22.4 17.78 19.37 15.19 12.37 18.74 22.26 33.35 28.55 17.55 \
+15.4 18.32 31.05";
+
+/// An invented AR(1) series around 30 with an additive outlier planted at case 25 and a level
+/// shift of 4 from case 55 (random draws, rounded).
+const SHIFTED: &str = "27.79 28.65 29.19 29.56 30.06 30.62 31.33 32.77 31.54 31.68 30.59 31.81 \
+32.69 30.47 28.7 29.49 29.03 28.11 30.88 31.73 28.5 28.7 29.05 28.77 35.53 29.22 29.77 29.8 29.98 \
+30.89 30.45 29.69 29.14 29.28 30.52 30.11 29.1 30.22 30.5 30.8 29.09 30.43 32.55 31.78 28.62 \
+27.28 28.5 28.3 30.73 29.12 29.96 30 29 29.51 33.59 34.22 33.69 33.37 33.86 35.78 33.25 33.29 \
+34.09 34.32 33.91 36.3 34.94 34.52 32.01 33.93 34.71 34.29 33.64 33.66 33.74 34.34 34.3 34.87 \
+34.43 32.04 33.9 34.78 34.34 30.76 30.87 32.69 32.87 34.41 36.64 35.24";
+
+fn two_columns(x: &str, y: &str) -> String {
+    let rows: Vec<String> = x
+        .split_whitespace()
+        .zip(y.split_whitespace())
+        .map(|(a, b)| format!("{a} {b}"))
+        .collect();
+    format!(
+        "DATA LIST FREE /x y.\nBEGIN DATA\n{}\nEND DATA.\n",
+        rows.join("\n")
+    )
+}
+
+fn arima_parameter(tables: &[Table], name: &str) -> f64 {
+    parameter(tables, "ARIMA Model Parameters", name).0
+}
+
+fn near(got: f64, wanted: f64) -> bool {
+    close(got, wanted, 1e-6 * wanted.abs().max(1.0))
+}
+
+#[test]
+fn transfer_function_matches_the_profiled_likelihood() {
+    let (tables, _) = run(&format!(
+        "{}TSMODEL /MODELDETAILS PRINT=PARAMETERS /MODEL DEPENDENT=y INDEPENDENT=x \
+         /ARIMA AR=1 MA=0 /TRANSFERFUNCTION NUM=1 DENOM=1.\n",
+        two_columns(TF_X, TF_Y)
+    ));
+    // the other package's exact likelihood, the numerator columns built for each denominator
+    // value and the likelihood maximized over that value; presample values of x are its first
+    for (name, wanted) in [
+        ("AR Lag 1", 0.374290183),
+        ("Numerator Lag 0 (x)", 1.024190098),
+        ("Numerator Lag 1 (x)", -1.549640526),
+        ("Denominator Lag 1 (x)", 0.576290350),
+        ("Constant", -290.672385610),
+    ] {
+        let got = arima_parameter(&tables, name);
+        assert!(near(got, wanted), "{name}: {got} {wanted}");
+    }
+    assert_eq!(model_type(&tables), "ARIMA(1,0,0)");
+}
+
+#[test]
+fn a_prepared_predictor_enters_logged_differenced_and_delayed() {
+    let (tables, _) = run(&format!(
+        "{}TSMODEL /MODELDETAILS PRINT=PARAMETERS /MODEL DEPENDENT=y INDEPENDENT=x \
+         /ARIMA AR=1 MA=0 /TRANSFERFUNCTION VARIABLES=x TRANSFORM=LN DIFF=1 DELAY=1.\n",
+        two_columns(TF_X, TF_Y)
+    ));
+    // the other package with the prepared column as a regressor, its two leading gaps set to
+    // its first value
+    for (name, wanted) in [
+        ("AR Lag 1", 0.900409281),
+        (
+            "Numerator Lag 0 (x, natural log, difference 1, delay 1)",
+            25.404128252,
+        ),
+        ("Constant", 24.354732841),
+    ] {
+        let got = arima_parameter(&tables, name);
+        assert!(near(got, wanted), "{name}: {got} {wanted}");
+    }
+}
+
+fn outlier_rows(tables: &[Table]) -> Vec<(String, String, f64)> {
+    find(tables, "Outliers")
+        .rows
+        .iter()
+        .map(|r| (texts(&r[1]), texts(&r[2]), num(&r[3])))
+        .collect()
+}
+
+#[test]
+fn given_outliers_are_regressors_of_their_shape() {
+    let (tables, _) = run(&format!(
+        "{}TSMODEL /MODELDETAILS PRINT=PARAMETERS /MODEL DEPENDENT=y /ARIMA AR=1 MA=0 \
+         /OUTLIER LOCATION=[25] TYPE=ADDITIVE /OUTLIER LOCATION=[55] TYPE=LEVELSHIFT \
+         /OUTLIER LOCATION=[84] TYPE=TRANSIENT.\n",
+        data("y", SHIFTED)
+    ));
+    // the other package with a pulse, a step and a decay of 0.7 per case as regressors
+    let rows = outlier_rows(&tables);
+    let wanted = [
+        ("25", "Additive", 6.303905702),
+        ("55", "Level Shift", 4.357054481),
+        ("84", "Transient", -3.447156896),
+    ];
+    assert_eq!(rows.len(), 3);
+    for ((period, kind, value), (p, k, w)) in rows.iter().zip(wanted) {
+        assert_eq!((period.as_str(), kind.as_str()), (p, k));
+        assert!(near(*value, w), "{kind}: {value} {w}");
+    }
+    assert!(near(arima_parameter(&tables, "AR Lag 1"), 0.443731160));
+    assert!(near(arima_parameter(&tables, "Constant"), 29.888873239));
+    let statistics = &find(&tables, "Model Statistics").rows[0];
+    assert_eq!(num(statistics.last().unwrap()), 3.0);
+}
+
+#[test]
+fn an_innovational_outlier_passes_through_the_noise_model() {
+    let (tables, _) = run(&format!(
+        "{}TSMODEL /MODELDETAILS PRINT=PARAMETERS /MODEL DEPENDENT=y /ARIMA AR=1 MA=0 \
+         /OUTLIER LOCATION=[25] TYPE=INNOVATIONAL.\n",
+        data("y", SHIFTED)
+    ));
+    // the other package's exact likelihood of y less k phi^(t - 25) from case 25, maximized
+    // over phi, the mean and k directly
+    let rows = outlier_rows(&tables);
+    assert_eq!(rows[0].1, "Innovational");
+    assert!(near(rows[0].2, 6.242765430), "{}", rows[0].2);
+    assert!(near(arima_parameter(&tables, "AR Lag 1"), 0.793542207));
+    assert!(near(arima_parameter(&tables, "Constant"), 31.275280827));
+}
+
+#[test]
+fn the_outlier_search_finds_the_planted_outliers() {
+    let (tables, _) = run(&format!(
+        "{}TSMODEL /MODELDETAILS PRINT=PARAMETERS /MODEL DEPENDENT=y /ARIMA AR=1 MA=0 \
+         /AUTOOUTLIER DETECT=ON.\n",
+        data("y", SHIFTED)
+    ));
+    // the same search written in the other package (median absolute deviation, critical
+    // value 3.1 for 90 values, joint refits by its exact likelihood) finds the same two
+    let rows = outlier_rows(&tables);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!((rows[0].0.as_str(), rows[0].1.as_str()), ("25", "Additive"));
+    assert_eq!(
+        (rows[1].0.as_str(), rows[1].1.as_str()),
+        ("55", "Level Shift")
+    );
+    assert!(near(rows[0].2, 6.3244811731), "{}", rows[0].2);
+    assert!(near(rows[1].2, 4.0843592539), "{}", rows[1].2);
+    assert!(near(arima_parameter(&tables, "AR Lag 1"), 0.4623626483));
+    // the expert modeler searches its ARIMA model the same way
+    let (tables, _) = run(&format!(
+        "{}TSMODEL /MODELDETAILS PRINT=PARAMETERS /MODEL DEPENDENT=y \
+         /EXPERTMODELER TYPE=[ARIMA] /AUTOOUTLIER DETECT=ON.\n",
+        data("y", SHIFTED)
+    ));
+    let rows = outlier_rows(&tables);
+    assert!(rows.iter().any(|r| r.0 == "25"), "{rows:?}");
+    // a series without outliers gets none
+    let (tables, _) = run(&format!(
+        "{}TSMODEL /MODELDETAILS PRINT=PARAMETERS /MODEL DEPENDENT=y /ARIMA AR=1 MA=0 \
+         /AUTOOUTLIER DETECT=ON.\n",
+        data("y", AR1)
+    ));
+    assert!(!tables.iter().any(|t| t.title == "Outliers"));
+}
+
+#[test]
+fn tsapply_keeps_transfer_functions_and_outliers() {
+    let dir = std::env::temp_dir().join(format!("statscraft-tsmodel-tf-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("tf.json");
+    let file = file.display();
+    // the last five values of y are missing: forecasts from the predictor's values there
+    let y: Vec<&str> = TF_Y.split_whitespace().take(75).chain(["."; 5]).collect();
+    let source = two_columns(TF_X, &y.join(" "));
+    let mut engine = Engine::default();
+    let original = run_in(
+        &mut engine,
+        &format!(
+            "{source}TSMODEL /MODELDETAILS PRINT=FORECASTS /MODEL DEPENDENT=y INDEPENDENT=x \
+             OUTFILE='{file}' /ARIMA AR=1 MA=0 /TRANSFERFUNCTION NUM=1 DENOM=1 \
+             /OUTLIER LOCATION=[20] TYPE=ADDITIVE.\n"
+        ),
+    );
+    let forecasts = find(&original, "Forecast");
+    assert_eq!(forecasts.rows.len(), 5);
+    let applied = run_in(
+        &mut engine,
+        &format!("TSAPPLY /MODELDETAILS PRINT=[PARAMETERS FORECASTS] /MODEL FILE='{file}'.\n"),
+    );
+    let again = find(&applied, "Forecast");
+    assert_eq!(again.rows.len(), 5);
+    for (a, b) in forecasts.rows.iter().zip(&again.rows) {
+        for c in 2..5 {
+            assert!(close(num(&a[c]), num(&b[c]), 1e-9));
+        }
+    }
+    assert_eq!(outlier_rows(&applied)[0].1, "Additive");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn transfer_and_outlier_errors() {
+    let base = two_columns(TF_X, TF_Y);
+    for (syntax, wanted) in [
+        (
+            "TSMODEL /MODEL DEPENDENT=y INDEPENDENT=x /ARIMA AR=1 MA=0 \
+             /TRANSFERFUNCTION NUMSEASONAL=1.",
+            "season length",
+        ),
+        (
+            "TSMODEL /MODEL DEPENDENT=y /ARIMA AR=1 MA=0 /AUTOOUTLIER DETECT=ON \
+             TYPE=[SEASONALADDITIVE].",
+            "season length",
+        ),
+        (
+            "TSMODEL /MODEL DEPENDENT=y /ARIMA AR=1 MA=0 /OUTLIER LOCATION=[200] TYPE=ADDITIVE.",
+            "no model",
         ),
     ] {
         let message = error(&format!("{base}{syntax}\n"));

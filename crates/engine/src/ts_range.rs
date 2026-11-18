@@ -60,7 +60,7 @@ impl Engine {
     /// The case of `data` a range end names: the first match for a start, the last for an end.
     /// It may lie past the file. `numbers` are the file's case numbers (from 0) of the cases of
     /// `data` when it is a split group.
-    fn point_case(
+    pub(crate) fn point_case(
         &self,
         data: &Dataset,
         point: &CasePoint,

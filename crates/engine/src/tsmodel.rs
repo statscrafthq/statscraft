@@ -11,7 +11,16 @@
 //!   backwards from its last value, with the documented backward start (last value as level,
 //!   minus the fitted slope as trend, seasonal states from seasonal means or regressions).
 //! - ARIMA: exact maximum likelihood by the ARIMA engine; the transformation applies to the
-//!   dependent series. Predictors are regressors at lag 0.
+//!   dependent series. A predictor of a custom model is transformed, differenced and delayed,
+//!   then passes through Num(B) / Den(B); before its first value the prepared predictor is
+//!   that value and the filter is at rest at it. The numerator and denominator start at 0,
+//!   lag 0 at the regression coefficient.
+//! - Outliers: additive (a pulse), level shift (a step), transient (a decaying pulse), seasonal
+//!   additive (a pulse every season from its case), local trend (a ramp), innovational (a
+//!   pulse through MA / (AR Delta) of the noise) and additive patches (consecutive pulses).
+//!   The search tests each case and type by regressing the one-step errors on the outlier's
+//!   effect on them, takes the largest standardized one while it is significant, refits with
+//!   all found and drops the insignificant ones, and repeats until nothing is found.
 //! - Fit measures on the original series, k parameters, n valid residuals: MSE = SSE / (n - k),
 //!   RMSE, MAPE and MaxAPE in percent, MAE, MaxAE, normalized BIC ln(MSE) + k ln(n) / n,
 //!   R squared about the mean, stationary R squared against the mean of the transformed series
@@ -35,12 +44,14 @@
 //! - Ljung-Box uses K = 18 lags (fewer for a short series). Limits are normal ones on the
 //!   transformed scale, taken back; the smoothing forecast errors add psi weights of the
 //!   additive form (also for multiplicative Winters, an approximation).
+//! - Outlier search: errors scaled by a robust sigma (1.4826 MAD), critical value 3 to 4 by
+//!   the series length, transient decay 0.7, patches of 2 to 4 cases by their chi-square.
 //! - The model file is our own JSON; it keeps the estimation values so that TSAPPLY without
 //!   reestimation repeats the forecasts exactly, lined up with the active file by case number.
 
 use crate::arima::{
-    Controls, Estimates, Structure, differenced, estimate, exact_prediction, hessian,
-    initial_values, least_squares,
+    Controls, Estimates, Structure, Transfer, differenced, effects, estimate, exact_prediction,
+    hessian, initial_values, least_squares, noise_polynomials, product, ratio_filter, solve,
 };
 use crate::chart::{Axis, Category, Series, Statistic};
 use crate::descriptives::number;
@@ -56,6 +67,7 @@ use statscraft_syntax::{
     ES_TYPES, EsType, FilterCount, FitMeasure, Seasonality, Trend, TsArima, TsMethod, TsOutput,
     TsSave, TsTransform, Tsapply, Tsmodel,
 };
+use statscraft_syntax::{OUTLIER_TYPES, OutlierType};
 use std::collections::HashMap;
 
 const FORMAT: &str = "statscraft-time-series-models";
@@ -107,7 +119,195 @@ enum Form {
         d: usize,
         sd: usize,
         constant: bool,
+        /// One per predictor; empty: every predictor at lag 0.
+        #[serde(default)]
+        transfers: Vec<Spec>,
+        #[serde(default)]
+        outliers: Vec<SavedOutlier>,
     },
+}
+
+/// How a predictor enters an ARIMA model: the lags of its transfer function, and how it is
+/// transformed, differenced and delayed before.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+struct Spec {
+    num: Vec<usize>,
+    snum: Vec<usize>,
+    den: Vec<usize>,
+    sden: Vec<usize>,
+    d: usize,
+    sd: usize,
+    delay: usize,
+    transform: String,
+}
+
+impl Spec {
+    fn transfer(&self, s: usize) -> Transfer {
+        Transfer {
+            num: self.num.clone(),
+            snum: self.snum.clone(),
+            den: self.den.clone(),
+            sden: self.sden.clone(),
+            s,
+            innovational: false,
+        }
+    }
+
+    /// The predictor as it enters the transfer function: transformed, differenced, delayed.
+    fn prepared(&self, raw: &[Option<f64>], s: usize) -> Values {
+        let how = transform_of(&self.transform);
+        let t: Values = raw
+            .iter()
+            .map(|v| v.and_then(|v| forward(how, v)))
+            .collect();
+        let u = differenced(&t, &differencing(self.d, self.sd, s).difference());
+        (0..u.len())
+            .map(|t| t.checked_sub(self.delay).and_then(|k| u[k]))
+            .collect()
+    }
+
+    /// The predictor's name with what is done to it first.
+    fn describe(&self, name: &str) -> String {
+        let mut parts = vec![name.to_string()];
+        match transform_of(&self.transform) {
+            TsTransform::Sqrt => parts.push("square root".into()),
+            TsTransform::Ln => parts.push("natural log".into()),
+            TsTransform::None => {}
+        }
+        if self.d > 0 {
+            parts.push(format!("difference {}", self.d));
+        }
+        if self.sd > 0 {
+            parts.push(format!("seasonal difference {}", self.sd));
+        }
+        if self.delay > 0 {
+            parts.push(format!("delay {}", self.delay));
+        }
+        parts.join(", ")
+    }
+
+    fn labels(&self, name: &str) -> Vec<String> {
+        let who = self.describe(name);
+        let mut out = vec![format!("Numerator Lag 0 ({who})")];
+        for (part, lags) in [
+            ("Numerator", &self.num),
+            ("Numerator, Seasonal", &self.snum),
+            ("Denominator", &self.den),
+            ("Denominator, Seasonal", &self.sden),
+        ] {
+            out.extend(lags.iter().map(|l| format!("{part} Lag {l} ({who})")));
+        }
+        out
+    }
+}
+
+/// An outlier: its place in the estimation period (from 0) and its type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Outlier {
+    at: usize,
+    kind: OutlierType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SavedOutlier {
+    at: usize,
+    kind: String,
+}
+
+/// The decay of a transient change per step.
+const TRANSIENT_DECAY: f64 = 0.7;
+
+fn outlier_name(kind: OutlierType) -> &'static str {
+    match kind {
+        OutlierType::Additive => "Additive",
+        OutlierType::LevelShift => "Level Shift",
+        OutlierType::Innovational => "Innovational",
+        OutlierType::Transient => "Transient",
+        OutlierType::SeasonalAdditive => "Seasonal Additive",
+        OutlierType::LocalTrend => "Local Trend",
+        OutlierType::AdditivePatch => "Additive Patch",
+    }
+}
+
+/// The effect of an outlier with coefficient 1 over `len` cases (before the noise filter of
+/// an innovational one).
+fn outlier_column(o: Outlier, len: usize, s: usize) -> Values {
+    (0..len)
+        .map(|t| {
+            let Some(k) = t.checked_sub(o.at) else {
+                return Some(0.0);
+            };
+            Some(match o.kind {
+                OutlierType::LevelShift => 1.0,
+                OutlierType::Transient => TRANSIENT_DECAY.powi(k as i32),
+                OutlierType::SeasonalAdditive => f64::from(k % s.max(1) == 0),
+                OutlierType::LocalTrend => (k + 1) as f64,
+                _ => f64::from(k == 0),
+            })
+        })
+        .collect()
+}
+
+/// A structure without ARMA terms: differencing only.
+fn differencing(d: usize, sd: usize, s: usize) -> Structure {
+    Structure {
+        ar: Vec::new(),
+        ma: Vec::new(),
+        sar: Vec::new(),
+        sma: Vec::new(),
+        d,
+        sd,
+        s,
+        regressors: 0,
+        constant: false,
+        transfers: Vec::new(),
+    }
+}
+
+fn forward(how: TsTransform, v: f64) -> Option<f64> {
+    match how {
+        TsTransform::None => Some(v),
+        TsTransform::Sqrt => (v >= 0.0).then(|| v.sqrt()),
+        TsTransform::Ln => (v > 0.0).then(|| v.ln()),
+    }
+}
+
+fn back(how: TsTransform, v: f64) -> f64 {
+    match how {
+        TsTransform::None => v,
+        TsTransform::Sqrt => v.max(0.0).powi(2),
+        TsTransform::Ln => v.exp(),
+    }
+}
+
+fn transform_of(name: &str) -> TsTransform {
+    match name {
+        "SQRT" => TsTransform::Sqrt,
+        "LN" => TsTransform::Ln,
+        _ => TsTransform::None,
+    }
+}
+
+/// The predictors and outliers of a model.
+#[derive(Debug, Clone, Default)]
+struct Inputs {
+    names: Vec<String>,
+    specs: Vec<Spec>,
+    /// Over the estimation period and the forecasts.
+    raw: Vec<Values>,
+    outliers: Vec<Outlier>,
+}
+
+impl Inputs {
+    fn plain(names: Vec<String>, raw: Vec<Values>) -> Inputs {
+        Inputs {
+            specs: vec![Spec::default(); names.len()],
+            names,
+            raw,
+            outliers: Vec::new(),
+        }
+    }
 }
 
 /// One model of a model file.
@@ -141,6 +341,10 @@ struct Fitted {
     transform: TsTransform,
     season: usize,
     predictors: Vec<String>,
+    specs: Vec<Spec>,
+    outliers: Vec<Outlier>,
+    /// The parameter of the first outlier.
+    outlier_from: usize,
     params: Vec<f64>,
     se: Vec<Option<f64>>,
     labels: Vec<String>,
@@ -156,6 +360,8 @@ struct Fitted {
     upper: Values,
     /// Noise residuals over the estimation period (transformed scale).
     resid: Values,
+    /// The noise residuals over their standard deviation in units of sigma (ARIMA).
+    innov: Values,
     stats: [Option<f64>; 8],
     /// Ljung-Box statistic, degrees of freedom and significance.
     q: [Option<f64>; 3],
@@ -203,6 +409,19 @@ impl Fitted {
                 d: st.d,
                 sd: st.sd,
                 constant: st.constant,
+                transfers: self.specs.clone(),
+                outliers: self
+                    .outliers
+                    .iter()
+                    .map(|o| SavedOutlier {
+                        at: o.at,
+                        kind: OUTLIER_TYPES
+                            .iter()
+                            .find(|(_, k)| *k == o.kind)
+                            .map(|(n, _)| n.to_string())
+                            .expect("every type has a name"),
+                    })
+                    .collect(),
             },
         };
         let est = self.est_len();
@@ -434,6 +653,8 @@ struct Core {
     m: usize,
     fit: Values,
     sd: Values,
+    /// The standard deviation of each one-step error in units of sigma (ARIMA only).
+    scale: Values,
 }
 
 fn es_core(
@@ -510,6 +731,7 @@ fn es_core(
         m: d,
         fit: fits,
         sd,
+        scale: Vec::new(),
     })
 }
 
@@ -518,14 +740,13 @@ fn arima_core(
     z: &[Option<f64>],
     x: &[Values],
     est: usize,
-    predictors: &[String],
+    reg_labels: Vec<String>,
     fixed: Option<&[f64]>,
 ) -> Result<Core, String> {
     let reach = st.reach();
-    if (0..reach).any(|t| t >= est || z[t].is_none() || x.iter().any(|c| c[t].is_none())) {
+    if (0..reach).any(|t| t >= est || z[t].is_none()) {
         return Err(format!(
-            "needs its first {reach} values (and those of its predictors) valid, as the \
-             differencing starts from them"
+            "needs its first {reach} values valid, as the differencing starts from them"
         ));
     }
     let y_used = z[..est].to_vec();
@@ -535,10 +756,10 @@ fn arima_core(
         None => initial_values(st, &y_used, &x_used, &Estimates::default()),
     };
     let controls = Controls {
-        mxiter: if fixed.is_some() { 0 } else { 50 },
+        mxiter: if fixed.is_some() { 0 } else { 200 },
         mxlamb: 1e9,
-        ssqpct: 1e-6,
-        pareps: 1e-6,
+        ssqpct: 1e-12,
+        pareps: 1e-9,
     };
     let e = estimate(st, &y_used, &x_used, 0, theta0, &controls).map_err(str::to_string)?;
     let k = e.theta.len();
@@ -557,7 +778,7 @@ fn arima_core(
     ] {
         labels.extend(lags.iter().map(|l| format!("{name} Lag {l}")));
     }
-    labels.extend(predictors.iter().map(|p| format!("Numerator Lag 0 ({p})")));
+    labels.extend(reg_labels);
     if st.constant {
         labels.push("Constant".into());
     }
@@ -572,38 +793,28 @@ fn arima_core(
         m: st.ar.len() + st.ma.len() + st.sar.len() + st.sma.len(),
         fit: prediction.fit,
         sd: prediction.se.iter().map(|v| v.map(|v| v * sigma)).collect(),
+        scale: prediction.se,
         params: e.theta,
     })
 }
 
-/// Fits a model of the series `y` (original scale, the estimation period) with predictors `x`
-/// over the estimation period and the `horizon` forecasts after it.
+/// Fits a model of the series `y` (original scale, the estimation period) with its predictors
+/// and outliers over the estimation period and the `horizon` forecasts after it.
 #[allow(clippy::too_many_arguments)]
 fn fit_model(
     kind: Kind,
     transform: TsTransform,
     season: usize,
     y: &[Option<f64>],
-    x: Vec<Values>,
-    predictors: Vec<String>,
+    inputs: Inputs,
     horizon: usize,
     fixed: Option<&[f64]>,
     level: f64,
 ) -> Result<Fitted, String> {
     let est = y.len();
-    let forward = |v: f64| match transform {
-        TsTransform::None => Some(v),
-        TsTransform::Sqrt => (v >= 0.0).then(|| v.sqrt()),
-        TsTransform::Ln => (v > 0.0).then(|| v.ln()),
-    };
-    let back = |v: f64| match transform {
-        TsTransform::None => v,
-        TsTransform::Sqrt => v.max(0.0).powi(2),
-        TsTransform::Ln => v.exp(),
-    };
     let mut z: Values = Vec::with_capacity(est + horizon);
     for v in y {
-        match v.map(forward) {
+        match v.map(|v| forward(transform, v)) {
             Some(None) => {
                 return Err(format!(
                     "has values the {} transformation cannot take",
@@ -613,15 +824,48 @@ fn fit_model(
             other => z.push(other.flatten()),
         }
     }
-    let core = match &kind {
-        Kind::Es(t) => es_core(*t, season, &z, horizon, fixed)?,
-        Kind::Arima(st) => {
-            z.resize(est + horizon, None);
-            arima_core(st, &z, &x, est, &predictors, fixed)?
+    let len = est + horizon;
+    let mut outlier_from = 0;
+    let (kind, core) = match kind {
+        Kind::Es(t) => (kind, es_core(t, season, &z, horizon, fixed)?),
+        Kind::Arima(mut st) => {
+            z.resize(len, None);
+            let mut columns = Vec::new();
+            let mut labels = Vec::new();
+            st.transfers.clear();
+            for ((name, spec), raw) in inputs.names.iter().zip(&inputs.specs).zip(&inputs.raw) {
+                let how = transform_of(&spec.transform);
+                if raw[..est]
+                    .iter()
+                    .flatten()
+                    .any(|&v| forward(how, v).is_none())
+                {
+                    return Err(format!(
+                        "has a predictor, {name}, with values the {} transformation cannot take",
+                        transform_name(how)
+                    ));
+                }
+                columns.push(spec.prepared(raw, season));
+                labels.extend(spec.labels(name));
+                st.transfers.push(spec.transfer(season));
+            }
+            outlier_from = st.ar.len() + st.ma.len() + st.sar.len() + st.sma.len() + labels.len();
+            for o in &inputs.outliers {
+                columns.push(outlier_column(*o, len, season));
+                labels.push(outlier_name(o.kind).into());
+                st.transfers.push(Transfer {
+                    innovational: o.kind == OutlierType::Innovational,
+                    ..Transfer::default()
+                });
+            }
+            st.regressors = labels.len();
+            let core = arima_core(&st, &z, &columns, est, labels, fixed)?;
+            (Kind::Arima(st), core)
         }
     };
     z.truncate(est);
     let zq = normal_quantile(1.0 - (1.0 - level / 100.0) / 2.0);
+    let back = |v: f64| back(transform, v);
     let fit: Values = core.fit.iter().map(|v| v.map(back)).collect();
     let lower = (0..fit.len())
         .map(|t| Some(back(core.fit[t]? - zq * core.sd[t]?)))
@@ -630,6 +874,9 @@ fn fit_model(
         .map(|t| Some(back(core.fit[t]? + zq * core.sd[t]?)))
         .collect();
     let resid: Values = (0..est).map(|t| Some(z[t]? - core.fit[t]?)).collect();
+    let innov: Values = (0..est)
+        .map(|t| Some(resid[t]? / core.scale.get(t).copied().flatten()?))
+        .collect();
 
     // fit measures on the original series
     let pairs: Vec<(f64, f64)> = (0..est).filter_map(|t| Some((y[t]?, fit[t]?))).collect();
@@ -660,19 +907,7 @@ fn fit_model(
         ),
         Kind::Arima(st) => (st.d, st.sd, st.s),
     };
-    let poly = Structure {
-        ar: Vec::new(),
-        ma: Vec::new(),
-        sar: Vec::new(),
-        sma: Vec::new(),
-        d,
-        sd,
-        s,
-        regressors: 0,
-        constant: false,
-    }
-    .difference();
-    let dz = differenced(&z, &poly);
+    let dz = differenced(&z, &differencing(d, sd, s).difference());
     let both: Vec<(f64, f64)> = (0..est).filter_map(|t| Some((resid[t]?, dz[t]?))).collect();
     let dmean = both.iter().map(|p| p.1).sum::<f64>() / both.len().max(1) as f64;
     let srsq = 1.0
@@ -708,18 +943,22 @@ fn fit_model(
         kind,
         transform,
         season,
-        predictors,
+        predictors: inputs.names,
+        specs: inputs.specs,
+        outliers: inputs.outliers,
+        outlier_from,
         params: core.params,
         se: core.se,
         labels: core.labels,
         n,
         k,
         y: y.to_vec(),
-        x,
+        x: inputs.raw,
         fit,
         lower,
         upper,
         resid,
+        innov,
         stats,
         q,
     })
@@ -736,17 +975,14 @@ fn lag_list(v: &[u32]) -> Vec<usize> {
     lags
 }
 
-fn structure(a: &TsArima, season: usize, regressors: usize) -> Structure {
+fn structure(a: &TsArima, season: usize) -> Structure {
     let mut st = Structure {
         ar: lag_list(&a.ar),
         ma: lag_list(&a.ma),
         sar: lag_list(&a.sar),
         sma: lag_list(&a.sma),
-        d: a.d as usize,
-        sd: a.sd as usize,
-        s: 1,
-        regressors,
         constant: a.constant,
+        ..differencing(a.d as usize, a.sd as usize, 1)
     };
     if !st.sar.is_empty() || !st.sma.is_empty() || st.sd > 0 {
         st.s = season;
@@ -792,18 +1028,7 @@ fn expert_differencing(z: &[Option<f64>], s: usize) -> (usize, usize) {
     let mut best = (0, 0, f64::INFINITY);
     for sd in 0..=usize::from(s > 1) {
         for d in 0..=2 {
-            let st = Structure {
-                ar: Vec::new(),
-                ma: Vec::new(),
-                sar: Vec::new(),
-                sma: Vec::new(),
-                d,
-                sd,
-                s,
-                regressors: 0,
-                constant: false,
-            };
-            let v: Vec<f64> = differenced(z, &st.difference())
+            let v: Vec<f64> = differenced(z, &differencing(d, sd, s).difference())
                 .into_iter()
                 .flatten()
                 .collect();
@@ -846,8 +1071,7 @@ fn expert_es(y: &[Option<f64>], s: usize, horizon: usize, level: f64) -> Option<
                 TsTransform::None,
                 season,
                 y,
-                Vec::new(),
-                Vec::new(),
+                Inputs::default(),
                 horizon,
                 None,
                 level,
@@ -857,7 +1081,369 @@ fn expert_es(y: &[Option<f64>], s: usize, horizon: usize, level: f64) -> Option<
         .min_by(|a, b| bic(a).total_cmp(&bic(b)))
 }
 
-/// The ARIMA expert; predictors that stay make the model a transfer function model.
+/// A form of ARIMA model to fit: the structure, the transformation, the season length given
+/// to fit_model and the predictors kept (indices).
+#[derive(Debug, Clone)]
+struct Plan {
+    st: Structure,
+    transform: TsTransform,
+    s: usize,
+    keep: Vec<usize>,
+}
+
+type FitFn<'a> = dyn Fn(&Plan, &[Outlier]) -> Option<Fitted> + 'a;
+/// Chooses the form for a series (the expert modeler).
+type Identify<'a> = dyn Fn(&[Option<f64>]) -> Option<Plan> + 'a;
+
+/// The ARIMA expert's form for `y`: the transformation, the differencing and the ARMA orders
+/// with the smallest normalized BIC, with all `predictors`.
+fn expert_plan(y: &[Option<f64>], s: usize, predictors: usize, fit: &FitFn) -> Option<Plan> {
+    let transform = expert_transform(y, s);
+    let z: Values = y
+        .iter()
+        .map(|v| v.and_then(|v| forward(transform, v)))
+        .collect();
+    let (d, sd) = expert_differencing(&z, s);
+    let seasonal_orders = if s > 1 { 1 } else { 0 };
+    let mut best: Option<(Plan, f64)> = None;
+    for p in 0..=2 {
+        for q in 0..=2 {
+            for sp in 0..=seasonal_orders {
+                for sq in 0..=seasonal_orders {
+                    let plan = Plan {
+                        st: Structure {
+                            ar: (1..=p).collect(),
+                            ma: (1..=q).collect(),
+                            sar: (1..=sp).collect(),
+                            sma: (1..=sq).collect(),
+                            constant: d + sd < 2,
+                            ..differencing(d, sd, s)
+                        },
+                        transform,
+                        s,
+                        keep: (0..predictors).collect(),
+                    };
+                    if let Some(f) = fit(&plan, &[])
+                        && best.as_ref().is_none_or(|b| bic(&f) < b.1)
+                    {
+                        best = Some((plan, bic(&f)));
+                    }
+                }
+            }
+        }
+    }
+    best.map(|b| b.0)
+}
+
+/// Drops terms one at a time while any is not significant: first the weakest outlier with |t|
+/// below `c`; unless `outliers_only`, then the last predictor with |t| below 2, else the
+/// weakest such term.
+fn prune(plan: &mut Plan, mut model: Fitted, fit: &FitFn, c: f64, outliers_only: bool) -> Fitted {
+    loop {
+        let t = |i: usize| match model.se[i] {
+            Some(se) if se > 0.0 => (model.params[i] / se).abs(),
+            _ => 0.0,
+        };
+        let by_t = |a: &usize, b: &usize| t(*a).total_cmp(&t(*b));
+        let st = &plan.st;
+        let arma = st.ar.len() + st.ma.len() + st.sar.len() + st.sma.len();
+        let from = model.outlier_from;
+        let outliers = from..from + model.outliers.len();
+        let pick = outliers
+            .clone()
+            .filter(|&i| t(i) < c)
+            .min_by(by_t)
+            .or_else(|| {
+                if outliers_only {
+                    return None;
+                }
+                let weak: Vec<usize> = (0..model.params.len())
+                    .filter(|&i| !outliers.contains(&i) && t(i) < 2.0)
+                    .collect();
+                weak.iter()
+                    .rev()
+                    .copied()
+                    .find(|&i| i >= arma && i < from)
+                    .or_else(|| weak.iter().copied().min_by(by_t))
+            });
+        let Some(drop) = pick else {
+            break;
+        };
+        let mut kept = model.outliers.clone();
+        if outliers.contains(&drop) {
+            kept.remove(drop - from);
+        } else if drop >= outliers.end {
+            plan.st.constant = false;
+        } else if drop >= arma {
+            plan.keep.remove(drop - arma);
+        } else {
+            let mut i = drop;
+            for lags in [
+                &mut plan.st.ar,
+                &mut plan.st.ma,
+                &mut plan.st.sar,
+                &mut plan.st.sma,
+            ] {
+                if i < lags.len() {
+                    lags.remove(i);
+                    break;
+                }
+                i -= lags.len();
+            }
+        }
+        match fit(plan, &kept) {
+            Some(f) => model = f,
+            None => break,
+        }
+    }
+    model
+}
+
+/// The critical value of the outlier search over n values: 3 up to 50 values, 4 from 450,
+/// rising linearly between.
+fn critical(n: usize) -> f64 {
+    (3.0 + 0.0025 * (n as f64 - 50.0)).clamp(3.0, 4.0)
+}
+
+/// The response of the one-step errors to an outlier of the kind at time 0 over `len` steps:
+/// AR Delta / (MA L(B)) applied to a pulse, 1 / L(B) the outlier's own filter.
+fn response(kind: OutlierType, ar: &[f64], ma: &[f64], s: usize, len: usize) -> Vec<f64> {
+    let pulse: Values = (0..len).map(|t| Some(f64::from(t == 0))).collect();
+    let own = match kind {
+        OutlierType::Innovational => return pulse.into_iter().flatten().collect(),
+        OutlierType::LevelShift => vec![1.0, -1.0],
+        OutlierType::Transient => vec![1.0, -TRANSIENT_DECAY],
+        OutlierType::SeasonalAdditive => {
+            let mut p = vec![0.0; s + 1];
+            (p[0], p[s]) = (1.0, -1.0);
+            p
+        }
+        OutlierType::LocalTrend => vec![1.0, -2.0, 1.0],
+        _ => vec![1.0],
+    };
+    ratio_filter(ar, &product(ma, &own), &pulse, true)
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// The middle value (of a slice it sorts).
+fn median(v: &mut [f64]) -> f64 {
+    v.sort_by(f64::total_cmp);
+    let n = v.len();
+    (v[(n - 1) / 2] + v[n / 2]) / 2.0
+}
+
+/// The outliers the one-step errors of `model` point to, found one at a time: at each step
+/// the time and type with the largest standardized effect, while that passes `c`, the errors
+/// then cleared of it. `taken` holds the times already used.
+fn search_outliers(
+    model: &Fitted,
+    types: &[OutlierType],
+    taken: &mut Vec<usize>,
+    c: f64,
+) -> Vec<Outlier> {
+    let Kind::Arima(st) = &model.kind else {
+        return Vec::new();
+    };
+    let est = model.est_len();
+    let mut e = model.innov.clone();
+    let mut valid: Vec<f64> = e.iter().flatten().copied().collect();
+    let Some(first) = e.iter().position(Option::is_some) else {
+        return Vec::new();
+    };
+    if valid.len() < 3 {
+        return Vec::new();
+    }
+    // a robust sigma: 1.4826 times the median absolute deviation
+    let centre = median(&mut valid);
+    let mut deviations: Vec<f64> = valid.iter().map(|v| (v - centre).abs()).collect();
+    let sigma = 1.4826 * median(&mut deviations);
+    if sigma.is_nan() || sigma <= 0.0 {
+        return Vec::new();
+    }
+    let s = model.season;
+    let (ar, ma) = noise_polynomials(st, &model.params);
+    let patch = types.contains(&OutlierType::AdditivePatch);
+    let mut kinds: Vec<OutlierType> = types
+        .iter()
+        .copied()
+        .filter(|k| {
+            *k != OutlierType::AdditivePatch && (s > 1 || *k != OutlierType::SeasonalAdditive)
+        })
+        .collect();
+    if patch && !kinds.contains(&OutlierType::Additive) {
+        kinds.push(OutlierType::Additive);
+    }
+    let responses: Vec<(OutlierType, Vec<f64>)> = kinds
+        .iter()
+        .map(|&k| (k, response(k, &ar, &ma, s, est)))
+        .collect();
+    let pulse = response(OutlierType::Additive, &ar, &ma, s, est);
+    let mut found = Vec::new();
+    loop {
+        // the largest |z|, its time, type and coefficients
+        let mut best: Option<(f64, usize, OutlierType, Vec<f64>)> = None;
+        let mut offer = |z: f64, at: usize, kind: OutlierType, w: Vec<f64>| {
+            if z >= 0.0 && best.as_ref().is_none_or(|b| z > b.0) {
+                best = Some((z, at, kind, w));
+            }
+        };
+        for at in first..est {
+            if e[at].is_none() || taken.contains(&at) {
+                continue;
+            }
+            for (kind, g) in &responses {
+                // a shift at the first error is the level of the series itself
+                if at == first && !matches!(kind, OutlierType::Additive | OutlierType::Innovational)
+                {
+                    continue;
+                }
+                let (mut sxy, mut sxx) = (0.0, 0.0);
+                for t in at..est {
+                    if let Some(v) = e[t] {
+                        sxy += v * g[t - at];
+                        sxx += g[t - at].powi(2);
+                    }
+                }
+                if sxx > 0.0 {
+                    offer(
+                        (sxy / (sigma * sxx.sqrt())).abs(),
+                        at,
+                        *kind,
+                        vec![sxy / sxx],
+                    );
+                }
+            }
+            // patches of 2 to 4 additive outliers, by their joint chi-square
+            for k in 2..=4 {
+                if !patch
+                    || at + k > est
+                    || (at..at + k).any(|t| taken.contains(&t) || e[t].is_none())
+                {
+                    break;
+                }
+                let mut a = vec![vec![0.0; k]; k];
+                let mut b = vec![0.0; k];
+                for (t, v) in e.iter().enumerate().take(est).skip(at) {
+                    let Some(v) = *v else { continue };
+                    let x: Vec<f64> = (0..k)
+                        .map(|i| t.checked_sub(at + i).map_or(0.0, |j| pulse[j]))
+                        .collect();
+                    for i in 0..k {
+                        b[i] += x[i] * v;
+                        for j in 0..k {
+                            a[i][j] += x[i] * x[j];
+                        }
+                    }
+                }
+                let Some(w) = solve(&a, &b) else { continue };
+                let chi = w.iter().zip(&b).map(|(w, b)| w * b).sum::<f64>() / sigma.powi(2);
+                let p = chi_square_p(chi, k as f64);
+                offer(
+                    normal_quantile(1.0 - p / 2.0),
+                    at,
+                    OutlierType::AdditivePatch,
+                    w,
+                );
+            }
+        }
+        let Some((z, at, kind, w)) = best else {
+            break;
+        };
+        if z <= c {
+            break;
+        }
+        let g = match kind {
+            OutlierType::AdditivePatch => &pulse,
+            _ => &responses.iter().find(|r| r.0 == kind).expect("searched").1,
+        };
+        for (i, wi) in w.iter().enumerate() {
+            for t in at + i..est {
+                if let Some(v) = e[t].as_mut() {
+                    *v -= wi * g[t - at - i];
+                }
+            }
+            taken.push(at + i);
+            found.push(Outlier { at: at + i, kind });
+        }
+    }
+    found
+}
+
+/// The series of a model less its outlier effects (original scale).
+fn cleared(model: &Fitted) -> Values {
+    let n = model.outliers.len();
+    let Kind::Arima(st) = &model.kind else {
+        return model.y.clone();
+    };
+    if n == 0 {
+        return model.y.clone();
+    }
+    let arma = st.ar.len() + st.ma.len() + st.sar.len() + st.sma.len();
+    let mut theta = model.params[..arma].to_vec();
+    theta.extend(&model.params[model.outlier_from..model.outlier_from + n]);
+    let only = Structure {
+        regressors: n,
+        constant: false,
+        transfers: st.transfers[st.transfers.len() - n..].to_vec(),
+        ..st.clone()
+    };
+    let est = model.est_len();
+    let columns: Vec<Values> = model
+        .outliers
+        .iter()
+        .map(|o| outlier_column(*o, est, model.season))
+        .collect();
+    let Some(e) = effects(&only, &theta, &columns) else {
+        return model.y.clone();
+    };
+    let how = model.transform;
+    (0..est)
+        .map(|t| Some(back(how, forward(how, model.y[t]?)? - e[t]?)))
+        .collect()
+}
+
+/// The outlier search around a fitted model, as the Algorithms manual draws it: the errors
+/// are searched, the outliers found join the model, those not significant leave it one at a
+/// time, and the search runs again on the new model until it finds nothing. With `identify`
+/// the form is chosen again once, on the series cleared of the first outliers.
+fn find_outliers(
+    mut plan: Plan,
+    mut model: Fitted,
+    types: &[OutlierType],
+    fit: &FitFn,
+    identify: Option<&Identify>,
+) -> (Plan, Fitted) {
+    let c = critical(model.y.iter().flatten().count());
+    let mut taken = Vec::new();
+    let mut rounds = 0;
+    loop {
+        let new = search_outliers(&model, types, &mut taken, c);
+        if new.is_empty() {
+            break;
+        }
+        let mut trial = model.outliers.clone();
+        trial.extend(new);
+        let Some(m) = fit(&plan, &trial) else {
+            break;
+        };
+        model = prune(&mut plan, m, fit, c, true);
+        rounds += 1;
+        if rounds == 1
+            && let Some(identify) = identify
+            && let Some(p) = identify(&cleared(&model))
+            && let Some(m) = fit(&p, &model.outliers)
+        {
+            (plan, model) = (p, m);
+        }
+    }
+    (plan, model)
+}
+
+/// The ARIMA expert; predictors that stay make the model a transfer function model. With
+/// outlier types the outlier search runs on its model.
+#[allow(clippy::too_many_arguments)]
 fn expert_arima(
     y: &[Option<f64>],
     x: &[Values],
@@ -866,6 +1452,7 @@ fn expert_arima(
     seasonal: bool,
     horizon: usize,
     level: f64,
+    types: Option<&[OutlierType]>,
 ) -> Option<Fitted> {
     let n = y.len();
     let s = if seasonal && s > 1 && n >= 3 * s {
@@ -873,101 +1460,40 @@ fn expert_arima(
     } else {
         1
     };
-    let transform = expert_transform(y, s);
-    let z: Values = y
-        .iter()
-        .map(|v| {
-            v.map(|v| match transform {
-                TsTransform::None => v,
-                TsTransform::Sqrt => v.sqrt(),
-                TsTransform::Ln => v.ln(),
-            })
-        })
-        .collect();
-    let (d, sd) = expert_differencing(&z, s);
-    let fit = |st: &Structure, keep: &[usize]| {
-        let mut st = st.clone();
-        st.regressors = keep.len();
+    let fit_on = |y: &[Option<f64>], plan: &Plan, outliers: &[Outlier]| {
+        let inputs = Inputs {
+            outliers: outliers.to_vec(),
+            ..Inputs::plain(
+                plan.keep.iter().map(|&i| names[i].clone()).collect(),
+                plan.keep.iter().map(|&i| x[i].clone()).collect(),
+            )
+        };
+        let kind = Kind::Arima(plan.st.clone());
         fit_model(
-            Kind::Arima(st),
-            transform,
-            s,
+            kind,
+            plan.transform,
+            plan.s,
             y,
-            keep.iter().map(|&i| x[i].clone()).collect(),
-            keep.iter().map(|&i| names[i].clone()).collect(),
+            inputs,
             horizon,
             None,
             level,
         )
         .ok()
     };
-    let all: Vec<usize> = (0..names.len()).collect();
-    let mut best: Option<(Structure, Fitted)> = None;
-    let seasonal_orders = if s > 1 { 1 } else { 0 };
-    for p in 0..=2 {
-        for q in 0..=2 {
-            for sp in 0..=seasonal_orders {
-                for sq in 0..=seasonal_orders {
-                    let st = Structure {
-                        ar: (1..=p).collect(),
-                        ma: (1..=q).collect(),
-                        sar: (1..=sp).collect(),
-                        sma: (1..=sq).collect(),
-                        d,
-                        sd,
-                        s,
-                        regressors: 0,
-                        constant: d + sd < 2,
-                    };
-                    if let Some(f) = fit(&st, &all)
-                        && best.as_ref().is_none_or(|b| bic(&f) < bic(&b.1))
-                    {
-                        best = Some((st, f));
-                    }
-                }
-            }
-        }
+    let fit = |plan: &Plan, outliers: &[Outlier]| fit_on(y, plan, outliers);
+    let identify = |y: &[Option<f64>]| {
+        expert_plan(y, s, names.len(), &|p: &Plan, o: &[Outlier]| {
+            fit_on(y, p, o)
+        })
+    };
+    let mut plan = identify(y)?;
+    let mut model = fit(&plan, &[])?;
+    if let Some(types) = types.filter(|t| !t.is_empty()) {
+        (plan, model) = find_outliers(plan, model, types, &fit, Some(&identify));
     }
-    let (mut st, mut model) = best?;
-    let mut keep = all;
-    // drop terms with |t| below 2, the last insignificant predictor first, else the weakest
-    loop {
-        let t = |i: usize| match model.se[i] {
-            Some(se) if se > 0.0 => (model.params[i] / se).abs(),
-            _ => 0.0,
-        };
-        let arma = st.ar.len() + st.ma.len() + st.sar.len() + st.sma.len();
-        let weak: Vec<usize> = (0..model.params.len()).filter(|&i| t(i) < 2.0).collect();
-        let Some(&drop) = weak
-            .iter()
-            .rev()
-            .find(|&&i| i >= arma && i < arma + keep.len())
-            .or_else(|| weak.iter().min_by(|&&a, &&b| t(a).total_cmp(&t(b))))
-        else {
-            break;
-        };
-        let mut i = drop;
-        for lags in [&mut st.ar, &mut st.ma, &mut st.sar, &mut st.sma] {
-            if i < lags.len() {
-                lags.remove(i);
-                i = usize::MAX;
-                break;
-            }
-            i -= lags.len();
-        }
-        if i != usize::MAX {
-            if i < keep.len() {
-                keep.remove(i);
-            } else {
-                st.constant = false;
-            }
-        }
-        match fit(&st, &keep) {
-            Some(f) => model = f,
-            None => break,
-        }
-    }
-    Some(model)
+    let c = critical(y.iter().flatten().count());
+    Some(prune(&mut plan, model, &fit, c, false))
 }
 
 /// Rows of the series that the window covers, with their labels.
@@ -1064,11 +1590,74 @@ impl Engine {
             let data = self.active()?;
             let dependents = self.expand(&block.dependent)?;
             let independents = self.expand(&block.independent)?;
-            let seasonal_needed = match &block.method {
-                TsMethod::Exsmooth(t, _) => seasonal_es(*t),
-                TsMethod::Arima(a) => a.sd > 0 || a.sar.iter().chain(&a.sma).any(|&v| v > 0),
-                TsMethod::Expert { .. } => false,
+            let is_arima = matches!(block.method, TsMethod::Arima(_));
+            // how each predictor enters a custom ARIMA model: the last TRANSFERFUNCTION naming it
+            let mut specs: HashMap<String, Spec> = HashMap::new();
+            if !block.transfers.is_empty() && !is_arima {
+                warnings.push("TSMODEL: TRANSFERFUNCTION is ignored without ARIMA".into());
+            }
+            for t in block.transfers.iter().filter(|_| is_arima) {
+                let spec = Spec {
+                    num: lag_list(&t.num),
+                    snum: lag_list(&t.snum),
+                    den: lag_list(&t.den),
+                    sden: lag_list(&t.sden),
+                    d: t.d as usize,
+                    sd: t.sd as usize,
+                    delay: t.delay as usize,
+                    transform: transform_name(t.transform).into(),
+                };
+                let named = match t.variables.is_empty() {
+                    true => independents.clone(),
+                    false => self.expand(&t.variables)?,
+                };
+                for name in named.into_iter().filter(|n| independents.contains(n)) {
+                    specs.insert(name, spec.clone());
+                }
+            }
+            // OUTLIER (custom ARIMA only) goes before AUTOOUTLIER
+            if !block.outliers.is_empty() && !is_arima {
+                warnings.push("TSMODEL: OUTLIER is ignored without ARIMA".into());
+            }
+            let mut given: Vec<(Option<usize>, OutlierType)> = Vec::new();
+            for o in block.outliers.iter().filter(|_| is_arima) {
+                let numbers = self.case_numbers.as_deref();
+                let case = self.point_case(data, &o.location, false, numbers, "TSMODEL")?;
+                if given.contains(&(case, o.kind)) {
+                    warnings.push("TSMODEL: an OUTLIER is given twice; it counts once".into());
+                } else {
+                    given.push((case, o.kind));
+                }
+            }
+            let detect = block.detect.as_deref().filter(|t| !t.is_empty());
+            let detect = match &block.method {
+                TsMethod::Exsmooth(..) if detect.is_some() => {
+                    warnings.push("TSMODEL: AUTOOUTLIER is ignored with EXSMOOTH".into());
+                    None
+                }
+                TsMethod::Arima(_) if detect.is_some() && !given.is_empty() => {
+                    warnings.push(
+                        "TSMODEL: OUTLIER is given, so AUTOOUTLIER is not used in its block".into(),
+                    );
+                    None
+                }
+                _ => detect,
             };
+            let seasonal_outliers = given
+                .iter()
+                .map(|g| g.1)
+                .chain(detect.into_iter().flatten().copied())
+                .any(|k| k == OutlierType::SeasonalAdditive);
+            let seasonal_transfer = specs
+                .values()
+                .any(|s| s.sd > 0 || !s.snum.is_empty() || !s.sden.is_empty());
+            let seasonal_needed = seasonal_outliers
+                || seasonal_transfer
+                || match &block.method {
+                    TsMethod::Exsmooth(t, _) => seasonal_es(*t),
+                    TsMethod::Arima(a) => a.sd > 0 || a.sar.iter().chain(&a.sma).any(|&v| v > 0),
+                    TsMethod::Expert { .. } => false,
+                };
             if seasonal_needed && season < 2 {
                 return Err(Error(
                     "TSMODEL: a seasonal model needs a season length: give SEASONLENGTH or DATE \
@@ -1090,6 +1679,7 @@ impl Engine {
                 }
                 TsMethod::Arima(a)
                     if independents.is_empty()
+                        && given.is_empty()
                         && !a.constant
                         && [&a.ar, &a.ma, &a.sar, &a.sma]
                             .iter()
@@ -1097,7 +1687,7 @@ impl Engine {
                 {
                     return Err(Error(
                         "TSMODEL: the ARIMA model has no parameter: give an AR or MA lag, a \
-                         constant or a predictor"
+                         constant, a predictor or an outlier"
                             .into(),
                     ));
                 }
@@ -1149,31 +1739,76 @@ impl Engine {
                 if names.first().is_some_and(String::is_empty) {
                     continue;
                 }
+                let mut outliers = Vec::new();
+                for &(case, kind) in &given {
+                    match case {
+                        Some(c) if (a..=b).contains(&c) && all[c].is_some() => {
+                            outliers.push(Outlier { at: c - a, kind });
+                        }
+                        _ => {
+                            warnings.push(format!(
+                                "TSMODEL: an OUTLIER location is outside the estimation period \
+                                 of {dep} or at a missing value, so {dep} is not modeled"
+                            ));
+                            names.push(String::new());
+                            break;
+                        }
+                    }
+                }
+                if names.last().is_some_and(String::is_empty) {
+                    continue;
+                }
                 let result = match &block.method {
                     TsMethod::Exsmooth(t, transform) => fit_model(
                         Kind::Es(*t),
                         *transform,
                         if seasonal_es(*t) { season } else { 1 },
                         &y,
-                        Vec::new(),
-                        Vec::new(),
+                        Inputs::default(),
                         horizon,
                         None,
                         level,
                     ),
                     TsMethod::Arima(spec) => {
-                        let st = structure(spec, season, names.len());
-                        fit_model(
-                            Kind::Arima(st),
-                            spec.transform,
-                            season,
-                            &y,
-                            x,
+                        let inputs = Inputs {
+                            specs: names
+                                .iter()
+                                .map(|n| specs.get(n).cloned().unwrap_or_default())
+                                .collect(),
                             names,
-                            horizon,
-                            None,
-                            level,
-                        )
+                            raw: x,
+                            outliers: Vec::new(),
+                        };
+                        let plan = Plan {
+                            st: structure(spec, season),
+                            transform: spec.transform,
+                            s: season,
+                            keep: Vec::new(),
+                        };
+                        let fit = |plan: &Plan, outliers: &[Outlier]| {
+                            let inputs = Inputs {
+                                outliers: outliers.to_vec(),
+                                ..inputs.clone()
+                            };
+                            let kind = Kind::Arima(plan.st.clone());
+                            fit_model(
+                                kind,
+                                plan.transform,
+                                plan.s,
+                                &y,
+                                inputs,
+                                horizon,
+                                None,
+                                level,
+                            )
+                        };
+                        match (fit(&plan, &outliers), detect) {
+                            (Ok(m), Some(types)) => {
+                                let fit = |p: &Plan, o: &[Outlier]| fit(p, o).ok();
+                                Ok(find_outliers(plan, m, types, &fit, None).1)
+                            }
+                            (result, _) => result,
+                        }
                     }
                     TsMethod::Expert {
                         arima,
@@ -1194,7 +1829,10 @@ impl Engine {
                             .then(|| expert_es(&y, s, horizon, level))
                             .flatten();
                         let ar = (*arima && !(short && *exsmooth))
-                            .then(|| expert_arima(&y, &x, &names, s, *seasonal, horizon, level))
+                            .then(|| {
+                                let (h, l) = (horizon, level);
+                                expert_arima(&y, &x, &names, s, *seasonal, h, l, detect)
+                            })
                             .flatten();
                         match (es, ar) {
                             (_, Some(a)) if !a.predictors.is_empty() => Ok(a),
@@ -1375,27 +2013,37 @@ impl Engine {
                 d,
                 sd,
                 constant,
+                ..
             } => Kind::Arima(Structure {
                 ar: ar.clone(),
                 ma: ma.clone(),
                 sar: sar.clone(),
                 sma: sma.clone(),
-                d: *d,
-                sd: *sd,
-                s: if sar.is_empty() && sma.is_empty() && *sd == 0 {
-                    1
-                } else {
-                    saved.season
-                },
-                regressors: saved.predictors.len(),
                 constant: *constant,
+                ..differencing(
+                    *d,
+                    *sd,
+                    if sar.is_empty() && sma.is_empty() && *sd == 0 {
+                        1
+                    } else {
+                        saved.season
+                    },
+                )
             }),
         };
-        let transform = match saved.transform.as_str() {
-            "SQRT" => TsTransform::Sqrt,
-            "LN" => TsTransform::Ln,
-            _ => TsTransform::None,
+        let (specs, saved_outliers) = match &saved.form {
+            Form::Arima {
+                transfers,
+                outliers,
+                ..
+            } => (transfers.clone(), outliers.clone()),
+            Form::Exsmooth { .. } => (Vec::new(), Vec::new()),
         };
+        let specs = match specs.is_empty() {
+            true => vec![Spec::default(); saved.predictors.len()],
+            false => specs,
+        };
+        let transform = transform_of(&saved.transform);
         let (a, y, fixed) = if out.reestimate {
             let a = (first..=last)
                 .find(|&t| all[t].is_some())
@@ -1432,13 +2080,34 @@ impl Engine {
                     .collect()
             })
             .collect();
+        // the outliers stay at their cases; those outside a new estimation period drop out
+        let mut outliers = Vec::new();
+        for o in &saved_outliers {
+            let kind = OUTLIER_TYPES
+                .iter()
+                .find(|(n, _)| *n == o.kind)
+                .map(|(_, k)| *k)
+                .ok_or_else(|| format!("the model {id} has an unknown outlier type"))?;
+            let case = saved.first_case - 1 + o.at;
+            if let Some(at) = case
+                .checked_sub(a)
+                .filter(|&t| y.get(t).is_some_and(Option::is_some))
+            {
+                outliers.push(Outlier { at, kind });
+            }
+        }
+        let inputs = Inputs {
+            names: saved.predictors.clone(),
+            specs,
+            raw: x,
+            outliers,
+        };
         let mut model = fit_model(
             kind,
             transform,
             saved.season,
             &y,
-            x,
-            saved.predictors.clone(),
+            inputs,
             horizon,
             fixed,
             out.cilevel,
@@ -1638,7 +2307,7 @@ impl Engine {
                         ];
                         row.extend(out.statistics_fit.iter().map(|f| number(m.stats[slot(*f)])));
                         row.extend(m.q.iter().map(|v| number(*v)));
-                        row.push(Cell::Number(0.0));
+                        row.push(Cell::Number(m.outliers.len() as f64));
                         row
                     })
                     .collect();
@@ -1660,17 +2329,20 @@ impl Engine {
                             let df = m.n as f64 - m.k as f64;
                             let name =
                                 format!("{}-{}", shown.named(data, &runs[i].dependent), runs[i].id);
-                            (0..m.params.len()).map(move |j| {
-                                let t = m.se[j].map(|s| m.params[j] / s);
-                                vec![
-                                    text(name.clone()),
-                                    text(m.labels[j].clone()),
-                                    number(Some(m.params[j])),
-                                    number(m.se[j]),
-                                    number(t),
-                                    number(t.map(|t| t_p(t, df))),
-                                ]
-                            })
+                            let outliers = m.outlier_from..m.outlier_from + m.outliers.len();
+                            (0..m.params.len())
+                                .filter(move |j| !outliers.contains(j))
+                                .map(move |j| {
+                                    let t = m.se[j].map(|s| m.params[j] / s);
+                                    vec![
+                                        text(name.clone()),
+                                        text(m.labels[j].clone()),
+                                        number(Some(m.params[j])),
+                                        number(m.se[j]),
+                                        number(t),
+                                        number(t.map(|t| t_p(t, df))),
+                                    ]
+                                })
                         })
                         .collect();
                     if rows.is_empty() {
@@ -1684,6 +2356,34 @@ impl Engine {
                         title,
                         2,
                         plain(&["Model", "Parameter", "Estimate", "SE", "t", "Sig."]),
+                        rows,
+                        note.clone(),
+                    ));
+                }
+                let mut rows = Vec::new();
+                for &i in set {
+                    let r = &runs[i];
+                    let m = &r.model;
+                    let df = m.n as f64 - m.k as f64;
+                    for (j, o) in m.outliers.iter().enumerate() {
+                        let p = m.outlier_from + j;
+                        let t = m.se[p].map(|s| m.params[p] / s);
+                        rows.push(vec![
+                            text(format!("{}-{}", shown.named(data, &r.dependent), r.id)),
+                            text(label(r.place.first + o.at)),
+                            text(outlier_name(o.kind)),
+                            number(Some(m.params[p])),
+                            number(m.se[p]),
+                            number(t),
+                            number(t.map(|t| t_p(t, df))),
+                        ]);
+                    }
+                }
+                if !rows.is_empty() {
+                    tables.push(table(
+                        "Outliers",
+                        3,
+                        plain(&["Model", "Period", "Type", "Estimate", "SE", "t", "Sig."]),
                         rows,
                         note.clone(),
                     ));
