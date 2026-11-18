@@ -38,6 +38,8 @@ use crate::model_dialogs::{
 use crate::model_dialogs_view;
 use crate::model_more_dialog::{OptimalBinning, QuantileRegression, VarianceComponents};
 use crate::model_more_dialog_view;
+use crate::neural_dialog::{Mlp, Rbf};
+use crate::neural_dialog_view;
 use crate::nptests_dialog::{NpKind, Nptests};
 use crate::output;
 use crate::output_view;
@@ -250,6 +252,8 @@ pub(crate) enum Dialog {
     FeatureSelection(Box<FeatureSelection>),
     PrepareData(Box<PrepareData>),
     Anomaly(Anomaly),
+    Mlp(Mlp),
+    Rbf(Rbf),
     Discriminant(Discriminant),
     Logistic(Logistic),
     Univariate(Univariate),
@@ -309,6 +313,8 @@ impl Dialog {
             Dialog::FeatureSelection(_) => "Feature Selection",
             Dialog::PrepareData(_) => "Prepare Data for Modeling",
             Dialog::Anomaly(_) => "Identify Unusual Cases",
+            Dialog::Mlp(_) => "Multilayer Perceptron",
+            Dialog::Rbf(_) => "Radial Basis Function",
             Dialog::Discriminant(_) => "Discriminant Analysis",
             Dialog::Logistic(_) => "Logistic Regression",
             Dialog::Univariate(d) if d.multivariate => "Multivariate",
@@ -378,6 +384,8 @@ impl Dialog {
             Dialog::FeatureSelection(_) => Dialog::FeatureSelection(Default::default()),
             Dialog::PrepareData(_) => Dialog::PrepareData(Default::default()),
             Dialog::Anomaly(_) => Dialog::Anomaly(Default::default()),
+            Dialog::Mlp(_) => Dialog::Mlp(Default::default()),
+            Dialog::Rbf(_) => Dialog::Rbf(Default::default()),
             Dialog::Discriminant(_) => Dialog::Discriminant(Default::default()),
             Dialog::Logistic(_) => Dialog::Logistic(Default::default()),
             Dialog::Univariate(d) if d.multivariate => {
@@ -511,6 +519,8 @@ impl Dialog {
             Dialog::FeatureSelection(d) => numeric(data, &d.covariates).and_then(|()| d.syntax()),
             Dialog::PrepareData(d) => d.syntax(),
             Dialog::Anomaly(d) => numeric(data, &d.scale).and_then(|()| d.syntax()),
+            Dialog::Mlp(d) => numeric(data, &d.common.covariates).and_then(|()| d.syntax()),
+            Dialog::Rbf(d) => numeric(data, &d.common.covariates).and_then(|()| d.syntax()),
             Dialog::Discriminant(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
             // a string covariate is categorical, a string dependent has its two values
             Dialog::Logistic(d) => d.syntax(),
@@ -1972,6 +1982,14 @@ impl App {
                             self.open_dialog(Dialog::Advanced(Advanced::NaiveBayes(
                                 Default::default(),
                             )));
+                        }
+                    });
+                    ui.menu_button("Neural Networks", |ui| {
+                        if ui.button("Multilayer Perceptron...").clicked() {
+                            self.open_dialog(Dialog::Mlp(Default::default()));
+                        }
+                        if ui.button("Radial Basis Function...").clicked() {
+                            self.open_dialog(Dialog::Rbf(Default::default()));
                         }
                     });
                     ui.menu_button("Dimension Reduction", |ui| {
@@ -6433,6 +6451,8 @@ fn dialog_body(
         Dialog::FeatureSelection(d) => crate::mining_dialog_view::feature_selection(ui, d, picked),
         Dialog::PrepareData(d) => crate::mining_dialog_view::prepare_data(ui, d, picked),
         Dialog::Anomaly(d) => twostep_dialog_view::anomaly(ui, d, picked),
+        Dialog::Mlp(d) => neural_dialog_view::mlp(ui, d, picked),
+        Dialog::Rbf(d) => neural_dialog_view::rbf(ui, d, picked),
         Dialog::Discriminant(d) => model_dialogs_view::discriminant(ui, d, picked),
         Dialog::Logistic(d) => model_dialogs_view::logistic(ui, d, picked),
         Dialog::Univariate(d) => model_dialogs_view::univariate(ui, d, picked),

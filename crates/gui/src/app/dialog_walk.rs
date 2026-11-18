@@ -50,6 +50,7 @@ use crate::multivar_dialog::{Knn, Manova, Pls};
 use crate::mva_dialog::{Estimation, MissingValueAnalysis};
 use crate::naivebayes_dialog::NaiveBayes;
 use crate::oms_dialog::{Oms, Omsend};
+use crate::neural_dialog::{Common, Mlp, Rbf};
 use crate::proportions_dialog::{Proportions, ProportionsKind};
 use crate::proximities_dialog::Distances;
 use crate::reports_dialog::{Codebook, OlapCubes, OlapDifference, Summarize};
@@ -337,6 +338,22 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         }),
         Dialog::Anomaly(Anomaly {
             scale: v(&["age", "monthly_spend"]),
+            ..Default::default()
+        }),
+        Dialog::Mlp(Mlp {
+            common: Common {
+                dependents: v(&["monthly_spend"]),
+                covariates: v(&["age"]),
+                ..Default::default()
+            },
+            ..Default::default()
+        }),
+        Dialog::Rbf(Rbf {
+            common: Common {
+                dependents: v(&["monthly_spend"]),
+                covariates: v(&["age"]),
+                ..Default::default()
+            },
             ..Default::default()
         }),
         Dialog::Hierarchical(Hierarchical {
@@ -1227,6 +1244,78 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             euclidean: true,
             auto: false,
             fixed: s("2"),
+            ..Default::default()
+        }),
+        Dialog::Mlp(Mlp {
+            common: Common {
+                dependents: v(&["gender"]),
+                level: 3,
+                factors: v(&["region"]),
+                covariates: v(&["age", "monthly_spend"]),
+                rescale_covariates: 2,
+                testing: s("20"),
+                holdout: s("10"),
+                include_missing: true,
+                print: [true; 6],
+                plot: [true; 6],
+                save_predicted: true,
+                predicted_names: s("mlp_pred"),
+                save_probabilities: true,
+                probability_roots: s("mlp_prob"),
+                ..Default::default()
+            },
+            automatic: false,
+            layers: 2,
+            auto_units: false,
+            units: [s("4"), s("3")],
+            hidden: 1,
+            training: 1,
+            optimization: 1,
+            error_steps: s("2"),
+            max_minutes: s("1"),
+            max_epochs: s("30"),
+            ..Default::default()
+        }),
+        Dialog::Mlp(Mlp {
+            common: Common {
+                dependents: v(&["monthly_spend"]),
+                level: 1,
+                covariates: v(&["age"]),
+                rescale_dependents: 2,
+                ..Default::default()
+            },
+            min_units: s("1"),
+            max_units: s("3"),
+            ..Default::default()
+        }),
+        Dialog::Rbf(Rbf {
+            common: Common {
+                dependents: v(&["monthly_spend"]),
+                level: 1,
+                factors: v(&["region"]),
+                covariates: v(&["age"]),
+                print: [true; 6],
+                plot: [true, true, true, false, false, false],
+                save_predicted: true,
+                predicted_names: s("rbf_pred"),
+                ..Default::default()
+            },
+            min_units: s("2"),
+            max_units: s("4"),
+            hidden: 1,
+            overlap: s("1.2"),
+            ..Default::default()
+        }),
+        Dialog::Rbf(Rbf {
+            common: Common {
+                dependents: v(&["gender"]),
+                level: 3,
+                covariates: v(&["age", "monthly_spend"]),
+                save_probabilities: true,
+                ..Default::default()
+            },
+            automatic: false,
+            units: s("3"),
             ..Default::default()
         }),
         Dialog::Anomaly(Anomaly {
@@ -6269,6 +6358,8 @@ fn family(dialog: &Dialog) -> usize {
         | Dialog::Hierarchical(_)
         | Dialog::TwoStep(_)
         | Dialog::Anomaly(_)
+        | Dialog::Mlp(_)
+        | Dialog::Rbf(_)
         | Dialog::Discriminant(_)
         | Dialog::Logistic(_)
         | Dialog::Tree(_)

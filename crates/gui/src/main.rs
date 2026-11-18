@@ -67,6 +67,8 @@ mod mva_dialog;
 mod mva_dialog_view;
 mod naivebayes_dialog;
 mod naivebayes_dialog_view;
+mod neural_dialog;
+mod neural_dialog_view;
 mod nptests_dialog;
 mod nptests_dialog_view;
 mod office;
