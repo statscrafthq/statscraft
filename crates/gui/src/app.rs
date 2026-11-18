@@ -1617,6 +1617,14 @@ impl App {
                         }
                     });
                 });
+                ui.menu_button("Output Management", |ui| {
+                    if ui.button("Start...").clicked() {
+                        self.open_dialog(Dialog::Advanced(Advanced::Oms(Default::default())));
+                    }
+                    if ui.button("End...").clicked() {
+                        self.open_dialog(Dialog::Advanced(Advanced::Omsend(Default::default())));
+                    }
+                });
                 ui.separator();
                 if ui.button("Close").clicked() {
                     self.close_window(self.here);
@@ -1941,6 +1949,11 @@ impl App {
                         if ui.button("Nearest Neighbor...").clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Knn(Default::default())));
                         }
+                        if ui.button("Naive Bayes...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::NaiveBayes(
+                                Default::default(),
+                            )));
+                        }
                     });
                     ui.menu_button("Dimension Reduction", |ui| {
                         if ui.button("Factor...").clicked() {
@@ -2000,6 +2013,10 @@ impl App {
                             (
                                 "Multidimensional Scaling (ALSCAL)...",
                                 Advanced::Alscal(Default::default()),
+                            ),
+                            (
+                                "Multidimensional Unfolding (PREFSCAL)...",
+                                Advanced::Prefscal(Default::default()),
                             ),
                             (
                                 "Weighted Kappa...",

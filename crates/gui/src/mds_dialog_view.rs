@@ -2,9 +2,10 @@
 
 use crate::app::{checkboxes, choice, field, file_dialog, target_list, target_one};
 use crate::mds_dialog::{
-    ALSCAL_LEVELS, ALSCAL_MEASURES, ALSCAL_PLOTS, ALSCAL_STANDARDIZE, Alscal, PROXSCAL_FORMATS,
-    PROXSCAL_MODELS, PROXSCAL_OUTFILE, PROXSCAL_PLOT, PROXSCAL_PRINT, PROXSCAL_SHAPES,
-    PROXSCAL_STARTS, PROXSCAL_TRANSFORMATIONS, Proxscal,
+    ALSCAL_LEVELS, ALSCAL_MEASURES, ALSCAL_PLOTS, ALSCAL_STANDARDIZE, Alscal, PREFSCAL_CONDITIONS,
+    PREFSCAL_LAYOUTS, PREFSCAL_MODELS, PREFSCAL_PLOT, PREFSCAL_PRINT, PREFSCAL_STARTS,
+    PREFSCAL_TRANSFORMATIONS, PROXSCAL_FORMATS, PROXSCAL_MODELS, PROXSCAL_OUTFILE, PROXSCAL_PLOT,
+    PROXSCAL_PRINT, PROXSCAL_SHAPES, PROXSCAL_STARTS, PROXSCAL_TRANSFORMATIONS, Prefscal, Proxscal,
 };
 use crate::model_dialogs_view::name_checkboxes;
 use crate::stats_dialogs_view::small_field;
@@ -253,5 +254,100 @@ pub fn alscal(ui: &mut Ui, d: &mut Alscal, picked: &mut Vec<String>, folder: &mu
         ui.checkbox(&mut d.print_header, "Show the model and its options");
         choice(ui, "Plots", &ALSCAL_PLOTS, &mut d.plot);
         data_path(ui, "Save coordinates to", &mut d.outfile, true, folder);
+    });
+}
+
+pub fn prefscal(ui: &mut Ui, d: &mut Prefscal, picked: &mut Vec<String>) {
+    target_list(
+        ui,
+        "Variables (the columns of the preference table)",
+        &mut d.variables,
+        picked,
+    );
+    ui.weak("Each case is one row of the table");
+    ui.add_space(6.0);
+    egui::CollapsingHeader::new("Input")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Cases form sources by");
+                egui::ComboBox::new("prefscal layout", "")
+                    .selected_text(PREFSCAL_LAYOUTS[d.layout])
+                    .show_index(ui, &mut d.layout, PREFSCAL_LAYOUTS.len(), |i| {
+                        PREFSCAL_LAYOUTS[i]
+                    });
+            });
+            match d.layout {
+                0 => {}
+                1 | 2 => field(ui, "Number", &mut d.layout_value, 50.0),
+                _ => target_one(ui, "Variable", &mut d.layout_value, picked),
+            }
+            ui.horizontal(|ui| {
+                ui.label("The values are");
+                ui.radio_value(&mut d.similarities, false, "Dissimilarities");
+                ui.radio_value(&mut d.similarities, true, "Similarities");
+            });
+        });
+    egui::CollapsingHeader::new("Model").show(ui, |ui| {
+        choice(
+            ui,
+            "Transformation",
+            &PREFSCAL_TRANSFORMATIONS,
+            &mut d.transformation,
+        );
+        match d.transformation {
+            0 | 1 => {
+                ui.checkbox(&mut d.intercept, "Include an intercept");
+            }
+            2 => {
+                ui.checkbox(&mut d.untie, "Untie tied values");
+            }
+            _ => {
+                ui.checkbox(&mut d.intercept, "Include an intercept");
+                field(ui, "Degree (1 to 3)", &mut d.degree, 40.0);
+                field(ui, "Inner knots", &mut d.knots, 40.0);
+            }
+        }
+        choice(
+            ui,
+            "Apply the transformation by",
+            &PREFSCAL_CONDITIONS,
+            &mut d.condition,
+        );
+        choice(ui, "Scaling model", &PREFSCAL_MODELS, &mut d.model);
+        ui.weak("The weighted and generalized models need several sources");
+        ui.horizontal(|ui| {
+            ui.label("Dimensions from");
+            small_field(ui, true, &mut d.min_dimensions);
+            ui.label("to");
+            small_field(ui, true, &mut d.max_dimensions);
+        });
+        choice(ui, "Start from", &PREFSCAL_STARTS, &mut d.start);
+        if d.start >= 4 {
+            field(ui, "Number of starts or choices", &mut d.start_count, 50.0);
+        }
+    });
+    egui::CollapsingHeader::new("Penalty and stopping").show(ui, |ui| {
+        field(ui, "Strength (lambda, above 0 to 1)", &mut d.lambda, 60.0);
+        field(
+            ui,
+            "Range (omega, 0 turns the penalty off)",
+            &mut d.omega,
+            60.0,
+        );
+        field(ui, "Most iterations", &mut d.max_iterations, 60.0);
+        field(
+            ui,
+            "Stop when stress falls by less than",
+            &mut d.diff_stress,
+            80.0,
+        );
+        field(ui, "Stop when stress is below", &mut d.min_stress, 80.0);
+    });
+    egui::CollapsingHeader::new("Tables").show(ui, |ui| {
+        checkboxes(ui, &PREFSCAL_PRINT, &mut d.print);
+    });
+    egui::CollapsingHeader::new("Charts").show(ui, |ui| {
+        checkboxes(ui, &PREFSCAL_PLOT, &mut d.plot);
     });
 }

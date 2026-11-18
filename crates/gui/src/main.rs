@@ -63,9 +63,13 @@ mod multivar_dialog;
 mod multivar_dialog_view;
 mod mva_dialog;
 mod mva_dialog_view;
+mod naivebayes_dialog;
+mod naivebayes_dialog_view;
 mod nptests_dialog;
 mod nptests_dialog_view;
 mod office;
+mod oms_dialog;
+mod oms_dialog_view;
 #[cfg(target_os = "macos")]
 mod open_files;
 mod output;

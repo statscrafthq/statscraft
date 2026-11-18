@@ -39,6 +39,7 @@ use crate::imputation_dialog::{Imputation, Limits};
 use crate::legacy_scaling_dialog::{Anacor, LegacyScaling, LegacyVariable, ScalingKind};
 use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::mca_dialog::{Mca, McaVariable};
+use crate::mds_dialog::Prefscal;
 use crate::model_dialogs::{
     Categorical, ClusterMeasure, Discriminant, FactorAnalysis, FactorContrast, Hierarchical,
     KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
@@ -46,6 +47,8 @@ use crate::model_dialogs::{
 use crate::model_more_dialog::{OptimalBinning, QuantileRegression, VarianceComponents};
 use crate::multivar_dialog::{Knn, Manova, Pls};
 use crate::mva_dialog::{Estimation, MissingValueAnalysis};
+use crate::naivebayes_dialog::NaiveBayes;
+use crate::oms_dialog::{Oms, Omsend};
 use crate::proportions_dialog::{Proportions, ProportionsKind};
 use crate::proximities_dialog::Distances;
 use crate::reports_dialog::{Codebook, OlapCubes, OlapDifference, Summarize};
@@ -720,6 +723,23 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         covariates: v(&["age", "monthly_spend"]),
         ..Default::default()
     }))));
+    list.push(Dialog::Advanced(Advanced::NaiveBayes(Box::new(
+        NaiveBayes {
+            target: s("gender"),
+            factors: v(&["region"]),
+            covariates: v(&["age", "monthly_spend"]),
+            ..Default::default()
+        },
+    ))));
+    list.push(Dialog::Advanced(Advanced::Prefscal(Box::new(Prefscal {
+        variables: v(&["age", "monthly_spend", "q1_satisfaction", "q2_recommend"]),
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Oms(Oms {
+        file: out.join("min_oms.sav").to_string_lossy().into_owned(),
+        ..Default::default()
+    })));
+    list.push(Dialog::Advanced(Advanced::Omsend(Default::default())));
     list
 }
 
@@ -2632,6 +2652,87 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         median: true,
         ..Default::default()
     }))));
+    list.push(Dialog::Advanced(Advanced::NaiveBayes(Box::new(
+        NaiveBayes {
+            target: s("gender"),
+            factors: v(&["region"]),
+            covariates: v(&["age", "monthly_spend"]),
+            selection: 1,
+            size: s("2"),
+            best: 2,
+            bins: s("4"),
+            partition: 1,
+            percent: s("70"),
+            include_missing: true,
+            print: [true, false, true, false, true],
+            save_value: true,
+            value_name: s("nb_pred"),
+            save_probability: true,
+            probability_root: s("nb_prob"),
+            probability_count: s("2"),
+            model_file: out.join("max_nb.json").to_string_lossy().into_owned(),
+            ..Default::default()
+        },
+    ))));
+    list.push(Dialog::Advanced(Advanced::NaiveBayes(Box::new(
+        NaiveBayes {
+            target: s("gender"),
+            covariates: v(&["age", "monthly_spend"]),
+            selection: 2,
+            size: s("1"),
+            partition: 2,
+            partition_variable: s("q2_recommend"),
+            print: [false; 5],
+            ..Default::default()
+        },
+    ))));
+    list.push(Dialog::Advanced(Advanced::Prefscal(Box::new(Prefscal {
+        variables: v(&["age", "monthly_spend", "q1_satisfaction", "q2_recommend"]),
+        layout: 2,
+        layout_value: s("2"),
+        similarities: true,
+        transformation: 3,
+        intercept: true,
+        degree: s("3"),
+        knots: s("0"),
+        condition: 1,
+        model: 1,
+        start: 4,
+        start_count: s("2"),
+        lambda: s("0.8"),
+        omega: s("0.5"),
+        min_dimensions: s("1"),
+        max_dimensions: s("2"),
+        max_iterations: s("200"),
+        diff_stress: s("0.00001"),
+        min_stress: s("0.001"),
+        print: [true; 11],
+        plot: [true; 10],
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Prefscal(Box::new(Prefscal {
+        variables: v(&["age", "monthly_spend", "q1_satisfaction", "q2_recommend"]),
+        layout: 3,
+        layout_value: s("region"),
+        transformation: 1,
+        intercept: true,
+        condition: 2,
+        start: 3,
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Oms(Oms {
+        kinds: [true; 4],
+        commands: s("Frequencies, Descriptives"),
+        subtypes: s("Statistics"),
+        format: 4,
+        file: out.join("max_oms.xlsx").to_string_lossy().into_owned(),
+        viewer: false,
+        tag: s("walk"),
+    })));
+    list.push(Dialog::Advanced(Advanced::Omsend(Omsend {
+        tags: s("walk, other"),
+        files: s("max_oms.xlsx"),
+    })));
     let (cj_plan, cj_scores, n) =
         conjoint_files(out, "max", "brand (1 2 3) price (1 2 3) organic (1 2)", 2);
     list.push(Dialog::Advanced(Advanced::Conjoint(Box::new(

@@ -28,11 +28,14 @@ use crate::imputation_dialog::Imputation;
 use crate::legacy_scaling_dialog::{Anacor, LegacyScaling};
 use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::mca_dialog::Mca;
+use crate::mds_dialog::Prefscal;
 use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::{GLM_ADJUSTMENTS, by_with};
 use crate::multivar_dialog::{Knn, Manova, Pls};
 use crate::mva_dialog::MissingValueAnalysis;
+use crate::naivebayes_dialog::NaiveBayes;
 use crate::nptests_dialog::Nptests;
+use crate::oms_dialog::{Oms, Omsend};
 use crate::power_dialog::PowerAnalysis;
 use crate::proportions_dialog::Proportions;
 use crate::proximities_dialog::Distances;
@@ -103,6 +106,10 @@ pub enum Advanced {
     Manova(Box<Manova>),
     Pls(Box<Pls>),
     Knn(Box<Knn>),
+    NaiveBayes(Box<NaiveBayes>),
+    Prefscal(Box<Prefscal>),
+    Oms(Oms),
+    Omsend(Omsend),
     // boxed: a large dialog
     Power(Box<PowerAnalysis>),
     // boxed: a large dialog
@@ -166,6 +173,10 @@ impl Advanced {
             Advanced::Manova(_) => "MANOVA (classic)",
             Advanced::Pls(_) => "Partial Least Squares",
             Advanced::Knn(_) => "Nearest Neighbor",
+            Advanced::NaiveBayes(_) => "Naive Bayes",
+            Advanced::Prefscal(_) => "Multidimensional Unfolding (PREFSCAL)",
+            Advanced::Oms(_) => "Output Management (OMS)",
+            Advanced::Omsend(_) => "End Output Management (OMSEND)",
             Advanced::Power(d) => d.title(),
             Advanced::Nptests(d) => d.title(),
             Advanced::Bayes(d) => d.title(),
@@ -232,6 +243,10 @@ impl Advanced {
             Advanced::Manova(_) => Advanced::Manova(Default::default()),
             Advanced::Pls(_) => Advanced::Pls(Default::default()),
             Advanced::Knn(_) => Advanced::Knn(Default::default()),
+            Advanced::NaiveBayes(_) => Advanced::NaiveBayes(Default::default()),
+            Advanced::Prefscal(_) => Advanced::Prefscal(Default::default()),
+            Advanced::Oms(_) => Advanced::Oms(Default::default()),
+            Advanced::Omsend(_) => Advanced::Omsend(Default::default()),
             Advanced::Power(d) => Advanced::Power(Box::new(PowerAnalysis::new(d.kind))),
             Advanced::Nptests(d) => Advanced::Nptests(Box::new(Nptests::new(d.kind))),
             Advanced::Bayes(d) => Advanced::Bayes(Box::new(Bayesian::new(d.kind))),
@@ -297,6 +312,10 @@ impl Advanced {
             Advanced::Manova(d) => d.syntax(data),
             Advanced::Pls(d) => d.syntax(data),
             Advanced::Knn(d) => d.syntax(data),
+            Advanced::NaiveBayes(d) => d.syntax(data),
+            Advanced::Prefscal(d) => d.syntax(data),
+            Advanced::Oms(d) => d.syntax(),
+            Advanced::Omsend(d) => d.syntax(),
             Advanced::Power(d) => d.syntax(),
             Advanced::Nptests(d) => d.syntax(data),
             Advanced::Bayes(d) => d.syntax(data),

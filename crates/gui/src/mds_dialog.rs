@@ -694,6 +694,304 @@ impl Alscal {
     }
 }
 
+/// How the cases form sources; the last four take a number or a variable.
+pub const PREFSCAL_LAYOUTS: [&str; 5] = [
+    "All cases are one source",
+    "Cases per source",
+    "Number of sources",
+    "Row variable (numbers the rows of a source)",
+    "Source variable (numbers the sources)",
+];
+
+/// Keyword and label of each transformation of the proximities.
+pub const PREFSCAL_TRANSFORMATIONS: [(&str, &str); 4] = [
+    ("NONE", "None"),
+    ("LINEAR", "Linear"),
+    ("ORDINAL", "Ordinal"),
+    ("SPLINE", "Spline"),
+];
+
+pub const PREFSCAL_CONDITIONS: [(&str, &str); 3] = [
+    ("ROW", "Row"),
+    ("MATRIX", "Matrix (source)"),
+    ("UNCONDITIONAL", "Unconditional"),
+];
+
+pub const PREFSCAL_MODELS: [(&str, &str); 3] = [
+    ("IDENTITY", "Identity"),
+    ("WEIGHTED", "Weighted Euclidean"),
+    ("GENERALIZED", "Generalized Euclidean"),
+];
+
+/// The first is the command's own start; the last two take a number.
+pub const PREFSCAL_STARTS: [(&str, &str); 6] = [
+    ("CLASSICAL", "Classical, triangle bounds"),
+    ("CLASSICAL(SPEARMAN)", "Classical, Spearman"),
+    ("CORRESPONDENCE", "Correspondence"),
+    ("ROSSCLIFF", "Ross-Cliff"),
+    ("CENTROIDS", "Centroids"),
+    ("RANDOM", "Random starts"),
+];
+
+pub const PREFSCAL_PRINT: [(&str, &str); 11] = [
+    ("INPUT", "Input data"),
+    ("MULTIPLE", "Multiple random starts"),
+    ("INITIAL", "Initial configuration"),
+    ("HISTORY", "Iteration history"),
+    ("MEASURES", "Measures"),
+    ("DECOMPOSITION", "Decomposition of stress"),
+    ("COMMON", "Common space"),
+    ("DISTANCES", "Distances"),
+    ("WEIGHTS", "Weights"),
+    ("INDIVIDUAL", "Individual spaces"),
+    ("TRANSFORMATIONS", "Transformed proximities"),
+];
+
+pub const PREFSCAL_PLOT: [(&str, &str); 10] = [
+    ("MULTIPLE", "Random starts"),
+    ("INITIAL", "Initial common space"),
+    ("STRESS", "Scree plot"),
+    ("COMMON", "Common space"),
+    ("WEIGHTS", "Dimension weights"),
+    ("INDIVIDUAL", "Individual spaces"),
+    ("TRANSFORMATIONS", "Transformation plots"),
+    ("SHEPARD", "Shepard plots"),
+    ("FIT", "Fit plots"),
+    ("RESIDUALS", "Residual plots"),
+];
+
+// what the command prints and plots when PRINT and PLOT are left out
+const PREFSCAL_PRINT_DEFAULT: [bool; 11] = [
+    false, false, false, false, true, false, true, false, true, false, false,
+];
+const PREFSCAL_PLOT_DEFAULT: [bool; 10] = [
+    false, false, false, true, true, false, false, false, false, false,
+];
+
+/// PREFSCAL: multidimensional unfolding of a preference table, the variables being its columns
+/// and the cases its rows.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Prefscal {
+    pub variables: Vec<String>,
+    /// Index into `PREFSCAL_LAYOUTS`.
+    pub layout: usize,
+    /// The count, or the variable, of the layout.
+    pub layout_value: String,
+    pub similarities: bool,
+    /// Index into `PREFSCAL_TRANSFORMATIONS`.
+    pub transformation: usize,
+    pub intercept: bool,
+    pub untie: bool,
+    pub degree: String,
+    pub knots: String,
+    /// Index into `PREFSCAL_CONDITIONS`.
+    pub condition: usize,
+    /// Index into `PREFSCAL_MODELS`.
+    pub model: usize,
+    /// Index into `PREFSCAL_STARTS`.
+    pub start: usize,
+    /// For the centroid and random starts; empty: 1.
+    pub start_count: String,
+    pub lambda: String,
+    pub omega: String,
+    pub min_dimensions: String,
+    pub max_dimensions: String,
+    pub max_iterations: String,
+    pub diff_stress: String,
+    pub min_stress: String,
+    pub print: [bool; 11],
+    pub plot: [bool; 10],
+}
+
+impl Default for Prefscal {
+    fn default() -> Self {
+        Self {
+            variables: Vec::new(),
+            layout: 0,
+            layout_value: String::new(),
+            similarities: false,
+            transformation: 2,
+            intercept: false,
+            untie: false,
+            degree: "2".into(),
+            knots: "1".into(),
+            condition: 0,
+            model: 0,
+            start: 0,
+            start_count: String::new(),
+            lambda: "0.5".into(),
+            omega: "1".into(),
+            min_dimensions: "2".into(),
+            max_dimensions: "2".into(),
+            max_iterations: "5000".into(),
+            diff_stress: "0.000001".into(),
+            min_stress: "0.0001".into(),
+            print: PREFSCAL_PRINT_DEFAULT,
+            plot: PREFSCAL_PLOT_DEFAULT,
+        }
+    }
+}
+
+/// A keyword list of PRINT or PLOT, written only when it differs from the command's own.
+fn prefscal_list(
+    name: &str,
+    table: &[(&str, &str)],
+    on: &[bool],
+    default: &[bool],
+) -> Option<String> {
+    if on == default {
+        return None;
+    }
+    let words: Vec<&str> = table
+        .iter()
+        .zip(on)
+        .filter_map(|((k, _), on)| on.then_some(*k))
+        .collect();
+    Some(match words.is_empty() {
+        true => format!("\n  /{name}=NONE"),
+        false => format!("\n  /{name}={}", words.join(" ")),
+    })
+}
+
+impl Prefscal {
+    /// Whether the layout names a variable instead of a count.
+    pub fn layout_is_variable(&self) -> bool {
+        self.layout >= 3
+    }
+
+    pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
+        let list = names(&self.variables, "the preference table")?;
+        numeric(data, &self.variables)?;
+        let mut text = format!("PREFSCAL {list}");
+        let value = self.layout_value.trim();
+        if self.layout > 0 {
+            let key = ["", "ROWS", "SOURCES", "ROWS", "SOURCES"][self.layout];
+            let inner = if self.layout_is_variable() {
+                if value.is_empty() {
+                    return Err("choose the variable of the layout".into());
+                }
+                numeric(data, [&self.layout_value])?;
+                value.to_string()
+            } else {
+                match count(value, 1, "the layout number", 0)? {
+                    0 => return Err("give the number of the layout".into()),
+                    n => n.to_string(),
+                }
+            };
+            text.push_str(&format!("\n  /INPUT={key}({inner})"));
+        }
+        if self.similarities {
+            text.push_str("\n  /PROXIMITIES=SIMILARITIES");
+        }
+        if self.start > 0 {
+            let key = PREFSCAL_STARTS[self.start].0;
+            let n = count(&self.start_count, 1, "the number of starts", 1)?;
+            match self.start >= 4 && !self.start_count.trim().is_empty() {
+                true => text.push_str(&format!("\n  /INITIAL={key}({n})")),
+                false => text.push_str(&format!("\n  /INITIAL={key}")),
+            }
+        }
+        if self.condition > 0 {
+            text.push_str(&format!(
+                "\n  /CONDITION={}",
+                PREFSCAL_CONDITIONS[self.condition].0
+            ));
+        }
+        match self.transformation {
+            0 | 1 => text.push_str(&format!(
+                "\n  /TRANSFORMATION={}{}",
+                PREFSCAL_TRANSFORMATIONS[self.transformation].0,
+                if self.intercept { "(INTERCEPT)" } else { "" }
+            )),
+            2 if self.untie => text.push_str("\n  /TRANSFORMATION=ORDINAL(UNTIE)"),
+            2 => {}
+            _ => {
+                let degree = count(&self.degree, 1, "the degree", 2)?;
+                if degree > 3 {
+                    return Err("the degree of the spline goes from 1 to 3".into());
+                }
+                let knots = count(&self.knots, 0, "the number of inner knots", 1)?;
+                let intercept = if self.intercept { "INTERCEPT " } else { "" };
+                text.push_str(&format!(
+                    "\n  /TRANSFORMATION=SPLINE({intercept}ORDER={degree} INKNOT={knots})"
+                ));
+            }
+        }
+        if self.model > 0 {
+            text.push_str(&format!("\n  /MODEL={}", PREFSCAL_MODELS[self.model].0));
+        }
+        let number_or = |text: &str, what: &str, default: f64| match text.trim() {
+            "" => Ok(default),
+            t => parse(t, what),
+        };
+        let lambda = number_or(&self.lambda, "LAMBDA", 0.5)?;
+        let omega = number_or(&self.omega, "OMEGA", 1.0)?;
+        if lambda <= 0.0 || lambda > 1.0 {
+            return Err("LAMBDA must be above 0 and at most 1".into());
+        }
+        if omega < 0.0 {
+            return Err("OMEGA cannot be negative".into());
+        }
+        let mut penalty = Vec::new();
+        if lambda != 0.5 {
+            penalty.push(format!("LAMBDA({})", number(lambda)));
+        }
+        if omega != 1.0 {
+            penalty.push(format!("OMEGA({})", number(omega)));
+        }
+        if !penalty.is_empty() {
+            text.push_str(&format!("\n  /PENALTY={}", penalty.join(" ")));
+        }
+        let min = count(&self.min_dimensions, 1, "the fewest dimensions", 2)?;
+        let max = count(&self.max_dimensions, 1, "the most dimensions", min)?;
+        if min > max {
+            return Err("the fewest dimensions are more than the most".into());
+        }
+        let mut criteria = Vec::new();
+        if (min, max) != (2, 2) {
+            criteria.push(format!("DIMENSIONS({min},{max})"));
+        }
+        let iterations = count(&self.max_iterations, 0, "the most iterations", 5000)?;
+        if iterations != 5000 {
+            criteria.push(format!("MAXITER({iterations})"));
+        }
+        for (field, key, what, default) in [
+            (
+                &self.diff_stress,
+                "DIFFSTRESS",
+                "the stress change",
+                0.000001,
+            ),
+            (&self.min_stress, "MINSTRESS", "the smallest stress", 0.0001),
+        ] {
+            let v = number_or(field, what, default)?;
+            if v < 0.0 {
+                return Err(format!("{what} cannot be negative"));
+            }
+            if v != default {
+                criteria.push(format!("{key}({})", number(v)));
+            }
+        }
+        if !criteria.is_empty() {
+            text.push_str(&format!("\n  /CRITERIA={}", criteria.join(" ")));
+        }
+        text.extend(prefscal_list(
+            "PRINT",
+            &PREFSCAL_PRINT,
+            &self.print,
+            &PREFSCAL_PRINT_DEFAULT,
+        ));
+        text.extend(prefscal_list(
+            "PLOT",
+            &PREFSCAL_PLOT,
+            &self.plot,
+            &PREFSCAL_PLOT_DEFAULT,
+        ));
+        text.push('.');
+        Ok(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -883,6 +1181,84 @@ END DATA.",
         assert_eq!(
             d.syntax(&data).unwrap(),
             "ALSCAL VARIABLES=chips nuts pretzel popcorn crackers."
+        );
+    }
+
+    fn prefscal() -> Prefscal {
+        Prefscal {
+            variables: v(&["a", "b", "c"]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn prefscal_defaults_add_nothing() {
+        let data = Dataset::new(0);
+        assert_eq!(prefscal().syntax(&data).unwrap(), "PREFSCAL a b c.");
+    }
+
+    #[test]
+    fn prefscal_writes_every_option() {
+        let mut d = prefscal();
+        d.layout = 1;
+        d.layout_value = "12".into();
+        d.similarities = true;
+        d.start = 5;
+        d.start_count = "4".into();
+        d.condition = 1;
+        d.transformation = 3;
+        d.intercept = true;
+        d.degree = "3".into();
+        d.knots = "2".into();
+        d.model = 1;
+        d.lambda = "0.8".into();
+        d.omega = "0".into();
+        d.min_dimensions = "1".into();
+        d.max_dimensions = "3".into();
+        d.max_iterations = "100".into();
+        d.min_stress = "0.001".into();
+        d.print[3] = true;
+        d.plot[7] = true;
+        d.plot[4] = false;
+        assert_eq!(
+            d.syntax(&Dataset::new(0)).unwrap(),
+            "PREFSCAL a b c\n  /INPUT=ROWS(12)\n  /PROXIMITIES=SIMILARITIES\n  /INITIAL=RANDOM(4)\n  \
+             /CONDITION=MATRIX\n  /TRANSFORMATION=SPLINE(INTERCEPT ORDER=3 INKNOT=2)\n  \
+             /MODEL=WEIGHTED\n  /PENALTY=LAMBDA(0.8) OMEGA(0)\n  \
+             /CRITERIA=DIMENSIONS(1,3) MAXITER(100) MINSTRESS(0.001)\n  \
+             /PRINT=HISTORY MEASURES COMMON WEIGHTS\n  /PLOT=COMMON SHEPARD."
+        );
+        let mut d = prefscal();
+        d.print = [false; 11];
+        d.layout = 4;
+        d.layout_value = "person".into();
+        d.untie = true;
+        assert_eq!(
+            d.syntax(&Dataset::new(0)).unwrap(),
+            "PREFSCAL a b c\n  /INPUT=SOURCES(person)\n  /TRANSFORMATION=ORDINAL(UNTIE)\n  /PRINT=NONE."
+        );
+    }
+
+    #[test]
+    fn prefscal_checks_what_the_command_would_reject() {
+        let data = Dataset::new(0);
+        let err = |change: &dyn Fn(&mut Prefscal)| {
+            let mut d = prefscal();
+            change(&mut d);
+            d.syntax(&data).unwrap_err()
+        };
+        assert!(err(&|d| d.variables.clear()).contains("preference table"));
+        assert!(err(&|d| d.layout = 1).contains("layout"));
+        assert!(err(&|d| d.layout = 3).contains("choose the variable"));
+        assert!(err(&|d| d.lambda = "0".into()).contains("LAMBDA"));
+        assert!(err(&|d| d.omega = "-1".into()).contains("OMEGA"));
+        assert!(err(&|d| d.min_dimensions = "3".into()).contains("fewest"));
+        assert!(
+            err(&|d| {
+                d.transformation = 3;
+                d.degree = "4".into();
+            })
+            .contains("1 to 3")
         );
     }
 }

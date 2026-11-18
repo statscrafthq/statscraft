@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Analyze > Classify > Naive Bayes (NAIVEBAYES: target, factors and covariates, predictor selection, bins, training partition, printed tables, saved predictions and model file), Analyze > Scale > Multidimensional Unfolding (PREFSCAL: preference table columns, sources, similarities, transformation, model, start, penalty, dimensions, tables and charts) and File > Output Management Start and End (OMS and OMSEND: kinds of output, commands and tables, destination format and file, tag, whether the output also shows in the results) dialogs.
 - The syntax editor leaves the chart program between BEGIN GPL and END GPL, and the model between BEGIN EXPR and END EXPR, plain, as it does inline data.
 - Window: Analyze > Mixed Models > Generalized Linear (GENLINMIXED: target with distribution and link, trials, offset and analysis weight, fixed effects as main effects or custom terms, any number of random blocks with subjects, covariance type and predicted effects, and the estimation options).
 - Window: Data > Orthogonal Design > Generate... and Display... (ORTHOPLAN and PLANCARDS) and Analyze > Conjoint... (CONJOINT): factors with levels and labels, fewest profiles, holdouts, seed and where the plan goes; the cards layout, title and footer; the plan and the responses from the active data or a file, how they are recorded, the model of each factor and the print, chart and utility file options.
