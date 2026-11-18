@@ -229,8 +229,7 @@ impl Manova {
             text.push_str(&format!("\n  /MEASURE={}", measures.join(" ")));
         }
         if self.ws_main_effects && self.ws_factors.len() > 1 {
-            let main: Vec<&str> = self.ws_factors.iter().map(|f| f.0.trim()).collect();
-            text.push_str(&format!("\n  /WSDESIGN={}", main.join(" ")));
+            text.push_str(&format!("\n  /WSDESIGN={}", names.join(" ")));
         }
         Ok(text)
     }

@@ -781,7 +781,6 @@ fn minimal(out: &Path) -> Vec<Dialog> {
     list
 }
 
-/// Each dialog with every option on, or the last of a choice.
 /// A bootstrap section with every option set, few samples to keep the walk quick.
 fn boot() -> Bootstrap {
     Bootstrap {
@@ -794,6 +793,7 @@ fn boot() -> Bootstrap {
     }
 }
 
+/// Each dialog with every option on, or the last of a choice.
 fn maximal(out: &Path) -> Vec<Dialog> {
     let plan = out.join("max_plan.json").to_string_lossy().into_owned();
     let terms = |list: &[&[&str]]| Terms {
