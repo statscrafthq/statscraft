@@ -5,12 +5,12 @@
 //! saved document keeps them. A plugin's settings are data file attributes of the active
 //! dataset, which its Plugin Settings dialog (Settings... in that list) writes through syntax.
 
-use crate::settings::{Preset, Settings, Template, active_template};
+use crate::settings::{PluginCheck, Preset, Settings, Template, active_template};
 use crate::syntax_text::quote;
 use crate::windows::WindowId;
 use eframe::egui::{self, Ui};
 use statscraft_data::Dataset;
-use statscraft_engine::plugin::{self, Description, Kind, Value};
+use statscraft_engine::plugin::{self, Description, Kind, Update, Value};
 use statscraft_engine::{Table, parse_colour};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -40,6 +40,40 @@ pub struct Plugins {
     pub generation: u64,
     /// The open settings dialog.
     pub dialog: Option<Dialog>,
+    /// The programs whose update check or update runs.
+    busy: Vec<PathBuf>,
+    /// What the last update check or update of a program in this session did.
+    status: Vec<(PathBuf, String)>,
+    update_sender: mpsc::Sender<UpdateEvent>,
+    update_receiver: mpsc::Receiver<UpdateEvent>,
+}
+
+/// A result of a plugin's update check or update, from its thread.
+enum UpdateEvent {
+    Checked(PathBuf, Result<Option<Update>, String>),
+    /// The version the plugin describes itself with after the update.
+    Installed(PathBuf, Result<String, String>),
+}
+
+/// What Edit > Settings shows in a plugin's row.
+#[derive(Debug, Default, PartialEq)]
+pub struct Row {
+    /// The name and version, or why the plugin cannot be used.
+    pub line: String,
+    /// The plugin offers updates, so it has Check now.
+    pub updates: bool,
+    /// Its update check or update runs.
+    pub busy: bool,
+    /// A newer version to install, with its notes line.
+    pub available: Option<(String, String)>,
+    /// What its last update check or update did.
+    pub status: Option<String>,
+}
+
+/// Whether a plugin last checked for updates at `checked` (seconds since 1970) checks again
+/// now: never checked, or a day or more ago (or the clock went back as far).
+pub fn check_due(checked: Option<u64>, now: u64) -> bool {
+    checked.is_none_or(|t| now.abs_diff(t) >= crate::updates::DAY)
 }
 
 /// A plugin's Plugin Settings dialog while it is open: the description it was opened with, the
@@ -167,6 +201,7 @@ impl Field {
 impl Default for Plugins {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel();
+        let (update_sender, update_receiver) = mpsc::channel();
         Plugins {
             described: Vec::new(),
             sender,
@@ -175,6 +210,10 @@ impl Default for Plugins {
             redo: false,
             generation: 0,
             dialog: None,
+            busy: Vec::new(),
+            status: Vec::new(),
+            update_sender,
+            update_receiver,
         }
     }
 }
@@ -267,11 +306,124 @@ impl Plugins {
     }
 
     /// What Edit > Settings shows about a plugin: its name and version, or why it cannot be
-    /// used.
-    pub fn line(&mut self, program: &Path) -> String {
-        match self.description(program) {
-            Ok(d) => format!("{} {}", d.name, d.version),
-            Err(e) => format!("Not usable: {e}"),
+    /// used, and its updates. An update found earlier shows only while it is newer than the
+    /// plugin.
+    pub fn row(&mut self, program: &Path, settings: &Settings) -> Row {
+        let busy = self.busy.iter().any(|p| p == program);
+        let status = self.status.iter().find(|(p, _)| p == program);
+        let status = status.map(|(_, s)| s.clone());
+        let d = match self.description(program) {
+            Ok(d) => d,
+            Err(e) => {
+                let line = format!("Not usable: {e}");
+                return Row {
+                    line,
+                    busy,
+                    status,
+                    ..Row::default()
+                };
+            }
+        };
+        let found = settings
+            .plugin_check(program)
+            .and_then(|c| c.update.as_ref());
+        let available = found
+            .filter(|u| d.updates && plugin::newer(&u.version, &d.version))
+            .map(|u| (u.version.clone(), u.notes.clone()));
+        Row {
+            line: format!("{} {}", d.name, d.version),
+            updates: d.updates,
+            busy,
+            available,
+            status,
+        }
+    }
+
+    /// Starts an update check of every plugin that offers updates and has not checked for a
+    /// day, each on a thread of its own; `ctx` repaints when one is done.
+    pub fn checks_due(&mut self, settings: &Settings, ctx: &egui::Context) {
+        let now = crate::updates::now();
+        for p in &settings.plugins {
+            let offers = matches!(self.description(&p.path), Ok(d) if d.updates);
+            let checked = settings.plugin_check(&p.path).map(|c| c.checked);
+            if offers && check_due(checked, now) {
+                self.check(&p.path, ctx);
+            }
+        }
+    }
+
+    /// Starts an update check of a plugin on a thread of its own, unless one runs.
+    pub fn check(&mut self, program: &Path, ctx: &egui::Context) {
+        if self.busy.iter().any(|p| p == program) {
+            return;
+        }
+        self.busy.push(program.to_path_buf());
+        let (sender, ctx, program) = (self.update_sender.clone(), ctx.clone(), program.to_owned());
+        std::thread::spawn(move || {
+            let found = plugin::update_check(&program);
+            let _ = sender.send(UpdateEvent::Checked(program, found));
+            ctx.request_repaint();
+        });
+    }
+
+    /// Installs a plugin's update on a thread of its own and asks the plugin its version
+    /// afterwards, unless a check or update of it runs.
+    pub fn install(&mut self, program: &Path, update: Update, ctx: &egui::Context) {
+        if self.busy.iter().any(|p| p == program) {
+            return;
+        }
+        self.busy.push(program.to_path_buf());
+        let (sender, ctx, program) = (self.update_sender.clone(), ctx.clone(), program.to_owned());
+        std::thread::spawn(move || {
+            let done = plugin::install_update(&program, &update)
+                .and_then(|()| plugin::describe(&program).map(|d| d.version));
+            let _ = sender.send(UpdateEvent::Installed(program, done));
+            ctx.request_repaint();
+        });
+    }
+
+    /// Takes the update checks and updates that finished: a check is kept in the settings
+    /// (saved), and after an update every plugin is described and every table decorated again.
+    pub fn receive_updates(&mut self, settings: &mut Settings) {
+        let events: Vec<UpdateEvent> = self.update_receiver.try_iter().collect();
+        for event in events {
+            let (program, status, update) = match event {
+                UpdateEvent::Checked(program, found) => {
+                    let status = match &found {
+                        Ok(Some(_)) => None,
+                        Ok(None) => Some("Up to date.".to_string()),
+                        Err(e) => Some(format!("The update check failed: {e}")),
+                    };
+                    (program, status, found.ok().flatten())
+                }
+                UpdateEvent::Installed(program, done) => {
+                    let status = match &done {
+                        Ok(version) => format!("Updated to {version}."),
+                        Err(e) => format!("The update failed: {e}"),
+                    };
+                    let kept = settings
+                        .plugin_check(&program)
+                        .and_then(|c| c.update.clone());
+                    // a failed update stays on offer
+                    let update = if done.is_ok() { None } else { kept };
+                    if done.is_ok() {
+                        self.changed();
+                    }
+                    (program, Some(status), update)
+                }
+            };
+            self.busy.retain(|p| *p != program);
+            self.status.retain(|(p, _)| *p != program);
+            if let Some(status) = status {
+                self.status.push((program.clone(), status));
+            }
+            settings.keep_check(PluginCheck {
+                path: program,
+                checked: crate::updates::now(),
+                update,
+            });
+            // the window works on without them
+            let _ = settings.save();
         }
     }
 
@@ -855,6 +1007,71 @@ fn attribute_values<'a>(
 mod tests {
     use super::*;
 
+    #[test]
+    fn an_update_check_is_due_once_a_day() {
+        let day = crate::updates::DAY;
+        let now = 1_790_000_000;
+        assert!(check_due(None, now));
+        assert!(!check_due(Some(now), now));
+        assert!(!check_due(Some(now - day + 1), now));
+        assert!(check_due(Some(now - day), now));
+        // a clock set back a day or more checks again too
+        assert!(check_due(Some(now + day), now));
+    }
+
+    /// A row shows an update found earlier only while it is newer than the plugin, and only
+    /// for a plugin that offers updates.
+    #[cfg(unix)]
+    #[test]
+    fn a_row_offers_a_newer_version_only() {
+        use crate::settings::Plugin;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("statscraft-rows-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = |name: &str, updates: bool| {
+            let path = dir.join(name);
+            let describe = format!(
+                r#"{{"name": "{name}", "version": "1.2.0", "protocol": 1, "updates": {updates}}}"#
+            );
+            std::fs::write(&path, format!("#!/bin/sh\necho '{describe}'\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            path
+        };
+        let (offers, silent) = (script("offers", true), script("silent", false));
+        let found = |path: &Path, version: &str| PluginCheck {
+            path: path.to_path_buf(),
+            checked: 1,
+            update: Some(Update {
+                version: version.into(),
+                url: "https://example.com/p".into(),
+                sha256: "ab".repeat(32),
+                notes: "Faster".into(),
+            }),
+        };
+        let mut settings = Settings {
+            plugins: [&offers, &silent]
+                .map(|p| Plugin {
+                    path: p.clone(),
+                    on: true,
+                })
+                .into(),
+            plugin_checks: vec![found(&offers, "1.3"), found(&silent, "1.3")],
+            ..Settings::default()
+        };
+        let mut plugins = Plugins::default();
+        let row = plugins.row(&offers, &settings);
+        assert_eq!(row.line, "offers 1.2.0");
+        assert!(row.updates && !row.busy);
+        assert_eq!(row.available, Some(("1.3".into(), "Faster".into())));
+        assert_eq!(plugins.row(&silent, &settings).available, None);
+        // the plugin was updated by hand meanwhile
+        settings.keep_check(found(&offers, "1.2"));
+        assert_eq!(plugins.row(&offers, &settings).available, None);
+        let missing = plugins.row(&dir.join("missing"), &settings);
+        assert!(missing.line.starts_with("Not usable"), "{}", missing.line);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Values chosen for a data file come back when the file is read again without its new
     /// attributes; the data's own attributes win over them.
     #[test]
@@ -935,6 +1152,7 @@ mod tests {
             name: "Example".into(),
             version: "1".into(),
             protocol: 1,
+            updates: false,
             settings: vec![
                 setting("threshold", Kind::Number, 0.05),
                 setting("note", Kind::Text, 0.0),
@@ -978,6 +1196,7 @@ mod tests {
             name: "House".into(),
             version: "1".into(),
             protocol: 1,
+            updates: false,
             settings: vec![plugin::Setting {
                 key: "limit".into(),
                 label: "Upper limit".into(),
@@ -1058,6 +1277,7 @@ mod tests {
             name: "House".into(),
             version: "1".into(),
             protocol: 1,
+            updates: false,
             settings: vec![plugin::Setting {
                 key: "head".into(),
                 label: "Header".into(),
@@ -1106,6 +1326,7 @@ mod tests {
             name: "House".into(),
             version: "1".into(),
             protocol: 1,
+            updates: false,
             settings: vec![
                 setting("high", Kind::Colour, "#ffffff".into(), false, false),
                 setting("limit", Kind::Number, 0.into(), true, false),

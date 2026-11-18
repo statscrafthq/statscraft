@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 pub const PROTOCOL: u64 = 1;
 const DESCRIBE_TIME: Duration = Duration::from_secs(10);
 const DECORATE_TIME: Duration = Duration::from_secs(120);
+const UPDATE_CHECK_TIME: Duration = Duration::from_secs(15);
 
 /// What `--describe` tells about a plugin.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -28,6 +29,9 @@ pub struct Description {
     pub protocol: u64,
     #[serde(default)]
     pub settings: Vec<Setting>,
+    /// The plugin answers `--update-check` (`update_check`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub updates: bool,
 }
 
 /// A setting the plugin takes, with its value when none is set.
@@ -179,6 +183,156 @@ pub fn describe(program: &Path) -> Result<Description, String> {
         ));
     }
     Ok(description)
+}
+
+/// A newer version of a plugin, as its `--update-check` tells it.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct Update {
+    pub version: String,
+    /// Where the new program is, over https.
+    pub url: String,
+    /// The SHA-256 of the new program, 64 hex digits in lower case.
+    pub sha256: String,
+    /// One line about the version; empty when the plugin gives none.
+    #[serde(default)]
+    pub notes: String,
+}
+
+/// Runs `program --update-check`: a newer version than the plugin's own (`describe`), or None
+/// when it is up to date. An error when the plugin cannot check or answers badly.
+pub fn update_check(program: &Path) -> Result<Option<Update>, String> {
+    let out = run(program, &["--update-check"], None, UPDATE_CHECK_TIME)?;
+    let Some(update) = update_answer(&out)? else {
+        return Ok(None);
+    };
+    let current = describe(program)?.version;
+    Ok(newer(&update.version, &current).then_some(update))
+}
+
+/// The update an `--update-check` answer offers: None for `{}`, an error for anything but a
+/// version of dotted numbers with an https address and a SHA-256.
+fn update_answer(out: &[u8]) -> Result<Option<Update>, String> {
+    let bad = |e: String| format!("the plugin's update answer is not valid: {e}");
+    let value: Value = serde_json::from_slice(out).map_err(|e| bad(e.to_string()))?;
+    if value.as_object().is_some_and(Map::is_empty) {
+        return Ok(None);
+    }
+    let mut update: Update = serde_json::from_value(value).map_err(|e| bad(e.to_string()))?;
+    update.sha256.make_ascii_lowercase();
+    // one line, short enough for a row of the settings
+    let line = update.notes.lines().next().unwrap_or("").trim();
+    update.notes = line.chars().take(200).collect();
+    valid(&update).map_err(bad)?;
+    Ok(Some(update))
+}
+
+/// Why an update cannot be used: a version that is not dotted numbers, an address that is not
+/// https, or a SHA-256 that is not 64 hex digits.
+fn valid(update: &Update) -> Result<(), String> {
+    if numbers(&update.version).is_none() {
+        return Err(format!(
+            "version {:?} is not dotted numbers",
+            update.version
+        ));
+    }
+    if !update.url.starts_with("https://") {
+        return Err(format!("{} is not an https address", update.url));
+    }
+    let sha = &update.sha256;
+    if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("sha256 {sha:?} is not 64 hex digits"));
+    }
+    Ok(())
+}
+
+/// The parts of a version such as `1.2.10`; None when one is not a number.
+fn numbers(version: &str) -> Option<Vec<u64>> {
+    version.trim().split('.').map(|p| p.parse().ok()).collect()
+}
+
+/// Whether `version` is higher than `current`, both read as dotted numbers (1.10 is above 1.9,
+/// 1.2 equals 1.2.0). A version that does not read as one is never higher.
+pub fn newer(version: &str, current: &str) -> bool {
+    let (Some(mut a), Some(mut b)) = (numbers(version), numbers(current)) else {
+        return false;
+    };
+    let len = a.len().max(b.len());
+    a.resize(len, 0);
+    b.resize(len, 0);
+    a > b
+}
+
+/// Replaces `program` with the update: downloads it next to the program, checks its SHA-256
+/// and only then puts it in the program's place with the program's permissions (so it stays
+/// executable). If a step fails, the old program stays as it was.
+pub fn install_update(program: &Path, update: &Update) -> Result<(), String> {
+    install(program, update, statscraft_update::fetch)
+}
+
+/// `install_update` with the download passed in: it writes the file and gives its SHA-256.
+fn install(
+    program: &Path,
+    update: &Update,
+    fetch: impl FnOnce(&str, &Path) -> Result<String, String>,
+) -> Result<(), String> {
+    valid(update)?;
+    let (Some(dir), Some(name)) = (program.parent(), program.file_name()) else {
+        return Err(format!("{} is not a program file", program.display()));
+    };
+    // in the same folder, so the last step is a rename on the same disk
+    let part = dir.join(format!(".{}.download", name.to_string_lossy()));
+    let result = fetch(&update.url, &part)
+        .and_then(|hash| match hash.eq_ignore_ascii_case(&update.sha256) {
+            true => Ok(()),
+            false => Err(format!(
+                "the download does not match its sha256 (expected {}, got {hash}); nothing \
+                 was changed",
+                update.sha256
+            )),
+        })
+        .and_then(|()| {
+            let fail = |e: std::io::Error| format!("{}: {e}", program.display());
+            let permissions = std::fs::metadata(program).map_err(fail)?.permissions();
+            std::fs::set_permissions(&part, permissions).map_err(fail)
+        })
+        .and_then(|()| swap(&part, program));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    result
+}
+
+/// Where Windows keeps the old program while the new one takes its place: `<name>.old`.
+fn old_copy(program: &Path) -> std::path::PathBuf {
+    let mut name = program.as_os_str().to_owned();
+    name.push(".old");
+    name.into()
+}
+
+/// Removes the old program that an update on Windows left next to `program` because it still
+/// ran; nothing when there is none.
+pub fn remove_old(program: &Path) {
+    let _ = std::fs::remove_file(old_copy(program));
+}
+
+/// Puts `new` in the place of `program`. Elsewhere a rename replaces even a running program at
+/// once; Windows cannot replace or delete a running program, but can rename it, so there the
+/// old one first moves to `<name>.old` and comes back if the new one cannot take its place.
+fn swap(new: &Path, program: &Path) -> Result<(), String> {
+    let fail = |e: std::io::Error| format!("cannot replace {}: {e}", program.display());
+    if !cfg!(windows) {
+        return std::fs::rename(new, program).map_err(fail);
+    }
+    let old = old_copy(program);
+    let _ = std::fs::remove_file(&old);
+    std::fs::rename(program, &old).map_err(fail)?;
+    if let Err(e) = std::fs::rename(new, program) {
+        let _ = std::fs::rename(&old, program);
+        return Err(fail(e));
+    }
+    // fails while the old program runs; `remove_old` takes it at the next start
+    remove_old(program);
+    Ok(())
 }
 
 /// The decorations of a table's cells, and the font and header styles of the table.
@@ -466,6 +620,200 @@ mod tests {
         assert!(s.title.as_ref().unwrap().bold);
         // one header line here, so only the first height is kept: the second plugin's
         assert_eq!(s.header_heights, [40.0]);
+    }
+
+    #[test]
+    fn update_answers_are_read_and_checked() {
+        let sha = "AB".repeat(32);
+        let answer = |version: &str, url: &str, sha: &str| {
+            format!(
+                r#"{{"version": "{version}", "url": "{url}", "sha256": "{sha}",
+                    "notes": "Faster tables.\nA second line"}}"#
+            )
+        };
+        let good = answer("0.3.0", "https://example.com/p", &sha);
+        let update = update_answer(good.as_bytes()).unwrap().unwrap();
+        assert_eq!(update.version, "0.3.0");
+        assert_eq!(update.url, "https://example.com/p");
+        assert_eq!(update.sha256, "ab".repeat(32));
+        // only the first line of the notes
+        assert_eq!(update.notes, "Faster tables.");
+        let plain = format!(r#"{{"version": "1", "url": "https://x.org/a", "sha256": "{sha}"}}"#);
+        assert_eq!(update_answer(plain.as_bytes()).unwrap().unwrap().notes, "");
+        // up to date
+        assert_eq!(update_answer(b" {} \n"), Ok(None));
+        let bad = |text: String, why: &str| {
+            let error = update_answer(text.as_bytes()).unwrap_err();
+            assert!(error.contains(why), "{error}");
+        };
+        bad(answer("0.3.0", "http://example.com/p", &sha), "https");
+        bad(answer("0.3.0", "file:///tmp/p", &sha), "https");
+        bad(answer("0.3.0", "https://example.com/p", "abc"), "64 hex");
+        bad(
+            answer("0.3.0", "https://example.com/p", &"g".repeat(64)),
+            "64 hex",
+        );
+        bad(answer("0.3-beta", "https://example.com/p", &sha), "dotted");
+        bad(r#"{"version": "1.0"}"#.into(), "not valid");
+        bad("not json at all".into(), "not valid");
+        bad("[]".into(), "not valid");
+    }
+
+    #[test]
+    fn versions_compare_as_dotted_numbers() {
+        assert!(newer("0.3.0", "0.2.9"));
+        assert!(newer("1.10", "1.9"));
+        assert!(newer("1.2.1", "1.2"));
+        assert!(newer("2", "1.99.99"));
+        assert!(!newer("1.2", "1.2.0"));
+        assert!(!newer("1.2.0", "1.2.0"));
+        assert!(!newer("0.2.0", "0.3"));
+        // what does not read as dotted numbers is never an update
+        assert!(!newer("1.0-beta", "0.1"));
+        assert!(!newer("2.0", "x"));
+        assert!(!newer("", "0"));
+    }
+
+    fn update_to(sha256: &str) -> Update {
+        Update {
+            version: "1.3.0".into(),
+            url: "https://example.com/shade".into(),
+            sha256: sha256.into(),
+            notes: String::new(),
+        }
+    }
+
+    fn temp(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "statscraft-plugin-update-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// A download that writes `content` and says its SHA-256 is `ab...ab`.
+    fn fetch(content: &'static str) -> impl FnOnce(&str, &Path) -> Result<String, String> {
+        move |_, file| {
+            std::fs::write(file, content).map_err(|e| e.to_string())?;
+            Ok("ab".repeat(32))
+        }
+    }
+
+    #[test]
+    fn an_update_replaces_the_program_only_when_its_sha256_matches() {
+        let dir = temp("sha");
+        let program = dir.join("shade");
+        std::fs::write(&program, "old").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(&program, mode).unwrap();
+        }
+        // a wrong sha256: the old program stays, and nothing is left beside it
+        let error = install(&program, &update_to(&"cd".repeat(32)), fetch("new")).unwrap_err();
+        assert!(error.contains("sha256"), "{error}");
+        assert_eq!(std::fs::read_to_string(&program).unwrap(), "old");
+        assert_eq!(names(&dir), ["shade"]);
+        // a download that breaks off halfway
+        let broken = |_: &str, file: &Path| {
+            std::fs::write(file, "ne").unwrap();
+            Err("the connection was reset".to_string())
+        };
+        let error = install(&program, &update_to(&"ab".repeat(32)), broken).unwrap_err();
+        assert!(error.contains("reset"), "{error}");
+        assert_eq!(std::fs::read_to_string(&program).unwrap(), "old");
+        assert_eq!(names(&dir), ["shade"]);
+        // an address that is not https is not even asked
+        let mut http = update_to(&"ab".repeat(32));
+        http.url = "http://example.com/shade".into();
+        let never = |_: &str, _: &Path| -> Result<String, String> { panic!("downloaded") };
+        assert!(
+            install(&program, &http, never)
+                .unwrap_err()
+                .contains("https")
+        );
+        // the right sha256 (in any case): the new program takes the old one's place
+        install(&program, &update_to(&"AB".repeat(32)), fetch("new")).unwrap();
+        assert_eq!(std::fs::read_to_string(&program).unwrap(), "new");
+        assert_eq!(names(&dir), ["shade"]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&program).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o755, "the new program stays executable");
+        }
+        // a leftover of an update on Windows goes at the next start
+        std::fs::write(dir.join("shade.old"), "older").unwrap();
+        remove_old(&program);
+        assert_eq!(names(&dir), ["shade"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A shell script plugin that says it has updates: the check offers only a higher version,
+    /// a failed check gives its reason, and the installed update describes itself anew.
+    #[cfg(unix)]
+    #[test]
+    fn a_shell_plugin_offers_and_takes_its_update() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp("shell");
+        let program = dir.join("shade");
+        let sha = "ab".repeat(32);
+        let write = |check: &str| {
+            let describe =
+                r#"{"name": "Shade", "version": "1.2.0", "protocol": 1, "updates": true}"#;
+            let text = format!(
+                "#!/bin/sh\ncase \"$1\" in\n--describe) echo '{describe}';;\n\
+                 --update-check) {check};;\n*) exit 1;;\nesac\n"
+            );
+            // a new file each time, so the old one is not still open for writing
+            let _ = std::fs::remove_file(&program);
+            std::fs::write(&program, text).unwrap();
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        let offer = |version: &str| {
+            format!(
+                r#"echo '{{"version": "{version}", "url": "https://example.com/shade", "sha256": "{sha}", "notes": "Faster"}}'"#
+            )
+        };
+        write(&offer("1.3.0"));
+        assert!(describe(&program).unwrap().updates);
+        let update = update_check(&program).unwrap().unwrap();
+        assert_eq!(
+            (update.version.as_str(), update.notes.as_str()),
+            ("1.3.0", "Faster")
+        );
+        // the same version or a lower one is no update
+        write(&offer("1.2"));
+        assert_eq!(update_check(&program), Ok(None));
+        write(&offer("1.1.9"));
+        assert_eq!(update_check(&program), Ok(None));
+        write("echo '{}'");
+        assert_eq!(update_check(&program), Ok(None));
+        write("echo 'the licence has run out' >&2; exit 3");
+        let error = update_check(&program).unwrap_err();
+        assert!(error.contains("the licence has run out"), "{error}");
+        // the new version replaces the script and is what describe tells from now on
+        let new =
+            "#!/bin/sh\necho '{\"name\": \"Shade\", \"version\": \"1.3.0\", \"protocol\": 1}'\n";
+        install(&program, &update, fetch(new)).unwrap();
+        let described = describe(&program).unwrap();
+        assert_eq!(
+            (described.version.as_str(), described.updates),
+            ("1.3.0", false)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

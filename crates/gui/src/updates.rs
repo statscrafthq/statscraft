@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const DAY: u64 = 24 * 60 * 60;
+pub const DAY: u64 = 24 * 60 * 60;
 
 /// A result from a worker thread.
 enum Event {
@@ -51,7 +51,7 @@ pub struct Updates {
     quit: bool,
 }
 
-fn now() -> u64 {
+pub fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())

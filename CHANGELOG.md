@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Plugins can update themselves: a plugin that says `"updates": true` in its description answers `--update-check` with the version, https address and SHA-256 of its newer program, Edit > Settings > Plugins checks once a day (or with Check now) and shows "Version X is available" with an Update button, which downloads the program, checks its SHA-256 and replaces the old one, leaving it in place if anything fails. See [plugins](docs/plugins.md).
+
 ## 0.18.0 (2026-11-18)
 
 - The window: a double-click on a .sav, .sps or other Statscraft file while Statscraft runs opens the file in the running window and its session, instead of a second program with its own session (where a syntax file found no data).

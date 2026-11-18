@@ -65,6 +65,17 @@ note to a cell, or giving the exports a look of your own.
   name, from before there were several plugins, are still read: such a template belongs to the
   plugin whose attributes it holds.
 
+- **Updates**: a plugin that offers updates (`"updates": true`, see [Updates](#updates)
+  below) has **Check now** in its row. While the Plugins page is open, Statscraft also asks
+  each such plugin by itself, at most once a day per plugin, in the background. When a newer
+  version exists, the row says "Version X is available" with the plugin's note and an
+  **Update** button. Nothing is installed without that button. Update downloads the new
+  program, checks it and puts it in the old one's place, asks the plugin for its version again
+  ("Updated to X", or why it failed), and decorates every table again. Each check is kept in
+  the window's settings file as a line `plugin-checked <seconds since 1970>`, a tab and the
+  path, followed, when it found a newer version, by tabs and the version, address, SHA-256 and
+  note.
+
 The plugins are kept in the window's settings file in their order, one line each:
 `plugin <path>` for one that is on and `plugin-off <path>` for one that is off.
 
@@ -137,7 +148,9 @@ example plugin's, shortened):
 Any setting may add `"per_file": true` when its value belongs to one data file rather than to a
 look, such as the size of the population the sample was drawn from: design templates leave it
 out, and it always comes from the data file. Any setting may add `"group"` with the heading
-of its section in the dialog. A plugin whose `protocol` is not 1 is refused.
+of its section in the dialog. A plugin whose `protocol` is not 1 is refused. A plugin that
+answers `--update-check` adds `"updates": true` (see [Updates](#updates)); without it,
+Statscraft never asks.
 
 A `style` is a JSON object with these keys, each optional:
 
@@ -334,6 +347,42 @@ cell in column `c` from 1 on shows in column `c - 1`. A width given for column 0
 one for column `c` sets the width of column `c - 1`. In the answer above, row 0 of column 0
 styles the label row of the first run, and column 2 (a statistic label column) is 3 characters
 wide in the second column of the sheet.
+
+### Updates
+
+Statscraft knows nothing about where a plugin comes from or who may use it: the plugin itself
+says where its new version is. A plugin that can tell says `"updates": true` in its
+description, and Statscraft then runs `plugin --update-check` (it stops a plugin that takes
+longer than 15 seconds). The plugin prints one JSON object on its standard output and exits
+with 0:
+
+```json
+{"version": "0.3.0", "url": "https://example.com/downloads/my-plugin-0.3.0",
+ "sha256": "<the 64 hex digits of the new program's SHA-256>", "notes": "Faster tables"}
+```
+
+when a newer version exists, and `{}` when it is up to date. `url` is the new program itself
+(the executable file, not an archive) and must start with `https://`; the download and any
+redirect stay on https. `notes` is optional, and only its first line is shown. `version` is
+compared with the `version` of `--describe` as numbers separated by dots (`1.10` is higher than
+`1.9`, and `1.2` is the same as `1.2.0`); only a higher one counts as an update, and one that
+is not dotted numbers is refused. When the plugin cannot check (no network, a licence that ran
+out), it exits with another code and writes a one-line reason to its standard error. Any
+failure, or an answer that breaks these rules, means "no update information", and the row
+says why.
+
+How Update installs the new program:
+
+1. It downloads the file to a hidden temporary file in the plugin's own folder.
+2. It checks the file's SHA-256 against `sha256`. A file that does not match is deleted.
+3. It gives the file the old program's permissions (on Linux and macOS, so it stays
+   executable) and renames it to the program's name. On Windows, where a running program
+   cannot be replaced, the old program is first renamed to `<name>.old` (an earlier
+   `<name>.old` is removed first), and the new one then takes its name; an `.old` that could
+   not be removed at once is removed at the next start.
+
+If any step fails, the old program stays where it was. The plugin's folder must be one the
+user can write to.
 
 ## The example plugin
 

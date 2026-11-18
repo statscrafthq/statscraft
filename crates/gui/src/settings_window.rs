@@ -7,6 +7,7 @@
 
 use crate::connect_window::Connect;
 use crate::output::Part;
+use crate::plugins::Row;
 use crate::settings::{MIOUTPUT, Plugin, Settings};
 use crate::themes;
 use eframe::egui::{self, Align2, ComboBox, Key, Ui, vec2};
@@ -67,17 +68,29 @@ const VALUE_CHOICES: (&str, [(&str, &str); 3]) = (
     ],
 );
 
+/// What a button of a plugin's row asks for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PluginAction {
+    /// Settings...: its Plugin Settings dialog.
+    Settings,
+    /// Check now: an update check.
+    Check,
+    /// Update: install the newer version found.
+    Update,
+}
+
 /// The dialog while `section` is set; closing it clears `section`. Returns the SET command a
 /// choice of the session asks for, to run. `plugins` says what each plugin program is, in the
-/// order of the settings; Settings... of a plugin puts its program in `open_plugin`.
+/// order of the settings; a button of a plugin's row puts its program and what it asks for
+/// in `action`.
 pub fn show(
     ctx: &egui::Context,
     section: &mut Option<Section>,
     settings: &mut Settings,
     labels: &TableLabels,
     connect: &mut Connect,
-    plugins: &[String],
-    open_plugin: &mut Option<PathBuf>,
+    plugins: &[Row],
+    action: &mut Option<(PathBuf, PluginAction)>,
 ) -> Option<String> {
     let current = section.as_mut()?;
     let mut open = true;
@@ -112,7 +125,7 @@ pub fn show(
                     }
                     changed = body(ui, *current, settings);
                     if *current == Section::Plugins {
-                        changed |= plugin_list(ui, settings, plugins, open_plugin);
+                        changed |= plugin_list(ui, settings, plugins, action);
                     }
                     if *current == Section::GridsAndOutput {
                         ui.add_space(8.0);
@@ -150,14 +163,16 @@ enum Step {
     Remove(usize),
 }
 
-/// The plugin programs in the order they run, each with its name and version (`lines`), its
-/// path, whether it runs, buttons to move or remove it and Settings... for its own settings;
-/// Add plugin... and whether Excel exports take the comments. True when one of them changed.
+/// The plugin programs in the order they run, each with its name and version (`rows`), its
+/// path, whether it runs, buttons to move or remove it, Settings... for its own settings, and
+/// for a plugin that offers updates Check now, a newer version with Update, and what the last
+/// check or update did; Add plugin... and whether Excel exports take the comments. True when
+/// one of them changed.
 fn plugin_list(
     ui: &mut Ui,
     settings: &mut Settings,
-    lines: &[String],
-    open_plugin: &mut Option<PathBuf>,
+    rows: &[Row],
+    action: &mut Option<(PathBuf, PluginAction)>,
 ) -> bool {
     let mut changed = false;
     let mut step = None;
@@ -166,9 +181,10 @@ fn plugin_list(
         ui.label("No plugins yet.");
     }
     for (i, plugin) in settings.plugins.iter_mut().enumerate() {
+        let row = rows.get(i);
         ui.push_id(i, |ui| {
             ui.horizontal(|ui| {
-                let line = lines.get(i).map_or("", String::as_str);
+                let line = row.map_or("", |r| r.line.as_str());
                 changed |= ui.checkbox(&mut plugin.on, line).changed();
             });
             ui.horizontal(|ui| {
@@ -190,9 +206,39 @@ fn plugin_list(
                     step = Some(Step::Remove(i));
                 }
                 if ui.button("Settings...").clicked() {
-                    *open_plugin = Some(plugin.path.clone());
+                    *action = Some((plugin.path.clone(), PluginAction::Settings));
+                }
+                let Some(row) = row.filter(|r| r.updates) else {
+                    return;
+                };
+                if row.busy {
+                    ui.spinner();
+                } else if ui.button("Check now").clicked() {
+                    *action = Some((plugin.path.clone(), PluginAction::Check));
                 }
             });
+            if let Some((version, notes)) = row.and_then(|r| r.available.as_ref()) {
+                ui.horizontal(|ui| {
+                    ui.add_space(24.0);
+                    ui.label(format!("Version {version} is available."));
+                    let busy = row.is_some_and(|r| r.busy);
+                    if ui.add_enabled(!busy, egui::Button::new("Update")).clicked() {
+                        *action = Some((plugin.path.clone(), PluginAction::Update));
+                    }
+                });
+                if !notes.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(24.0);
+                        ui.weak(notes);
+                    });
+                }
+            }
+            if let Some(status) = row.and_then(|r| r.status.as_ref()) {
+                ui.horizontal(|ui| {
+                    ui.add_space(24.0);
+                    ui.weak(status);
+                });
+            }
         });
         ui.add_space(6.0);
     }

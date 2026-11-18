@@ -437,6 +437,15 @@ impl Client {
     }
 }
 
+/// Downloads `url` to `file` over https only (redirects too) and returns the file's SHA-256 in
+/// hex; for plugin updates. The caller deletes the file when it is not wanted.
+pub fn fetch(url: &str, file: &Path) -> Result<String> {
+    if !url.starts_with("https://") {
+        return Err(format!("{url} is not an https address"));
+    }
+    Client::at(url).save(url, file)
+}
+
 /// Unpacks the two programs of the tarball or the ZIP `file` into `folder` and returns their
 /// folder. The tarball has them in `bin`, the ZIP at its top.
 fn unpack(file: &Path, name: &str, folder: &Path) -> Result<PathBuf> {

@@ -5,7 +5,7 @@
 //! the window starts by running that SET.
 
 use crate::output::{Part, Show};
-use statscraft_engine::plugin::Description;
+use statscraft_engine::plugin::{Description, Update};
 use std::path::{Path, PathBuf};
 
 /// The most recent files kept.
@@ -66,6 +66,18 @@ pub struct Settings {
     /// several plugins.
     pub templates: Vec<Template>,
     pub active_templates: Vec<(String, String)>,
+    /// The last update check of each plugin that offers updates.
+    pub plugin_checks: Vec<PluginCheck>,
+}
+
+/// When a plugin last checked for its update (docs/plugins.md), and what it found.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginCheck {
+    pub path: PathBuf,
+    /// In seconds since 1970.
+    pub checked: u64,
+    /// The newer version found; None when up to date or the check failed.
+    pub update: Option<Update>,
 }
 
 /// A plugin program, and whether it runs.
@@ -240,8 +252,9 @@ impl Settings {
     /// one turned off), `excel-comments off`,
     /// `preset ATTRIBUTE<tab>NAME<tab>VALUE`, `plugin-value ATTRIBUTE<tab>VALUE<tab>FILE`,
     /// `plugin-template PLUGIN<tab>NAME<tab>ATTRIBUTE<tab>VALUE` (or `plugin-template
-    /// PLUGIN<tab>NAME` for one without values) and `plugin-template-active PLUGIN<tab>NAME`;
-    /// anything else is skipped. The older lines `plugin-off` alone (the one plugin is off),
+    /// PLUGIN<tab>NAME` for one without values), `plugin-template-active PLUGIN<tab>NAME` and
+    /// `plugin-checked SECONDS<tab>PATH`, with `<tab>VERSION<tab>URL<tab>SHA256<tab>NOTES` after
+    /// it when a newer version was found; anything else is skipped. The older lines `plugin-off` alone (the one plugin is off),
     /// `template NAME<tab>ATTRIBUTE<tab>VALUE`, `template NAME` and `template-active NAME` are
     /// read too.
     pub fn parse(text: &str) -> Self {
@@ -333,6 +346,29 @@ impl Settings {
                 }
                 "template-active" if !rest.is_empty() => {
                     settings.active_templates.push((String::new(), rest.into()))
+                }
+                "plugin-checked" => {
+                    let parts: Vec<&str> = rest.split('\t').collect();
+                    let update = match parts[..] {
+                        [_, _] => Some(None),
+                        [_, _, version, url, sha256, notes] => Some(Some(Update {
+                            version: version.into(),
+                            url: url.into(),
+                            sha256: sha256.into(),
+                            notes: notes.into(),
+                        })),
+                        _ => None,
+                    };
+                    if let (Some(update), Ok(checked)) = (update, parts[0].parse())
+                        && !parts[1].is_empty()
+                    {
+                        let path = PathBuf::from(parts[1]);
+                        settings.plugin_checks.push(PluginCheck {
+                            path,
+                            checked,
+                            update,
+                        });
+                    }
                 }
                 _ => {}
             }
@@ -459,7 +495,33 @@ impl Settings {
         for (plugin, name) in &self.active_templates {
             text.push_str(&format!("plugin-template-active {plugin}\t{name}\n"));
         }
+        for c in &self.plugin_checks {
+            text.push_str(&format!(
+                "plugin-checked {}\t{}",
+                c.checked,
+                c.path.display()
+            ));
+            if let Some(u) = &c.update {
+                let fields = [&u.version, &u.url, &u.sha256, &u.notes].map(|f| clean(f));
+                text.push_str(&format!("\t{}", fields.join("\t")));
+            }
+            text.push('\n');
+        }
         text
+    }
+
+    /// The last update check of a plugin program, if any.
+    pub fn plugin_check(&self, path: &Path) -> Option<&PluginCheck> {
+        self.plugin_checks.iter().find(|c| c.path == path)
+    }
+
+    /// Keeps a plugin's update check in place of its last one; the checks of plugins no
+    /// longer in the list go.
+    pub fn keep_check(&mut self, check: PluginCheck) {
+        let plugins = &self.plugins;
+        self.plugin_checks
+            .retain(|c| c.path != check.path && plugins.iter().any(|p| p.path == c.path));
+        self.plugin_checks.push(check);
     }
 
     /// The design template in use for a plugin, if any.
@@ -650,6 +712,23 @@ mod tests {
                 ("House".into(), "Client A".into()),
                 ("Heat Map".into(), "Client A".into()),
             ],
+            plugin_checks: vec![
+                PluginCheck {
+                    path: PathBuf::from("/opt/plugins/heat map"),
+                    checked: 1_790_000_100,
+                    update: None,
+                },
+                PluginCheck {
+                    path: PathBuf::from("/opt/plugins/house"),
+                    checked: 1_790_000_200,
+                    update: Some(Update {
+                        version: "2.1.0".into(),
+                        url: "https://example.com/house?v=2.1.0".into(),
+                        sha256: "ab".repeat(32),
+                        notes: "Faster tables: see the site".into(),
+                    }),
+                },
+            ],
         };
         assert_eq!(settings.templates[0].values[1].1, "{\"bold\":true} x");
         let house = described("House");
@@ -672,6 +751,23 @@ mod tests {
         assert_eq!(settings.recent[0], absolute("/data/f5.sav"));
         assert_eq!(settings.recent[1], absolute("/data/f11.sav"));
         assert_eq!(Settings::parse(&settings.text()), settings);
+        // a newer check replaces the plugin's last one; a removed plugin's check goes with it
+        settings.plugins.remove(0);
+        settings.keep_check(PluginCheck {
+            path: PathBuf::from("/opt/plugins/house"),
+            checked: 1_790_000_300,
+            update: None,
+        });
+        assert_eq!(settings.plugin_checks.len(), 1);
+        let house = settings
+            .plugin_check(Path::new("/opt/plugins/house"))
+            .unwrap();
+        assert_eq!((house.checked, &house.update), (1_790_000_300, &None));
+        // a check line with a broken time or the wrong number of fields is skipped
+        let read = Settings::parse(
+            "plugin-checked soon\t/p\nplugin-checked 5\t/p\t1.0\nplugin-checked 5\t\n",
+        );
+        assert!(read.plugin_checks.is_empty());
         // a window that was never shown, or a minimized one, is not remembered
         let tiny = Settings::parse(
             "size 0 0\nposition 1 1\nsyntax-size 16 39\noutput-position -32000 -32000\n",
@@ -709,6 +805,7 @@ mod tests {
             name: name.into(),
             version: "1".into(),
             protocol: 1,
+            updates: false,
             settings: Vec::new(),
         }
     }

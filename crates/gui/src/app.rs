@@ -48,7 +48,7 @@ use crate::power_dialog::{POWER_MENU, PowerAnalysis};
 use crate::response_rate_dialog::ResponseRate;
 use crate::roc_analysis_dialog::RocAnalysis;
 use crate::settings::{Settings, usable_position, usable_size};
-use crate::settings_window::{self, Section};
+use crate::settings_window::{self, PluginAction, Section};
 use crate::simulation_dialog::Simulation;
 use crate::spchart_dialog::ControlCharts;
 use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliability, numeric};
@@ -728,6 +728,10 @@ impl App {
             style.spacing.scroll.fade.strength = 0.0;
         });
         let updates = Updates::new(&app_ctx, &mut settings);
+        // a plugin that an update replaced while it ran on Windows left its old program
+        for p in &settings.plugins {
+            statscraft_engine::plugin::remove_old(&p.path);
+        }
         let repaint = app_ctx.clone();
         let runs = RunQueue::new(move || repaint.request_repaint());
         let mut app = App {
@@ -858,6 +862,7 @@ impl App {
             self.answer(remote);
         }
         self.plugins.receive();
+        self.plugins.receive_updates(&mut self.settings);
         if self.runs.is_idle() {
             self.apply_plugin();
         }
@@ -4269,24 +4274,26 @@ impl App {
             values: self.session.setting("TNUMBERS"),
             mioutput: self.session.setting("MIOUTPUT"),
         };
-        // the plugins are asked to describe themselves only while the dialog shows them
-        let lines: Vec<String> = match self.settings_section {
+        // the plugins are asked to describe themselves, and those that offer updates to check
+        // for them once a day, only while the dialog shows them
+        let rows: Vec<crate::plugins::Row> = match self.settings_section {
             Some(Section::Plugins) => {
+                self.plugins.checks_due(&self.settings, ctx);
                 let paths = self.settings.plugins.iter().map(|p| &p.path);
-                paths.map(|p| self.plugins.line(p)).collect()
+                paths.map(|p| self.plugins.row(p, &self.settings)).collect()
             }
             _ => Vec::new(),
         };
         let chosen = self.settings.plugins.clone();
-        let mut open_plugin = None;
+        let mut action = None;
         let set = settings_window::show(
             ctx,
             &mut self.settings_section,
             &mut self.settings,
             &labels,
             &mut self.connect,
-            &lines,
-            &mut open_plugin,
+            &rows,
+            &mut action,
         );
         if let Some(syntax) = set {
             self.run(&syntax, None, After::Show);
@@ -4294,11 +4301,21 @@ impl App {
         if self.settings.plugins != chosen {
             self.plugins.changed();
         }
-        if let Some(program) = open_plugin {
-            let data = self.session.dataset();
-            if let Err(e) = self.plugins.open_dialog(&self.settings, data, &program) {
-                self.status = Err(e);
+        match action {
+            Some((program, PluginAction::Settings)) => {
+                let data = self.session.dataset();
+                if let Err(e) = self.plugins.open_dialog(&self.settings, data, &program) {
+                    self.status = Err(e);
+                }
             }
+            Some((program, PluginAction::Check)) => self.plugins.check(&program, ctx),
+            Some((program, PluginAction::Update)) => {
+                let check = self.settings.plugin_check(&program);
+                if let Some(update) = check.and_then(|c| c.update.clone()) {
+                    self.plugins.install(&program, update, ctx);
+                }
+            }
+            None => {}
         }
         let presets = self
             .plugins
