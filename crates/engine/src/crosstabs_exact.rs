@@ -5,15 +5,18 @@
 //! - The counts are made whole first (rounded, or truncated with COUNT TRUNCATE); empty rows and
 //!   columns are left out.
 //! - With both margins fixed, a table's probability under independence is the multivariate
-//!   hypergeometric one. Filling the table one column at a time, column j takes x_i from what
-//!   is left of the row totals, m_i, with probability prod_i C(m_i, x_i) / C(sum m, c_j); the
-//!   product over the columns is the probability of the table.
-//! - Every statistic used here adds up over the columns once the totals left before a column
-//!   are known, so all tables share one network: a node per column and vector of totals left,
-//!   holding the distinct partial values that reach it with their probability. The smallest and
-//!   largest value the rest of the table can add are worked out per node; a partial value whose
-//!   every completion falls on one side of the observed value is settled at once, as the
-//!   completions of a node have probability 1 together.
+//!   hypergeometric one. Filling the table cell by cell, column by column, the cell of row i
+//!   takes x of the n cases the column still needs with probability C(m_i, x) C(M, n - x) /
+//!   C(m_i + M, n), m_i what is left of row i's total and M what is left of the rows after it;
+//!   the product over the cells is the probability of the table.
+//! - Every statistic used here adds up over the cells once that state is known (lambda also
+//!   keeps the largest cell of the column so far), so all tables share one network: a node per
+//!   cell and state, holding the distinct partial values that reach it with their probability.
+//!   Rows a statistic treats alike may swap, which merges states, and the table is turned so
+//!   that the columns are walked over the fewer rows. The smallest and largest value the rest
+//!   of the table can add are worked out per node; a partial value whose every completion
+//!   falls on one side of the observed value is settled at once, as the completions of a node
+//!   have probability 1 together.
 //! - Statistics that grow with departure from independence (Pearson's and the likelihood-ratio
 //!   chi-square, minus the log probability of the table for Fisher's test, lambda, Goodman and
 //!   Kruskal's tau): the significance is the probability of a value at least the observed one.
@@ -136,18 +139,22 @@ struct Whole {
     columns_cells: Vec<Vec<u64>>,
     rows: Vec<u64>,
     columns: Vec<u64>,
+    /// The cases of the columns after each one.
+    after: Vec<u64>,
     ln_factorial: Vec<f64>,
+    /// The base of the packed states, None when a state does not fit in 128 bits.
+    base: Option<u128>,
 }
 
-/// How many nodes and partial values the exact computation may hold at once, some hundreds
-/// of megabytes.
-const MOST_HELD: usize = 4_000_000;
+/// How many bytes the nodes and partial values of one exact computation may take, as counted
+/// here; the process peaks at about twice that.
+const MOST_BYTES: usize = 256 << 20;
 
 /// Stops the work when the time of TIMER has run out or too much is held in memory.
 struct Clock {
     deadline: Option<Instant>,
     ticks: u32,
-    /// Nodes whose range is known, and partial values of the next column.
+    /// Bytes of the known ranges, and of the partial values of the next cell.
     held: [usize; 2],
     full: bool,
 }
@@ -169,61 +176,55 @@ impl Clock {
         (!late).then_some(())
     }
 
-    /// Counts one more held item of `kind` (0 nodes, 1 partial values).
-    fn hold(&mut self, kind: usize) -> Option<()> {
-        self.held[kind] += 1;
-        self.full = self.held[0] + self.held[1] > MOST_HELD;
+    /// Counts `bytes` more of `kind` (0 ranges, 1 partial values).
+    fn hold(&mut self, kind: usize, bytes: usize) -> Option<()> {
+        self.held[kind] += bytes;
+        self.full = self.held[0] + self.held[1] > MOST_BYTES;
         (!self.full).then_some(())
     }
 }
 
-/// Calls `visit` with every column that takes `need` cases from rows with `left` cases left.
-fn each_column(left: &[u64], need: u64, visit: &mut dyn FnMut(&[u64])) {
-    let mut room = vec![0; left.len() + 1];
-    for i in (0..left.len()).rev() {
-        room[i] = room[i + 1] + left[i];
-    }
-    fn walk(
-        i: usize,
-        rest: u64,
-        left: &[u64],
-        room: &[u64],
-        x: &mut [u64],
-        visit: &mut dyn FnMut(&[u64]),
-    ) {
-        if i == left.len() {
-            visit(x);
-            return;
-        }
-        for v in rest.saturating_sub(room[i + 1])..=rest.min(left[i]) {
-            x[i] = v;
-            walk(i + 1, rest - v, left, room, x, visit);
-        }
-    }
-    walk(0, need, left, &room, &mut vec![0; left.len()], visit);
-}
-
-fn minus(left: &[u64], x: &[u64]) -> Vec<u64> {
-    left.iter().zip(x).map(|(m, x)| m - x).collect()
-}
-
-/// The smallest and largest value still to come from each node of a column.
-type Ranges = HashMap<Vec<u64>, (f64, f64)>;
+/// The smallest and largest value still to come from each state of a cell.
+type Ranges = HashMap<u128, (f64, f64)>;
 
 /// The significances found for one table.
 pub(crate) type Found = Vec<(Stat, Outcome)>;
 
-/// The totals left with those of interchangeable rows (`twins`) in ascending order: nodes that
-/// differ only by swapping such rows have the same completions, so they merge.
-fn canonical(twins: &[Vec<usize>], mut left: Vec<u64>) -> Vec<u64> {
-    for group in twins {
-        let mut values: Vec<u64> = group.iter().map(|&i| left[i]).collect();
-        values.sort_unstable();
-        for (&i, v) in group.iter().zip(values) {
-            left[i] = v;
+/// The partial values of a state with their probability, and how many were merged last.
+type Partials = (Vec<(f64, f64)>, usize);
+
+/// Sorts partial values and adds up those closer than `grid`.
+fn merge(parts: &mut Vec<(f64, f64)>, grid: f64) {
+    parts.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+    let mut kept = 0;
+    for k in 0..parts.len() {
+        if kept > 0 && parts[k].0 - parts[kept - 1].0 <= grid {
+            parts[kept - 1].1 += parts[k].1;
+        } else {
+            parts[kept] = parts[k];
+            kept += 1;
         }
     }
-    left
+    parts.truncate(kept);
+}
+
+/// The totals left with those of interchangeable rows (`twins`) in ascending order, apart for
+/// the rows the current column has passed (before `visited`) and the others: states that differ
+/// only by swapping such rows have the same completions, so they merge.
+fn canonical(twins: &[Vec<usize>], left: &mut [u64], visited: usize) {
+    for group in twins {
+        for side in [true, false] {
+            let members: Vec<usize> = (group.iter())
+                .copied()
+                .filter(|&i| (i < visited) == side)
+                .collect();
+            let mut values: Vec<u64> = members.iter().map(|&i| left[i]).collect();
+            values.sort_unstable();
+            for (&i, v) in members.iter().zip(values) {
+                left[i] = v;
+            }
+        }
+    }
 }
 
 /// The thresholds of a statistic: values from `hi` up and from `lo` down are extreme.
@@ -265,6 +266,16 @@ impl Bounds {
     }
 }
 
+/// A cell of the network: column j, row i, the totals left (rows before i already took their
+/// share of column j), the cases column j still needs and its largest cell so far.
+struct Spot<'a> {
+    j: usize,
+    i: usize,
+    left: &'a [u64],
+    need: u64,
+    largest: u64,
+}
+
 impl Whole {
     /// The whole counts of `f` (rows by columns) and the rows and columns kept.
     fn new(f: &[Vec<f64>], truncate: bool) -> (Whole, Vec<usize>, Vec<usize>) {
@@ -289,16 +300,28 @@ impl Whole {
             .map(|i| columns_cells.iter().map(|c| c[i]).sum())
             .collect();
         let columns: Vec<u64> = columns_cells.iter().map(|c| c.iter().sum()).collect();
+        let mut after = vec![0; columns.len()];
+        for j in (0..columns.len().saturating_sub(1)).rev() {
+            after[j] = after[j + 1] + columns[j + 1];
+        }
         let n: u64 = rows.iter().sum();
         let mut ln_factorial = vec![0.0; n as usize + 1];
         for k in 1..ln_factorial.len() {
             ln_factorial[k] = ln_factorial[k - 1] + (k as f64).ln();
         }
+        // a state packs the totals left, each below `base`, and the column's largest cell
+        let base = u128::from(rows.iter().copied().max().unwrap_or(0)) + 1;
+        let top = u128::from(columns.iter().copied().max().unwrap_or(0)) + 1;
+        let base = (0..rows.len())
+            .try_fold(top, |room, _| room.checked_mul(base))
+            .map(|_| base);
         let table = Whole {
             columns_cells,
             rows,
             columns,
+            after,
             ln_factorial,
+            base,
         };
         (table, kept_rows, kept_columns)
     }
@@ -316,43 +339,65 @@ impl Whole {
         f(n) - f(k) - f(n - k)
     }
 
-    /// The log probability that column j takes `x` from the totals `left`.
-    fn ln_step(&self, j: usize, x: &[u64], left: &[u64]) -> f64 {
-        let ways: f64 = left
-            .iter()
-            .zip(x)
-            .map(|(&m, &x)| self.ln_choose(m, x))
-            .sum();
-        ways - self.ln_choose(left.iter().sum(), self.columns[j])
+    /// The log probability that the cell takes x, given the cells before it.
+    fn ln_cell(&self, at: &Spot, x: u64) -> f64 {
+        let rest: u64 = at.left[at.i + 1..].iter().sum();
+        let mine = at.left[at.i];
+        self.ln_choose(mine, x) + self.ln_choose(rest, at.need - x)
+            - self.ln_choose(mine + rest, at.need)
     }
 
-    /// What column j with cells `x` adds to the statistic, `left` the row totals before it.
-    fn step(&self, kind: &Kind, j: usize, x: &[u64], left: &[u64]) -> f64 {
-        match kind {
-            Kind::Squares(w) => (0..x.len()).map(|i| w[i][j] * (x[i] * x[i]) as f64).sum(),
-            Kind::Ratio => (x.iter())
-                .filter(|&&x| x > 0)
-                .map(|&x| x as f64 * (x as f64).ln())
-                .sum(),
-            Kind::Probability => -self.ln_step(j, x, left),
-            Kind::Linear(a) => (0..x.len()).map(|i| a[i][j] * x[i] as f64).sum(),
+    /// What the cell adds to the statistic when it takes x (`ln_p` its log probability), and
+    /// the column's largest cell after it.
+    fn add(&self, kind: &Kind, at: &Spot, x: u64, ln_p: f64) -> (f64, u64) {
+        let (i, j) = (at.i, at.j);
+        let n = x as f64;
+        let added = match kind {
+            Kind::Squares(w) => w[i][j] * n * n,
+            Kind::Ratio if x > 0 => n * n.ln(),
+            Kind::Ratio => 0.0,
+            Kind::Probability => -ln_p,
+            Kind::Linear(a) => a[i][j] * n,
             Kind::Concordance => {
-                // the cases of row i already placed lie left of the column
-                let before: Vec<f64> = (0..x.len())
-                    .map(|i| (self.rows[i] - left[i]) as f64)
-                    .collect();
-                let all: f64 = before.iter().sum();
-                let mut below = 0.0;
-                let mut s = 0.0;
-                for i in 0..x.len() {
-                    let above = all - below - before[i];
-                    s += x[i] as f64 * (below - above);
-                    below += before[i];
-                }
-                s
+                // the cases of the other rows that lie left of the column; those of the rows
+                // before i in this column are not
+                let placed = |k: usize| (self.rows[k] - at.left[k]) as f64;
+                let taken = (self.columns[j] - at.need) as f64;
+                let below = (0..i).map(placed).sum::<f64>() - taken;
+                let above: f64 = (i + 1..self.rows.len()).map(placed).sum();
+                n * (below - above)
             }
-            Kind::Largest => x.iter().copied().max().unwrap_or(0) as f64,
+            Kind::Largest => x.saturating_sub(at.largest) as f64,
+        };
+        let largest = match kind {
+            Kind::Largest => at.largest.max(x),
+            _ => 0,
+        };
+        (added, largest)
+    }
+
+    /// The statistic of a table given by its columns.
+    fn value(&self, kind: &Kind, columns: &[Vec<u64>]) -> f64 {
+        let mut left = self.rows.clone();
+        let mut sum = 0.0;
+        for (j, x) in columns.iter().enumerate() {
+            let mut largest = 0;
+            for i in 0..x.len() {
+                let total: u64 = left.iter().sum();
+                let at = Spot {
+                    j,
+                    i,
+                    left: &left,
+                    need: total - self.after[j],
+                    largest,
+                };
+                let (added, top) = self.add(kind, &at, x[i], self.ln_cell(&at, x[i]));
+                sum += added;
+                largest = top;
+                left[i] -= x[i];
+            }
         }
+        sum
     }
 
     /// The groups of rows a statistic treats alike, so that they may trade places.
@@ -374,75 +419,110 @@ impl Whole {
         }
     }
 
-    /// The statistic of a table given by its columns.
-    fn value(&self, kind: &Kind, columns: &[Vec<u64>]) -> f64 {
-        let mut left = self.rows.clone();
-        let mut sum = 0.0;
-        for (j, x) in columns.iter().enumerate() {
-            sum += self.step(kind, j, x, &left);
-            left = minus(&left, x);
-        }
-        sum
+    fn pack(&self, base: u128, left: &[u64], largest: u64) -> u128 {
+        (left.iter().rev()).fold(u128::from(largest), |key, &m| key * base + u128::from(m))
     }
 
-    /// The smallest and largest value columns j on can add, given the totals `left`.
+    /// The ways to fill the cell of step `s` (columns times rows, column by column) from
+    /// state `key`: probability, what the statistic gains, and the state after.
+    fn edges(
+        &self,
+        kind: &Kind,
+        (s, key): (usize, u128),
+        (base, twins): (u128, &[Vec<usize>]),
+        out: &mut Vec<(f64, f64, u128)>,
+    ) {
+        out.clear();
+        let r = self.rows.len();
+        let (j, i) = (s / r, s % r);
+        let mut rest = key;
+        let mut left = vec![0; r];
+        for m in left.iter_mut() {
+            *m = (rest % base) as u64;
+            rest /= base;
+        }
+        let total: u64 = left.iter().sum();
+        let at = Spot {
+            j,
+            i,
+            left: &left,
+            need: total - self.after[j],
+            largest: rest as u64,
+        };
+        let others: u64 = left[i + 1..].iter().sum();
+        let mut child = left.clone();
+        for x in at.need.saturating_sub(others)..=left[i].min(at.need) {
+            let ln_p = self.ln_cell(&at, x);
+            let (added, largest) = self.add(kind, &at, x, ln_p);
+            child.copy_from_slice(&left);
+            child[i] -= x;
+            // the column ends after its last row: the next one starts afresh
+            let (visited, largest) = if i + 1 < r { (i + 1, largest) } else { (0, 0) };
+            canonical(twins, &mut child, visited);
+            out.push((ln_p.exp(), added, self.pack(base, &child, largest)));
+        }
+    }
+
+    /// The smallest and largest value the cells from step `s` on can add, from state `key`.
     fn range(
         &self,
         kind: &Kind,
-        (j, left): (usize, &[u64]),
-        (memo, twins): (&mut [Ranges], &[Vec<usize>]),
+        (s, key): (usize, u128),
+        (memo, base, twins): (&mut [Ranges], u128, &[Vec<usize>]),
         clock: &mut Clock,
     ) -> Option<(f64, f64)> {
-        if j == self.columns.len() {
+        if s == memo.len() {
             return Some((0.0, 0.0));
         }
-        if let Some(found) = memo[j].get(left) {
+        if let Some(found) = memo[s].get(&key) {
             return Some(*found);
         }
-        clock.tick()?;
-        let mut xs = Vec::new();
-        each_column(left, self.columns[j], &mut |x| xs.push(x.to_vec()));
+        let mut edges = Vec::new();
+        self.edges(kind, (s, key), (base, twins), &mut edges);
         let mut range = (f64::INFINITY, f64::NEG_INFINITY);
-        for x in xs {
-            let s = self.step(kind, j, &x, left);
-            let child = canonical(twins, minus(left, &x));
-            let (low, high) = self.range(kind, (j + 1, &child), (memo, twins), clock)?;
-            range = (range.0.min(s + low), range.1.max(s + high));
+        for (_, added, child) in edges {
+            clock.tick()?;
+            let (low, high) = self.range(kind, (s + 1, child), (memo, base, twins), clock)?;
+            range = (range.0.min(added + low), range.1.max(added + high));
         }
-        clock.hold(0)?;
-        memo[j].insert(left.to_vec(), range);
+        clock.hold(0, 80)?;
+        memo[s].insert(key, range);
         Some(range)
     }
 
-    /// The exact significance, None when the clock runs out or too much is held.
+    /// The exact significance, None when the clock runs out or too much would be held.
     fn exact(&self, kind: &Kind, centre: Option<f64>, clock: &mut Clock) -> Option<Outcome> {
         let bounds = Bounds::new(self.value(kind, &self.columns_cells), centre, kind);
         let Bounds { lo, hi, .. } = bounds;
         let tol = bounds.tolerance;
         let grid = tol / 64.0;
-        let mut memo = vec![HashMap::new(); self.columns.len() + 1];
+        let Some(base) = self.base else {
+            clock.full = true;
+            return None;
+        };
+        let steps = self.rows.len() * self.columns.len();
+        let mut memo = vec![Ranges::new(); steps];
         let twins = self.twins(kind);
+        let mut start = self.rows.clone();
+        canonical(&twins, &mut start, 0);
         let (mut upper, mut lower, mut point) = (0.0, 0.0, 0.0);
-        type Partials = HashMap<i128, (f64, f64)>;
-        let mut stage: HashMap<Vec<u64>, Partials> = HashMap::from([(
-            canonical(&twins, self.rows.clone()),
-            HashMap::from([(0, (0.0, 1.0))]),
-        )]);
-        for j in 0..self.columns.len() {
-            let mut next: HashMap<Vec<u64>, Partials> = HashMap::new();
-            for (left, partials) in stage {
-                let mut xs = Vec::new();
-                each_column(&left, self.columns[j], &mut |x| xs.push(x.to_vec()));
-                for x in xs {
-                    clock.tick()?;
-                    let child = canonical(&twins, minus(&left, &x));
-                    let (low, high) =
-                        self.range(kind, (j + 1, &child), (&mut memo, &twins), clock)?;
-                    let s = self.step(kind, j, &x, &left);
-                    let p_step = self.ln_step(j, &x, &left).exp();
-                    let mut open = Vec::new();
-                    for &(v, p) in partials.values() {
-                        let (v, p) = (v + s, p * p_step);
+        let mut stage: HashMap<u128, Partials> =
+            HashMap::from([(self.pack(base, &start, 0), (vec![(0.0, 1.0)], 1))]);
+        let mut edges = Vec::new();
+        let mut open = Vec::new();
+        for s in 0..steps {
+            let mut next: HashMap<u128, Partials> = HashMap::new();
+            clock.held[1] = 0;
+            for (key, (mut partials, _)) in stage {
+                merge(&mut partials, grid);
+                self.edges(kind, (s, key), (base, &twins), &mut edges);
+                for &(p_step, added, child) in &edges {
+                    let ranges = (&mut memo[..], base, &twins[..]);
+                    let (low, high) = self.range(kind, (s + 1, child), ranges, clock)?;
+                    open.clear();
+                    for &(v, p) in &partials {
+                        clock.tick()?;
+                        let (v, p) = (v + added, p * p_step);
                         if v + low > hi + tol {
                             upper += p;
                         } else if v + high < lo - tol {
@@ -451,22 +531,24 @@ impl Whole {
                             open.push((v, p));
                         }
                     }
-                    if !open.is_empty() {
-                        let slot = next.entry(child).or_default();
-                        for (v, p) in open {
-                            let key = (v / grid).round() as i128;
-                            if !slot.contains_key(&key) {
-                                clock.hold(1)?;
-                            }
-                            slot.entry(key).or_insert((v, 0.0)).1 += p;
-                        }
+                    if open.is_empty() {
+                        continue;
                     }
+                    let node = next.entry(child).or_insert_with(|| (Vec::new(), 0));
+                    let before = node.0.capacity();
+                    node.0.extend_from_slice(&open);
+                    // merge now and then, so that a state holds about its distinct values
+                    if node.0.len() > 2 * node.1 + 256 {
+                        merge(&mut node.0, grid);
+                        node.1 = node.0.len();
+                    }
+                    clock.held[1] -= 16 * before;
+                    clock.hold(1, 16 * node.0.capacity() + if before == 0 { 96 } else { 0 })?;
                 }
             }
             stage = next;
-            clock.held[1] = 0;
         }
-        for &(v, p) in stage.values().flat_map(HashMap::values) {
+        for (v, p) in stage.into_values().flat_map(|(partials, _)| partials) {
             match bounds.tail(v) {
                 (true, _) => upper += p,
                 (_, true) => lower += p,
@@ -580,7 +662,26 @@ fn test(
             linear(2, square, a)
         }
     };
+    // the network walks the rows of each column, so fewer rows make fewer states
+    let found = match found {
+        (0, kind, centre) if r > c && !matches!(kind, Kind::Largest) => (1, flip(kind), centre),
+        found => found,
+    };
     tables[found.0]?.0.usable().then_some(found)
+}
+
+/// The statistic of the transposed table.
+fn flip(kind: Kind) -> Kind {
+    let t = |m: Vec<Vec<f64>>| -> Vec<Vec<f64>> {
+        (0..m.first().map_or(0, Vec::len))
+            .map(|j| m.iter().map(|row| row[j]).collect())
+            .collect()
+    };
+    match kind {
+        Kind::Squares(w) => Kind::Squares(t(w)),
+        Kind::Linear(a) => Kind::Linear(t(a)),
+        other => other,
+    }
 }
 
 /// A table of whole counts with the rows and columns of the counts it keeps.
@@ -687,14 +788,103 @@ mod tests {
         }
     }
 
+    /// Every table with the margins of `f`, by column, with its probability.
+    fn every_table(t: &Whole) -> Vec<(Vec<Vec<u64>>, f64)> {
+        let (r, c) = (t.rows.len(), t.columns.len());
+        let mut out = Vec::new();
+        let mut cells = vec![vec![0; r]; c];
+        fn fill(
+            t: &Whole,
+            k: usize,
+            cells: &mut Vec<Vec<u64>>,
+            out: &mut Vec<(Vec<Vec<u64>>, f64)>,
+        ) {
+            let (r, c) = (t.rows.len(), t.columns.len());
+            if k == r * c {
+                let ok = (0..r).all(|i| cells.iter().map(|col| col[i]).sum::<u64>() == t.rows[i])
+                    && (0..c).all(|j| cells[j].iter().sum::<u64>() == t.columns[j]);
+                if ok {
+                    let f = |n: u64| t.ln_factorial[n as usize];
+                    let margins: f64 = t.rows.iter().chain(&t.columns).map(|&n| f(n)).sum();
+                    let inner: f64 = cells.iter().flatten().map(|&n| f(n)).sum();
+                    out.push((cells.clone(), (margins - f(t.total()) - inner).exp()));
+                }
+                return;
+            }
+            let (j, i) = (k / r, k % r);
+            for x in 0..=t.rows[i].min(t.columns[j]) {
+                cells[j][i] = x;
+                fill(t, k + 1, cells, out);
+            }
+        }
+        fill(t, 0, &mut cells, &mut out);
+        out
+    }
+
     #[test]
-    fn columns_cover_every_split() {
-        let mut found = Vec::new();
-        each_column(&[2, 1, 3], 3, &mut |x| found.push(x.to_vec()));
-        // the splits of 3 cases over rows with room for 2, 1 and 3
-        assert_eq!(found.len(), 6);
-        assert!(found.iter().all(|x| x.iter().sum::<u64>() == 3));
-        assert!(found.iter().all(|x| x[0] <= 2 && x[1] <= 1));
+    fn the_network_agrees_with_listing_every_table() {
+        // invented tables: 2 x 4, its transpose, and 3 x 3
+        let f = vec![vec![2.0, 0.0, 1.0, 3.0], vec![1.0, 2.0, 1.0, 1.0]];
+        let flipped: Vec<Vec<f64>> = (0..4)
+            .map(|j| f.iter().map(|row| row[j]).collect())
+            .collect();
+        let square = vec![
+            vec![2.0, 0.0, 1.0],
+            vec![1.0, 2.0, 0.0],
+            vec![0.0, 1.0, 2.0],
+        ];
+        for f in [f, flipped, square] {
+            let (t, ..) = Whole::new(&f, false);
+            let tables = every_table(&t);
+            let (r, c) = (t.rows.len(), t.columns.len());
+            let a: Vec<Vec<f64>> = (0..r)
+                .map(|i| (0..c).map(|j| ((i + 1) * (j * j + 1)) as f64).collect())
+                .collect();
+            let mean: f64 = tables
+                .iter()
+                .map(|(cells, p)| p * t.value(&Kind::Linear(a.clone()), cells))
+                .sum();
+            let w = (0..r)
+                .map(|i| {
+                    (0..c)
+                        .map(|j| 1.0 / (t.rows[i] * t.columns[j]) as f64)
+                        .collect()
+                })
+                .collect();
+            let kinds = [
+                (Kind::Squares(w), None),
+                (Kind::Ratio, None),
+                (Kind::Probability, None),
+                (Kind::Largest, None),
+                (Kind::Concordance, Some(0.0)),
+                (Kind::Linear(a), Some(mean)),
+            ];
+            for (kind, centre) in kinds {
+                let b = Bounds::new(t.value(&kind, &t.columns_cells), centre, &kind);
+                let (mut two, mut one) = (0.0, 0.0);
+                for (cells, p) in &tables {
+                    let (upper, lower) = b.tail(t.value(&kind, cells));
+                    two += if upper || lower { *p } else { 0.0 };
+                    one += if (b.upper_side && upper) || (!b.upper_side && lower) {
+                        *p
+                    } else {
+                        0.0
+                    };
+                }
+                let Some(Outcome::Exact {
+                    two: got,
+                    one: side,
+                    ..
+                }) = t.exact(&kind, centre, &mut Clock::new(None))
+                else {
+                    panic!()
+                };
+                assert!((got - two).abs() < 1e-12, "{got} {two}");
+                if let Some(side) = side {
+                    assert!((side - one).abs() < 1e-12, "{side} {one}");
+                }
+            }
+        }
     }
 
     #[test]

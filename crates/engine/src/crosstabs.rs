@@ -737,21 +737,21 @@ fn tables(
                 0 => ("Value", Vec::new()),
                 1 => ("df", Vec::new()),
                 2 => ("Asymptotic Sig. (2-tailed)", Vec::new()),
-                3 => ("Exact Sig. (2-tailed)", Vec::new()),
-                4 => ("Exact Sig. (1-tailed)", Vec::new()),
+                3 => ("Exact Sig. (2-sided)", Vec::new()),
+                4 => ("Exact Sig. (1-sided)", Vec::new()),
                 5 => ("Point Probability", Vec::new()),
                 6 => (
                     "Significance",
-                    vec!["Monte Carlo Sig. (2-tailed)".to_string()],
+                    vec!["Monte Carlo Sig. (2-sided)".to_string()],
                 ),
-                7 => ("Lower Bound", interval("Monte Carlo Sig. (2-tailed)")),
-                8 => ("Upper Bound", interval("Monte Carlo Sig. (2-tailed)")),
+                7 => ("Lower Bound", interval("Monte Carlo Sig. (2-sided)")),
+                8 => ("Upper Bound", interval("Monte Carlo Sig. (2-sided)")),
                 9 => (
                     "Significance",
-                    vec!["Monte Carlo Sig. (1-tailed)".to_string()],
+                    vec!["Monte Carlo Sig. (1-sided)".to_string()],
                 ),
-                10 => ("Lower Bound", interval("Monte Carlo Sig. (1-tailed)")),
-                _ => ("Upper Bound", interval("Monte Carlo Sig. (1-tailed)")),
+                10 => ("Lower Bound", interval("Monte Carlo Sig. (1-sided)")),
+                _ => ("Upper Bound", interval("Monte Carlo Sig. (1-sided)")),
             };
             columns.push(name.into());
             column_groups.push(group);

@@ -65,8 +65,8 @@ fn exact_chi_square_tests() {
     assert!(warnings.is_empty(), "{warnings:?}");
     let t = table(&tables, "Chi-Square Tests");
     let [two, one, point] = [
-        "Exact Sig. (2-tailed)",
-        "Exact Sig. (1-tailed)",
+        "Exact Sig. (2-sided)",
+        "Exact Sig. (1-sided)",
         "Point Probability",
     ]
     .map(|c| column(t, c));
@@ -151,7 +151,7 @@ fn descending_rows_and_strings_keep_the_exact_values() {
     );
     let t = table(&tables, "Chi-Square Tests");
     close(
-        &row(t, "Linear-by-Linear Association", 0)[column(t, "Exact Sig. (1-tailed)")],
+        &row(t, "Linear-by-Linear Association", 0)[column(t, "Exact Sig. (1-sided)")],
         0.000668449197860963,
     );
 
@@ -166,7 +166,7 @@ SELECT IF (r < 3).
 CROSSTABS g BY h /STATISTICS=CHISQ /METHOD=EXACT.");
     let t = table(&tables, "Chi-Square Tests");
     // the table here is [[4, 1, 0], [2, 3, 1]]
-    let two = column(t, "Exact Sig. (2-tailed)");
+    let two = column(t, "Exact Sig. (2-sided)");
     close(&row(t, "Fisher's Exact Test", 0)[two], fisher_2x3());
     assert!(
         !t.rows
@@ -188,11 +188,11 @@ CROSSTABS r BY c /STATISTICS=CHISQ /METHOD=EXACT.");
     let fisher = row(t, "Fisher's Exact Test", 0);
     // the table is [[4, 1], [2, 3]] after the selection; fisher.test gives 0.523809523809524
     close(
-        &fisher[column(t, "Exact Sig. (2-tailed)")],
+        &fisher[column(t, "Exact Sig. (2-sided)")],
         0.523809523809524,
     );
     close(
-        &fisher[column(t, "Exact Sig. (1-tailed)")],
+        &fisher[column(t, "Exact Sig. (1-sided)")],
         0.261904761904762,
     );
     // the observed table alone: 5! 5! 6! 4! / (10! 4! 1! 2! 3!) = 10/42
@@ -210,10 +210,10 @@ CROSSTABS r BY c /STATISTICS=CHISQ BTAU /METHOD=MC CIN(99) SAMPLES(20000).";
     let (tables, _) = run(syntax);
     let t = table(&tables, "Chi-Square Tests");
     let sig = column(t, "Significance");
-    assert_eq!(t.column_groups[sig], ["Monte Carlo Sig. (2-tailed)"]);
+    assert_eq!(t.column_groups[sig], ["Monte Carlo Sig. (2-sided)"]);
     assert_eq!(
         t.column_groups[sig + 1],
-        ["Monte Carlo Sig. (2-tailed)", "99% Confidence Interval"]
+        ["Monte Carlo Sig. (2-sided)", "99% Confidence Interval"]
     );
     for (name, exact) in [
         ("Pearson Chi-Square", 0.0146495661201544),
@@ -251,7 +251,7 @@ fn fractional_weights_are_rounded_per_cell() {
 CROSSTABS r BY c /STATISTICS=CHISQ /METHOD=EXACT.");
     let t = table(&tables, "Chi-Square Tests");
     close(
-        &row(t, "Fisher's Exact Test", 0)[column(t, "Exact Sig. (2-tailed)")],
+        &row(t, "Fisher's Exact Test", 0)[column(t, "Exact Sig. (2-sided)")],
         0.0208933223639106,
     );
 }
