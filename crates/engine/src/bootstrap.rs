@@ -23,8 +23,9 @@
 //!
 //! Choices where the manual is silent (docs/differences.md): the draws are uniform picks from
 //! the session's generator; a resample in which the procedure fails or lacks a statistic leaves
-//! that statistic out, and B counts the resamples that gave it; the statistics bootstrapped and
-//! the layout of the extra columns and rows.
+//! that statistic out, and B counts the resamples that gave it; the statistics bootstrapped (the
+//! estimates each procedure's tables report, without counts of cases or redundant parameters)
+//! and the layout of the extra columns and rows.
 
 use crate::dist::{normal_cdf, normal_quantile};
 use crate::random::Random;
@@ -34,26 +35,42 @@ use statscraft_syntax::{Bootstrap, Command};
 use std::collections::HashMap;
 
 /// Where a procedure's bootstrapped statistics stand: the rows or the columns labelled with
-/// one of `labels` in the tables whose title starts with `title`.
+/// one of `labels` in the tables whose title starts with `title`; of a column, only the rows
+/// labelled with one of `only` when it is not empty.
 struct Target {
     title: &'static str,
     rows: bool,
     labels: &'static [&'static str],
+    only: &'static [&'static str],
+}
+
+const fn columns(title: &'static str, labels: &'static [&'static str]) -> Target {
+    Target {
+        title,
+        rows: false,
+        labels,
+        only: &[],
+    }
+}
+
+const fn rows(title: &'static str, labels: &'static [&'static str]) -> Target {
+    Target {
+        title,
+        rows: true,
+        labels,
+        only: &[],
+    }
 }
 
 const SPREAD: &[&str] = &["Mean", "Std Dev", "Variance", "Skewness", "Kurtosis"];
+const MEAN_DIFFERENCE: &[&str] = &["Mean Difference (I-J)"];
 
-fn targets(command: &Command) -> Option<&'static [Target]> {
+fn targets(command: &Command) -> Option<Vec<Target>> {
     Some(match command {
-        Command::Descriptives(_) => &[Target {
-            title: "Descriptive Statistics",
-            rows: false,
-            labels: SPREAD,
-        }],
-        Command::Frequencies(_) => &[Target {
-            title: "Statistics",
-            rows: true,
-            labels: &[
+        Command::Descriptives(_) => vec![columns("Descriptive Statistics", SPREAD)],
+        Command::Frequencies(_) => vec![rows(
+            "Statistics",
+            &[
                 "Mean",
                 "Median",
                 "Std. Deviation",
@@ -62,11 +79,10 @@ fn targets(command: &Command) -> Option<&'static [Target]> {
                 "Kurtosis",
                 "Percentiles",
             ],
-        }],
-        Command::Means(_) => &[Target {
-            title: "Report",
-            rows: false,
-            labels: &[
+        )],
+        Command::Means(_) => vec![columns(
+            "Report",
+            &[
                 "Mean",
                 "Median",
                 "Grouped Median",
@@ -77,22 +93,69 @@ fn targets(command: &Command) -> Option<&'static [Target]> {
                 "Harmonic Mean",
                 "Geometric Mean",
             ],
-        }],
-        Command::Correlations(_) => &[Target {
-            title: "Correlations",
-            rows: true,
-            labels: &["Pearson Correlation"],
-        }],
-        Command::TTest(_) => &[Target {
-            title: "",
-            rows: false,
-            labels: &["Mean", "Std. Deviation", "Mean Difference"],
-        }],
-        Command::Regression(_) => &[Target {
-            title: "Coefficients",
-            rows: false,
-            labels: &["B"],
-        }],
+        )],
+        Command::Correlations(_) => vec![rows("Correlations", &["Pearson Correlation"])],
+        Command::TTest(_) => vec![columns("", &["Mean", "Std. Deviation", "Mean Difference"])],
+        Command::Regression(_) => vec![columns("Coefficients", &["B"])],
+        Command::Crosstabs(_) => vec![
+            columns("Symmetric Measures", &["Value"]),
+            columns("Directional Measures", &["Value"]),
+            columns("Risk Estimate", &["Value"]),
+        ],
+        Command::Examine(_) => vec![
+            Target {
+                title: "Descriptives",
+                rows: false,
+                labels: &["Statistic"],
+                only: &[
+                    "Mean",
+                    "5% Trimmed Mean",
+                    "Median",
+                    "Variance",
+                    "Std. Deviation",
+                    "Interquartile Range",
+                    "Skewness",
+                    "Kurtosis",
+                ],
+            },
+            columns(
+                "M-Estimators",
+                &[
+                    "Huber's M-Estimator",
+                    "Tukey's Biweight",
+                    "Hampel's M-Estimator",
+                    "Andrews' Wave",
+                ],
+            ),
+            // the percentiles of the chosen method; Tukey's hinges are left alone
+            rows(
+                "Percentiles",
+                &[
+                    "Weighted Average at (W+1)p",
+                    "Weighted Average at Wp",
+                    "Closest Observation",
+                    "Empirical Distribution Function",
+                    "Empirical Distribution Function with Averaging",
+                ],
+            ),
+        ],
+        Command::Oneway(_) => vec![
+            columns("Descriptives", &["Mean", "Std. Deviation", "Std. Error"]),
+            columns("Contrast Tests", &["Value of Contrast"]),
+            columns("Multiple Comparisons", MEAN_DIFFERENCE),
+        ],
+        Command::NonparCorr(_) => vec![rows("Correlations", &["Correlation Coefficient"])],
+        Command::PartialCorr(_) => vec![rows("Correlations", &["Correlation"])],
+        Command::Logistic(_) => vec![columns("Variables in the Equation", &["B"])],
+        Command::Nomreg(_) => vec![columns("Parameter Estimates", &["B"])],
+        Command::Plum(_) => vec![columns("Parameter Estimates", &["Estimate"])],
+        Command::Glm(_) => vec![
+            columns("Descriptive Statistics", &["Mean", "Std. Deviation"]),
+            columns("Parameter Estimates", &["B"]),
+            columns("Estimated Marginal Means", &["Mean"]),
+            columns("Pairwise Comparisons", MEAN_DIFFERENCE),
+            columns("Multiple Comparisons", MEAN_DIFFERENCE),
+        ],
         _ => return None,
     })
 }
@@ -184,9 +247,16 @@ fn spots(tables: &[Table], targets: &[Target]) -> Vec<Spot> {
                 || (leaf == "Statistic" && group.is_some_and(|g| target.labels.contains(&&**g)))
         };
         for (r, row) in table.rows.iter().enumerate() {
-            let chosen_row = labels[r]
-                .iter()
-                .any(|l| target.labels.contains(&l.as_str()));
+            let labelled = |list: &[&str]| labels[r].iter().any(|l| list.contains(&l.as_str()));
+            // a count of cases or a parameter fixed at zero is no statistic to resample
+            let fixed = labels[r].iter().any(|l| l.ends_with("(redundant)"));
+            if fixed
+                || labelled(&["N of Valid Cases"])
+                || !(target.only.is_empty() || labelled(target.only))
+            {
+                continue;
+            }
+            let chosen_row = labelled(target.labels);
             for (c, column) in titles.iter().enumerate().skip(table.row_headers) {
                 let chosen = match target.rows {
                     true => chosen_row,
@@ -499,7 +569,7 @@ impl Engine {
         if matches!(command, Command::Frequencies(_)) {
             self.charts.truncate(charts);
         }
-        let spots = spots(&tables, targets(command).unwrap_or_default());
+        let spots = spots(&tables, &targets(command).unwrap_or_default());
         if spots.is_empty() || data.case_count() == 0 {
             self.dataset = Some(after);
             self.case_numbers = numbers;

@@ -13,20 +13,20 @@
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
 
-const DATA: &str = "DATA LIST FREE /x y g.
+const DATA: &str = "DATA LIST FREE /x y g a b.
 BEGIN DATA.
-4.2 2.1 1
-5.1 2.9 2
-3.8 1.7 1
-6.0 3.4 2
-5.5 2.6 1
-4.9 2.2 2
-7.2 4.1 1
-3.1 1.5 2
-5.8 3.3 1
-4.4 2.0 2
-6.6 3.9 1
-5.0 2.8 2
+4.2 2.1 1 1 1
+5.1 2.9 2 2 1
+3.8 1.7 1 1 0
+6.0 3.4 2 3 0
+5.5 2.6 1 2 1
+4.9 2.2 2 1 0
+7.2 4.1 1 3 1
+3.1 1.5 2 1 1
+5.8 3.3 1 2 0
+4.4 2.0 2 2 0
+6.6 3.9 1 3 1
+5.0 2.8 2 3 0
 END DATA.
 ";
 
@@ -226,13 +226,16 @@ DESCRIPTIVES x /STATISTICS=MEAN."
 #[test]
 fn other_procedures_warn_and_run_as_usual() {
     let mut engine = Engine::default();
-    let tables = run(&mut engine, &format!("{DATA}BOOTSTRAP.\nONEWAY x BY g."));
+    let tables = run(
+        &mut engine,
+        &format!("{DATA}BOOTSTRAP.\nNPAR TESTS /M-W=x BY g(1 2)."),
+    );
     assert!(!tables.is_empty());
     assert!(
         engine
             .warnings()
             .iter()
-            .any(|w| w.contains("BOOTSTRAP is not applied to ONEWAY")),
+            .any(|w| w.contains("BOOTSTRAP is not applied to NPARTESTS")),
         "{:?}",
         engine.warnings()
     );
@@ -292,4 +295,242 @@ REGRESSION /DEPENDENT=y /METHOD=ENTER x."
         .map(|r| statscraft_engine::cell_text(stats, r, stats.row_headers - 1))
         .collect();
     assert_eq!(labels.iter().filter(|l| *l == "Bootstrap Bias").count(), 2);
+}
+
+// The procedures below are checked the same way, against boot in R on the resample indices of
+// SET SEED=4242 (SET SEED=2 for LOGISTIC REGRESSION, whose 99 resamples then never separate b
+// by x completely). The statistics in R: Cramer's V from chisq.test, tau-b from cor(method =
+// "kendall"), the median and 25th percentile from quantile(type = 6), the contrast as the
+// difference of two group means, Spearman's rho from cor(method = "spearman"), the partial
+// correlation from the residuals of x and y on a, the slope of y from lm(x ~ factor(a) + y) and
+// the logit slope from glm(binomial) with epsilon 1e-14. Resamples where the statistic has no
+// value (a group missing for the contrast: 2 of 99) are left out, as Statscraft leaves them out.
+
+/// The row whose labels include `label`.
+fn row_with(t: &Table, label: &str) -> usize {
+    (0..t.rows.len())
+        .find(|&r| (0..t.row_headers).any(|h| statscraft_engine::cell_text(t, r, h) == label))
+        .unwrap_or_else(|| panic!("no row {label} in {}", t.title))
+}
+
+fn column(t: &Table, title: &str) -> usize {
+    let titles = t.column_titles();
+    titles
+        .iter()
+        .position(|c| c == title)
+        .unwrap_or_else(|| panic!("no column {title} in {titles:?}"))
+}
+
+/// The statistic and its four bootstrap numbers below it.
+fn below(t: &Table, row: usize, col: usize) -> Vec<f64> {
+    (row..row + 5).map(|r| number(&t.rows[r][col])).collect()
+}
+
+/// The statistic and its four bootstrap numbers right of it.
+fn beside(t: &Table, row: usize, col: usize) -> Vec<f64> {
+    t.rows[row][col..col + 5].iter().map(number).collect()
+}
+
+fn all_close(got: &[f64], want: &[f64]) {
+    assert_eq!(got.len(), want.len());
+    for (g, w) in got.iter().zip(want) {
+        close(*g, *w);
+    }
+}
+
+fn first<'a>(tables: &'a [Table], title: &str) -> &'a Table {
+    tables
+        .iter()
+        .find(|t| t.title.starts_with(title))
+        .unwrap_or_else(|| panic!("no table {title}"))
+}
+
+fn resampled(seed: u32, procedure: &str) -> Vec<Table> {
+    let source = format!("{DATA}SET SEED={seed}.\nBOOTSTRAP /CRITERIA NSAMPLES=99.\n{procedure}\n");
+    run(&mut Engine::default(), &source)
+}
+
+#[test]
+fn crosstabs_measures_match_boot_in_r() {
+    let tables = resampled(4242, "CROSSTABS a BY g /STATISTICS=PHI BTAU.");
+    let t = first(&tables, "Symmetric Measures");
+    let value = column(t, "Value / Statistic");
+    let v = beside(t, row_with(t, "Cramer's V"), value);
+    all_close(
+        &v,
+        &[
+            0.0,
+            0.39566349821404,
+            0.17770814818985,
+            0.040990209213697,
+            0.70600970226352,
+        ],
+    );
+    let tau = beside(t, row_with(t, "Kendall's tau-b"), value);
+    all_close(
+        &tau,
+        &[
+            0.0,
+            -0.017481199668265,
+            0.26799116084784,
+            -0.51420849741028,
+            0.44078834514466,
+        ],
+    );
+    // the count of cases is not resampled
+    let n = row_with(t, "N of Valid Cases");
+    assert_eq!(t.rows[n][value + 1], Cell::Empty);
+}
+
+#[test]
+fn examine_statistics_and_percentiles_match_boot_in_r() {
+    let tables = resampled(4242, "EXAMINE x /PERCENTILES(25) /MESTIMATORS /PLOT=NONE.");
+    let t = first(&tables, "Descriptives");
+    let statistic = column(t, "Statistic");
+    let median = beside(t, row_with(t, "Median"), statistic);
+    all_close(
+        &median,
+        &[
+            5.05,
+            0.094444444444445,
+            0.38794913989773,
+            4.254224949884,
+            5.945775050116,
+        ],
+    );
+    // the bounds of the parametric interval are not bootstrapped
+    let bound = row_with(t, "Lower Bound");
+    assert_eq!(t.rows[bound][statistic + 1], Cell::Empty);
+    let t = first(&tables, "Percentiles");
+    let p25 = below(t, 0, column(t, "Percentiles / 25"));
+    all_close(
+        &p25,
+        &[4.25, -0.0065656565656562, 0.49299410439858, 3.275, 5.1],
+    );
+    let m = first(&tables, "M-Estimators");
+    assert!(m.columns.iter().any(|c| c == "Bias"));
+}
+
+#[test]
+fn oneway_contrast_and_comparisons_match_boot_in_r() {
+    let tables = resampled(
+        4242,
+        "ONEWAY x BY a /STATISTICS=DESCRIPTIVES /CONTRAST=1 -1 0 /POSTHOC=TUKEY.",
+    );
+    let want = [
+        -1.2,
+        -0.071849533627884,
+        0.49655817018301,
+        -2.275,
+        -0.25743700483525,
+    ];
+    let t = first(&tables, "Contrast Tests");
+    all_close(
+        &beside(t, 0, column(t, "Value of Contrast / Statistic")),
+        &want,
+    );
+    // the Tukey mean difference of groups 1 and 2 is the same difference of means
+    let t = first(&tables, "Multiple Comparisons");
+    let difference = column(t, "Mean Difference (I-J) / Statistic");
+    all_close(&beside(t, 0, difference), &want);
+    let t = first(&tables, "Descriptives");
+    column(t, "Std. Deviation / Bootstrap / Bias");
+}
+
+#[test]
+fn rank_and_partial_correlations_match_boot_in_r() {
+    let tables = resampled(4242, "NONPAR CORR x y.");
+    let t = first(&tables, "Correlations");
+    let rho = below(t, row_with(t, "Correlation Coefficient"), column(t, "y"));
+    all_close(
+        &rho,
+        &[
+            0.97202797202797,
+            -0.019205020663176,
+            0.056514858503875,
+            0.80581192430256,
+            1.0,
+        ],
+    );
+    let tables = resampled(4242, "PARTIAL CORR x y BY a.");
+    let t = first(&tables, "Correlations");
+    let r = below(t, row_with(t, "Correlation"), column(t, "y"));
+    all_close(
+        &r,
+        &[
+            0.91393245596685,
+            -0.022924765161036,
+            0.075775453035394,
+            0.61529205779465,
+            0.97614761085916,
+        ],
+    );
+}
+
+#[test]
+fn unianova_coefficients_match_boot_in_r() {
+    let tables = resampled(
+        4242,
+        "UNIANOVA x BY a WITH y /PRINT=PARAMETER /EMMEANS=TABLES(a) COMPARE /POSTHOC=a(TUKEY).",
+    );
+    let t = first(&tables, "Parameter Estimates");
+    let b = column(t, "B / Statistic");
+    let slope = beside(t, row_with(t, "y"), b);
+    all_close(
+        &slope,
+        &[
+            1.4301675977654,
+            0.0014376206094149,
+            0.26909115670735,
+            0.86822227640699,
+            1.9329494316462,
+        ],
+    );
+    // the redundant parameter is fixed at zero and is not resampled
+    let redundant = row_with(t, "[a=3] (redundant)");
+    assert_eq!(t.rows[redundant][b + 1], Cell::Empty);
+    for title in [
+        "Estimated Marginal Means",
+        "Pairwise Comparisons",
+        "Multiple Comparisons",
+    ] {
+        assert!(first(&tables, title).columns.iter().any(|c| c == "Bias"));
+    }
+}
+
+#[test]
+fn logistic_regression_coefficients_match_boot_in_r() {
+    let tables = resampled(
+        2,
+        "LOGISTIC REGRESSION b WITH x /CRITERIA BCON(1E-12) ITERATE(100).",
+    );
+    let t = tables
+        .iter()
+        .rfind(|t| t.title.starts_with("Variables in the Equation"))
+        .unwrap();
+    let slope = beside(t, row_with(t, "x"), column(t, "B / Statistic"));
+    all_close(
+        &slope,
+        &[
+            0.24106868619727,
+            0.14055873434394,
+            0.75691594987641,
+            -1.223236392246,
+            1.9979299540908,
+        ],
+    );
+}
+
+#[test]
+fn nomreg_and_plum_estimates_get_bootstrap_results() {
+    let tables = resampled(7, "NOMREG a WITH x /PRINT=PARAMETER.");
+    column(
+        first(&tables, "Parameter Estimates"),
+        "B / Bootstrap / Std. Error",
+    );
+    let tables = resampled(7, "PLUM a WITH x.");
+    column(
+        first(&tables, "Parameter Estimates"),
+        "Estimate / Bootstrap / Std. Error",
+    );
 }

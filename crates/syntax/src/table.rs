@@ -846,10 +846,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  resamples drawn with replacement (within each stratum for STRATIFIED), with the generator\n\
                  SET SEED or MTINDEX starts. Cases with a missing value in a TARGET, INPUT or STRATA variable\n\
                  leave the analysis; user-missing values of nominal and ordinal variables count as valid\n\
-                 with USERMISSING=INCLUDE. DESCRIPTIVES, FREQUENCIES, MEANS, CORRELATIONS, T-TEST and\n\
-                 REGRESSION add Bias, Std. Error and the interval (percentile or BCa) to their main\n\
-                 statistics; any other procedure warns and runs without resampling. RESIDUAL and WILD\n\
-                 resampling are not supported yet.",
+                 with USERMISSING=INCLUDE. DESCRIPTIVES, FREQUENCIES, MEANS, CORRELATIONS, T-TEST,\n\
+                 REGRESSION, CROSSTABS, EXAMINE, ONEWAY, NONPAR CORR, PARTIAL CORR, LOGISTIC REGRESSION,\n\
+                 NOMREG, PLUM, UNIANOVA and GLM add Bias, Std. Error and the interval (percentile or BCa)\n\
+                 to their main statistics; any other procedure warns and runs without resampling. RESIDUAL\n\
+                 and WILD resampling are not supported yet.",
         example: "BOOTSTRAP /VARIABLES INPUT=height weight /CRITERIA CITYPE=BCA NSAMPLES=2000.",
         parse: bootstrap::bootstrap,
     },

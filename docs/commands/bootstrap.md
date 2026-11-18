@@ -13,7 +13,7 @@ BOOTSTRAP [/SAMPLING METHOD=SIMPLE | STRATIFIED(STRATA=varlist)]
   [/MISSING [USERMISSING=EXCLUDE | INCLUDE]].
 ```
 
-Keywords are written in full. The next procedure runs on the data and then again on n resamples drawn with replacement (within each stratum for STRATIFIED), with the generator SET SEED or MTINDEX starts. Cases with a missing value in a TARGET, INPUT or STRATA variable leave the analysis; user-missing values of nominal and ordinal variables count as valid with USERMISSING=INCLUDE. DESCRIPTIVES, FREQUENCIES, MEANS, CORRELATIONS, T-TEST and REGRESSION add Bias, Std. Error and the interval (percentile or BCa) to their main statistics; any other procedure warns and runs without resampling. RESIDUAL and WILD resampling are not supported yet.
+Keywords are written in full. The next procedure runs on the data and then again on n resamples drawn with replacement (within each stratum for STRATIFIED), with the generator SET SEED or MTINDEX starts. Cases with a missing value in a TARGET, INPUT or STRATA variable leave the analysis; user-missing values of nominal and ordinal variables count as valid with USERMISSING=INCLUDE. DESCRIPTIVES, FREQUENCIES, MEANS, CORRELATIONS, T-TEST, REGRESSION, CROSSTABS, EXAMINE, ONEWAY, NONPAR CORR, PARTIAL CORR, LOGISTIC REGRESSION, NOMREG, PLUM, UNIANOVA and GLM add Bias, Std. Error and the interval (percentile or BCa) to their main statistics; any other procedure warns and runs without resampling. RESIDUAL and WILD resampling are not supported yet.
 
 ## Example
 
