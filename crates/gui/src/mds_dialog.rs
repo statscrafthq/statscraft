@@ -885,9 +885,12 @@ impl Prefscal {
         }
         if self.start > 0 {
             let key = PREFSCAL_STARTS[self.start].0;
-            let n = count(&self.start_count, 1, "the number of starts", 1)?;
+            // only centroids and random starts take a number; a leftover entry is ignored
             match self.start >= 4 && !self.start_count.trim().is_empty() {
-                true => text.push_str(&format!("\n  /INITIAL={key}({n})")),
+                true => {
+                    let n = count(&self.start_count, 1, "the number of starts", 1)?;
+                    text.push_str(&format!("\n  /INITIAL={key}({n})"));
+                }
                 false => text.push_str(&format!("\n  /INITIAL={key}")),
             }
         }

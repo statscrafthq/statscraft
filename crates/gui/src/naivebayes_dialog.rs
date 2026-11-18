@@ -130,7 +130,8 @@ impl NaiveBayes {
         }
         let best = match self.best {
             1 => " (BESTSUBSET=PSEUDOBIC)",
-            2 if self.partition == 0 => {
+            // the best subset only applies when the number of predictors is chosen
+            2 if self.partition == 0 && self.selection < 2 => {
                 return Err("the test cases come from a training partition; choose one".into());
             }
             2 => " (BESTSUBSET=TESTDATA)",
@@ -177,8 +178,11 @@ impl NaiveBayes {
             let count = whole(&self.probability_count, 1, "the number of probabilities")?;
             saves.push(match (root, count) {
                 (None, None) => "PREDPROB".into(),
-                (root, None) => format!("PREDPROB({})", root.unwrap_or_default()),
-                (root, Some(n)) => format!("PREDPROB({}:{n})", root.unwrap_or_default()),
+                (Some(root), None) => format!("PREDPROB({root})"),
+                (Some(root), Some(n)) => format!("PREDPROB({root}:{n})"),
+                (None, Some(_)) => {
+                    return Err("give a root name for the probabilities".into());
+                }
             });
         }
         if !saves.is_empty() {
