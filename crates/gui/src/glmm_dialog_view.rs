@@ -3,8 +3,9 @@
 use crate::advanced_dialogs_view::terms_editor;
 use crate::app::{choice, field, target_list, target_one};
 use crate::glmm_dialog::{
-    GLMM_COVARIANCES, GLMM_DF_METHODS, GLMM_DISTRIBUTIONS, GLMM_FORMS, GLMM_LINKS, GLMM_ORDERS,
-    GenlinMixed, RandomBlock,
+    EmmeansBlock, GLMM_ADJUSTMENTS, GLMM_CONFIDENCES, GLMM_CONTRASTS, GLMM_COVARIANCES,
+    GLMM_DF_METHODS, GLMM_DISTRIBUTIONS, GLMM_FORMS, GLMM_LINKS, GLMM_ORDERS, GLMM_RESIDUALS,
+    GLMM_SAVES, GenlinMixed, RandomBlock,
 };
 use crate::model_dialogs_view::name_checkboxes;
 use eframe::egui::{self, Ui};
@@ -27,6 +28,11 @@ fn form(ui: &mut Ui, label: &str, form: &mut usize, text: &mut String, picked: &
 pub fn glmm(ui: &mut Ui, d: &mut GenlinMixed, picked: &mut Vec<String>) {
     target_list(ui, "Subjects", &mut d.subjects, picked);
     d.forget_old_subjects();
+    target_list(ui, "Repeated measures fields", &mut d.repeated, picked);
+    ui.weak("They order the cases of a subject; a model needs them or a random block");
+    if !d.repeated.is_empty() {
+        choice(ui, "Residual covariance", &GLMM_RESIDUALS, &mut d.residual);
+    }
     ui.add_space(6.0);
     target_one(ui, "Target", &mut d.target, picked);
     target_list(ui, "Fixed effect fields", &mut d.inputs, picked);
@@ -118,5 +124,77 @@ pub fn glmm(ui: &mut Ui, d: &mut GenlinMixed, picked: &mut Vec<String>) {
             &mut d.pconverge,
             70.0,
         );
+        ui.checkbox(&mut d.robust, "Robust standard errors");
+    });
+    egui::CollapsingHeader::new("Estimated means").show(ui, |ui| {
+        let inputs = d.inputs.clone();
+        let mut remove = None;
+        for (i, e) in d.emmeans.iter_mut().enumerate() {
+            ui.push_id(("means block", i), |ui| {
+                ui.horizontal(|ui| {
+                    ui.strong(format!("Means {}", i + 1));
+                    if ui
+                        .button("\u{d7}")
+                        .on_hover_text("Remove the block")
+                        .clicked()
+                    {
+                        remove = Some(i);
+                    }
+                });
+                ui.label("Factors (none: the overall mean)");
+                name_checkboxes(ui, &inputs, &mut e.tables);
+                if !e.tables.contains(&e.compare) {
+                    e.compare.clear();
+                }
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Compare the levels of");
+                    ui.radio_value(&mut e.compare, String::new(), "no factor");
+                    for f in inputs.iter().filter(|f| e.tables.contains(f)) {
+                        ui.radio_value(&mut e.compare, f.clone(), f.as_str());
+                    }
+                });
+                if !e.compare.is_empty() {
+                    choice(ui, "Contrast", &GLMM_CONTRASTS, &mut e.contrast);
+                }
+            });
+            ui.separator();
+        }
+        if let Some(i) = remove {
+            d.emmeans.remove(i);
+        }
+        if ui.small_button("Add means").clicked() {
+            d.emmeans.push(EmmeansBlock::default());
+        }
+        field(ui, "Covariates held at", &mut d.control, 120.0);
+        ui.weak("name=value, separated by spaces; empty: at their mean");
+        ui.checkbox(&mut d.transformed, "Means on the scale of the link");
+        choice(
+            ui,
+            "Adjustment of the contrasts",
+            &GLMM_ADJUSTMENTS,
+            &mut d.adjust,
+        );
+    });
+    egui::CollapsingHeader::new("Save and export").show(ui, |ui| {
+        ui.label("Save to the data (name or root; empty: the default)");
+        for (i, (_, label)) in GLMM_SAVES.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut d.save[i], *label);
+                ui.add_enabled(
+                    d.save[i],
+                    egui::TextEdit::singleline(&mut d.save_names[i]).desired_width(100.0),
+                );
+            });
+        }
+        ui.weak("Probabilities and confidence need a categorical target");
+        choice(
+            ui,
+            "Confidence measures",
+            &GLMM_CONFIDENCES,
+            &mut d.confidence,
+        );
+        field(ui, "Most categories saved", &mut d.max_categories, 50.0);
+        field(ui, "Model file (JSON)", &mut d.outfile, 220.0);
+        ui.weak("Empty: no file");
     });
 }

@@ -5,18 +5,19 @@
 use crate::advanced_dialogs::{Terms, ci_level};
 use crate::dialogs::whole;
 use crate::stats_dialogs::parse;
-use crate::syntax_text::{number, value};
+use crate::syntax_text::{number, quote, value};
 use statscraft_data::Dataset;
 use statscraft_syntax::{GenlinDistribution as D, GenlinLink as L, link_allowed};
 
 /// The distributions, keyword and label; the first, none written, lets the target decide.
-pub const GLMM_DISTRIBUTIONS: [(&str, &str); 6] = [
+pub const GLMM_DISTRIBUTIONS: [(&str, &str); 7] = [
     ("", "Automatic"),
     ("NORMAL", "Normal"),
     ("BINOMIAL", "Binomial"),
     ("GAMMA", "Gamma"),
     ("INVERSE_GAUSSIAN", "Inverse Gaussian"),
     ("POISSON", "Poisson"),
+    ("NEGATIVE_BINOMIAL", "Negative binomial"),
 ];
 
 /// The links, keyword and label; the first, none written, is the distribution's own.
@@ -44,6 +45,55 @@ pub const GLMM_COVARIANCES: [(&str, &str); 10] = [
     ("ARMA11", "ARMA(1,1)"),
     ("CSH", "Heterogeneous compound symmetry"),
     ("TOEPLITZ", "Toeplitz"),
+];
+
+/// The structures of the residuals of repeated measures; the first, none written, is diagonal.
+pub const GLMM_RESIDUALS: [(&str, &str); 9] = [
+    ("", "Diagonal"),
+    ("IDENTITY", "Scaled identity"),
+    ("UNSTRUCTURED", "Unstructured"),
+    ("COMPOUND_SYMMETRY", "Compound symmetry"),
+    ("AR1", "First-order autoregressive"),
+    ("ARH1", "Heterogeneous AR(1)"),
+    ("ARMA11", "ARMA(1,1)"),
+    ("CSH", "Heterogeneous compound symmetry"),
+    ("TOEPLITZ", "Toeplitz"),
+];
+
+/// The contrasts of an EMMEANS among the levels of the compared factor; the first is the default.
+pub const GLMM_CONTRASTS: [(&str, &str); 4] = [
+    ("", "Pairwise"),
+    ("DEVIATION", "Deviation"),
+    ("SIMPLE", "Simple"),
+    ("NONE", "None, only the means"),
+];
+
+/// How the p-values of the contrasts are adjusted; the first is the default.
+pub const GLMM_ADJUSTMENTS: [(&str, &str); 3] = [
+    ("", "None (least significant difference)"),
+    ("SEQBONFERRONI", "Sequential Bonferroni"),
+    ("SEQSIDAK", "Sequential Sidak"),
+];
+
+/// The fields SAVE can add: keyword and label.
+pub const GLMM_SAVES: [(&str, &str); 5] = [
+    ("PREDICTED_VALUES", "Predicted value"),
+    (
+        "PREDICTED_PROBABILITY",
+        "Predicted probability of each category",
+    ),
+    ("CONFIDENCE", "Confidence of the predicted category"),
+    ("CONFIDENCE_INTERVALS", "Interval of the predicted mean"),
+    ("PEARSON_RESIDUALS", "Pearson residual"),
+];
+
+/// How the confidence of the predicted category is measured; the first is the default.
+pub const GLMM_CONFIDENCES: [(&str, &str); 2] = [
+    ("", "Predicted probability"),
+    (
+        "PROBABILITYIMPROVEMENT",
+        "Improvement over the next category",
+    ),
 ];
 
 /// How the denominator degrees of freedom are found; the first is the default.
@@ -91,6 +141,17 @@ impl Default for RandomBlock {
     }
 }
 
+/// One EMMEANS: the estimated marginal means of some factors, perhaps compared.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct EmmeansBlock {
+    /// The factors, a selection of the fixed effect fields; none is the overall mean.
+    pub tables: Vec<String>,
+    /// The one of `tables` whose levels are compared; empty for no comparison.
+    pub compare: String,
+    /// Index into `GLMM_CONTRASTS`.
+    pub contrast: usize,
+}
+
 /// GENLINMIXED: a generalized linear mixed model of one target.
 #[derive(Clone, PartialEq, Debug)]
 pub struct GenlinMixed {
@@ -126,6 +187,28 @@ pub struct GenlinMixed {
     /// Index into `GLMM_DF_METHODS`.
     pub df_method: usize,
     pub pconverge: String,
+    /// Robust (sandwich) standard errors instead of the model's.
+    pub robust: bool,
+    /// The fields that order the cases of a subject; they make the residuals correlated.
+    pub repeated: Vec<String>,
+    /// Index into `GLMM_RESIDUALS`.
+    pub residual: usize,
+    pub emmeans: Vec<EmmeansBlock>,
+    /// Covariates held at a value, as `name=value` separated by spaces; empty: at their mean.
+    pub control: String,
+    /// The means on the scale of the link instead of the target's.
+    pub transformed: bool,
+    /// Index into `GLMM_ADJUSTMENTS`.
+    pub adjust: usize,
+    /// Per entry of `GLMM_SAVES`: saved or not, and the name or root; empty is the default.
+    pub save: [bool; 5],
+    pub save_names: [String; 5],
+    /// Index into `GLMM_CONFIDENCES`.
+    pub confidence: usize,
+    /// The most categories saved with probabilities.
+    pub max_categories: String,
+    /// The file the model is written to; empty for none.
+    pub outfile: String,
 }
 
 impl Default for GenlinMixed {
@@ -152,6 +235,18 @@ impl Default for GenlinMixed {
             ci_level: "95".into(),
             df_method: 0,
             pconverge: number(PCONVERGE),
+            robust: false,
+            repeated: Vec::new(),
+            residual: 0,
+            emmeans: Vec::new(),
+            control: String::new(),
+            transformed: false,
+            adjust: 0,
+            save: [false; 5],
+            save_names: Default::default(),
+            confidence: 0,
+            max_categories: "25".into(),
+            outfile: String::new(),
         }
     }
 }
@@ -186,6 +281,7 @@ impl GenlinMixed {
             "GAMMA" => Some(D::Gamma),
             "INVERSE_GAUSSIAN" => Some(D::InverseGaussian),
             "POISSON" => Some(D::Poisson),
+            "NEGATIVE_BINOMIAL" => Some(D::NegativeBinomial(None)),
             _ => None,
         }
     }
@@ -246,9 +342,19 @@ impl GenlinMixed {
             ));
         }
         let mut text = format!(
-            "GENLINMIXED\n  /DATA_STRUCTURE SUBJECTS={}\n  /FIELDS TARGET={target}",
+            "GENLINMIXED\n  /DATA_STRUCTURE SUBJECTS={}",
             self.subjects.join("*")
         );
+        if !self.repeated.is_empty() {
+            text.push_str(&format!(" REPEATED_MEASURES={}", self.repeated.join("*")));
+            if self.residual > 0 {
+                text.push_str(&format!(
+                    " COVARIANCE_TYPE={}",
+                    GLMM_RESIDUALS[self.residual].0
+                ));
+            }
+        }
+        text.push_str(&format!("\n  /FIELDS TARGET={target}"));
         if let Some(t) = trials {
             text.push_str(&format!(" TRIALS={t}"));
         }
@@ -299,8 +405,8 @@ impl GenlinMixed {
             }
         }
 
-        if self.random.is_empty() {
-            return Err("add a random effects block".into());
+        if self.random.is_empty() && self.repeated.is_empty() {
+            return Err("add a random effects block or the repeated measures fields".into());
         }
         for (i, b) in self.random.iter().enumerate() {
             let n = i + 1;
@@ -360,6 +466,9 @@ impl GenlinMixed {
         if self.df_method > 0 {
             build.push(format!("DF_METHOD={}", GLMM_DF_METHODS[self.df_method].0));
         }
+        if self.robust {
+            build.push("COVB=ROBUST".into());
+        }
         let limit = parse(&self.pconverge, "the convergence limit")?;
         if limit < 0.0 {
             return Err("the convergence limit must be 0 or more".into());
@@ -370,8 +479,106 @@ impl GenlinMixed {
         if !build.is_empty() {
             text.push_str(&format!("\n  /BUILD_OPTIONS {}", build.join(" ")));
         }
+        self.means_syntax(&mut text)?;
+        self.save_syntax(&mut text)?;
+        let file = self.outfile.trim();
+        if !file.is_empty() {
+            text.push_str(&format!("\n  /OUTFILE MODEL={}", quote(file)));
+        }
         text.push('.');
         Ok(text)
+    }
+
+    /// The EMMEANS subcommands and their options.
+    fn means_syntax(&self, text: &mut String) -> Result<(), String> {
+        for (i, e) in self.emmeans.iter().enumerate() {
+            let n = i + 1;
+            if let Some(f) = e.tables.iter().find(|f| !self.inputs.contains(f)) {
+                return Err(format!(
+                    "{f} in means block {n} is no longer a fixed effect field"
+                ));
+            }
+            text.push_str("\n  /EMMEANS");
+            let tables: Vec<&str> = self
+                .inputs
+                .iter()
+                .filter(|f| e.tables.contains(f))
+                .map(String::as_str)
+                .collect();
+            if !tables.is_empty() {
+                text.push_str(&format!(" TABLES={}", tables.join("*")));
+            }
+            let compare = e.compare.trim();
+            if compare.is_empty() {
+                continue;
+            }
+            if !tables.contains(&compare) {
+                return Err(format!(
+                    "{compare} is not among the factors of means block {n}"
+                ));
+            }
+            text.push_str(&format!(" COMPARE={compare}"));
+            if e.contrast > 0 {
+                text.push_str(&format!(" CONTRAST={}", GLMM_CONTRASTS[e.contrast].0));
+            }
+        }
+        let mut held = Vec::new();
+        for pair in self.control.split_whitespace() {
+            let (name, x) = pair
+                .split_once('=')
+                .ok_or_else(|| format!("write the covariate values as name=value, not {pair}"))?;
+            held.push(format!(
+                "{name}({})",
+                number(parse(x, "a covariate value")?)
+            ));
+        }
+        let mut options = Vec::new();
+        if !held.is_empty() {
+            options.push(format!("CONTROL={}", held.join(" ")));
+        }
+        if self.transformed {
+            options.push("SCALE=TRANSFORMED".into());
+        }
+        if self.adjust > 0 {
+            options.push(format!("PADJUST={}", GLMM_ADJUSTMENTS[self.adjust].0));
+        }
+        if !options.is_empty() && !self.emmeans.is_empty() {
+            text.push_str(&format!("\n  /EMMEANS_OPTIONS {}", options.join(" ")));
+        }
+        Ok(())
+    }
+
+    /// The SAVE subcommand: the fields ticked, each with its name or root when given.
+    fn save_syntax(&self, text: &mut String) -> Result<(), String> {
+        let mut items = Vec::new();
+        for (i, (keyword, label)) in GLMM_SAVES.iter().enumerate() {
+            if !self.save[i] {
+                continue;
+            }
+            let name = self.save_names[i].trim();
+            if name.contains(|c: char| c.is_whitespace() || "()'\"".contains(c)) {
+                return Err(format!("the name of the {label} has no spaces or brackets"));
+            }
+            items.push(match name {
+                "" => keyword.to_string(),
+                name => format!("{keyword}({name})"),
+            });
+        }
+        if items.is_empty() {
+            return Ok(());
+        }
+        if self.confidence > 0 && self.save[2] {
+            items.push(format!(
+                "CONFIDENCE_METHOD({})",
+                GLMM_CONFIDENCES[self.confidence].0
+            ));
+        }
+        match whole(&self.max_categories, 1, "the most categories")? {
+            Some(n) if n != 25 => items.push(format!("MAX_CATEGORIES({n})")),
+            _ => {}
+        }
+        text.push_str(&format!("\n  /SAVE {}", items.join(" ")));
+        Ok(())
     }
 }
 
@@ -433,9 +640,29 @@ mod tests {
         d.ci_level = "90".into();
         d.df_method = 1;
         d.pconverge = "0.0001".into();
+        d.robust = true;
+        d.repeated = vec!["visit".into()];
+        d.residual = 4;
+        d.emmeans = vec![
+            EmmeansBlock::default(),
+            EmmeansBlock {
+                tables: vec!["age".into(), "dose".into()],
+                compare: "dose".into(),
+                contrast: 1,
+            },
+        ];
+        d.control = "age=40".into();
+        d.transformed = true;
+        d.adjust = 2;
+        d.save = [true, false, true, false, true];
+        d.save_names[0] = "fit".into();
+        d.confidence = 1;
+        d.max_categories = "5".into();
+        d.outfile = "it's.json".into();
         assert_eq!(
             syntax(&d).unwrap(),
-            "GENLINMIXED\n  /DATA_STRUCTURE SUBJECTS=clinic*ward\n  \
+            "GENLINMIXED\n  /DATA_STRUCTURE SUBJECTS=clinic*ward \
+             REPEATED_MEASURES=visit COVARIANCE_TYPE=AR1\n  \
              /FIELDS TARGET=cured TRIALS=FIELD(n) ANALYSIS_WEIGHT=w OFFSET=VALUE(0.5)\n  \
              /TARGET_OPTIONS DISTRIBUTION=BINOMIAL LINK=PROBIT REFERENCE=1\n  \
              /FIXED EFFECTS=dose dose*age USE_INTERCEPT=FALSE\n  \
@@ -443,7 +670,12 @@ mod tests {
              COVARIANCE_TYPE=UNSTRUCTURED SOLUTION=TRUE\n  \
              /RANDOM USE_INTERCEPT=TRUE SUBJECTS=ward\n  \
              /BUILD_OPTIONS TARGET_CATEGORY_ORDER=DESCENDING MAX_ITERATIONS=40 \
-             CONFIDENCE_LEVEL=90 DF_METHOD=SATTERTHWAITE PCONVERGE=0.0001."
+             CONFIDENCE_LEVEL=90 DF_METHOD=SATTERTHWAITE COVB=ROBUST PCONVERGE=0.0001\n  \
+             /EMMEANS\n  /EMMEANS TABLES=dose*age COMPARE=dose CONTRAST=DEVIATION\n  \
+             /EMMEANS_OPTIONS CONTROL=age(40) SCALE=TRANSFORMED PADJUST=SEQSIDAK\n  \
+             /SAVE PREDICTED_VALUES(fit) CONFIDENCE PEARSON_RESIDUALS \
+             CONFIDENCE_METHOD(PROBABILITYIMPROVEMENT) MAX_CATEGORIES(5)\n  \
+             /OUTFILE MODEL='it''s.json'."
         );
     }
 
@@ -461,7 +693,37 @@ mod tests {
     }
 
     #[test]
+    fn repeated_measures_need_no_random_block() {
+        let mut d = model();
+        d.random.clear();
+        assert!(syntax(&d).is_err());
+        d.repeated = vec!["visit".into()];
+        d.distribution = 6;
+        assert_eq!(
+            syntax(&d).unwrap(),
+            "GENLINMIXED\n  /DATA_STRUCTURE SUBJECTS=clinic REPEATED_MEASURES=visit\n  \
+             /FIELDS TARGET=cured\n  /TARGET_OPTIONS DISTRIBUTION=NEGATIVE_BINOMIAL\n  \
+             /FIXED EFFECTS=dose age."
+        );
+    }
+
+    #[test]
     fn mistakes_are_named() {
+        let mut d = model();
+        d.emmeans = vec![EmmeansBlock {
+            tables: vec!["dose".into()],
+            compare: "age".into(),
+            contrast: 0,
+        }];
+        assert!(syntax(&d).unwrap_err().contains("not among the factors"));
+        let mut d = model();
+        d.control = "age".into();
+        d.emmeans = vec![EmmeansBlock::default()];
+        assert!(syntax(&d).unwrap_err().contains("name=value"));
+        let mut d = model();
+        d.save = [true; 5];
+        d.save_names[0] = "a b".into();
+        assert!(syntax(&d).unwrap_err().contains("no spaces"));
         let mut d = model();
         d.random[0].subjects.clear();
         assert!(

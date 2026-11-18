@@ -33,7 +33,7 @@ use crate::dialogs::{
 };
 use crate::forecast_more_dialog::{Areg, Spectra, TwoSls};
 use crate::genlin_dialog::GeneralizedLinear;
-use crate::glmm_dialog::{GenlinMixed, RandomBlock};
+use crate::glmm_dialog::{EmmeansBlock, GenlinMixed, RandomBlock};
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::imputation_dialog::{Imputation, Limits};
 use crate::legacy_scaling_dialog::{Anacor, LegacyScaling, LegacyVariable, ScalingKind};
@@ -2767,6 +2767,31 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             subjects: v(&["region"]),
             ..Default::default()
         }],
+        ..Default::default()
+    }))));
+    list.push(Dialog::Advanced(Advanced::Glmm(Box::new(GenlinMixed {
+        subjects: v(&["region"]),
+        repeated: v(&["resp_id"]),
+        residual: 4,
+        target: s("q2_recommend"),
+        distribution: 6,
+        inputs: v(&["gender", "age"]),
+        random: Vec::new(),
+        robust: true,
+        emmeans: vec![
+            EmmeansBlock::default(),
+            EmmeansBlock {
+                tables: v(&["gender"]),
+                compare: s("gender"),
+                contrast: 1,
+            },
+        ],
+        control: s("age=40"),
+        transformed: true,
+        adjust: 2,
+        save: [true, false, false, true, true],
+        save_names: [s("glmm_fit"), s(""), s(""), s("glmm_ci"), s("glmm_res")],
+        outfile: out.join("glmm_model.json").to_string_lossy().into_owned(),
         ..Default::default()
     }))));
     list.push(Dialog::Advanced(Advanced::Manova(Box::new(Manova {
