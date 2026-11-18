@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The window: the Create Models (TSMODEL) dialog sets a transfer function for each predictor of an ARIMA model, lists known outliers (case or date, six types) and has an outlier search for ARIMA and the expert modeler, with the types to look for.
 - The window: the Bootstrap section is now also in the Crosstabs, Explore, One-Way ANOVA, Partial Correlations, Logistic Regression, Multinomial Logistic, Ordinal, Univariate, Multivariate and Repeated Measures dialogs, and Bivariate Correlations writes a BOOTSTRAP line before each of its two commands when Kendall or Spearman is ticked.
 
 - TSMODEL: transfer functions for the predictors of a custom ARIMA model (TRANSFERFUNCTION: numerator and denominator lags, plain and seasonal, differencing, delay and transformation of the predictor), outliers given by OUTLIER (additive, level shift, innovational, transient, seasonal additive, local trend) and found by AUTOOUTLIER DETECT=ON (also additive patches) in custom and expert ARIMA models, with an Outliers table and the Number of Outliers in the model statistics. TSAPPLY keeps both in the model file. Checked against R's exact likelihood ARIMA (the denominator profiled out) and an R version of the outlier search. OUTPMML still gives a "not supported yet" error. See [differences](docs/differences.md).

@@ -67,7 +67,7 @@ use crate::timeseries_dialog::{
     ArimaModel, Correlogram, CreateRow, CreateSeries, Dates, ExpSmoothing, IFFT, Parameter, Season,
     SeriesChart, SeriesOptions, TimeRange, TimeSeries,
 };
-use crate::tsmodel_dialog::{TsOutputs, Tsapply, Tsmodel};
+use crate::tsmodel_dialog::{TsOutlier, TsOutputs, TsTransfer, Tsapply, Tsmodel};
 use crate::twostep_dialog::{Anomaly, TwoStep};
 use std::path::Path;
 
@@ -4880,6 +4880,40 @@ fn the_forecasting_dialogs_write_syntax_that_runs() {
                 ..Default::default()
             })),
             "AREG VARIABLES=loaves WITH rainfall\n  /METHOD=ML.",
+            "",
+        ),
+        (
+            "",
+            series(TimeSeries::Tsmodel(Tsmodel {
+                dependents: v(&["loaves"]),
+                independents: v(&["rainfall"]),
+                method: 2,
+                ar: s("1"),
+                transfers: vec![TsTransfer {
+                    variable: s("rainfall"),
+                    num: s("1"),
+                    delay: s("1"),
+                    ..Default::default()
+                }],
+                outliers: vec![TsOutlier {
+                    location: s("20"),
+                    kind: 0,
+                }],
+                ..Default::default()
+            })),
+            "TSMODEL /MODEL DEPENDENT=loaves INDEPENDENT=rainfall\n  /ARIMA AR=1 MA=0\n  \
+             /TRANSFERFUNCTION VARIABLES=rainfall NUM=1 DELAY=1\n  \
+             /OUTLIER LOCATION=[20] TYPE=ADDITIVE.",
+            "",
+        ),
+        (
+            "",
+            series(TimeSeries::Tsmodel(Tsmodel {
+                dependents: v(&["loaves"]),
+                auto_outliers: true,
+                ..Default::default()
+            })),
+            "TSMODEL /MODEL DEPENDENT=loaves\n  /AUTOOUTLIER DETECT=ON.",
             "",
         ),
     ];

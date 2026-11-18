@@ -29,6 +29,27 @@ pub const TS_TRANSFORMS: [(&str, &str); 3] = [
     ("LN", "Natural log"),
 ];
 
+/// The types of an outlier given by hand.
+pub const TS_OUTLIER_TYPES: [(&str, &str); 6] = [
+    ("ADDITIVE", "Additive"),
+    ("LEVELSHIFT", "Level shift"),
+    ("INNOVATIONAL", "Innovational"),
+    ("TRANSIENT", "Transient"),
+    ("SEASONALADDITIVE", "Seasonal additive"),
+    ("LOCALTREND", "Local trend"),
+];
+
+/// The types the outlier search can look for: the given ones and the additive patch.
+pub const TS_AUTO_OUTLIER_TYPES: [(&str, &str); 7] = [
+    TS_OUTLIER_TYPES[0],
+    TS_OUTLIER_TYPES[1],
+    TS_OUTLIER_TYPES[2],
+    TS_OUTLIER_TYPES[3],
+    TS_OUTLIER_TYPES[4],
+    TS_OUTLIER_TYPES[5],
+    ("ADDITIVEPATCH", "Additive patch"),
+];
+
 /// The fit measures of MODELSTATISTICS MODELFIT.
 pub const TS_FIT: [(&str, &str); 8] = [
     ("SRSQUARE", "Stationary R-squared"),
@@ -184,6 +205,90 @@ fn lags(text: &str, what: &str) -> Result<String, String> {
     })
 }
 
+/// How one predictor enters a custom ARIMA model; empty boxes are the command's defaults.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct TsTransfer {
+    pub variable: String,
+    /// Orders or lags, as in the ARIMA boxes.
+    pub num: String,
+    pub den: String,
+    pub num_seasonal: String,
+    pub den_seasonal: String,
+    pub diff: String,
+    pub diff_seasonal: String,
+    pub delay: String,
+    /// Index into `TS_TRANSFORMS`.
+    pub transform: usize,
+}
+
+/// An outlier at a known place.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct TsOutlier {
+    /// A case number, or DATE words such as `YEAR=2 MONTH=3`.
+    pub location: String,
+    /// Index into `TS_OUTLIER_TYPES`.
+    pub kind: usize,
+}
+
+impl TsTransfer {
+    /// The subcommand, or None when every box is as the command has it.
+    fn syntax(&self) -> Result<Option<String>, String> {
+        let mut text = format!("/TRANSFERFUNCTION VARIABLES={}", self.variable);
+        let before = text.len();
+        for (keyword, value, what) in [
+            ("NUM", &self.num, "a numerator lag"),
+            (
+                "NUMSEASONAL",
+                &self.num_seasonal,
+                "a seasonal numerator lag",
+            ),
+            ("DENOM", &self.den, "a denominator lag"),
+            (
+                "DENOMSEASONAL",
+                &self.den_seasonal,
+                "a seasonal denominator lag",
+            ),
+        ] {
+            if !value.trim().is_empty() {
+                text.push_str(&format!(" {keyword}={}", lags(value, what)?));
+            }
+        }
+        for (keyword, value, what) in [
+            ("DIFF", &self.diff, "the differencing of a predictor"),
+            (
+                "DIFFSEASONAL",
+                &self.diff_seasonal,
+                "the seasonal differencing of a predictor",
+            ),
+            ("DELAY", &self.delay, "the delay of a predictor"),
+        ] {
+            if let Some(n) = whole(value, 0, what)? {
+                text.push_str(&format!(" {keyword}={n}"));
+            }
+        }
+        if self.transform > 0 {
+            text.push_str(&format!(" TRANSFORM={}", TS_TRANSFORMS[self.transform].0));
+        }
+        Ok((text.len() > before).then_some(text))
+    }
+}
+
+impl TsOutlier {
+    fn syntax(&self) -> Result<String, String> {
+        let at = self.location.trim();
+        if at.is_empty() {
+            return Err("give the location of each outlier: a case number or a date".into());
+        }
+        if at.chars().all(|c| c.is_ascii_digit()) {
+            whole(at, 1, "an outlier's case number")?;
+        }
+        Ok(format!(
+            "/OUTLIER LOCATION=[{at}] TYPE={}",
+            TS_OUTLIER_TYPES[self.kind].0
+        ))
+    }
+}
+
 /// TSMODEL: one model for each dependent series.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Tsmodel {
@@ -206,6 +311,14 @@ pub struct Tsmodel {
     pub diff: String,
     pub diff_seasonal: String,
     pub constant: bool,
+    /// ARIMA: one row for each predictor that needs more than lag 0.
+    pub transfers: Vec<TsTransfer>,
+    /// ARIMA: outliers known beforehand.
+    pub outliers: Vec<TsOutlier>,
+    /// ARIMA and the expert modeler: search for outliers, of the types in `auto_types`.
+    pub auto_outliers: bool,
+    /// Flags of `TS_AUTO_OUTLIER_TYPES`; additive and level shift are the command's own.
+    pub auto_types: [bool; 7],
     pub outputs: TsOutputs,
     /// The model file to write; empty: none.
     pub file: String,
@@ -231,6 +344,10 @@ impl Default for Tsmodel {
             diff: String::new(),
             diff_seasonal: String::new(),
             constant: true,
+            transfers: Vec::new(),
+            outliers: Vec::new(),
+            auto_outliers: false,
+            auto_types: [true, true, false, false, false, false, false],
             outputs: TsOutputs::default(),
             file: String::new(),
             prefix: String::new(),
@@ -332,7 +449,26 @@ impl Tsmodel {
                 }
                 text.push_str(&transform);
                 lines.push(text);
+                for name in &self.independents {
+                    if let Some(row) = self.transfers.iter().find(|r| &r.variable == name) {
+                        lines.extend(row.syntax()?);
+                    }
+                }
+                for outlier in &self.outliers {
+                    lines.push(outlier.syntax()?);
+                }
             }
+        }
+        if self.auto_outliers && (self.method == 2 || (self.method == 0 && self.expert_arima)) {
+            let types = chosen(&TS_AUTO_OUTLIER_TYPES, &self.auto_types);
+            if types.is_empty() {
+                return Err("tick at least one type of outlier to search for".into());
+            }
+            let mut text = "/AUTOOUTLIER DETECT=ON".to_string();
+            if types != ["ADDITIVE", "LEVELSHIFT"] {
+                text.push_str(&format!(" TYPE=[{}]", types.join(" ")));
+            }
+            lines.push(text);
         }
         Ok(format!("{predict}TSMODEL {}.", lines.join("\n  ")))
     }
@@ -438,6 +574,86 @@ mod tests {
              /ARIMA AR=1 MA=[1 3] DIFF=1 CONSTANT=NO TRANSFORM=LN."
         );
         assert!(Tsmodel::default().syntax(&data()).is_err());
+    }
+
+    #[test]
+    fn tsmodel_transfers_and_outliers() {
+        let mut d = Tsmodel {
+            dependents: vec!["a".into()],
+            independents: vec!["b".into()],
+            method: 2,
+            ar: "1".into(),
+            transfers: vec![
+                // not a predictor now: left out
+                TsTransfer {
+                    variable: "z".into(),
+                    num: "2".into(),
+                    ..Default::default()
+                },
+                TsTransfer {
+                    variable: "b".into(),
+                    num: "1 3".into(),
+                    den: "1".into(),
+                    num_seasonal: "1".into(),
+                    den_seasonal: "2 4".into(),
+                    diff: "1".into(),
+                    diff_seasonal: "1".into(),
+                    delay: "2".into(),
+                    transform: 1,
+                },
+            ],
+            outliers: vec![
+                TsOutlier {
+                    location: "12".into(),
+                    kind: 1,
+                },
+                TsOutlier {
+                    location: " YEAR=2 MONTH=3 ".into(),
+                    kind: 0,
+                },
+            ],
+            auto_outliers: true,
+            auto_types: [true, false, true, false, false, false, true],
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax(&data()).unwrap(),
+            "TSMODEL /MODEL DEPENDENT=a INDEPENDENT=b\n  /ARIMA AR=1 MA=0\n  \
+             /TRANSFERFUNCTION VARIABLES=b NUM=[1 3] NUMSEASONAL=1 DENOM=1 DENOMSEASONAL=[2 4] \
+             DIFF=1 DIFFSEASONAL=1 DELAY=2 TRANSFORM=SQRT\n  \
+             /OUTLIER LOCATION=[12] TYPE=LEVELSHIFT\n  \
+             /OUTLIER LOCATION=[YEAR=2 MONTH=3] TYPE=ADDITIVE\n  \
+             /AUTOOUTLIER DETECT=ON TYPE=[ADDITIVE INNOVATIONAL ADDITIVEPATCH]."
+        );
+        // an untouched row and the default types write nothing but the switch
+        d.transfers[1] = TsTransfer {
+            variable: "b".into(),
+            ..Default::default()
+        };
+        d.outliers.clear();
+        d.auto_types = Tsmodel::default().auto_types;
+        let text = d.syntax(&data()).unwrap();
+        assert!(
+            text.ends_with("/ARIMA AR=1 MA=0\n  /AUTOOUTLIER DETECT=ON."),
+            "{text}"
+        );
+        // the expert modeler takes the search, but only when it tries ARIMA
+        d.method = 0;
+        assert!(
+            d.syntax(&data())
+                .unwrap()
+                .ends_with("INDEPENDENT=b\n  /AUTOOUTLIER DETECT=ON.")
+        );
+        d.expert_arima = false;
+        assert!(!d.syntax(&data()).unwrap().contains("AUTOOUTLIER"));
+        d.method = 2;
+        d.outliers = vec![TsOutlier::default()];
+        assert!(d.syntax(&data()).is_err());
+        d.outliers[0].location = "0".into();
+        assert!(d.syntax(&data()).is_err());
+        d.outliers.clear();
+        d.auto_types = [false; 7];
+        assert!(d.syntax(&data()).is_err());
     }
 
     #[test]

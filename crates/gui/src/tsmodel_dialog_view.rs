@@ -2,8 +2,9 @@
 
 use crate::app::{choice, field, file_dialog, target_list};
 use crate::tsmodel_dialog::{
-    TS_DETAILS, TS_FIT, TS_METHODS, TS_SAVES, TS_SERIES_PLOTS, TS_SMOOTHING, TS_TRANSFORMS,
-    TsOutputs, Tsapply, Tsmodel,
+    TS_AUTO_OUTLIER_TYPES, TS_DETAILS, TS_FIT, TS_METHODS, TS_OUTLIER_TYPES, TS_SAVES,
+    TS_SERIES_PLOTS, TS_SMOOTHING, TS_TRANSFORMS, TsOutlier, TsOutputs, TsTransfer, Tsapply,
+    Tsmodel,
 };
 use eframe::egui::{self, Ui};
 
@@ -74,6 +75,69 @@ fn outputs(ui: &mut Ui, d: &mut TsOutputs, estimated: bool) {
     });
 }
 
+/// One row for each predictor: how it enters the model. Empty boxes keep lag 0.
+fn transfers(ui: &mut Ui, d: &mut Tsmodel) {
+    if d.independents.is_empty() {
+        return;
+    }
+    for name in &d.independents {
+        if !d.transfers.iter().any(|r| &r.variable == name) {
+            d.transfers.push(TsTransfer {
+                variable: name.clone(),
+                ..Default::default()
+            });
+        }
+    }
+    egui::CollapsingHeader::new("Transfer functions of the predictors").show(ui, |ui| {
+        ui.weak("Empty boxes: the predictor enters at lag 0. Orders or lags as above");
+        for name in &d.independents {
+            let Some(row) = d.transfers.iter_mut().find(|r| &r.variable == name) else {
+                continue;
+            };
+            ui.push_id(name, |ui| {
+                ui.strong(name);
+                field(ui, "Numerator", &mut row.num, 80.0);
+                field(ui, "Denominator", &mut row.den, 80.0);
+                field(ui, "Seasonal numerator", &mut row.num_seasonal, 80.0);
+                field(ui, "Seasonal denominator", &mut row.den_seasonal, 80.0);
+                field(ui, "Differencing", &mut row.diff, 50.0);
+                field(ui, "Seasonal differencing", &mut row.diff_seasonal, 50.0);
+                field(ui, "Delay", &mut row.delay, 50.0);
+                choice(ui, "Transform", &TS_TRANSFORMS, &mut row.transform);
+            });
+        }
+    });
+}
+
+/// Outliers the analyst knows of, each at a case number or a date.
+fn known_outliers(ui: &mut Ui, d: &mut Tsmodel) {
+    egui::CollapsingHeader::new("Known outliers").show(ui, |ui| {
+        ui.weak("Location: a case number, or date words such as YEAR=2 MONTH=3");
+        let mut remove = None;
+        for (i, o) in d.outliers.iter_mut().enumerate() {
+            ui.push_id(i, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut o.location).desired_width(110.0));
+                    egui::ComboBox::from_id_salt("kind")
+                        .selected_text(TS_OUTLIER_TYPES[o.kind].1)
+                        .show_index(ui, &mut o.kind, TS_OUTLIER_TYPES.len(), |k| {
+                            TS_OUTLIER_TYPES[k].1
+                        });
+                    if ui.button("Remove").clicked() {
+                        remove = Some(i);
+                    }
+                });
+            });
+        }
+        if let Some(i) = remove {
+            d.outliers.remove(i);
+        }
+        if ui.button("Add an outlier").clicked() {
+            d.outliers.push(TsOutlier::default());
+        }
+    });
+}
+
 pub fn tsmodel(ui: &mut Ui, d: &mut Tsmodel, picked: &mut Vec<String>) {
     target_list(ui, "Dependent series", &mut d.dependents, picked);
     target_list(ui, "Independents (predictors)", &mut d.independents, picked);
@@ -100,7 +164,18 @@ pub fn tsmodel(ui: &mut Ui, d: &mut Tsmodel, picked: &mut Vec<String>) {
             field(ui, "Seasonal differencing", &mut d.diff_seasonal, 50.0);
             ui.checkbox(&mut d.constant, "Include a constant");
             choice(ui, "Transform", &TS_TRANSFORMS, &mut d.transform);
+            transfers(ui, d);
+            known_outliers(ui, d);
         }
+    }
+    if d.method == 2 || (d.method == 0 && d.expert_arima) {
+        egui::CollapsingHeader::new("Outlier search").show(ui, |ui| {
+            ui.checkbox(&mut d.auto_outliers, "Search for outliers");
+            ui.add_enabled_ui(d.auto_outliers, |ui| {
+                ui.weak("Types to look for; the search keeps those that stay significant");
+                flags(ui, &TS_AUTO_OUTLIER_TYPES, &mut d.auto_types);
+            });
+        });
     }
     ui.add_space(6.0);
     outputs(ui, &mut d.outputs, true);
