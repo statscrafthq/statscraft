@@ -291,12 +291,11 @@ pub use genlin::{
     GenlinReference, GenlinRepeated, GenlinResponse, GenlinSave, GenlinSaveKind, GenlinScale,
     GenlinTolerance, GenlinTrials, default_link, distribution_keyword, link_allowed, link_keyword,
 };
-pub use genlinmixed::{GenLinMixed, GlmmRandom};
+pub use genlinmixed::{GenLinMixed, GlmmContrast, GlmmEmmeans, GlmmRandom, GlmmSave};
 pub use ggraph::{
     Ggraph, GplExpr, GplProgram, GplStatement, GraphDataset, GraphItem, GraphSpec, GraphStat,
     read_gpl,
 };
-pub use genlinmixed::{GenLinMixed, GlmmContrast, GlmmEmmeans, GlmmRandom, GlmmSave};
 pub use glm::{
     Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix,
     LRow, MColumn, Profile, RefCat, Term, WsFactor,
