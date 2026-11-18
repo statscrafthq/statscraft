@@ -49,12 +49,15 @@ use crate::model_more_dialog::{OptimalBinning, QuantileRegression, VarianceCompo
 use crate::multivar_dialog::{Knn, Manova, Pls};
 use crate::mva_dialog::{Estimation, MissingValueAnalysis};
 use crate::naivebayes_dialog::NaiveBayes;
-use crate::oms_dialog::{Oms, Omsend};
 use crate::neural_dialog::{Common, Mlp, Rbf};
+use crate::oms_dialog::{Oms, Omsend};
 use crate::proportions_dialog::{Proportions, ProportionsKind};
 use crate::proximities_dialog::Distances;
 use crate::reports_dialog::{Codebook, OlapCubes, OlapDifference, Summarize};
 use crate::roc_analysis_dialog::RocAnalysis;
+use crate::simulation_dialog::{
+    CorrelationRow, FixedRow, SaveCases, SimInputRow, SimPlan, SimRun, Simulation,
+};
 use crate::spchart_dialog::{CAPABILITY, ControlCharts};
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
@@ -709,6 +712,7 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         })),
     ))));
+    list.extend(simulation_dialogs(out, "min", false));
     list.push(Dialog::RocCurve(RocCurve {
         tests: v(&["age"]),
         state: s("q5_1"),
@@ -2965,6 +2969,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         })),
     ))));
+    list.extend(simulation_dialogs(out, "max", true));
     list
 }
 
@@ -3014,6 +3019,80 @@ fn draw_once(dialog: &mut Dialog, data: &statscraft_data::Dataset) {
 fn drawn(mut dialog: Dialog, data: &statscraft_data::Dataset) -> Result<String, String> {
     draw_once(&mut dialog, data);
     dialog.syntax(data)
+}
+
+/// Build Simulation Plan then Run Simulation: the plan is written to the walk's folder and the
+/// run reads it, so the list keeps them in this order.
+fn simulation_dialogs(out: &Path, tag: &str, full: bool) -> [Dialog; 2] {
+    let file = |name: &str| out.join(name).to_string_lossy().into_owned();
+    let plan_file = file(&format!("{tag}_sim.splan"));
+    let input = |name: &str, dist: usize, params: [&str; 3]| SimInputRow {
+        name: s(name),
+        dist,
+        params: params.map(s),
+        ..Default::default()
+    };
+    let mut plan = SimPlan {
+        model: s("margin = units * (price - cost)"),
+        model_file: file(&format!("{tag}_sim_model.json")),
+        inputs: vec![
+            input("units", 3, ["800", "1400", "1000"]),
+            input("cost", 1, ["7", "1", ""]),
+        ],
+        fixed: vec![FixedRow {
+            name: s("price"),
+            value: s("12"),
+        }],
+        max_cases: s("2000"),
+        plan_file: plan_file.clone(),
+        ..Default::default()
+    };
+    let mut run = SimRun {
+        plan_file,
+        ..Default::default()
+    };
+    if full {
+        plan.model
+            .push_str(" - rework * 50\nCOMPUTE big = margin > 4000.");
+        plan.inputs[1].min = s("4");
+        plan.inputs[1].max = s("10");
+        plan.inputs
+            .push(input("rework", 12, ["0 1 2", "0.5 0.3 0.2", ""]));
+        plan.correlations = vec![CorrelationRow {
+            first: s("units"),
+            second: s("cost"),
+            value: s("-0.3"),
+        }];
+        plan.targets = s("margin big");
+        plan.stop_target = s("margin");
+        plan.stop_width = s("100");
+        plan.quiet = true;
+        run = SimRun {
+            seed: s("4711"),
+            pdf: true,
+            cdf: true,
+            scatter: true,
+            boxplot: true,
+            tornado_delta: true,
+            delta: s("1.5"),
+            tornado_variance: true,
+            level: s("90"),
+            percentiles: true,
+            ptiles: s("5 50 95"),
+            associations: true,
+            save: SaveCases::File,
+            out_file: file("max_sim_cases.sav"),
+            ..run
+        };
+    }
+    [
+        Dialog::Advanced(Advanced::Simulation(Box::new(Simulation::Plan(Box::new(
+            plan,
+        ))))),
+        Dialog::Advanced(Advanced::Simulation(Box::new(Simulation::Run(Box::new(
+            run,
+        ))))),
+    ]
 }
 
 /// The syntax of each dialog is Ok, parses without an error and runs on the survey file.

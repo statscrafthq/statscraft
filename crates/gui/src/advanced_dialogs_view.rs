@@ -86,6 +86,7 @@ pub fn body(
             crate::data_tools_dialog_view::apply_dictionary(ui, d, picked, folder)
         }
         Advanced::Conjoint(d) => crate::conjoint_dialog_view::body(ui, data, d, picked, folder),
+        Advanced::Simulation(d) => crate::simulation_dialog_view::body(ui, d, folder),
     }
 }
 

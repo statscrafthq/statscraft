@@ -41,6 +41,7 @@ use crate::proportions_dialog::Proportions;
 use crate::proximities_dialog::Distances;
 use crate::regression_more_dialog::{CurveEstimation, Probit, WeightEstimation};
 use crate::reports_dialog::{Codebook, OlapCubes, Summarize};
+use crate::simulation_dialog::Simulation;
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::syntax_text::{names, number, quote, value};
@@ -123,6 +124,8 @@ pub enum Advanced {
     CopyDictionary(Box<DictionaryCopy>),
     // the conjoint dialogs (in `conjoint_dialog`)
     Conjoint(Box<Design>),
+    // the simulation dialogs (in `simulation_dialog`)
+    Simulation(Box<Simulation>),
 }
 
 impl Advanced {
@@ -185,6 +188,7 @@ impl Advanced {
             Advanced::Compare(_) => "Compare Datasets",
             Advanced::CopyDictionary(_) => "Apply Data Dictionary",
             Advanced::Conjoint(d) => d.title(),
+            Advanced::Simulation(d) => d.title(),
         }
     }
 
@@ -255,6 +259,7 @@ impl Advanced {
             Advanced::Compare(_) => Advanced::Compare(Default::default()),
             Advanced::CopyDictionary(_) => Advanced::CopyDictionary(Default::default()),
             Advanced::Conjoint(d) => Advanced::Conjoint(Box::new(d.reset())),
+            Advanced::Simulation(d) => Advanced::Simulation(Box::new(d.reset())),
         }
     }
 
@@ -324,6 +329,7 @@ impl Advanced {
             Advanced::Compare(d) => d.syntax(),
             Advanced::CopyDictionary(d) => d.syntax(data),
             Advanced::Conjoint(d) => d.syntax(data),
+            Advanced::Simulation(d) => d.syntax(data),
         }
     }
 }

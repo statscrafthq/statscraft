@@ -95,6 +95,8 @@ mod scaling_dialog;
 mod scaling_dialog_view;
 mod settings;
 mod settings_window;
+mod simulation_dialog;
+mod simulation_dialog_view;
 mod spchart_dialog;
 mod spchart_dialog_view;
 mod stats_dialogs;

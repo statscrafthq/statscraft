@@ -47,6 +47,7 @@ use crate::power_dialog::{POWER_MENU, PowerAnalysis};
 use crate::roc_analysis_dialog::RocAnalysis;
 use crate::settings::{Settings, usable_position, usable_size};
 use crate::settings_window::{self, Section};
+use crate::simulation_dialog::Simulation;
 use crate::spchart_dialog::ControlCharts;
 use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliability, numeric};
 use crate::stats_dialogs_view;
@@ -1780,6 +1781,22 @@ impl App {
                                 }
                             }
                         });
+                    }
+                });
+                // typed distributions and expressions, so no data is needed
+                ui.menu_button("Simulation", |ui| {
+                    for (label, dialog) in [
+                        (
+                            "Build Simulation Plan...",
+                            Simulation::Plan(Default::default()),
+                        ),
+                        ("Run Simulation...", Simulation::Run(Default::default())),
+                    ] {
+                        if ui.button(label).clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Simulation(Box::new(
+                                dialog,
+                            ))));
+                        }
                     }
                 });
                 ui.add_enabled_ui(has_data, |ui| {
@@ -3915,13 +3932,13 @@ impl App {
                 let row = ui.text_style_height(&TextStyle::Monospace);
                 let height = (ctx.content_rect().height() - 150.0 - lines * row).max(160.0);
                 ui.horizontal_top(|ui| {
-                    // Sort Variables, Open Data and Power Analysis take no variables
+                    // Sort Variables, Open Data, Power Analysis and Simulation take no variables
                     if !makes_data
                         && !matches!(
                             dialog,
                             Dialog::SortVariables(_)
                                 | Dialog::ImportData(_)
-                                | Dialog::Advanced(Advanced::Power(_))
+                                | Dialog::Advanced(Advanced::Power(_) | Advanced::Simulation(_))
                         )
                     {
                         ui.vertical(|ui| {
