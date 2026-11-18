@@ -583,6 +583,19 @@ struct Model {
     np: usize,
     /// GENLINMIXED with a discrete distribution: R = W^-1 with no parameter.
     unit_residual: bool,
+    /// GENLINMIXED with a multinomial target: R = W^-1 is a block per case instead.
+    case_blocks: Option<CaseBlocks>,
+    /// N of the constant of the likelihood: the cases, fewer than the rows of a multinomial
+    /// target, which has a row per category but the last.
+    cases: usize,
+}
+
+/// The residual blocks of a multinomial target: row a is at position `pos[a]` of the block
+/// `r` of its case `case[a]`.
+struct CaseBlocks {
+    case: Vec<usize>,
+    pos: Vec<usize>,
+    r: Vec<Matrix>,
 }
 
 struct Eval {
@@ -709,6 +722,13 @@ fn add_to(acc: &mut Matrix, m: &Matrix) {
 impl Model {
     /// Entry (a, c) of R, or of its derivative.
     fn residual_entry(&self, th: &[f64], a: usize, c: usize, what: What) -> f64 {
+        if let Some(b) = &self.case_blocks {
+            return if b.case[a] == b.case[c] && matches!(what, What::Value) {
+                b.r[b.case[a]][b.pos[a]][b.pos[c]]
+            } else {
+                0.0
+            };
+        }
         if self.unit_residual {
             return if a == c && matches!(what, What::Value) {
                 1.0 / self.g[a]
@@ -784,7 +804,7 @@ impl Model {
     /// positive definite.
     fn evaluate(&self, th: &[f64], depth: Depth) -> Option<Eval> {
         let p = self.p;
-        let n = self.y.len() as f64;
+        let n = self.cases as f64;
         let mut logdet = 0.0;
         let mut a = vec![vec![0.0; p]; p];
         let mut c = vec![0.0; p];
@@ -2595,7 +2615,20 @@ impl Engine {
             members,
             groups,
             np,
+            case_blocks: None,
+            cases: n,
         };
+        // a multinomial target: a row per category but the last, with its own fixed columns
+        let multi = glmm.and_then(|g| g.multi.as_ref());
+        if let Some(m) = multi {
+            m.expand(&mut model);
+            if n <= model.p {
+                return Err(Error(format!(
+                    "MIXED: {n} cases are too few for {} fixed parameters",
+                    model.p
+                )));
+            }
+        }
         // start: the least squares residual variance shared out
         let s2 = fixed.s[0][0] / (n - p) as f64;
         if s2.is_nan() || s2 <= 0.0 {
@@ -2616,6 +2649,18 @@ impl Engine {
             None => fit_model(&model, start_values, command)?,
         };
         warnings.extend(more);
+        let p = model.p;
+        // each parameter of the tables: its name and its place among the estimates, if any
+        let mut params: Vec<(String, Option<usize>)> = Vec::new();
+        for ef in &fixed.effects {
+            for (k, cell) in ef.cells.iter().enumerate() {
+                let at = kept.iter().position(|&c| c == ef.start + k);
+                params.push((parameter_name(&d, ef, cell), at));
+            }
+        }
+        if let Some(m) = multi {
+            params = m.parameters(params);
+        }
         let dep_text = shown.variable(&dependent);
         let caption = format!("Dependent Variable: {dep_text}.");
         let e = &fitted.eval;
@@ -2815,12 +2860,21 @@ impl Engine {
         let mut total_params = 0usize;
         for (i, ef) in fixed.effects.iter().enumerate() {
             let params = ef.range().filter(|&j| !fixed.redundant[j]).count();
-            total_levels += ef.cells.len();
+            // the thresholds of an ordinal target take the intercept's place, and a nominal
+            // one has every parameter once per category but the last
+            let (label, levels, params) = match multi {
+                Some(m) if m.ordinal && ef.is_intercept() => {
+                    ("Threshold".to_string(), m.rows(), m.rows())
+                }
+                Some(m) if !m.ordinal => (ef.label.clone(), ef.cells.len(), params * m.rows()),
+                _ => (ef.label.clone(), ef.cells.len(), params),
+            };
+            total_levels += levels;
             total_params += params;
             rows_md.push(vec![
                 text(if i == 0 { "Fixed Effects" } else { "" }),
-                text(ef.label.clone()),
-                Cell::Number(ef.cells.len() as f64),
+                text(label),
+                Cell::Number(levels as f64),
                 Cell::Empty,
                 Cell::Number(params as f64),
                 Cell::Empty,
@@ -2928,14 +2982,9 @@ impl Engine {
                     columns.push(("Covariance Parameters".into(), label));
                 }
             }
-            for ef in &fixed.effects {
-                for (c, cell) in ef.cells.iter().enumerate() {
-                    if !fixed.redundant[ef.start + c] {
-                        columns.push((
-                            "Fixed Effect Parameters".into(),
-                            parameter_name(&d, ef, cell),
-                        ));
-                    }
+            for (name, at) in &params {
+                if at.is_some() {
+                    columns.push(("Fixed Effect Parameters".into(), name.clone()));
                 }
             }
             let last = fitted.history.len().saturating_sub(1);
@@ -3014,7 +3063,14 @@ impl Engine {
             })
             .collect();
         for (i, ef) in fixed.effects.iter().enumerate() {
-            let l: Matrix = type_l[i].iter().map(|r| reduce(r)).collect();
+            // the thresholds of an ordinal target are not tested
+            if multi.is_some_and(|m| m.ordinal) && ef.is_intercept() {
+                continue;
+            }
+            let mut l: Matrix = type_l[i].iter().map(|r| reduce(r)).collect();
+            if let Some(m) = multi {
+                l = m.l_rows(&l);
+            }
             let Some((q, df, f)) = inf.f_test(&l, &vec![0.0; l.len()]) else {
                 tests.push(vec![
                     text(ef.label.clone()),
@@ -3056,33 +3112,29 @@ impl Engine {
             columns.push((group, "Upper Bound".into()));
             let mut out = Vec::new();
             let mut redundant = false;
-            for ef in &fixed.effects {
-                for (k, cell) in ef.cells.iter().enumerate() {
-                    let j = ef.start + k;
-                    let name = parameter_name(&d, ef, cell);
-                    let Some(at) = kept.iter().position(|&c| c == j) else {
-                        redundant = true;
-                        let mut row = vec![text(format!("{name} (redundant)")), Cell::Number(0.0)];
-                        row.extend(std::iter::repeat_n(Cell::Empty, 6));
-                        out.push(row);
-                        continue;
-                    };
-                    let mut l = vec![0.0; p];
-                    l[at] = 1.0;
-                    let (b, se, df) = inf.estimate(&l);
-                    let t = b / se;
-                    let tc = t_crit(alpha, df);
-                    out.push(vec![
-                        text(name),
-                        number(Some(b)),
-                        number(Some(se)),
-                        number(Some(df)),
-                        number(Some(t)),
-                        number(Some(t_p(t, df))),
-                        number(Some(b - tc * se)),
-                        number(Some(b + tc * se)),
-                    ]);
-                }
+            for (name, at) in &params {
+                let Some(at) = *at else {
+                    redundant = true;
+                    let mut row = vec![text(format!("{name} (redundant)")), Cell::Number(0.0)];
+                    row.extend(std::iter::repeat_n(Cell::Empty, 6));
+                    out.push(row);
+                    continue;
+                };
+                let mut l = vec![0.0; p];
+                l[at] = 1.0;
+                let (b, se, df) = inf.estimate(&l);
+                let t = b / se;
+                let tc = t_crit(alpha, df);
+                out.push(vec![
+                    text(name.clone()),
+                    number(Some(b)),
+                    number(Some(se)),
+                    number(Some(df)),
+                    number(Some(t)),
+                    number(Some(t_p(t, df))),
+                    number(Some(b - tc * se)),
+                    number(Some(b + tc * se)),
+                ]);
             }
             let mut cap = caption.clone();
             if redundant {
@@ -3096,12 +3148,8 @@ impl Engine {
                 Some(cap),
             ));
         }
-        let names: Vec<String> = fixed
-            .effects
-            .iter()
-            .flat_map(|ef| ef.cells.iter().map(|cell| parameter_name(&d, ef, cell)))
-            .collect();
-        let at = |j: usize| kept.iter().position(|&c| c == j);
+        let names: Vec<String> = params.iter().map(|(n, _)| n.clone()).collect();
+        let at = |j: usize| params[j].1;
         if command.print.covb {
             tables.push(matrix_table(
                 "Covariance Matrix for Estimates of Fixed Effects",
@@ -3294,8 +3342,15 @@ impl Engine {
             columns.push((group, "Upper Bound".into()));
             let zero = vec![0.0; p];
             let mut out = Vec::new();
-            for (s, &first) in subject_first[k].iter().enumerate() {
-                let label = r
+            // a nominal target has the random effects of each subject once per category but
+            // the last, as subjects s * rows + j of the expanded model
+            let per = multi.filter(|m| !m.ordinal).map_or(1, |m| m.rows());
+            let subjects = subject_first[k]
+                .iter()
+                .enumerate()
+                .flat_map(|(s, &first)| (0..per).map(move |j| (s * per + j, first, j)));
+            for (s, first, j) in subjects {
+                let mut label = r
                     .subject
                     .iter()
                     .map(|v| {
@@ -3308,6 +3363,9 @@ impl Engine {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
+                if let Some(m) = multi.filter(|m| !m.ordinal) {
+                    label.push_str(&format!("; {dep_text} = {}", m.label(j)));
+                }
                 for (col, name) in random_names[k].iter().enumerate() {
                     let (est, se, df) = predict.estimate(&zero, &vec![(k, s, col, 1.0)]);
                     let t = est / se;
@@ -3497,7 +3555,7 @@ impl Engine {
                     &fitted.th,
                     &part,
                     predict.as_ref(),
-                    &names,
+                    &params,
                     &label_of,
                     &mut warnings,
                 )?;

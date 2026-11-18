@@ -80,6 +80,11 @@ fn power_link_and_the_other_spellings() {
     assert!(g.trials.is_none());
     let g = glmm("GENLINMIXED /FIELDS TARGET=cost /TARGET_OPTIONS LINK=POWER(0.5).");
     assert_eq!(g.link, Some(GenlinLink::Power(0.5)));
+    let g = glmm(
+        "GENLINMIXED /FIELDS TARGET=grade /TARGET_OPTIONS DISTRIBUTION=MULTINOMIAL LINK=CAUCHIT.",
+    );
+    assert_eq!(g.distribution, Some(GenlinDistribution::Multinomial));
+    assert_eq!(g.link, Some(GenlinLink::CumCauchit));
     let types = [
         ("DIAGONAL", CovType::Diag),
         ("AR1", CovType::Ar1),
@@ -119,14 +124,6 @@ fn errors_name_what_is_wrong_or_not_supported_yet() {
         (
             "GENLINMIXED /FIELDS TARGET=y /TARGET_OPTIONS LINK=POWER.",
             "LINK_PARAMETER",
-        ),
-        (
-            "GENLINMIXED /FIELDS TARGET=y /TARGET_OPTIONS DISTRIBUTION=MULTINOMIAL.",
-            "not supported yet",
-        ),
-        (
-            "GENLINMIXED /FIELDS TARGET=y /TARGET_OPTIONS LINK=CAUCHIT.",
-            "not support",
         ),
         (
             "GENLINMIXED /DATA_STRUCTURE SUBJECTS=id KRONECKER_MEASURES=t /FIELDS TARGET=y.",

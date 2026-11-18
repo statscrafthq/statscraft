@@ -301,7 +301,29 @@ fn errors_for_what_is_not_supported_or_wrong() {
         ),
         (
             format!(
-                "{COUNTS}GENLINMIXED /DATA_STRUCTURE SUBJECTS=person /FIELDS TARGET=visits /RANDOM USE_INTERCEPT=TRUE SUBJECTS=person."
+                "{ORDINAL}GENLINMIXED /DATA_STRUCTURE SUBJECTS=school REPEATED_MEASURES=x /FIELDS TARGET=grade\n\
+                 /RANDOM USE_INTERCEPT=TRUE SUBJECTS=school."
+            ),
+            "REPEATED_MEASURES cannot be used",
+        ),
+        (
+            format!(
+                "{ORDINAL}GENLINMIXED /DATA_STRUCTURE SUBJECTS=school /FIELDS TARGET=grade\n\
+                 /TARGET_OPTIONS LINK=LOG /RANDOM USE_INTERCEPT=TRUE SUBJECTS=school."
+            ),
+            "cannot be used with an ordinal",
+        ),
+        (
+            format!(
+                "{NOMINAL}GENLINMIXED /DATA_STRUCTURE SUBJECTS=store /FIELDS TARGET=choice\n\
+                 /TARGET_OPTIONS LINK=PROBIT /RANDOM USE_INTERCEPT=TRUE SUBJECTS=store."
+            ),
+            "logit link only",
+        ),
+        (
+            format!(
+                "{NOMINAL}GENLINMIXED /DATA_STRUCTURE SUBJECTS=store /FIELDS TARGET=choice\n\
+                 /RANDOM USE_INTERCEPT=TRUE SUBJECTS=store /SAVE PEARSON_RESIDUALS."
             ),
             "not supported yet",
         ),
@@ -696,5 +718,373 @@ fn save_the_category_and_probabilities_of_a_binary_target() {
         let category = saved(&engine, "cat", case);
         assert_eq!(category, if p0 >= 0.5 { 0.0 } else { 1.0 });
         assert!((saved(&engine, "conf", case) - p0.max(p1)).abs() < 1e-12);
+    }
+}
+
+// Multinomial targets, invented and drawn once in R with a fixed seed: 12 schools of 8 pupils
+// with a score x, an arm and a grade 1 to 4 from a cumulative logit with a school effect, and
+// 12 stores of 10 shoppers with a price x2 and a choice a, b or c from a generalized logit with
+// a store effect for each category. The expected numbers come from a third R program written
+// from the algorithms' description of the multinomial models (the expanded design with
+// thresholds or a parameter set per category, a residual block (D' A^-1 D)^-1 per case, the
+// start (y + 1/J) / 2, restricted pseudo likelihood with N the cases), its inner fits a
+// derivative-free search over the variance polished by numerical Newton steps, the standard
+// error of the variance from a numerical Hessian, and the prediction error covariance from
+// the inverse of the mixed model equations.
+
+const ORDINAL: &str = "DATA LIST FREE /school arm x grade.
+BEGIN DATA
+1 1 2.3 3 1 2 3.1 3 1 1 4.3 4 1 2 1.7 2 1 1 1.6 1 1 2 1.2 3 1 1 2.8 3 1 2 1.2 2
+2 1 4.2 4 2 2 2.8 4 2 1 4.4 4 2 2 4.7 1 2 1 3.3 3 2 2 4.6 4 2 1 3.9 4 2 2 1.9 4
+3 1 3 3 3 2 4.6 4 3 1 4.8 3 3 2 1 3 3 1 3.4 4 3 2 1.5 4 3 1 3.7 3 3 2 3.1 3
+4 1 3.9 4 4 2 1.2 4 4 1 3.8 4 4 2 4.5 4 4 1 1.9 1 4 2 3.2 4 4 1 3.8 4 4 2 3.7 4
+5 1 3.1 2 5 2 1 3 5 1 1.5 3 5 2 2.6 4 5 1 3.7 4 5 2 2 1 5 1 0.2 2 5 2 4.5 4
+6 1 5 3 6 2 0.7 3 6 1 1.2 4 6 2 1.2 1 6 1 1.5 2 6 2 3.9 3 6 1 4.5 4 6 2 0.8 2
+7 1 1.9 2 7 2 1.3 3 7 1 3.1 4 7 2 1 1 7 1 1.6 2 7 2 3.1 4 7 1 3 4 7 2 1.9 3
+8 1 3.3 4 8 2 4 3 8 1 1.5 3 8 2 0.6 3 8 1 2.6 2 8 2 0.3 2 8 1 3.2 2 8 2 1.2 2
+9 1 3.1 3 9 2 1.4 1 9 1 2.4 4 9 2 4.3 4 9 1 2.4 3 9 2 3.8 4 9 1 3.2 3 9 2 4 4
+10 1 1.9 2 10 2 2.3 3 10 1 2.3 2 10 2 5 2 10 1 3.6 2 10 2 3.9 3 10 1 2.1 2 10 2 1.5 2
+11 1 3.9 4 11 2 1.7 2 11 1 1.9 3 11 2 3.4 2 11 1 3.9 3 11 2 4.6 2 11 1 0.7 1 11 2 0.9 1
+12 1 2.1 1 12 2 1.3 2 12 1 4.9 4 12 2 1.8 3 12 1 4.3 1 12 2 3.1 4 12 1 0.5 1 12 2 2.8 2
+END DATA.
+VARIABLE LEVEL grade arm (ORDINAL).
+";
+
+const NOMINAL: &str = "DATA LIST FREE /store x2 (F8.1) choice (A1).
+BEGIN DATA
+1 2.8 c 1 1.4 b 1 2.1 b 1 3.4 c 1 0 a 1 1.5 a 1 0.8 b 1 2.6 b 1 2.8 c 1 0.2 b
+2 3.3 c 2 3.1 c 2 2.2 c 2 0.5 c 2 1.7 c 2 3.8 c 2 0.5 a 2 0.4 b 2 3.6 a 2 1.6 a
+3 1.8 a 3 1.5 a 3 2.4 c 3 3.6 b 3 3.5 c 3 2.1 a 3 2.1 a 3 3.6 b 3 1.2 b 3 0.2 b
+4 0.7 c 4 3.4 c 4 1.4 c 4 1.8 a 4 3.5 c 4 0.4 c 4 1.8 c 4 1.6 a 4 2 c 4 2.8 c
+5 0.5 c 5 3.6 c 5 2.9 c 5 3.4 c 5 3.6 c 5 1.6 a 5 3.6 c 5 2.3 c 5 0.2 c 5 1.6 c
+6 2 b 6 2.6 a 6 3.9 c 6 3.1 b 6 2 c 6 0.6 b 6 1.4 a 6 0.8 a 6 2.5 c 6 3.3 a
+7 3.5 c 7 0.5 a 7 2.4 c 7 3.6 c 7 0.8 c 7 2.4 c 7 3.2 c 7 0 b 7 2.4 a 7 2.4 a
+8 0.3 c 8 2.3 c 8 1.2 c 8 2.5 c 8 2 a 8 2.1 c 8 0.9 b 8 3.4 a 8 3 c 8 1 a
+9 3.9 a 9 1 c 9 1.7 a 9 2.2 c 9 2.3 c 9 2.3 c 9 3.8 c 9 2.5 c 9 1.8 a 9 0.7 b
+10 0.8 c 10 1.3 a 10 0.8 a 10 0.7 c 10 2.3 c 10 0.5 c 10 3.5 c 10 0.9 b 10 1.2 c 10 1 c
+11 0.2 b 11 1.4 c 11 3.5 c 11 0.7 a 11 1.9 c 11 4 c 11 3.7 c 11 3.6 b 11 2.8 a 11 2.7 a
+12 3.2 a 12 3 b 12 3.8 c 12 0.7 b 12 2.6 c 12 1.9 b 12 3.6 c 12 0.8 a 12 0.9 b 12 1.1 b
+END DATA.
+VARIABLE LEVEL choice (NOMINAL).
+";
+
+/// The same cases in every group: `rows` (without the group) repeated for groups 1 to 4.
+fn copies(header: &str, rows: &str, tail: &str) -> String {
+    let mut out = format!("{header}\nBEGIN DATA\n");
+    for g in 1..=4 {
+        for row in rows.lines() {
+            out.push_str(&format!("{g} {row}\n"));
+        }
+    }
+    out.push_str("END DATA.\n");
+    out.push_str(tail);
+    out
+}
+
+const SAME_ORDINAL: &str = "1 2.3 3\n2 3.1 3\n1 4.3 4\n2 1.7 2\n1 1.6 1\n2 1.2 3\n1 2.8 3\n2 1.2 2\n\
+1 4.2 4\n2 2.8 4\n1 4.4 4\n2 4.7 1\n1 3.3 3\n2 4.6 4\n1 3.9 4\n2 1.9 4";
+
+const SAME_NOMINAL: &str = "2.8 c\n1.4 b\n2.1 b\n3.4 c\n0 a\n1.5 a\n0.8 b\n2.6 b\n2.8 c\n0.2 b\n\
+1.8 a\n1.5 a\n2.4 c\n3.6 b\n3.5 c\n2.1 a\n2.1 a\n3.6 b\n1.2 b\n0.2 b";
+
+#[test]
+fn ordinal_cumulative_logit_with_a_random_intercept() {
+    let (engine, tables) = run_engine(&format!(
+        "{ORDINAL}GENLINMIXED /DATA_STRUCTURE SUBJECTS=school /FIELDS TARGET=grade\n\
+         /FIXED EFFECTS=x arm /RANDOM USE_INTERCEPT=TRUE SUBJECTS=school SOLUTION=TRUE\n\
+         /BUILD_OPTIONS PCONVERGE=1E-10 /EMMEANS TABLES=arm\n\
+         /SAVE PREDICTED_VALUES(cat) PREDICTED_PROBABILITY(p) CONFIDENCE_INTERVALS(ci)."
+    ));
+    let summary = table(&tables, "Model Summary");
+    assert_eq!(summary.rows[1][1], Cell::Text("Ordinal Multinomial".into()));
+    assert_eq!(summary.rows[2][1], Cell::Text("Cumulative logit".into()));
+    estimates(
+        &tables,
+        &[
+            (
+                "Threshold [grade = 1]",
+                -0.58776380294061,
+                0.533098281831191,
+            ),
+            ("Threshold [grade = 2]", 1.06033641336495, 0.521174506507039),
+            ("Threshold [grade = 3]", 2.6578055891352, 0.58592050607979),
+            ("x", 0.75407792622702, 0.17202636614446),
+            ("[arm=1]", -0.354633119173736, 0.393631383763362),
+        ],
+    );
+    let cov = "Estimates of Covariance Parameters";
+    close(
+        nth(&tables, cov, 0, "Estimate"),
+        0.42636059936065,
+        "variance",
+    );
+    close(
+        nth(&tables, cov, 0, "Std. Error"),
+        0.386326958845806,
+        "its se",
+    );
+    let ic = "Information Criteria";
+    close(nth(&tables, ic, 0, "Value"), 1094.12311053564, "-2 RLPL");
+    // the thresholds are not tested
+    let tests = "Type III Tests of Fixed Effects";
+    assert_eq!(table(&tables, tests).rows.len(), 2);
+    close(value(&tables, tests, "x", "F"), 19.2150900989586, "F x");
+    close(
+        value(&tables, tests, "arm", "F"),
+        0.811669356307248,
+        "F arm",
+    );
+    close(value(&tables, tests, "arm", "Denominator df"), 91.0, "df");
+    let random = "Estimates of Random Effects";
+    close(
+        nth(&tables, random, 0, "Estimate"),
+        -0.122337700299239,
+        "school 1",
+    );
+    close(
+        nth(&tables, random, 1, "Estimate"),
+        0.489554441980363,
+        "school 2",
+    );
+    // cases 1 and 5: cumulative probabilities and their intervals
+    let want = [
+        (
+            0,
+            [0.13644073151133, 0.45089083708081, 0.802246907189807],
+            [0.0474251772052016, 0.221958280035495, 0.576075607924224],
+            [0.333959884685866, 0.702691306602422, 0.923727915591091],
+        ),
+        (
+            4,
+            [0.211264910214878, 0.581949771332975, 0.873055786163034],
+            [0.0767435598967738, 0.316458426182763, 0.680989212648156],
+            [0.463266857753701, 0.807159940636676, 0.956817688140464],
+        ),
+    ];
+    for (case, cum, lo, hi) in want {
+        for j in 0..3 {
+            close(saved(&engine, &format!("p_{}", j + 1), case), cum[j], "p");
+            close(
+                saved(&engine, &format!("ci_Lower_{}", j + 1), case),
+                lo[j],
+                "lo",
+            );
+            close(
+                saved(&engine, &format!("ci_Upper_{}", j + 1), case),
+                hi[j],
+                "hi",
+            );
+        }
+        assert_eq!(saved(&engine, "p_4", case), 1.0);
+        assert!(engine.dataset().unwrap().variable("ci_Lower_4").is_err());
+    }
+    // case 1: 0.136, 0.314, 0.351, 0.198, so grade 3; case 5 has grade 2 most likely
+    assert_eq!(saved(&engine, "cat", 0), 3.0);
+    assert_eq!(saved(&engine, "cat", 4), 2.0);
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("EMMEANS is ignored"))
+    );
+}
+
+const CLOGLOG: [(&str, f64, f64); 5] = [
+    (
+        "Threshold [grade = 1]",
+        -0.919828581621173,
+        0.402350618887837,
+    ),
+    (
+        "Threshold [grade = 2]",
+        0.433671402308107,
+        0.339906143073284,
+    ),
+    ("Threshold [grade = 3]", 1.54472551694959, 0.359306384879572),
+    ("x", 0.553837255355936, 0.117163299411195),
+    ("[arm=1]", -0.243114142000935, 0.265697482637268),
+];
+
+/// The variance, its standard error and the -2 restricted log pseudo likelihood.
+const CLOGLOG_S2: (f64, f64, f64) = (0.256605185135404, 0.208357204550456, 859.924475023831);
+
+#[test]
+fn ordinal_complementary_log_log() {
+    let tables = run(&format!(
+        "{ORDINAL}GENLINMIXED /DATA_STRUCTURE SUBJECTS=school /FIELDS TARGET=grade\n\
+         /TARGET_OPTIONS DISTRIBUTION=MULTINOMIAL LINK=CLOGLOG\n\
+         /FIXED EFFECTS=x arm /RANDOM USE_INTERCEPT=TRUE SUBJECTS=school\n\
+         /BUILD_OPTIONS PCONVERGE=1E-10."
+    ));
+    let summary = table(&tables, "Model Summary");
+    assert_eq!(
+        summary.rows[2][1],
+        Cell::Text("Cumulative complementary log-log".into())
+    );
+    estimates(&tables, &CLOGLOG);
+    let cov = "Estimates of Covariance Parameters";
+    close(nth(&tables, cov, 0, "Estimate"), CLOGLOG_S2.0, "variance");
+    close(nth(&tables, cov, 0, "Std. Error"), CLOGLOG_S2.1, "its se");
+    close(
+        nth(&tables, "Information Criteria", 0, "Value"),
+        CLOGLOG_S2.2,
+        "-2 RLPL",
+    );
+}
+
+#[test]
+fn nominal_generalized_logit_with_a_random_intercept_per_category() {
+    let (engine, tables) = run_engine(&format!(
+        "{NOMINAL}GENLINMIXED /DATA_STRUCTURE SUBJECTS=store /FIELDS TARGET=choice\n\
+         /FIXED EFFECTS=x2 /RANDOM USE_INTERCEPT=TRUE SUBJECTS=store SOLUTION=TRUE\n\
+         /BUILD_OPTIONS PCONVERGE=1E-10\n\
+         /SAVE PREDICTED_VALUES(cat) PREDICTED_PROBABILITY(p) CONFIDENCE(conf)\n\
+         CONFIDENCE_INTERVALS(ci)."
+    ));
+    let summary = table(&tables, "Model Summary");
+    assert_eq!(summary.rows[1][1], Cell::Text("Nominal Multinomial".into()));
+    assert_eq!(summary.rows[2][1], Cell::Text("Generalized logit".into()));
+    // c, the last value, is the reference
+    estimates(
+        &tables,
+        &[
+            (
+                "choice = a: Intercept",
+                0.237465565007071,
+                0.490491914334931,
+            ),
+            ("choice = a: x2", -0.442312749892767, 0.203350584274511),
+            (
+                "choice = b: Intercept",
+                0.459763729591169,
+                0.511742251825917,
+            ),
+            ("choice = b: x2", -0.761038264368251, 0.240942561749377),
+        ],
+    );
+    let cov = "Estimates of Covariance Parameters";
+    close(
+        nth(&tables, cov, 0, "Estimate"),
+        0.252117835731447,
+        "variance",
+    );
+    close(
+        nth(&tables, cov, 0, "Std. Error"),
+        0.317370637487149,
+        "its se",
+    );
+    close(
+        nth(&tables, "Information Criteria", 0, "Value"),
+        910.386435717094,
+        "-2 RLPL",
+    );
+    let tests = "Type III Tests of Fixed Effects";
+    close(
+        value(&tables, tests, "Intercept", "F"),
+        0.412363033319602,
+        "F",
+    );
+    close(value(&tables, tests, "x2", "F"), 5.72323989929041, "F x2");
+    close(value(&tables, tests, "x2", "Numerator df"), 2.0, "df1");
+    close(value(&tables, tests, "x2", "Denominator df"), 116.0, "df2");
+    let random = "Estimates of Random Effects";
+    close(
+        nth(&tables, random, 0, "Estimate"),
+        -0.0771011789070554,
+        "a",
+    );
+    close(nth(&tables, random, 1, "Estimate"), 0.471811446809093, "b");
+    // cases 1 and 7: the probabilities of a, b and c with their intervals
+    let want = [
+        (
+            0,
+            [0.207255531119361, 0.183594924153139, 0.609149544727501],
+            [0.0477019314945132, 0.0259501369087161, 0.425196634398896],
+            [0.366809130744209, 0.341239711397561, 0.793102455056105],
+        ),
+        (
+            6,
+            [0.257124194687875, 0.430862750339355, 0.312013054972771],
+            [0.058650033788472, 0.187245323532977, 0.133541547343887],
+            [0.455598355587277, 0.674480177145732, 0.490484562601654],
+        ),
+    ];
+    for (case, p, lo, hi) in want {
+        for j in 0..3 {
+            close(saved(&engine, &format!("p_{}", j + 1), case), p[j], "p");
+            close(
+                saved(&engine, &format!("ci_Lower_{}", j + 1), case),
+                lo[j],
+                "lo",
+            );
+            close(
+                saved(&engine, &format!("ci_Upper_{}", j + 1), case),
+                hi[j],
+                "hi",
+            );
+        }
+        close(
+            saved(&engine, "conf", case),
+            p[0].max(p[1]).max(p[2]),
+            "conf",
+        );
+    }
+    let category = |case: usize| match engine.dataset().unwrap().variable("cat").unwrap().values() {
+        statscraft_data::Values::String(v) => v.get(case).trim_end().to_string(),
+        _ => panic!("a string field"),
+    };
+    assert_eq!(category(0), "c");
+    assert_eq!(category(6), "b");
+}
+
+#[test]
+fn without_group_differences_the_fit_is_plum_and_nomreg() {
+    // every group has the same cases, so the predicted random effects are 0 and the fixed
+    // effects are the maximum likelihood estimates of the model without them
+    let ord = copies(
+        "DATA LIST FREE /school arm x grade.",
+        SAME_ORDINAL,
+        "VARIABLE LEVEL grade arm (ORDINAL).\n",
+    );
+    let tables = run(&format!(
+        "{ord}GENLINMIXED /DATA_STRUCTURE SUBJECTS=school /FIELDS TARGET=grade\n\
+         /FIXED EFFECTS=x arm /RANDOM USE_INTERCEPT=TRUE SUBJECTS=school\n\
+         /BUILD_OPTIONS PCONVERGE=1E-10.\n\
+         PLUM grade BY arm WITH x /PRINT=PARAMETER."
+    ));
+    let plum = &table(&tables, "Parameter Estimates").rows;
+    let fixed = &table(&tables, "Estimates of Fixed Effects").rows;
+    for row in 0..5 {
+        let (Cell::Number(a), Cell::Number(b)) = (&fixed[row][1], &plum[row][2]) else {
+            panic!("row {row}");
+        };
+        assert!((a - b).abs() < 1e-6, "row {row}: {a} vs {b}");
+    }
+    let nom = copies(
+        "DATA LIST FREE /store x2 (F8.1) choice (A1).",
+        SAME_NOMINAL,
+        "",
+    );
+    let tables = run(&format!(
+        "{nom}GENLINMIXED /DATA_STRUCTURE SUBJECTS=store /FIELDS TARGET=choice\n\
+         /FIXED EFFECTS=x2 /RANDOM USE_INTERCEPT=TRUE SUBJECTS=store\n\
+         /BUILD_OPTIONS PCONVERGE=1E-10.\n\
+         NOMREG choice WITH x2 /PRINT=PARAMETER."
+    ));
+    let nomreg = &table(&tables, "Parameter Estimates").rows;
+    let fixed = &table(&tables, "Estimates of Fixed Effects").rows;
+    // for the canonical logit the expected information is the observed one, so the standard
+    // errors agree too while the variance is near 0
+    for row in 0..4 {
+        for (ours, theirs) in [(1, 2), (2, 3)] {
+            let (Cell::Number(a), Cell::Number(b)) = (&fixed[row][ours], &nomreg[row][theirs])
+            else {
+                panic!("row {row}");
+            };
+            assert!(
+                (a - b).abs() < 1e-4 * b.abs().max(1.0),
+                "row {row}: {a} vs {b}"
+            );
+        }
     }
 }

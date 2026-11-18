@@ -12,7 +12,8 @@
 //!   OFFSET=NONE | VALUE(x) | FIELD(name). We also take a bare name or number for TRIALS and
 //!   OFFSET and the spelling ANALYSISWEIGHT.
 //! - TARGET_OPTIONS: REFERENCE=value, DISTRIBUTION, LINK (POWER takes LINK_PARAMETER, or
-//!   POWER(x)). Without DISTRIBUTION the engine picks one from the target's measurement level.
+//!   POWER(x); CAUCHIT is read as the cumulative Cauchit, the engine turns the other links of
+//!   an ordinal multinomial target into their cumulative forms). Without DISTRIBUTION the engine picks one from the target's measurement level.
 //! - FIXED: EFFECTS=terms, USE_INTERCEPT=TRUE (default) | FALSE.
 //! - RANDOM: EFFECTS, USE_INTERCEPT (FALSE by default; a block needs an effect or the
 //!   intercept), SUBJECTS, COVARIANCE_TYPE (VARIANCE_COMPONENTS by default), SOLUTION.
@@ -353,7 +354,6 @@ fn random(p: &mut Parser, span_start: usize) -> PResult<GlmmRandom> {
 }
 
 fn link(p: &mut Parser) -> PResult<Option<GenlinLink>> {
-    let start = p.pos;
     if p.eat_word("POWER") {
         if p.eat(Punct::LParen) {
             let v = number(p)?;
@@ -363,16 +363,12 @@ fn link(p: &mut Parser) -> PResult<Option<GenlinLink>> {
         // the exponent comes from LINK_PARAMETER
         return Ok(None);
     }
-    if p.eat_word("CAUCHIT") {
-        return Err(SyntaxError::new(
-            p.span_from(start),
-            "LINK=CAUCHIT is for an ordinal multinomial target, which GENLINMIXED does not support yet",
-        ));
-    }
     Ok(Some(choice(
         p,
         &[
             ("IDENTITY", GenlinLink::Identity),
+            // only for an ordinal multinomial target, where every link is cumulative
+            ("CAUCHIT", GenlinLink::CumCauchit),
             ("CLOGLOG", GenlinLink::Cloglog),
             ("LOGC", GenlinLink::Logc),
             ("LOGIT", GenlinLink::Logit),
@@ -715,21 +711,19 @@ pub(crate) fn genlinmixed(p: &mut Parser) -> PResult<Command> {
                         "LINK_PARAMETER",
                         "LINKPARAMETER",
                     ],
-                    |p, keyword, start| {
+                    |p, keyword, _| {
                         match keyword {
                             "REFERENCE" => {
                                 g.reference =
                                     Some(p.value().ok_or_else(|| p.unexpected(&["a value"]))?)
                             }
                             "DISTRIBUTION" => {
-                                if p.eat_word("MULTINOMIAL") {
-                                    return Err(not_yet(p, start, "DISTRIBUTION=MULTINOMIAL"));
-                                }
                                 g.distribution = Some(choice(
                                     p,
                                     &[
                                         ("NORMAL", GenlinDistribution::Normal),
                                         ("BINOMIAL", GenlinDistribution::Binomial),
+                                        ("MULTINOMIAL", GenlinDistribution::Multinomial),
                                         ("GAMMA", GenlinDistribution::Gamma),
                                         ("INVERSE_GAUSSIAN", GenlinDistribution::InverseGaussian),
                                         (

@@ -4504,14 +4504,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "GENLINMIXED",
-        summary: "Generalized linear mixed model: a target with a normal, binomial, gamma, inverse Gaussian, Poisson or negative binomial distribution and a link, fixed effects, random effects of subjects and repeated measures.",
+        summary: "Generalized linear mixed model: a target with a normal, binomial, multinomial, gamma, inverse Gaussian, Poisson or negative binomial distribution and a link, fixed effects, random effects of subjects and repeated measures.",
         syntax: "GENLINMIXED [/DATA_STRUCTURE SUBJECTS=field[*field...] [REPEATED_MEASURES=field[*field...]]\n\
                  \x20         [COVARIANCE_TYPE=DIAGONAL | type]]\n\
                  \x20  /FIELDS TARGET=field [TRIALS=NONE | VALUE(n) | FIELD(field)] [ANALYSIS_WEIGHT=field]\n\
                  \x20         [OFFSET=NONE | VALUE(x) | FIELD(field)]\n\
                  \x20  [/TARGET_OPTIONS [REFERENCE=value]\n\
-                 \x20         [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | INVERSE_GAUSSIAN | POISSON | NEGATIVE_BINOMIAL]\n\
-                 \x20         [LINK=IDENTITY | CLOGLOG | LOG | LOGC | LOGIT | NLOGLOG | POWER | PROBIT] [LINK_PARAMETER=x]]\n\
+                 \x20         [DISTRIBUTION=NORMAL | BINOMIAL | MULTINOMIAL | GAMMA | INVERSE_GAUSSIAN | POISSON |\n\
+                 \x20         NEGATIVE_BINOMIAL] [LINK=IDENTITY | CAUCHIT | CLOGLOG | LOG | LOGC | LOGIT | NLOGLOG |\n\
+                 \x20         POWER | PROBIT] [LINK_PARAMETER=x]]\n\
                  \x20  [/FIXED [EFFECTS=effects] [USE_INTERCEPT=TRUE | FALSE]]\n\
                  \x20  [/RANDOM [EFFECTS=effects] [USE_INTERCEPT=FALSE | TRUE] [SUBJECTS=field[*field...]]\n\
                  \x20          [COVARIANCE_TYPE=type] [SOLUTION=FALSE | TRUE]] ...\n\
@@ -4557,9 +4558,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  PADJUST, and their joint F test. SAVE adds the predicted mean (the events for events and trials,\n\
                  the category for a target of two values), its interval and the Pearson residual; probabilities\n\
                  and confidence need a categorical target. OUTFILE writes the fixed effects as a JSON model file.\n\
-                 Not supported yet: MULTINOMIAL (and LINK=CAUCHIT), a model with neither RANDOM nor\n\
-                 REPEATED_MEASURES, the spatial and Kronecker covariance types, KRONECKER_MEASURES, SPCOORDS,\n\
-                 GROUPING and INPUTS_CATEGORY_ORDER other than ASCENDING.",
+                 A categorical target of three or more values is MULTINOMIAL. An ordinal one gets a threshold per\n\
+                 category but the last in place of the intercept and a cumulative link (LOGIT, PROBIT, CLOGLOG,\n\
+                 NLOGLOG or CAUCHIT); a nominal one is compared with its REFERENCE category (the last by default)\n\
+                 by the logit, with its own parameters and random effects for each other category. Neither takes\n\
+                 REPEATED_MEASURES; EMMEANS is ignored with a warning. SAVE gives the predicted category, the\n\
+                 probabilities (cumulative for an ordinal target), the confidence and the intervals of the\n\
+                 probabilities. Not supported yet: SAVE PEARSON_RESIDUALS of a multinomial target, a model with\n\
+                 neither RANDOM nor REPEATED_MEASURES, the spatial and Kronecker covariance types,\n\
+                 KRONECKER_MEASURES, SPCOORDS, GROUPING and INPUTS_CATEGORY_ORDER other than ASCENDING.",
         example: "GENLINMIXED /DATA_STRUCTURE SUBJECTS=clinic /FIELDS TARGET=cured /TARGET_OPTIONS DISTRIBUTION=BINOMIAL LINK=LOGIT /FIXED EFFECTS=dose /RANDOM USE_INTERCEPT=TRUE SUBJECTS=clinic.",
         parse: genlinmixed::genlinmixed,
     },

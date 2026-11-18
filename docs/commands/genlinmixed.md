@@ -2,7 +2,7 @@
 
 # GENLINMIXED
 
-Generalized linear mixed model: a target with a normal, binomial, gamma, inverse Gaussian, Poisson or negative binomial distribution and a link, fixed effects, random effects of subjects and repeated measures.
+Generalized linear mixed model: a target with a normal, binomial, multinomial, gamma, inverse Gaussian, Poisson or negative binomial distribution and a link, fixed effects, random effects of subjects and repeated measures.
 
 ## Syntax
 
@@ -12,8 +12,9 @@ GENLINMIXED [/DATA_STRUCTURE SUBJECTS=field[*field...] [REPEATED_MEASURES=field[
    /FIELDS TARGET=field [TRIALS=NONE | VALUE(n) | FIELD(field)] [ANALYSIS_WEIGHT=field]
           [OFFSET=NONE | VALUE(x) | FIELD(field)]
    [/TARGET_OPTIONS [REFERENCE=value]
-          [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | INVERSE_GAUSSIAN | POISSON | NEGATIVE_BINOMIAL]
-          [LINK=IDENTITY | CLOGLOG | LOG | LOGC | LOGIT | NLOGLOG | POWER | PROBIT] [LINK_PARAMETER=x]]
+          [DISTRIBUTION=NORMAL | BINOMIAL | MULTINOMIAL | GAMMA | INVERSE_GAUSSIAN | POISSON |
+          NEGATIVE_BINOMIAL] [LINK=IDENTITY | CAUCHIT | CLOGLOG | LOG | LOGC | LOGIT | NLOGLOG |
+          POWER | PROBIT] [LINK_PARAMETER=x]]
    [/FIXED [EFFECTS=effects] [USE_INTERCEPT=TRUE | FALSE]]
    [/RANDOM [EFFECTS=effects] [USE_INTERCEPT=FALSE | TRUE] [SUBJECTS=field[*field...]]
            [COVARIANCE_TYPE=type] [SOLUTION=FALSE | TRUE]] ...
@@ -41,7 +42,7 @@ Cases whose target does not fit the distribution, or that miss a field, the offs
 
 Tables: Model Summary, Model Dimension, Information Criteria (of the working model), Type III Tests of Fixed Effects, Estimates of Fixed Effects, Estimates of Covariance Parameters with standard errors and Wald intervals, and the predicted random effects of each RANDOM with SOLUTION=TRUE. Degrees of freedom are the cases less the rank of the fixed design unless DF\_METHOD says otherwise. EMMEANS gives the means of a fixed effect of factors (the overall mean without TABLES) with covariates at their mean or CONTROL value, on the scale of the target or of the link, and with COMPARE the contrasts among the levels of one factor, adjusted by PADJUST, and their joint F test. SAVE adds the predicted mean (the events for events and trials, the category for a target of two values), its interval and the Pearson residual; probabilities and confidence need a categorical target. OUTFILE writes the fixed effects as a JSON model file.
 
-Not supported yet: MULTINOMIAL (and LINK=CAUCHIT), a model with neither RANDOM nor REPEATED\_MEASURES, the spatial and Kronecker covariance types, KRONECKER\_MEASURES, SPCOORDS, GROUPING and INPUTS\_CATEGORY\_ORDER other than ASCENDING.
+A categorical target of three or more values is MULTINOMIAL. An ordinal one gets a threshold per category but the last in place of the intercept and a cumulative link (LOGIT, PROBIT, CLOGLOG, NLOGLOG or CAUCHIT); a nominal one is compared with its REFERENCE category (the last by default) by the logit, with its own parameters and random effects for each other category. Neither takes REPEATED\_MEASURES; EMMEANS is ignored with a warning. SAVE gives the predicted category, the probabilities (cumulative for an ordinal target), the confidence and the intervals of the probabilities. Not supported yet: SAVE PEARSON\_RESIDUALS of a multinomial target, a model with neither RANDOM nor REPEATED\_MEASURES, the spatial and Kronecker covariance types, KRONECKER\_MEASURES, SPCOORDS, GROUPING and INPUTS\_CATEGORY\_ORDER other than ASCENDING.
 
 ## Example
 

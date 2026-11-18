@@ -200,7 +200,7 @@ One page per supported command, generated from the same table that the parser an
 | [MANOVA](manova.md) | Analysis of variance and covariance for one or several dependents, with nested and pooled terms, partitions and chosen error terms. |
 | [MIXED](mixed.md) | Linear mixed model: fixed effects with random effects of subjects and correlated repeated measures. |
 | [VARCOMP](varcomp.md) | Variance components: how much each random effect of a linear model adds to the variance of the dependent variable. |
-| [GENLINMIXED](genlinmixed.md) | Generalized linear mixed model: a target with a normal, binomial, gamma, inverse Gaussian, Poisson or negative binomial distribution and a link, fixed effects, random effects of subjects and repeated measures. |
+| [GENLINMIXED](genlinmixed.md) | Generalized linear mixed model: a target with a normal, binomial, multinomial, gamma, inverse Gaussian, Poisson or negative binomial distribution and a link, fixed effects, random effects of subjects and repeated measures. |
 | [COXREG](coxreg.md) | Cox proportional hazards regression of survival times, with strata, categorical covariates, stepwise selection and time-dependent covariates. |
 | [TIME PROGRAM](time-program.md) | Start the transformations that define time-dependent covariates for the next COXREG. |
 | [CLEAR TIME PROGRAM](clear-time-program.md) | Drop the time-dependent covariates of the last TIME PROGRAM. |
