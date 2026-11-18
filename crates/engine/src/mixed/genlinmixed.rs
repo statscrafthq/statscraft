@@ -111,6 +111,9 @@ pub(super) struct After {
     pub(super) model: Option<serde_json::Value>,
 }
 
+/// One estimated marginal mean: its row over the kept columns, u, se(u) and df.
+type Mean = (Vec<f64>, f64, f64, f64);
+
 fn copy(key: &Key) -> Key {
     match key {
         Key::Number(n) => Key::Number(*n),
@@ -516,7 +519,7 @@ impl Glmm<'_> {
                 .collect::<Vec<_>>(),
         );
         // each mean: its row over the kept columns, u, se(u), df
-        let means: Vec<Option<(Vec<f64>, f64, f64, f64)>> = combos
+        let means: Vec<Option<Mean>> = combos
             .iter()
             .map(|combo| {
                 let fixed: Vec<(usize, usize)> =
