@@ -164,6 +164,17 @@ fn dot_plot() {
             .map(|p| (p.x, p.y))
             .collect::<Vec<_>>()
     };
+    // its own kind, so every export captions it as a dot plot, not a scatter plot
+    let chart = one("XGRAPH ([POINT]) BY site.");
+    assert_eq!(chart.kind, ChartKind::Dot);
+    assert_eq!(chart.kind_text(), "Dot plot");
+    assert!(
+        chart
+            .data_table()
+            .caption
+            .is_some_and(|c| c.starts_with("Dot plot."))
+    );
+    assert_eq!(chart.vega_lite()["description"], "Dot plot");
     let up = points("XGRAPH ([POINT]) BY site.");
     assert_eq!(up.len(), 10);
     assert_eq!(up[5], (1.0, 6.0));

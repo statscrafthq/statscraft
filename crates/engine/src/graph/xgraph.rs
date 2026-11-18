@@ -577,7 +577,7 @@ impl Context<'_> {
             _ => "",
         };
         Ok(Chart::plot(
-            ChartKind::Scatter,
+            ChartKind::Dot,
             self.title(format!("Dot plot of {}", self.outline.variable(&variable))),
             self.axis(&variable, true),
             Axis::titled(height),

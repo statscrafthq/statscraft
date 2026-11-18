@@ -69,6 +69,8 @@ pub enum ChartKind {
     Area,
     /// Categories hold the x values (numbers), series the y values.
     Scatter,
+    /// Drawn as a scatter plot of `plot` points: a dot per case, stacked by equal values.
+    Dot,
     /// A point at each value with its error bar; several series side by side as bars are.
     ErrorBar,
     /// A floating bar between each pair of series: the first and second, the third and
@@ -316,6 +318,7 @@ impl Chart {
             (ChartKind::Area, Some(Grouping::Stacked)) => "Stacked area chart".into(),
             (ChartKind::Area, _) => "Area chart".into(),
             (ChartKind::Scatter, _) => "Scatter plot".into(),
+            (ChartKind::Dot, _) => "Dot plot".into(),
             (ChartKind::Boxplot, _) => "Boxplot".into(),
             (ChartKind::StemLeaf, _) => "Stem-and-leaf plot".into(),
             (ChartKind::NormalQq, _) => "Normal Q-Q plot".into(),

@@ -280,8 +280,8 @@ fn data_of(kind: ChartKind) -> Data {
     match kind {
         Bar | Pie | Line | Area | ErrorBar | RangeBar | DropLine | HighLow | Difference
         | Histogram => Data::Categories,
-        Scatter | NormalQq | DetrendedNormalQq | NormalPp | Qq | DetrendedQq | Pp | DetrendedPp
-        | Roc | SpreadLevel => Data::Points,
+        Scatter | Dot | NormalQq | DetrendedNormalQq | NormalPp | Qq | DetrendedQq | Pp
+        | DetrendedPp | Roc | SpreadLevel => Data::Points,
         Boxplot => Data::Boxes,
         StemLeaf | Dendrogram | Icicle | TreeDiagram | TerritorialMap => Data::Procedure,
     }

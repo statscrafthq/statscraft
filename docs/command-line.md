@@ -268,7 +268,7 @@ GRAPH, FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMIN
 
 | Field | Meaning |
 |---|---|
-| `kind` | `bar`, `pie`, `line`, `area`, `error_bar` (a point per value with its error bar), `range_bar` (a floating bar between each pair of series), `drop_line` and `high_low` (points with a line from the lowest to the highest value of each category; for `high_low` the third series is the close), `difference` (two lines with the area between them shaded), `scatter`, `histogram`, `boxplot`, `stem_leaf`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `spread_level`, `dendrogram`, `icicle`, `tree_diagram` or `territorial_map` |
+| `kind` | `bar`, `pie`, `line`, `area`, `error_bar` (a point per value with its error bar), `range_bar` (a floating bar between each pair of series), `drop_line` and `high_low` (points with a line from the lowest to the highest value of each category; for `high_low` the third series is the close), `difference` (two lines with the area between them shaded), `scatter`, `dot` (a dot plot: points as for `scatter`, captioned as a dot plot), `histogram`, `boxplot`, `stem_leaf`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `spread_level`, `dendrogram`, `icicle`, `tree_diagram` or `territorial_map` |
 | `tier` | `presentation` (a chart the office programs can hold as an editable chart) or `statistical` (a plot drawn exactly, such as the histogram) |
 | `orientation` | `vertical` (categories along the bottom) or `horizontal`; absent for a pie |
 | `grouping` | `clustered`, `stacked` or `percent` (stacked to 100%); bars, lines and areas only |

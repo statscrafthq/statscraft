@@ -115,7 +115,7 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
         (ChartKind::RangeBar | ChartKind::Difference, ..) => return None,
         // shortcut: scatter categories are written as text, which an office scatter cannot
         // plot; write them as numbers when a command makes scatter plots.
-        (ChartKind::Scatter | ChartKind::Histogram, ..) => return None,
+        (ChartKind::Scatter | ChartKind::Dot | ChartKind::Histogram, ..) => return None,
         // statistical plots: their data table stands in for them
         (
             ChartKind::Boxplot
