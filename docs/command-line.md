@@ -6,6 +6,7 @@ statscraft run        run syntax
 statscraft check      validate syntax without saving or writing anything
 statscraft chart      add a chart given as JSON to the output
 statscraft export     export the output of the open window, as its File > Export
+statscraft output     show what an output window of the open window holds
 statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
 statscraft db         store datasets in an OpenStatSpec database and read them back
@@ -604,6 +605,32 @@ output exported to /home/me/work/tables.xlsx
 ```
 
 It fails when no window is open, when the window has no output, and when the file cannot be written. An export waits until the plugins have answered for the tables of the last run.
+
+## output
+
+```
+statscraft output [--document NAME] [--json]
+```
+
+Shows what an output window of the open `statscraft-gui` window holds, as the person sees it there: every command heading and every table and chart of the session in order, also those from earlier runs and other callers. Without `--document` it reads the designated output window; `NAME` is an output document as `describe -s gui` lists it. It changes nothing in the window.
+
+The first line sums up the document and says which kinds of element the window shows (Edit > Settings: command headings, titles, tables, notes, charts). Then each heading and table follows as `run` prints them, a chart as its data table; `(hidden)` marks a heading or table hidden in the output, `(selected)` a table selected in the output window.
+
+```
+statscraft run -s gui -e "FREQUENCIES region."
+statscraft output
+```
+
+```
+output document Document1: 1 commands, 1 tables, 0 charts, 0 hidden, 1 selected; the window shows titles, tables, notes, charts
+
+## FREQUENCIES
+
+### Region of residence (selected)
+...
+```
+
+With `--json` it prints the window's answer: `document`, `shows` (`headings`, `titles`, `tables`, `notes`, `charts`, each true or false) and `commands`, each with `id`, `heading`, `hidden` and `items`; an item has `id`, `hidden`, `selected` and a `table` or a `chart` in the form `run --json` gives them. It fails when no window is open, when the window has no output window, and when no output document has that name.
 
 ## mcp
 

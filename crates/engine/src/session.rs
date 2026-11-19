@@ -285,7 +285,7 @@ impl RunResult {
     }
 }
 
-fn markdown(out: &mut String, table: &Table) {
+pub(crate) fn markdown(out: &mut String, table: &Table) {
     let _ = writeln!(out, "### {}\n", table.title);
     let _ = writeln!(out, "| {} |", table.column_titles().join(" | "));
     let _ = writeln!(out, "|{}", " --- |".repeat(table.columns.len()));

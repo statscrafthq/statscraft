@@ -46,6 +46,8 @@ does. When the person works in a syntax window, prefer putting the syntax there 
 from there. save_syntax is the only one of these tools that writes a file.
 Export (only with the window open): when the person wants the window's output as an Excel \
 workbook, web page or PDF, call export_output; it writes what File > Export would.
+Output (only with the window open): to see what the person sees in an output window, every \
+table and chart of the session with which are hidden and selected, call read_output.
 Charts: procedures draw their own. For a chart no procedure makes, call add_chart with chart JSON \
 as run_syntax returns it, or a simple Vega-Lite specification; it lands in the output like any \
 other chart. Draw only numbers the result tables gave.
@@ -253,6 +255,13 @@ struct ExportInput {
     selected: Option<bool>,
     /// Hidden items too. Default: false, only what the output window shows.
     hidden: Option<bool>,
+}
+
+/// What `read_output` takes.
+#[derive(Deserialize, JsonSchema)]
+struct ReadOutputInput {
+    /// The output document, as window_status names it. Default: the designated output window.
+    document: Option<String>,
 }
 
 #[derive(Clone)]
@@ -1046,6 +1055,33 @@ impl Server {
                 }
                 Err(errors) => failed(errors),
             }
+        })
+        .await)
+    }
+
+    /// Reads an output window of the open Statscraft window: every command heading and every
+    /// table and chart in order, each with its id and whether it is hidden or selected there,
+    /// and which kinds of element the window shows. The tables and charts have the form
+    /// run_syntax gives them. Changes nothing. Fails when no window is open.
+    #[tool(
+        title = "Read window output",
+        annotations(
+            title = "Read window output",
+            read_only_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn read_output(
+        &self,
+        Parameters(input): Parameters<ReadOutputInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || match crate::read_output(input.document) {
+            Ok((value, contents)) => {
+                let mut reply = CallToolResult::structured(value);
+                reply.content = vec![ContentBlock::text(contents.text())];
+                reply
+            }
+            Err(errors) => failed(errors),
         })
         .await)
     }

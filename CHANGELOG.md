@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Command line and MCP server: `statscraft output` and the tool `read_output` show what an output window of the open window holds: every command heading, table and chart of the session, which of them are hidden and selected, and which kinds the window shows; `--json` gives the tables and charts as a run does.
+
 ## 0.20.1 (2026-11-19)
 
 - Command line and MCP server: `statscraft export FILE` and the tool `export_output` export the output of the open window as its File > Export does: Excel workbook, web page or PDF, one sheet or one per table, all or only the selected tables, hidden items or not, with the plugins' colours and comments.

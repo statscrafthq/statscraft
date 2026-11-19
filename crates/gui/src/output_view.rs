@@ -9,6 +9,7 @@ use eframe::egui::{
     self, Align, Color32, FontId, Key, Painter, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
     StrokeKind, TextStyle, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
+use statscraft_engine::live;
 use statscraft_engine::office::is_office_chart;
 use statscraft_engine::output_modify::ModifiedItem;
 use statscraft_engine::plugin::Answer;
@@ -182,7 +183,7 @@ pub struct OutputView {
     pub show: Show,
     /// Headings, titles and notes hidden one by one, by the id of their command or table; a
     /// table's own visibility is `Table::hidden`.
-    hidden: HashSet<(u64, Part)>,
+    pub(crate) hidden: HashSet<(u64, Part)>,
 }
 
 impl OutputView {
@@ -309,6 +310,41 @@ impl OutputView {
             show: self.show,
             hidden: &self.hidden,
             all: false,
+        }
+    }
+
+    /// Everything this window holds for a ReadOutput of `document`: each command and table
+    /// with what hides or selects it, and the kinds of element the window shows.
+    pub fn contents(&self, document: &str) -> live::OutputContents {
+        let show = |part| self.show.kind(part);
+        let commands = self.runs.iter().flat_map(|run| &run.items);
+        let commands = commands.map(|item| live::OutputCommand {
+            id: item.id,
+            heading: item.heading.clone(),
+            hidden: self.hidden.contains(&(item.id, Part::Heading)),
+            items: item
+                .tables
+                .iter()
+                .map(|t| live::OutputItem {
+                    id: t.id,
+                    hidden: t.table.hidden,
+                    selected: self.selected.contains(&t.id),
+                    // a chart goes as a run's result gives it, without its data table
+                    table: t.chart.is_none().then(|| t.table.clone()),
+                    chart: t.chart.clone(),
+                })
+                .collect(),
+        });
+        live::OutputContents {
+            document: document.to_string(),
+            shows: live::OutputShows {
+                headings: show(Part::Heading),
+                titles: show(Part::Title),
+                tables: show(Part::Table),
+                notes: show(Part::Notes),
+                charts: show(Part::Chart),
+            },
+            commands: commands.collect(),
         }
     }
 

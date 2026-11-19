@@ -153,6 +153,7 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
         "list_syntax_windows",
         "read_syntax",
         "describe_plugin",
+        "read_output",
     ] {
         let t = tool(name);
         assert_eq!(t["annotations"]["readOnlyHint"], true, "{name}");
@@ -604,6 +605,85 @@ fn export_output_asks_the_window_for_its_file_export() {
     assert_eq!(refused["isError"], true);
     assert!(text(&refused).contains("no output to export"), "{refused}");
     assert_eq!(asked.recv().unwrap().1, dir.0.join("refused.pdf"));
+    assert!(asked.try_recv().is_err());
+}
+
+#[test]
+fn read_output_gives_the_window_output_as_json_and_text() {
+    let dir = Workdir::new("read-output");
+    let (mut client, _) = Client::start(&dir, &dir.0);
+    let none = client.call("read_output", json!({}));
+    assert_eq!(none["isError"], true);
+    assert!(
+        text(&none).contains("no Statscraft window is running"),
+        "{none}"
+    );
+
+    let syntax = "DATA LIST FREE /x.\nBEGIN DATA\n1 2 2\nEND DATA.\nFREQUENCIES x.";
+    let run = Session::default().run(syntax, None).unwrap();
+    let contents = live::OutputContents {
+        document: "Results".into(),
+        shows: live::OutputShows {
+            headings: false,
+            titles: true,
+            tables: true,
+            notes: true,
+            charts: true,
+        },
+        commands: vec![live::OutputCommand {
+            id: 1,
+            heading: "FREQUENCIES".into(),
+            hidden: false,
+            items: vec![live::OutputItem {
+                id: 2,
+                hidden: true,
+                selected: true,
+                table: Some(run.commands.last().unwrap().tables[0].clone()),
+                chart: None,
+            }],
+        }],
+    };
+    let sent = contents.clone();
+    let (sender, asked) = std::sync::mpsc::channel();
+    let _window = live::serve(dir.endpoint(), move |request| {
+        let document = request.document.clone();
+        sender.send((request.action, document.clone())).unwrap();
+        match document {
+            Some(name) if name != "Results" => {
+                Err(vec![statscraft_engine::session::Failure::plain(
+                    "window",
+                    format!("no output document {name}; open: Results"),
+                )])
+            }
+            _ => sent.reply(),
+        }
+    })
+    .unwrap();
+    let read = client.call("read_output", json!({}));
+    assert_eq!(read["isError"], false, "{read}");
+    assert_eq!(
+        read["structuredContent"],
+        serde_json::to_value(&contents).unwrap()
+    );
+    assert_eq!(text(&read), contents.text());
+    assert!(
+        text(&read).starts_with("output document Results: 1 commands, 1 tables, 0 charts"),
+        "{read}"
+    );
+    assert!(text(&read).contains(" (hidden, selected)\n"), "{read}");
+    assert_eq!(asked.recv().unwrap(), (live::Action::ReadOutput, None));
+    let named = client.call("read_output", json!({ "document": "Results" }));
+    assert_eq!(named["isError"], false, "{named}");
+    let want = (live::Action::ReadOutput, Some("Results".to_string()));
+    assert_eq!(asked.recv().unwrap(), want);
+    // the window's refusal reaches the agent
+    let refused = client.call("read_output", json!({ "document": "Draft" }));
+    assert_eq!(refused["isError"], true);
+    assert!(
+        text(&refused).contains("no output document Draft; open: Results"),
+        "{refused}"
+    );
+    assert_eq!(asked.recv().unwrap().1.as_deref(), Some("Draft"));
     assert!(asked.try_recv().is_err());
 }
 

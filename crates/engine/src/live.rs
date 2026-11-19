@@ -55,6 +55,118 @@ pub enum Action {
     /// Writes the output of the designated output window to `path` in `format`, as File >
     /// Export does.
     Export,
+    /// The tables and charts of an output window, as the person sees them there: `document`,
+    /// else the designated one. Changes nothing.
+    ReadOutput,
+}
+
+/// The reply to ReadOutput: an output document's commands in order, each with its tables and
+/// charts in the JSON form of a run's result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputContents {
+    pub document: String,
+    /// The kinds of element the output window shows; the others are hidden all together.
+    pub shows: OutputShows,
+    pub commands: Vec<OutputCommand>,
+}
+
+/// The output visibility settings of the window.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct OutputShows {
+    pub headings: bool,
+    pub titles: bool,
+    pub tables: bool,
+    pub notes: bool,
+    pub charts: bool,
+}
+
+/// One command in an output document: its heading and what it made.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputCommand {
+    pub id: u64,
+    pub heading: String,
+    /// The heading is hidden in the output.
+    pub hidden: bool,
+    pub items: Vec<OutputItem>,
+}
+
+/// A table or a chart in an output document.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputItem {
+    pub id: u64,
+    /// Hidden in the output.
+    pub hidden: bool,
+    /// Selected in the output window.
+    pub selected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<crate::Table>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chart: Option<crate::Chart>,
+}
+
+impl OutputContents {
+    /// The window's reply to a ReadOutput.
+    pub fn reply(&self) -> Response {
+        Ok(serde_json::to_string(self).expect("plain data"))
+    }
+
+    /// A one-line summary, then every heading and table as a run's text output prints them,
+    /// each hidden or selected one marked so.
+    pub fn text(&self) -> String {
+        use std::fmt::Write;
+        let items = self.commands.iter().flat_map(|c| &c.items);
+        let count = |f: fn(&OutputItem) -> bool| items.clone().filter(|i| f(i)).count();
+        let s = self.shows;
+        let kinds = [
+            (s.headings, "headings"),
+            (s.titles, "titles"),
+            (s.tables, "tables"),
+            (s.notes, "notes"),
+            (s.charts, "charts"),
+        ];
+        let shown: Vec<&str> = kinds.iter().filter(|k| k.0).map(|k| k.1).collect();
+        let mut out = format!(
+            "output document {}: {} commands, {} tables, {} charts, {} hidden, {} selected; \
+             the window shows {}\n\n",
+            self.document,
+            self.commands.len(),
+            count(|i| i.chart.is_none()),
+            count(|i| i.chart.is_some()),
+            count(|i| i.hidden),
+            count(|i| i.selected),
+            if shown.is_empty() {
+                "nothing".to_string()
+            } else {
+                shown.join(", ")
+            },
+        );
+        let marks = |hidden: bool, selected: bool| match (hidden, selected) {
+            (false, false) => "",
+            (true, false) => " (hidden)",
+            (false, true) => " (selected)",
+            (true, true) => " (hidden, selected)",
+        };
+        for command in &self.commands {
+            let _ = writeln!(
+                out,
+                "## {}{}\n",
+                command.heading,
+                marks(command.hidden, false)
+            );
+            for item in &command.items {
+                let mut table = String::new();
+                match (&item.chart, &item.table) {
+                    (Some(chart), _) => crate::session::markdown(&mut table, &chart.data_table()),
+                    (None, Some(t)) => crate::session::markdown(&mut table, t),
+                    (None, None) => continue,
+                }
+                // the marks go on the title line
+                let mark = format!("{}\n", marks(item.hidden, item.selected));
+                out.push_str(&table.replacen('\n', &mark, 1));
+            }
+        }
+        out
+    }
 }
 
 /// The file formats of File > Export.
@@ -154,6 +266,9 @@ pub struct Request {
     /// Export hidden items too.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    /// The output document of a ReadOutput.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<String>,
 }
 
 impl Request {
@@ -1390,6 +1505,79 @@ mod tests {
             std::env::temp_dir().join("t.pdf")
         );
         assert!(Request::default().export_path().is_err());
+    }
+
+    #[test]
+    fn a_read_output_request_and_its_reply_survive_the_wire() {
+        let request = Request {
+            action: Action::ReadOutput,
+            document: Some("Results".into()),
+            ..Request::default()
+        };
+        let text = serde_json::to_string(&request).unwrap();
+        assert!(text.contains(r#""action":"read_output""#), "{text}");
+        let back: Request = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.action, Action::ReadOutput);
+        assert_eq!(back.document.as_deref(), Some("Results"));
+        let bare = serde_json::to_string(&Request::default()).unwrap();
+        assert!(!bare.contains("document"), "{bare}");
+
+        let mut session = Session::default();
+        let syntax = "DATA LIST FREE /x.\nBEGIN DATA\n1 2 2\nEND DATA.\n\
+                      FREQUENCIES x /BARCHART.";
+        let run = session.run(syntax, None).unwrap();
+        let made = run.commands.last().unwrap();
+        let item = |id, hidden, selected, table, chart| OutputItem {
+            id,
+            hidden,
+            selected,
+            table,
+            chart,
+        };
+        let contents = OutputContents {
+            document: "Document1".into(),
+            shows: OutputShows {
+                headings: false,
+                titles: true,
+                tables: true,
+                notes: true,
+                charts: true,
+            },
+            commands: vec![OutputCommand {
+                id: 1,
+                heading: "Frequencies".into(),
+                hidden: true,
+                items: vec![
+                    item(2, false, true, Some(made.tables[0].clone()), None),
+                    item(3, true, false, None, Some(made.charts[0].clone())),
+                ],
+            }],
+        };
+        let wire = serde_json::to_value(&contents).unwrap();
+        // tables and charts in the form of a run's result
+        let ran = serde_json::to_value(&run).unwrap();
+        let last = &ran["commands"][run.commands.len() - 1];
+        assert_eq!(wire["commands"][0]["items"][0]["table"], last["tables"][0]);
+        assert_eq!(wire["commands"][0]["items"][1]["chart"], last["charts"][0]);
+        assert!(wire["commands"][0]["items"][1].get("table").is_none());
+        let back: OutputContents = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&back).unwrap(), wire);
+
+        let text = contents.text();
+        let first = text.lines().next().unwrap();
+        assert_eq!(
+            first,
+            "output document Document1: 1 commands, 1 tables, 1 charts, 1 hidden, 1 selected; \
+             the window shows titles, tables, notes, charts"
+        );
+        assert!(text.contains("## Frequencies (hidden)\n"), "{text}");
+        let title = &made.tables[0].title;
+        assert!(
+            text.contains(&format!("### {title} (selected)\n")),
+            "{text}"
+        );
+        let chart = &made.charts[0].data_table().title;
+        assert!(text.contains(&format!("### {chart} (hidden)\n")), "{text}");
     }
 
     #[test]

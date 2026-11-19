@@ -1019,6 +1019,10 @@ impl App {
                 let answer = self.export_for(&request);
                 let _ = reply.send(answer);
             }
+            Action::ReadOutput => {
+                let contents = read_output(&self.windows, request.document.as_deref());
+                let _ = reply.send(contents.and_then(|c| c.reply()));
+            }
             _ => self.answer_windows(request, reply),
         }
     }
@@ -4536,6 +4540,34 @@ pub(crate) fn file_name(path: &Path) -> String {
     }
 }
 
+/// What the output window of `document` holds, else that of the designated one, as a
+/// ReadOutput reply.
+fn read_output(
+    windows: &Registry,
+    document: Option<&str>,
+) -> Result<live::OutputContents, Vec<Failure>> {
+    let id = match document {
+        Some(name) => windows.with_document(name),
+        None => windows.designated_output(),
+    };
+    let Some(output) = id.and_then(|id| windows.output(id)) else {
+        let names: Vec<&str> = windows
+            .iter()
+            .filter_map(|w| match &w.kind {
+                Kind::Output(o) => Some(o.document.as_str()),
+                _ => None,
+            })
+            .collect();
+        let message = match (document, names.is_empty()) {
+            (_, true) => "the window has no output window".to_string(),
+            (Some(name), false) => format!("no output document {name}; open: {}", names.join(", ")),
+            (None, false) => "the window has no designated output window".to_string(),
+        };
+        return Err(vec![Failure::plain("window", message)]);
+    };
+    Ok(output.view.contents(&output.document))
+}
+
 /// Writes the output of a window to `path` as File > Export chose: what it wrote, or why not.
 /// The window, the command line and agents all export through here.
 fn write_export(
@@ -7580,5 +7612,81 @@ mod tests {
         let error = write_export(&view, &bad, html(Choice::default())).unwrap_err();
         assert!(error.starts_with("t.html: "), "{error}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A ReadOutput from the command line or an agent: the designated output window or the one
+    /// named, with what hides and selects each item and the kinds the window shows.
+    #[test]
+    fn read_output_gives_the_output_window_as_the_person_sees_it() {
+        let mut r = Registry::new();
+        let error = read_output(&r, None).unwrap_err();
+        assert_eq!(error[0].message, "the window has no output window");
+        let mut session = open("survey_basic.sav");
+        let syntax = "FREQUENCIES gender /BARCHART.\nDESCRIPTIVES age.";
+        let out = session.run(syntax, None).unwrap().commands;
+        follow(&mut r, &session, None);
+        let id = r.designated_output().unwrap();
+        let output = r.output_mut(id).unwrap();
+        let document = output.document.clone();
+        let view = &mut output.view;
+        for (_, label, commands) in output_groups(out, syntax, false) {
+            view.add_run(label.as_deref().unwrap_or("window"), commands);
+        }
+        let ids: Vec<u64> = output::tables(&view.runs).map(|t| t.id).collect();
+        let charts = output::tables(&view.runs).filter(|t| t.chart.is_some());
+        let chart = charts.map(|t| t.id).next().unwrap();
+        let first = &mut view.runs[0].items[0];
+        let heading = first.id;
+        first.tables[0].table.hidden = true;
+        view.hidden.insert((heading, output::Part::Heading));
+        // the frequency table, its chart and the DESCRIPTIVES table
+        assert_eq!(ids.len(), 3);
+        assert_eq!(chart, ids[1]);
+        view.selected = [chart, ids[2]].into();
+        view.show.kinds = [true, true, true, false, false];
+
+        let read = |name| read_output(&r, name).unwrap();
+        let contents = read(None);
+        assert_eq!(contents.document, document);
+        let shows = contents.shows;
+        let kinds = (shows.headings, shows.titles, shows.tables, shows.notes);
+        assert_eq!((kinds, shows.charts), ((true, true, true, false), false));
+        let headings: Vec<&str> = contents
+            .commands
+            .iter()
+            .map(|c| c.heading.as_str())
+            .collect();
+        assert_eq!(headings, ["FREQUENCIES", "DESCRIPTIVES"]);
+        let hidden: Vec<bool> = contents.commands.iter().map(|c| c.hidden).collect();
+        assert_eq!(hidden, [true, false]);
+        let items: Vec<&live::OutputItem> =
+            contents.commands.iter().flat_map(|c| &c.items).collect();
+        assert_eq!(items.iter().map(|i| i.id).collect::<Vec<_>>(), ids);
+        let flags = |i: &&live::OutputItem| (i.id, i.hidden, i.selected);
+        let flagged: Vec<_> = items
+            .iter()
+            .filter(|i| i.hidden || i.selected)
+            .map(flags)
+            .collect();
+        assert_eq!(
+            flagged,
+            [
+                (ids[0], true, false),
+                (chart, false, true),
+                (ids[2], false, true)
+            ]
+        );
+        // a chart comes as a run gives it, a table as a table
+        for item in &items {
+            assert_eq!(item.chart.is_some(), item.id == chart);
+            assert_eq!(item.table.is_some(), item.id != chart);
+        }
+        // the document by its name in any case, and an unknown one refused with the open ones
+        assert_eq!(read(Some(&document.to_lowercase())).commands.len(), 2);
+        let error = read_output(&r, Some("Elsewhere")).unwrap_err();
+        assert_eq!(
+            error[0].message,
+            format!("no output document Elsewhere; open: {document}")
+        );
     }
 }

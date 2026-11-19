@@ -61,6 +61,16 @@ enum Cmd {
     /// Export the output of the running statscraft-gui window to a file, as its File > Export
     /// does: the tables and charts of its designated output window
     Export(ExportArgs),
+    /// Show what an output window of the running statscraft-gui holds: every command and its
+    /// tables and charts, which are hidden and which are selected
+    Output {
+        /// The output document; default: the designated output window
+        #[arg(long)]
+        document: Option<String>,
+        /// Print the window's answer as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Show the syntax of a command, or list all commands
     Help { command: Vec<String> },
     /// Lower bounded syntax to an OpenStatSpec transformation plan (JSON), or apply it in a database
@@ -199,6 +209,16 @@ fn main() -> ExitCode {
             false,
             export(args, std::env::current_dir().ok())
                 .map(|path| println!("output exported to {path}")),
+        ),
+        Cmd::Output { document, json } => (
+            json,
+            read_output(document).map(|(value, contents)| match json {
+                true => println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).expect("plain data")
+                ),
+                false => print!("{}", contents.text()),
+            }),
         ),
         Cmd::Help { command } => (
             false,
@@ -684,6 +704,27 @@ fn export(args: ExportArgs, cwd: Option<PathBuf>) -> Result<String, Vec<Failure>
             format!("reply of the window names no exported file: {reply}"),
         )]),
     }
+}
+
+/// What an output window of the window holds: its reply as sent, and read.
+fn read_output(
+    document: Option<String>,
+) -> Result<(serde_json::Value, live::OutputContents), Vec<Failure>> {
+    let request = Request {
+        action: Action::ReadOutput,
+        document,
+        ..Request::default()
+    };
+    let reply = live::send(&live::endpoint_file(), request)?;
+    let bad = |e: serde_json::Error| {
+        vec![Failure::plain(
+            "session",
+            format!("reply of the window: {e}"),
+        )]
+    };
+    let value: serde_json::Value = serde_json::from_str(&reply).map_err(bad)?;
+    let contents = serde_json::from_value(value.clone()).map_err(bad)?;
+    Ok((value, contents))
 }
 
 /// Sends a run or check to the window and writes the workbook from its reply.

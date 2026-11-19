@@ -458,3 +458,93 @@ fn export_sends_the_choices_to_the_window_and_prints_its_answer() {
     assert!(asked.recv().unwrap().1.ends_with("refused.pdf"));
     assert!(asked.try_recv().is_err());
 }
+
+/// An output document as a window holds it: FREQUENCIES with its table selected and a hidden
+/// bar chart under a hidden heading.
+fn window_output() -> live::OutputContents {
+    let syntax = "DATA LIST FREE /x.\nBEGIN DATA\n1 2 2\nEND DATA.\nFREQUENCIES x /BARCHART.";
+    let run = Session::default().run(syntax, None).unwrap();
+    let made = run.commands.last().unwrap();
+    let shows = live::OutputShows {
+        headings: true,
+        titles: true,
+        tables: true,
+        notes: false,
+        charts: true,
+    };
+    let table = live::OutputItem {
+        id: 2,
+        hidden: false,
+        selected: true,
+        table: Some(made.tables[0].clone()),
+        chart: None,
+    };
+    let chart = live::OutputItem {
+        id: 3,
+        hidden: true,
+        selected: false,
+        table: None,
+        chart: Some(made.charts[0].clone()),
+    };
+    live::OutputContents {
+        document: "Results".into(),
+        shows,
+        commands: vec![live::OutputCommand {
+            id: 1,
+            heading: "FREQUENCIES".into(),
+            hidden: true,
+            items: vec![table, chart],
+        }],
+    }
+}
+
+#[test]
+fn output_prints_what_the_output_window_holds() {
+    let dir = Workdir::new("output");
+    let (ok, _, err) = text(&dir.cli(&["output"]));
+    assert!(
+        !ok && err.contains("no Statscraft window is running"),
+        "{err}"
+    );
+
+    let contents = window_output();
+    let sent = contents.clone();
+    let (sender, asked) = std::sync::mpsc::channel();
+    let _server = live::serve(dir.endpoint(), move |request| {
+        let document = request.document.clone();
+        sender.send((request.action, document.clone())).unwrap();
+        match document {
+            Some(name) if !name.eq_ignore_ascii_case("Results") => {
+                let message = format!("no output document {name}; open: Results");
+                Err(vec![Failure::plain("window", message)])
+            }
+            _ => sent.reply(),
+        }
+    })
+    .unwrap();
+    let (ok, out, err) = text(&dir.cli(&["output"]));
+    assert!(ok, "{err}");
+    assert_eq!(out, contents.text());
+    let summary = "output document Results: 1 commands, 1 tables, 1 charts, 1 hidden, \
+                   1 selected; the window shows headings, titles, tables, charts\n";
+    assert!(out.starts_with(summary), "{out}");
+    assert!(out.contains("## FREQUENCIES (hidden)\n"), "{out}");
+    let title = &contents.commands[0].items[0].table.as_ref().unwrap().title;
+    assert!(out.contains(&format!("### {title} (selected)\n")), "{out}");
+    assert_eq!(asked.recv().unwrap(), (Action::ReadOutput, None));
+
+    // the window's JSON as it sent it
+    let (ok, out, err) = text(&dir.cli(&["output", "--document", "results", "--json"]));
+    assert!(ok, "{err}");
+    let printed: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(printed, serde_json::to_value(&contents).unwrap());
+    let named = (Action::ReadOutput, Some("results".to_string()));
+    assert_eq!(asked.recv().unwrap(), named);
+
+    // the window's refusal is the command's error
+    let (ok, _, err) = text(&dir.cli(&["output", "--document", "Draft"]));
+    let refused = "no output document Draft; open: Results";
+    assert!(!ok && err.contains(refused), "{err}");
+    assert_eq!(asked.recv().unwrap().1.as_deref(), Some("Draft"));
+    assert!(asked.try_recv().is_err());
+}
