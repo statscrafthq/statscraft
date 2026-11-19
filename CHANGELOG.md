@@ -1,11 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.20.0 (2026-11-19)
 
 - MCP server: `run_syntax` takes `plugins` (with `xlsx`, in a file session), so an agent's workbook has the plugins' colours, comments and layout as `--plugin` gives on the command line, and `xlsx_one_sheet`. The new tool `describe_plugin` lists a plugin's settings with the data file attribute of each, so the agent can set them with DATAFILE ATTRIBUTE.
 - The window: File > Export... opens one Export dialog for the output: Excel workbook (one sheet per table or all tables on one sheet), web page or PDF, all items or only the selected tables, and hidden items or not. It replaces the three Export output items of the File menu, the Export selection menu over the tables (now **Export...**, set to the selected tables) and Edit > Settings > Export hidden items. A PDF can now take only the selected tables too.
 - Plugins: Edit > Settings > Plugins no longer has its own "Write plugin comments as Excel comments" switch, which left the comments out of Excel while the window showed them. A plugin's own settings decide whether it writes comments, in the window and in Excel.
-
 - The window: Update now installs a new .deb itself, the system asking for the password in its own window (the command to type is shown only when that fails or is cancelled), and for a copy it cannot update the bar names the folder that copy runs from.
 
 ## 0.19.1 (2026-11-18)
