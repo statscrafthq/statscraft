@@ -54,7 +54,7 @@ The datasets and output documents in `session`:
 }
 ```
 
-The open window (`-s gui`) lists what the window holds, the same way. A file session keeps no output documents between runs, so there the list is empty.
+The open window (`-s gui`) lists what the window holds, the same way. A file session keeps its output documents between runs the same way, so there the list shows what earlier runs collected.
 
 ## run
 
@@ -133,7 +133,8 @@ A session is what one window would keep from one run to the next, stored on disk
 | TEMPORARY, N OF CASES, scratch variables, VECTOR | no: the end of a run is a data pass, so they take effect or end in the run that gives them | |
 | An open DO IF, LOOP, or a DATA LIST without its BEGIN DATA | no: the run fails | |
 | The folder of the syntax file, where INSERT and INCLUDE start | no: each run starts from its own file | |
-| Output documents (OUTPUT NEW, NAME, ACTIVATE) and their tables | no: each run starts without output; save it in the same run with OUTPUT SAVE, or use the `gui` session, which keeps its documents | |
+| Output documents (OUTPUT NEW, NAME, ACTIVATE) with their tables, charts, hidden items, labels, plugin comments, the designated one and the name counter | yes | `outputs/`: `names.json` and one `<n>.scout` per document |
+| The workbooks OUTPUT EXPORT wrote (CREATESHEET and MODIFYSHEET add only to one written in the same run), the files REPORT wrote, the TITLE text | no | |
 
 - The first run of a new session starts without data; its syntax usually begins with `GET FILE`. Settings, macros and a CD may come before any data.
 - With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
@@ -141,6 +142,8 @@ A session is what one window would keep from one run to the next, stored on disk
 - `describe -s NAME` shows the active dataset and, under `session` in the JSON, the SET values given, the number of PRESERVE levels, `directory`, where relative file names start (the folder of the last CD, else, for the window, its last caller's folder), the active dataset's name, every named dataset with its size, the macros, the output documents and the designated one ([describe](#describe)).
 - The trail in `syntax.sps` holds exactly the syntax that ran: only the chosen lines for `--lines`, nothing of a failed run or a check. Run it from the top on the original data to repeat the work, or copy steps from it. When it cannot be written, the run fails and the session stays as it was.
 - `check` and `describe` never write it.
+- Output piles up: the tables of every run go to the designated document and are written again after each run that made tables or ran an OUTPUT command. `OUTPUT CLOSE ALL.` empties it, and so does deleting the folder `outputs`. A run that only makes tables does not set `saved`; the data file is not written then.
+- Collect over several runs, then write once: `statscraft run -s S -e "OUTPUT MODIFY /SELECT TABLES /IF COMMANDS=['Means'] /OBJECTPROPERTIES VISIBLE=NO."` hides what the earlier runs made, and a later `OUTPUT EXPORT /XLSX DOCUMENTFILE='all.xlsx' /CONTENTS EXPORT=VISIBLE.` or `OUTPUT SAVE` writes the document. `--xlsx` still writes only the tables of its own run.
 - Delete the session's folder to start over.
 
 ```

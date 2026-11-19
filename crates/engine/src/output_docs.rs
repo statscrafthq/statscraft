@@ -290,6 +290,24 @@ pub struct OutputDocument {
     pub unsaved: bool,
 }
 
+/// What a file session keeps of its output between runs: the open documents, which one is
+/// designated and how far the DocumentN names have counted.
+#[derive(Clone, Default)]
+pub struct KeptOutput {
+    pub documents: Vec<KeptDocument>,
+    pub designated: Option<usize>,
+    pub numbered: usize,
+}
+
+/// One kept output document.
+#[derive(Clone)]
+pub struct KeptDocument {
+    pub name: String,
+    pub file: Option<PathBuf>,
+    pub changed: bool,
+    pub items: Vec<output_file::Item>,
+}
+
 impl Engine {
     /// Adds the tables and the charts of one command (those it made so far, before
     /// `take_charts`), with its syntax and warnings, to the designated document and returns its
@@ -337,6 +355,44 @@ impl Engine {
             unsaved: d.changed,
         })
         .collect()
+    }
+
+    /// The output documents as a file session keeps them. Not kept: the workbooks OUTPUT
+    /// EXPORT wrote (CREATESHEET and MODIFYSHEET add only to one written in the same run), the
+    /// files REPORT wrote and the TITLE text.
+    pub fn kept_output(&self) -> KeptOutput {
+        let d = &self.documents;
+        KeptOutput {
+            documents: d
+                .open
+                .iter()
+                .map(|d| KeptDocument {
+                    name: d.name.clone(),
+                    file: d.file.clone(),
+                    changed: d.changed,
+                    items: d.items.clone(),
+                })
+                .collect(),
+            designated: d.designated,
+            numbered: d.numbered,
+        }
+    }
+
+    /// Puts back what `kept_output` gave.
+    pub fn keep_output(&mut self, kept: KeptOutput) {
+        let d = &mut self.documents;
+        d.open = kept
+            .documents
+            .into_iter()
+            .map(|k| Document {
+                name: k.name,
+                items: k.items,
+                file: k.file,
+                changed: k.changed,
+            })
+            .collect();
+        d.designated = kept.designated.filter(|&at| at < d.open.len());
+        d.numbered = kept.numbered;
     }
 
     /// The items of an open output document, as an output file holds them.

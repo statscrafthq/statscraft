@@ -61,7 +61,7 @@ Procedures draw their own charts. When the person wants a chart that no procedur
 - The values are drawn as given: nothing is counted, summed or binned. The numbers should come from the result tables.
 - In the open window the chart goes to the designated output window, where the person sees it, copies it, opens it in Excel, Word or PowerPoint, and saves or exports it with the other output. `commands[0].document` in the result names the document.
 - The tool runs the syntax BEGIN CHART, a Statscraft extension, with the chart's JSON inside. That syntax is kept like any run: in the Agent syntax window, or in `syntax.sps` of a file session, so running it again shows the chart again.
-- A file session keeps no output between calls. To write the chart to a file there, send the BEGIN CHART block and OUTPUT EXPORT or OUTPUT SAVE together through `run_syntax`.
+- A file session keeps its output between calls, in its folder. Add the chart, then write the document with OUTPUT EXPORT or OUTPUT SAVE through `run_syntax` whenever it is ready.
 - A chart that cannot be drawn, a misspelt field, or a Vega-Lite feature that Statscraft does not read is an error to fix, like a syntax error: `ok` is false and the message names what is wrong. Nothing is added then.
 
 ## Tables with a plugin

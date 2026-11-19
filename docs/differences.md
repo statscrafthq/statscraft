@@ -1738,9 +1738,9 @@ Significance tests:
 - OUTPUT SAVE: TYPE, LOCK and STOREMODEL are accepted and change nothing. /PASSPROTECT with a password is an error and nothing is saved; PASSWORD=NONE is accepted.
 - OUTPUT OPEN: LOCK and PASSWORD are accepted and change nothing. A file that is missing, is no Statscraft output file or comes from a newer Statscraft gives a warning, and the tables keep going to the document they went to.
 - Each command's item keeps the syntax that ran and its warnings beside its tables and charts. Deleting tables in an output window deletes them from the document too.
-- A file session of the command line keeps no output documents between runs; save in the same run, or use the window session.
+- A file session of the command line keeps its output documents between runs (folder `outputs` in the session); it does not keep the workbooks OUTPUT EXPORT wrote, so CREATESHEET and MODIFYSHEET add only to one written in the same run.
 - The window shows each output document in an output window of its own. The documents decide what OUTPUT EXPORT writes, including tables deleted from the view.
-- The window session keeps its documents from run to run; a command-line run starts without any.
+- The window session and a file session keep their documents from run to run; a command-line run without a session starts without any.
 - OUTPUT ACTIVATE of a name no document has, and OUTPUT CLOSE of one, give a warning, so the run goes on.
 - OUTPUT EXPORT /XLSX puts the tables one below the other on one sheet (SHEET, or Tables), a blank row between. MODIFYSHEET leaves one blank column (LASTCOLUMN) or row (LASTROW) before the new tables.
 - CREATESHEET and MODIFYSHEET add only to a workbook that OUTPUT EXPORT wrote in the same session and that has not changed since, because the whole workbook is written again and what Statscraft did not write (formulas, charts, formatting) would be lost. Other workbooks are refused with an error.

@@ -994,3 +994,105 @@ fn chart_adds_a_chart_from_a_json_file_and_keeps_its_syntax() {
         "{stderr}"
     );
 }
+
+#[test]
+fn a_file_session_keeps_its_output_between_runs() {
+    let w = Workdir::new("keepout");
+    let first = w.json(&[
+        "run",
+        "--json",
+        "-s",
+        "o",
+        "-e",
+        &format!(
+            "{}\nFREQUENCIES gender.\nOUTPUT MODIFY /SELECT TABLES /OBJECTPROPERTIES VISIBLE=NO.\n\
+             FREQUENCIES region.",
+            get_fixture("survey_basic.sav")
+        ),
+    ]);
+    assert_eq!(first["ok"], true);
+    let kept = w.0.join(".statscraft/sessions/o/outputs");
+    assert!(kept.join("0.scout").exists());
+
+    // describe lists the document with the tables of both commands
+    let described = w.json(&["describe", "-s", "o", "--json"]);
+    let documents = &described["session"]["output_documents"];
+    assert_eq!(documents[0]["name"], "Document1");
+    assert_eq!(documents[0]["tables"], 2);
+    assert_eq!(described["session"]["designated_output"], "Document1");
+
+    // a check and a failed run leave the kept output as it was
+    let before = std::fs::read_to_string(kept.join("0.scout")).unwrap();
+    w.ok(&["check", "-s", "o", "-e", "FREQUENCIES gender."]);
+    assert!(
+        !w.run(&["run", "-s", "o", "-e", "FREQUENCIES nosuch."])
+            .status
+            .success()
+    );
+    assert_eq!(
+        std::fs::read_to_string(kept.join("0.scout")).unwrap(),
+        before
+    );
+
+    // a later run adds to it, exports only what is visible and saves the whole document
+    let second = w.json(&[
+        "run",
+        "--json",
+        "-s",
+        "o",
+        "-e",
+        "FREQUENCIES gender.\n\
+         OUTPUT EXPORT /CSV DOCUMENTFILE='visible.csv' /CONTENTS EXPORT=VISIBLE.\n\
+         OUTPUT SAVE OUTFILE='all.scout'.",
+    ]);
+    assert_eq!(second["commands"][0]["document"], "Document1");
+    let csv = std::fs::read_to_string(w.0.join("visible.csv")).unwrap();
+    // the first table (gender, hidden in run 1) is left out; the region table of run 1 and the
+    // gender table of this run stand in it
+    assert!(csv.contains("Region"), "{csv}");
+    assert_eq!(csv.matches("Gender").count(), 1, "{csv}");
+    let all = std::fs::read_to_string(w.0.join("all.scout")).unwrap();
+    let all: serde_json::Value = serde_json::from_str(&all).unwrap();
+    assert_eq!(all["items"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn a_file_session_keeps_which_output_document_is_designated() {
+    let w = Workdir::new("keepdesignated");
+    let data = get_fixture("survey_basic.sav");
+    w.ok(&[
+        "run",
+        "-s",
+        "d",
+        "-e",
+        &format!("{data}\nFREQUENCIES gender.\nOUTPUT NEW NAME=second.\nFREQUENCIES region."),
+    ]);
+    // the next table goes to the designated one; OUTPUT ACTIVATE of the first goes back
+    w.ok(&["run", "-s", "d", "-e", "FREQUENCIES gender."]);
+    let described = w.json(&["describe", "-s", "d", "--json"]);
+    let documents = described["session"]["output_documents"].as_array().unwrap();
+    assert_eq!(documents[0]["name"], "Document1");
+    assert_eq!(documents[0]["tables"], 1);
+    assert_eq!(documents[1]["name"], "second");
+    assert_eq!(documents[1]["tables"], 2);
+    assert_eq!(described["session"]["designated_output"], "second");
+    w.ok(&[
+        "run",
+        "-s",
+        "d",
+        "-e",
+        "OUTPUT ACTIVATE Document1.\nFREQUENCIES region.",
+    ]);
+    let described = w.json(&["describe", "-s", "d", "--json"]);
+    assert_eq!(described["session"]["output_documents"][0]["tables"], 2);
+
+    // closing every document removes what the session kept, and the names go on counting
+    w.ok(&["run", "-s", "d", "-e", "OUTPUT CLOSE ALL."]);
+    assert!(!w.0.join(".statscraft/sessions/d/outputs/0.scout").exists());
+    w.ok(&["run", "-s", "d", "-e", "FREQUENCIES gender."]);
+    let described = w.json(&["describe", "-s", "d", "--json"]);
+    assert_eq!(
+        described["session"]["output_documents"][0]["name"],
+        "Document2"
+    );
+}

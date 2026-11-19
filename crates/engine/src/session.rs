@@ -452,6 +452,16 @@ impl Session {
         self.engine.designated_output()
     }
 
+    /// The output documents, to keep between the runs of a file session.
+    pub fn kept_output(&self) -> crate::KeptOutput {
+        self.engine.kept_output()
+    }
+
+    /// Puts back the output documents a file session kept.
+    pub fn keep_output(&mut self, kept: crate::KeptOutput) {
+        self.engine.keep_output(kept);
+    }
+
     /// The items of an open output document, as OUTPUT SAVE writes them.
     pub fn output_items(&self, document: &str) -> Option<&[crate::output_file::Item]> {
         self.engine.output_items(document)

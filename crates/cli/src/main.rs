@@ -326,6 +326,7 @@ fn open_session(name: &str) -> Result<Session, Vec<Failure>> {
     if let Some(random) = read_state(&path)?.and_then(|state| state.random) {
         session.set_random_state(random);
     }
+    load_output(&path, &mut session)?;
     Ok(session)
 }
 
@@ -488,6 +489,82 @@ fn replace_dataset(path: &std::path::Path, dataset: &Dataset) -> Result<(), Stri
     save_dataset(path, dataset, random)
 }
 
+/// The output documents of a session, kept in `outputs/` beside its data: `names.json` holds
+/// each document's name, file and unsaved flag, the designated one and the name counter, and
+/// the document at position `i` is the output file `<i>.scout`.
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct KeptNames {
+    designated: Option<usize>,
+    numbered: usize,
+    documents: Vec<KeptName>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct KeptName {
+    name: String,
+    file: Option<PathBuf>,
+    changed: bool,
+}
+
+fn outputs_folder(data: &std::path::Path) -> PathBuf {
+    data.with_file_name("outputs")
+}
+
+fn load_output(data: &std::path::Path, session: &mut Session) -> Result<(), Vec<Failure>> {
+    let folder = outputs_folder(data);
+    let Ok(text) = std::fs::read_to_string(folder.join("names.json")) else {
+        return Ok(());
+    };
+    let names: KeptNames =
+        serde_json::from_str(&text).map_err(|e| session_failure(e.to_string()))?;
+    let mut kept = statscraft_engine::KeptOutput {
+        designated: names.designated,
+        numbered: names.numbered,
+        ..Default::default()
+    };
+    for (i, name) in names.documents.into_iter().enumerate() {
+        let text = std::fs::read_to_string(folder.join(format!("{i}.scout")))
+            .map_err(|e| session_failure(e.to_string()))?;
+        let items = statscraft_engine::output_file::read(&text)
+            .map_err(|e| session_failure(e.to_string()))?;
+        kept.documents.push(statscraft_engine::KeptDocument {
+            name: name.name,
+            file: name.file,
+            changed: name.changed,
+            items,
+        });
+    }
+    session.keep_output(kept);
+    Ok(())
+}
+
+fn save_output(data: &std::path::Path, session: &Session) -> Result<(), String> {
+    let folder = outputs_folder(data);
+    let _ = std::fs::remove_dir_all(&folder);
+    let kept = session.kept_output();
+    // the counter outlives the documents: after OUTPUT CLOSE ALL the next is still Document2
+    if kept.documents.is_empty() && kept.numbered == 0 {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    let mut names = KeptNames {
+        designated: kept.designated,
+        numbered: kept.numbered,
+        documents: Vec::new(),
+    };
+    for (i, document) in kept.documents.iter().enumerate() {
+        let text = statscraft_engine::output_file::write(&document.items);
+        std::fs::write(folder.join(format!("{i}.scout")), text).map_err(|e| e.to_string())?;
+        names.documents.push(KeptName {
+            name: document.name.clone(),
+            file: document.file.clone(),
+            changed: document.changed,
+        });
+    }
+    let text = serde_json::to_string_pretty(&names).expect("plain data");
+    std::fs::write(folder.join("names.json"), text).map_err(|e| e.to_string())
+}
+
 /// Writes everything a session keeps. A session left without an active dataset keeps its
 /// last data file, as before.
 fn save_session(path: &std::path::Path, session: &Session) -> Result<(), String> {
@@ -497,6 +574,7 @@ fn save_session(path: &std::path::Path, session: &Session) -> Result<(), String>
         save_dataset(path, dataset, Some(session.random_state()))?;
     }
     save_named(path, session)?;
+    save_output(path, session)?;
     std::fs::write(macros_file(path), session.macros().to_syntax()).map_err(|e| e.to_string())?;
     let settings = format!(
         "* The SET values, PRESERVE levels and CD folder of this session.\n{}",
@@ -691,9 +769,19 @@ fn run_result(
         let trail = keep_trail(&path, &statscraft_engine::live::last_syntax(&session))
             .map_err(session_failure)?;
         result.trail = Some(trail.display().to_string());
+        // output is not part of the engine's `saved` (that sets the undo point): a command that
+        // made tables or ran an OUTPUT command may have changed the documents
+        let output = result
+            .commands
+            .iter()
+            .any(|c| c.document.is_some() || c.name.starts_with("OUTPUT"));
         if changed || (session.dataset().is_some() && !path.exists()) {
             save_session(&path, &session).map_err(session_failure)?;
             result.saved = true;
+        } else if output {
+            // only the output: the data file stays as it is, and `saved` stays false so a file
+            // session reports what the window does (its output is never "saved" either)
+            save_output(&path, &session).map_err(session_failure)?;
         }
     }
     Ok(result)

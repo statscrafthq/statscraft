@@ -175,8 +175,8 @@ struct ChartInput {
     /// or arc and encodings x, y, color, theta and xOffset; no aggregate, bin or transform.
     chart: serde_json::Map<String, Value>,
     /// Session whose output gets the chart. "gui" is the open Statscraft window. Default: "gui"
-    /// when a window is open, else "work". A file session keeps no output between calls: to
-    /// write the chart to a file there, run BEGIN CHART with OUTPUT EXPORT in run_syntax.
+    /// when a window is open, else "work". A file session keeps its output between calls: to
+    /// write it to a file, run OUTPUT EXPORT or OUTPUT SAVE in run_syntax.
     session: Option<String>,
     /// Also give the chart as Statscraft drew it as a Vega-Lite specification. Default: false.
     vega_lite: Option<bool>,

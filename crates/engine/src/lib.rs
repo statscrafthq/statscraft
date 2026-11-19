@@ -171,7 +171,7 @@ pub use html::{
     STYLE as HTML_STYLE, cell_attributes, header_attributes, label_attributes, table_attributes,
     table_html,
 };
-pub use output_docs::OutputDocument;
+pub use output_docs::{KeptDocument, KeptOutput, OutputDocument};
 pub use random::RandomState;
 use serde::{Deserialize, Serialize};
 use statscraft_data::{Dataset, Measure, MissingValues, Value};
