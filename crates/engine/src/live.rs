@@ -47,6 +47,8 @@ pub enum Action {
     Open,
     /// Writes `window` to its file, or to `path`.
     Save,
+    /// Closes `window`; one with unsaved changes only with `discard`.
+    Close,
     /// Runs the text of `window`, or its `lines`, as the window's own Run does.
     RunWindow,
     /// Opens `files` as the window opens the files it starts with: a second start of the
@@ -251,6 +253,9 @@ pub struct Request {
     /// Save may replace a file that is not the window's own.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub overwrite: bool,
+    /// Close may lose the unsaved changes of the window.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub discard: bool,
     /// The files of an OpenFiles request, as absolute paths.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<PathBuf>,
@@ -428,6 +433,9 @@ pub trait SyntaxWindows {
     fn saved(&mut self, id: u64, file: PathBuf);
     /// The window that keeps the trail, once there is one.
     fn agent(&mut self) -> &mut Option<u64>;
+    /// Takes the window away. False, and nothing changes, when it is the last window of the
+    /// program, whose close would end it.
+    fn remove(&mut self, id: u64) -> bool;
 }
 
 fn window_failure(message: impl Into<String>) -> Vec<Failure> {
@@ -673,6 +681,22 @@ pub fn answer_windows(windows: &mut impl SyntaxWindows, request: &Request) -> Re
             windows.saved(window.id, path.clone());
             json_reply(serde_json::json!({ "window": info(windows, window.id), "saved": path }))
         }
+        Action::Close => {
+            let window = find(windows, request.window.as_deref())?;
+            if window.unsaved && !request.discard {
+                return Err(window_failure(format!(
+                    "{} has unsaved changes; save it first, or say discard to lose them",
+                    window.name
+                )));
+            }
+            if !windows.remove(window.id) {
+                return Err(window_failure(format!(
+                    "{} is the last window; closing it would end Statscraft",
+                    window.name
+                )));
+            }
+            json_reply(serde_json::json!({ "closed": window }))
+        }
         _ => Err(window_failure("not a request about syntax windows")),
     }
 }
@@ -815,6 +839,15 @@ impl SyntaxWindows for Desk {
 
     fn agent(&mut self) -> &mut Option<u64> {
         &mut self.agent
+    }
+
+    fn remove(&mut self, id: u64) -> bool {
+        self.scripts.retain(|s| s.id != id);
+        // ids here can come back, so a new window must not inherit the trail
+        if self.agent == Some(id) {
+            self.agent = None;
+        }
+        true
     }
 }
 
@@ -1399,6 +1432,43 @@ mod tests {
             "no syntax window nope; open: 1 Syntax1, 2 Recodes"
         );
         assert!(find(&desk, None).is_err());
+    }
+
+    #[test]
+    fn close_keeps_unsaved_text_unless_told_to_discard_it() {
+        let mut desk = Desk::default();
+        desk.create(None, "SHOW.".into(), None, true);
+        let close = |desk: &mut Desk, discard| {
+            desk.answer(&Request {
+                window: Some("Syntax1".into()),
+                discard,
+                ..request(Action::Close)
+            })
+        };
+        let refused = close(&mut desk, false).unwrap_err();
+        assert!(refused[0].message.contains("say discard"), "{refused:?}");
+        assert!(desk.text_mut(1).is_some());
+        let closed = reply_json(close(&mut desk, true));
+        assert_eq!(closed["closed"]["name"], "Syntax1");
+        assert!(desk.text_mut(1).is_none());
+        assert!(close(&mut desk, true).is_err());
+        // a closed Agent window: the next run opens a new one, never a window that took its id
+        let run = Request {
+            source: "SET SEED=3.".into(),
+            ..request(Action::Run)
+        };
+        desk.answer(&run).unwrap();
+        let agent = Request {
+            window: Some(AGENT.into()),
+            discard: true,
+            ..request(Action::Close)
+        };
+        reply_json(desk.answer(&agent));
+        desk.create(None, "SHOW.".into(), None, true);
+        desk.answer(&run).unwrap();
+        let mine = find(&desk, Some("Syntax2")).unwrap();
+        assert_eq!(desk.text_mut(mine.id).unwrap(), "SHOW.");
+        assert!(find(&desk, Some(AGENT)).is_ok());
     }
 
     #[test]

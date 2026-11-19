@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- MCP server: the tool `close_syntax` closes a syntax window of the open window, as File > Close in it does; a window with unsaved changes closes only with `discard`, and the last window of the program never.
 - Command line and MCP server: `statscraft output` and the tool `read_output` show what an output window of the open window holds: every command heading, table and chart of the session, which of them are hidden and selected, and which kinds the window shows; `--json` gives the tables and charts as a run does.
 
 ## 0.20.1 (2026-11-19)

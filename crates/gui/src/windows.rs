@@ -481,6 +481,14 @@ impl SyntaxWindows for Registry {
     fn agent(&mut self) -> &mut Option<WindowId> {
         &mut self.agent
     }
+
+    fn remove(&mut self, id: WindowId) -> bool {
+        if self.windows.len() == 1 {
+            return false;
+        }
+        self.close(id);
+        true
+    }
 }
 
 #[cfg(test)]
@@ -610,6 +618,17 @@ mod tests {
         r.close(c);
         // the last window: the question covers everything, so closing it quits
         assert_eq!(r.closing(a, None), Closing::Quit);
+    }
+
+    #[test]
+    fn an_agent_closes_a_syntax_window_but_never_the_last_window() {
+        let mut r = Registry::new();
+        let a = r.open_syntax(String::new(), None);
+        assert!(r.remove(a));
+        assert!(r.syntax(a).is_none());
+        let data = r.with_dataset(None).unwrap();
+        assert!(!r.remove(data), "the last window would end the program");
+        assert_eq!(r.ids(), [data]);
     }
 
     #[test]

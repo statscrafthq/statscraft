@@ -21,6 +21,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 | `new_syntax_window` | optional `name` and `text` | a new syntax window, empty or with the text |
 | `open_syntax_file` | `path` | the .sps file in a syntax window, or the window that has it open already |
 | `save_syntax` | `window`, optional `path` and `overwrite` | the window written to its own file or to `path` |
+| `close_syntax` | `window`, optional `discard` | the syntax window closed, as File > Close in it |
 | `export_output` | `path`, optional `folder`, `format`, `one_sheet`, `selected`, `hidden` | the output of the open window written to an Excel workbook, web page or PDF, as its File > Export and `statscraft export` |
 | `read_output` | optional `document` | what an output window of the open window holds, as `statscraft output --json`: every heading, table and chart with whether it is hidden or selected, and which kinds the window shows |
 | `add_chart` | `chart`, optional `session` and `vega_lite` | the chart checked and added to the designated output document, as the result of a run; the text starts with `chart added to output document NAME` |
@@ -81,6 +82,7 @@ With the window open, an agent can work in the person's syntax windows as the pe
 - `run_syntax` with `window` runs the window's text, or with `lines` the commands those lines touch, exactly as Run and Ctrl+Enter in that window do: relative file names start from the window's file, and errors are marked in its margin.
 - `new_syntax_window` and `open_syntax_file` open a window; a window an agent opens takes pasted syntax from the dialogs, as a window the person opens does. The Agent window never does.
 - `save_syntax` writes the window to its own file, or to `path`. It does not replace any other existing file unless `overwrite` is true, and never a file that another syntax window holds.
+- `close_syntax` closes the window. A window with unsaved changes stays open unless `discard` is true, and the last window of the program always stays, since closing it would end Statscraft.
 
 When the person asks to fix or explain their syntax, the agent reads the window, says what it would change, makes the change with `edit_syntax` and runs it from the window.
 
@@ -99,5 +101,5 @@ A session keeps the data, settings, macros and named datasets between calls, as 
 ## Safety
 
 - The server can do what the command line can do, and nothing more. Syntax can read files, and it can write them with `SAVE`, `AGGREGATE OUTFILE`, `OUTPUT EXPORT` or the `xlsx` argument. `check_syntax` writes nothing; nothing is written without one of those.
-- The tools tell the agent app which of them only read (`describe`, `list_commands`, `command_help`, `check_syntax`, `window_status`, `list_syntax_windows`, `read_syntax`, `read_output`), which change only the window's syntax windows (`edit_syntax`, `new_syntax_window`, `open_syntax_file`) or add to its output (`add_chart`, which writes no file), and that `run_syntax`, `save_syntax` and `export_output` can change files. Agent apps ask you before a tool runs, unless you allowed it; allow `run_syntax` only for agents you trust with your files.
+- The tools tell the agent app which of them only read (`describe`, `list_commands`, `command_help`, `check_syntax`, `window_status`, `list_syntax_windows`, `read_syntax`, `read_output`), which change only the window's syntax windows (`edit_syntax`, `new_syntax_window`, `open_syntax_file`) or add to its output (`add_chart`, which writes no file), that `close_syntax` can lose unsaved syntax, and that `run_syntax`, `save_syntax` and `export_output` can change files. Agent apps ask you before a tool runs, unless you allowed it; allow `run_syntax` only for agents you trust with your files.
 - The server talks only to the app that started it, over standard input and output. It opens no network port. Calls to the window use the window's local connection, described in [AI agents](ai-agents.md#safety-of-the-live-session).

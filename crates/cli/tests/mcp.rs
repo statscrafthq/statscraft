@@ -165,6 +165,7 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
     for (name, destructive) in [
         ("run_syntax", true),
         ("save_syntax", true),
+        ("close_syntax", true),
         ("export_output", true),
         ("edit_syntax", false),
         ("new_syntax_window", false),
@@ -796,6 +797,34 @@ fn syntax_windows_are_read_edited_run_and_saved_and_runs_leave_their_syntax() {
         json!({ "window": "Ages", "path": other, "overwrite": true }),
     );
     assert_eq!(replaced["isError"], true, "another window holds that file");
+
+    // close: unsaved text only with discard; the closed window is gone from the list
+    client.call(
+        "edit_syntax",
+        json!({ "window": "2", "mode": "append", "text": "SHOW." }),
+    );
+    let kept = client.call("close_syntax", json!({ "window": "2" }));
+    assert_eq!(kept["isError"], true);
+    assert!(text(&kept).contains("discard"), "{kept}");
+    let closed = client.call("close_syntax", json!({ "window": "2", "discard": true }));
+    assert_eq!(
+        closed["structuredContent"]["closed"]["name"], "ages.sps",
+        "{closed}"
+    );
+    let saved_one = client.call("close_syntax", json!({ "window": "other.sps" }));
+    assert_eq!(saved_one["isError"], false, "{saved_one}");
+    let list = client.call("list_syntax_windows", json!({}));
+    let names: Vec<&Value> = list["structuredContent"]["windows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| &w["name"])
+        .collect();
+    assert_eq!(names, [&json!("Agent")]);
+    assert_eq!(
+        client.call("close_syntax", json!({ "window": "2" }))["isError"],
+        true
+    );
 }
 
 #[test]

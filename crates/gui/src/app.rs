@@ -1065,11 +1065,18 @@ impl App {
         }
     }
 
-    /// Lists, reads, edits, opens or saves syntax windows for the command line or an agent.
-    /// Nothing runs. A new or opened window comes to the front; an edit shows at once, and
-    /// Ctrl+Z in the editor takes it back.
+    /// Lists, reads, edits, opens, saves or closes syntax windows for the command line or an
+    /// agent. Nothing runs. A new or opened window comes to the front; an edit shows at once,
+    /// and Ctrl+Z in the editor takes it back.
     fn answer_windows(&mut self, request: Request, reply: mpsc::Sender<Response>) {
+        // the question shows in a window, which must stay while it is open, as File > Close waits
+        if request.action == Action::Close && self.ask.is_some() {
+            let busy = "the window is asking the person a question; close after it is answered";
+            let _ = reply.send(Err(vec![Failure::plain("window", busy)]));
+            return;
+        }
         let before = self.windows.ids();
+        let root = self.windows.root();
         let named = live::find(&self.windows, request.window.as_deref()).ok();
         let answer = live::answer_windows(&mut self.windows, &request);
         if answer.is_ok() {
@@ -1092,6 +1099,9 @@ impl App {
             for id in front {
                 self.front(id);
             }
+            let now = self.windows.ids();
+            let closed: Vec<WindowId> = before.into_iter().filter(|id| !now.contains(id)).collect();
+            self.windows_closed(root, &closed);
         }
         let _ = reply.send(answer);
     }

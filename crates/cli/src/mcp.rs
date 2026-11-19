@@ -43,7 +43,8 @@ Syntax windows (only with the window open): when the person asks you to fix, exp
 their syntax, call list_syntax_windows and read_syntax, say what you would change, make the \
 change with edit_syntax and run it with run_syntax and window (and lines), as their own Run \
 does. When the person works in a syntax window, prefer putting the syntax there and running it \
-from there. save_syntax is the only one of these tools that writes a file.
+from there. save_syntax is the only one of these tools that writes a file; close_syntax closes \
+a window the person no longer needs, and loses unsaved text only with discard.
 Export (only with the window open): when the person wants the window's output as an Excel \
 workbook, web page or PDF, call export_output; it writes what File > Export would.
 Output (only with the window open): to see what the person sees in an output window, every \
@@ -237,6 +238,16 @@ struct SaveInput {
     /// Replace path even though it is a file other than the window's own. Default: false; ask
     /// the person first.
     overwrite: Option<bool>,
+}
+
+/// What `close_syntax` takes.
+#[derive(Deserialize, JsonSchema)]
+struct CloseInput {
+    /// The syntax window: its id or its name, as list_syntax_windows shows them.
+    window: String,
+    /// Close even though the window has unsaved changes, which are lost. Default: false; ask
+    /// the person first.
+    discard: Option<bool>,
 }
 
 /// What `export_output` takes.
@@ -1009,6 +1020,34 @@ impl Server {
                 window: Some(input.window),
                 path: input.path.map(local).map(PathBuf::from),
                 overwrite: input.overwrite.unwrap_or(false),
+                ..Request::default()
+            })
+        })
+        .await)
+    }
+
+    /// Closes a syntax window of the open Statscraft window, as its File > Close does. It
+    /// refuses a window with unsaved changes unless discard is true, and the last window of the
+    /// program. Close only when the person asks.
+    #[tool(
+        title = "Close syntax window",
+        annotations(
+            title = "Close syntax window",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn close_syntax(
+        &self,
+        Parameters(input): Parameters<CloseInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || {
+            window_call(Request {
+                action: Action::Close,
+                window: Some(input.window),
+                discard: input.discard.unwrap_or(false),
                 ..Request::default()
             })
         })
