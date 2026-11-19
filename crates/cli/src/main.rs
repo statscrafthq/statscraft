@@ -540,13 +540,16 @@ fn load_output(data: &std::path::Path, session: &mut Session) -> Result<(), Vec<
 
 fn save_output(data: &std::path::Path, session: &Session) -> Result<(), String> {
     let folder = outputs_folder(data);
-    let _ = std::fs::remove_dir_all(&folder);
     let kept = session.kept_output();
     // the counter outlives the documents: after OUTPUT CLOSE ALL the next is still Document2
     if kept.documents.is_empty() && kept.numbered == 0 {
+        let _ = std::fs::remove_dir_all(&folder);
         return Ok(());
     }
-    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    // written beside and swapped in, so a write that fails leaves the kept output as it was
+    let fresh = folder.with_file_name("outputs.new");
+    let _ = std::fs::remove_dir_all(&fresh);
+    std::fs::create_dir_all(&fresh).map_err(|e| e.to_string())?;
     let mut names = KeptNames {
         designated: kept.designated,
         numbered: kept.numbered,
@@ -554,7 +557,7 @@ fn save_output(data: &std::path::Path, session: &Session) -> Result<(), String> 
     };
     for (i, document) in kept.documents.iter().enumerate() {
         let text = statscraft_engine::output_file::write(&document.items);
-        std::fs::write(folder.join(format!("{i}.scout")), text).map_err(|e| e.to_string())?;
+        std::fs::write(fresh.join(format!("{i}.scout")), text).map_err(|e| e.to_string())?;
         names.documents.push(KeptName {
             name: document.name.clone(),
             file: document.file.clone(),
@@ -562,7 +565,9 @@ fn save_output(data: &std::path::Path, session: &Session) -> Result<(), String> 
         });
     }
     let text = serde_json::to_string_pretty(&names).expect("plain data");
-    std::fs::write(folder.join("names.json"), text).map_err(|e| e.to_string())
+    std::fs::write(fresh.join("names.json"), text).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::rename(&fresh, &folder).map_err(|e| e.to_string())
 }
 
 /// Writes everything a session keeps. A session left without an active dataset keeps its
