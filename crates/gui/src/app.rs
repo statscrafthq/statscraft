@@ -82,6 +82,9 @@ const DOCS: &str = "https://docs.statscraft.org";
 /// A request from `statscraft --session gui` and where its reply goes.
 type Remote = (Request, mpsc::Sender<Response>);
 
+/// How long an export waits for the plugins' answers: longer than a plugin run may take.
+const HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(180);
+
 /// What to do when a run finishes.
 enum After {
     Show,
@@ -680,8 +683,8 @@ pub struct App {
     warnings: usize,
     title: String,
     requests: mpsc::Receiver<Remote>,
-    /// An export that waits for the plugins' answers, and every request behind it.
-    held: Option<Remote>,
+    /// An export that waits for the plugins' answers, since when, and every request behind it.
+    held: Option<(Remote, std::time::Instant)>,
     /// Every run of every window and of the command line, one at a time in turn.
     runs: RunQueue<Run>,
     /// Data to open once nothing runs, as syntax that reads it: the name of a new dataset
@@ -872,7 +875,7 @@ impl App {
         {
             // an export takes the tables with what the plugins put on them
             if remote.0.action == Action::Export && self.plugins.running() {
-                self.held = Some(remote);
+                self.held = Some((remote, std::time::Instant::now()));
             } else {
                 self.answer(remote);
             }
@@ -881,11 +884,24 @@ impl App {
         self.plugins.receive_updates(&mut self.settings);
         if self.runs.is_idle() {
             self.apply_plugin();
-            if !self.plugins.running()
-                && let Some(remote) = self.held.take()
-            {
-                self.answer(remote);
-                self.ctx.request_repaint();
+            // a plugin run that never answers must not hold the export and the requests behind
+            // it for ever: past the plugins' own time limit the export fails instead
+            let late = |since: &std::time::Instant| since.elapsed() > HOLD_LIMIT;
+            if let Some((_, since)) = &self.held {
+                if !self.plugins.running() || late(since) {
+                    let ((request, reply), since) = self.held.take().expect("held");
+                    if self.plugins.running() && late(&since) {
+                        let message = "the plugins have not answered for three minutes; \
+                                       nothing was exported";
+                        let _ = reply.send(Err(vec![Failure::plain("window", message)]));
+                    } else {
+                        self.answer((request, reply));
+                    }
+                    self.ctx.request_repaint();
+                } else {
+                    self.ctx
+                        .request_repaint_after(std::time::Duration::from_secs(1));
+                }
             }
         }
     }
