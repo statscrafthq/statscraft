@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.20.2 (2026-11-19)
 
 - Command line and MCP server: `statscraft undo` and the tool `undo` take back the last run that changed the data in the open window, as its Edit > Undo last change does.
 - Command line and MCP server: plugins also decorate the workbook of a run in the open window (`run -s gui --xlsx FILE --plugin PROGRAM`, and `plugins` in `run_syntax`), with the settings the window's active data holds; before, the command line left them out and the MCP server refused them. `describe --json` lists the data file attributes.
