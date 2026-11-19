@@ -753,8 +753,8 @@ When a newer release is out, a small bar under the menu says so, with a link to 
 - **Tarball**: `statscraft` and `statscraft-gui` in its `bin` folder are replaced (each written next to the old one, then renamed over it). The bar offers **Restart now**, which closes the window (asking about unsaved work first) and starts the new one, and **Later**, which keeps this window. Cancel in the unsaved-work question keeps this window and starts none.
 - **Portable Windows .zip** (the folder with `LICENSE.txt` next to the programs): `statscraft.exe` and `statscraft-gui.exe` in that folder are replaced the same way, with **Restart now**. Windows cannot replace a running program, so the old one is renamed aside first and deleted the next time Statscraft starts.
 - **Statscraft.app on macOS**: there is no Update now. The bar has a **Download** link to the new macOS package; replace Statscraft.app with the one in it. The updater does not change files inside the app, which a signed app would not allow.
-- **.deb**: the package is saved in `~/Downloads`, and the bar shows the one command that installs it, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`, with a **Copy command** button. The window never runs sudo.
-- **Built from source or copied elsewhere**: there is no Update now. The bar says to install the new version the way this copy was installed.
+- **.deb**: the package is saved in `~/Downloads` and installed through `pkexec apt-get install`, so the system asks for your password in its own window; then the bar offers **Restart now**. When pkexec is missing, or the password question is cancelled or the install fails, the bar shows the one command that installs it, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`, with a **Copy command** button.
+- **Built from source or copied elsewhere**: there is no Update now. The bar names the folder this copy runs from and says to install the new version the way this copy was installed, or to use the .deb or tarball.
 
 The check is one request to the GitHub API with the User-Agent `statscraft/VERSION`. Nothing about you or your data is sent. `statscraft update` does the same from the command line.
 

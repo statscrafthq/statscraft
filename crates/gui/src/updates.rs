@@ -103,7 +103,9 @@ impl Updates {
         self.bar = Bar::Downloading(version.clone());
         let (sender, ctx, install) = (self.sender.clone(), self.ctx.clone(), self.install.clone());
         std::thread::spawn(move || {
-            let done = Client::new().update(&release, &install, true);
+            let done = Client::new()
+                .update(&release, &install, true)
+                .map(install_package);
             let _ = sender.send(Event::Updated(done.map(|d| (d, version))));
             ctx.request_repaint();
         });
@@ -160,8 +162,13 @@ impl Updates {
                 ));
                 ui.hyperlink_to("Release notes", &release.notes);
                 match &self.install {
-                    Install::Unmanaged(_) => {
-                        ui.weak("Install it the way you installed this copy.");
+                    Install::Unmanaged(dir) => {
+                        ui.weak(format!(
+                            "This copy runs from {}, which Update cannot replace: install the new \
+                             version the way you installed this one, or use the .deb or tarball \
+                             from the release notes.",
+                            dir.display()
+                        ));
                     }
                     // no replacing inside the bundle (see Client::update): a link to the package
                     Install::Mac(_) => {
@@ -276,6 +283,24 @@ impl Updates {
     }
 }
 
+/// Installs a saved .deb through pkexec, which asks for the password in a window of its own.
+/// Without pkexec, or when the install fails or is cancelled, the bar shows the command instead.
+fn install_package(done: Done) -> Done {
+    let Done::Saved { file, .. } = &done else {
+        return done;
+    };
+    let installed = std::process::Command::new("pkexec")
+        .args(["apt-get", "install", "-y"])
+        .arg(file)
+        .stdin(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    match installed {
+        true => Done::Replaced(PathBuf::from("/usr/bin")),
+        false => done,
+    }
+}
+
 fn update_hint(install: &Install) -> String {
     match install {
         Install::Windows => "Downloads the installer and checks it against the release's \
@@ -287,8 +312,8 @@ fn update_hint(install: &Install) -> String {
              replaces the ones in {}.",
             bin.display()
         ),
-        Install::Deb => "Downloads the package to your Downloads folder and checks it against \
-                         the release's checksums. Installing it takes one command with sudo."
+        Install::Deb => "Downloads the package to your Downloads folder, checks it against the \
+                         release's checksums and installs it; the system asks for your password."
             .into(),
         Install::Mac(_) | Install::Unmanaged(_) => String::new(),
     }
