@@ -1662,7 +1662,7 @@ impl App {
                     .clicked()
                     && let Some(id) = output
                 {
-                    self.open_export(id, false);
+                    self.open_export(id, false, self.here);
                 }
                 ui.menu_button("Output Management", |ui| {
                     if ui.button("Start...").clicked() {
@@ -2741,16 +2741,23 @@ impl App {
         self.ask = Some(Ask::SavingToClose(pending));
     }
 
-    /// Exports the whole output of a window, or with `selected` only the selected tables.
-    /// Opens File > Export for an output window, set to its selected tables or to all.
-    fn open_export(&mut self, id: WindowId, selected: bool) {
+    /// Opens File > Export for an output window, set to its selected tables or to all, drawn
+    /// over the window `at`.
+    fn open_export(&mut self, id: WindowId, selected: bool, at: WindowId) {
         self.export_open = Some(id);
         self.export_choice.selected = selected;
-        self.popups = self.here;
+        self.export_choice.hidden = self.settings.output.export_hidden;
+        self.popups = at;
     }
 
+    /// Exports the whole output of a window, or with `selected` only the selected tables.
     fn export(&mut self, id: WindowId, choice: crate::export_dialog::Choice) {
         use crate::export_dialog::Format;
+        if self.settings.output.export_hidden != choice.hidden {
+            self.settings.output.export_hidden = choice.hidden;
+            // the window works on without them
+            let _ = self.settings.save();
+        }
         match choice.format {
             Format::Excel => self.export_xlsx(id, choice.one_sheet, choice.selected),
             Format::Html => self.export_html(id, choice.selected),
@@ -4206,11 +4213,7 @@ impl App {
         o.view.light_paper = light;
         o.view.show = show;
         match o.view.ui(ui) {
-            Some(output_view::Request::Export) => {
-                self.export_open = Some(id);
-                self.export_choice.selected = true;
-                self.popups = id;
-            }
+            Some(output_view::Request::Export) => self.open_export(id, true, id),
             Some(output_view::Request::SaveChart { chart, png, paper }) => {
                 self.save_chart(&chart, png, paper)
             }
@@ -4290,18 +4293,12 @@ impl App {
                 .windows
                 .output(id)
                 .is_some_and(|o| !o.view.selected.is_empty());
-            let hidden = self.settings.output.export_hidden;
             let chosen = crate::export_dialog::show(
                 ctx,
                 &mut self.export_open,
                 &mut self.export_choice,
-                &mut self.settings.output.export_hidden,
                 any_selected,
             );
-            if self.settings.output.export_hidden != hidden {
-                // the window works on without them
-                let _ = self.settings.save();
-            }
             if let Some((id, choice)) = chosen {
                 self.export(id, choice);
             }

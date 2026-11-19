@@ -18,15 +18,16 @@ pub struct Choice {
     pub one_sheet: bool,
     /// Only the tables selected in the output window.
     pub selected: bool,
+    /// Hidden items too; kept in the settings when the export goes ahead.
+    pub hidden: bool,
 }
 
 /// Draws the dialog while `open` holds the output window it exports; returns the choice when
-/// Export is pressed. `hidden` is Edit > Settings' remembered "hidden items too".
+/// Export is pressed.
 pub fn show<W: Copy>(
     ctx: &egui::Context,
     open: &mut Option<W>,
     choice: &mut Choice,
-    hidden: &mut bool,
     any_selected: bool,
 ) -> Option<(W, Choice)> {
     let window = (*open)?;
@@ -58,7 +59,7 @@ pub fn show<W: Copy>(
             ui.add_enabled_ui(any_selected, |ui| {
                 ui.radio_value(&mut choice.selected, true, "Only the selected tables");
             });
-            ui.checkbox(hidden, "Hidden items too")
+            ui.checkbox(&mut choice.hidden, "Hidden items too")
                 .on_hover_text("Off: only what the output shows. Copies follow this too.");
             ui.add_space(8.0);
             ui.horizontal(|ui| {
