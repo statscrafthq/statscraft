@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.20.1 (2026-11-19)
 
 - Command line and MCP server: `statscraft export FILE` and the tool `export_output` export the output of the open window as its File > Export does: Excel workbook, web page or PDF, one sheet or one per table, all or only the selected tables, hidden items or not, with the plugins' colours and comments.
 - MCP server: `run_syntax` takes `charts` and `chart_format` to write the run's charts as pictures, and `check_syntax` and `run_syntax` take `encoding` for a syntax file in a legacy code page, as the command line's `--charts`, `--chart-format` and `--encoding` do.
