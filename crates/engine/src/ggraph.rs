@@ -1273,7 +1273,7 @@ fn categorical(
         }
         // the cells: (category, series) with their (value, weight) pairs
         let mut cells: Vec<Cell> = Vec::new();
-        for r in 0..set.weights.len() {
+        for (r, &w) in set.weights.iter().enumerate() {
             let c = match cat_var {
                 Some(v) => match col(v).class(r) {
                     Some(class) => Some(class),
@@ -1296,8 +1296,8 @@ fn categorical(
                 None => 0.0,
             };
             match cells.iter_mut().find(|cell| cell.0 == c && cell.1 == g) {
-                Some(cell) => cell.2.push((x, set.weights[r])),
-                None => cells.push((c, g, vec![(x, set.weights[r])])),
+                Some(cell) => cell.2.push((x, w)),
+                None => cells.push((c, g, vec![(x, w)])),
             }
             if cells.len() > MOST_CATEGORIES * 100 {
                 return Err(Error(format!(

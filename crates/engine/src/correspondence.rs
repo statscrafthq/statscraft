@@ -1549,13 +1549,8 @@ impl Engine {
             if let Some(file) = &command.outfile_variance {
                 // (variable, level, dimension, covariances with every dimension)
                 let mut lines: Vec<(String, String, usize, Vec<f64>)> = Vec::new();
-                for t in 0..p {
-                    lines.push((
-                        "SINGULAR".into(),
-                        String::new(),
-                        t,
-                        s.singular_cov[t][..p].to_vec(),
-                    ));
+                for (t, cov) in s.singular_cov.iter().enumerate().take(p) {
+                    lines.push(("SINGULAR".into(), String::new(), t, cov[..p].to_vec()));
                 }
                 for (side, points) in [(&rows, &s.rows), (&columns, &s.columns)] {
                     // the file leaves out the rows and columns of EQUAL groups
@@ -1567,13 +1562,8 @@ impl Engine {
                     }
                     for (i, label) in side.levels.iter().enumerate() {
                         if points.status[i] == Status::Active && !grouped[i] {
-                            for t in 0..p {
-                                lines.push((
-                                    side.name.clone(),
-                                    label.clone(),
-                                    t,
-                                    points.cov[i][t].clone(),
-                                ));
+                            for (t, cov) in points.cov[i].iter().enumerate().take(p) {
+                                lines.push((side.name.clone(), label.clone(), t, cov.clone()));
                             }
                         }
                     }

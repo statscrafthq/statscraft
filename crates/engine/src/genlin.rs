@@ -2597,15 +2597,15 @@ impl Engine {
             let mut describe = |kind: &str, v: &Variable, values: &dyn Fn(usize) -> f64| {
                 let (mut lo, mut hi, mut sum, mut sum2) =
                     (f64::INFINITY, f64::NEG_INFINITY, 0.0, 0.0);
-                for r in 0..n_rows {
+                for (r, f) in c.f.iter().enumerate().take(n_rows) {
                     let val = values(r);
                     lo = lo.min(val);
                     hi = hi.max(val);
-                    sum += c.f[r] * val;
+                    sum += f * val;
                 }
                 let mean = sum / n_total;
-                for r in 0..n_rows {
-                    sum2 += c.f[r] * (values(r) - mean).powi(2);
+                for (r, f) in c.f.iter().enumerate().take(n_rows) {
+                    sum2 += f * (values(r) - mean).powi(2);
                 }
                 out.push(vec![
                     text(kind),

@@ -463,8 +463,8 @@ fn places(table: &Table, spec: &TableCells, warn: &mut dyn FnMut(String)) -> Pla
                         texts.push((Place::Cell(r, c), cell_text(table, r, c)));
                     }
                 }
-                for c in 0..width {
-                    texts.push((Place::Header(c), table.columns[c].clone()));
+                for (c, column) in table.columns.iter().enumerate().take(width) {
+                    texts.push((Place::Header(c), column.clone()));
                 }
             }
             CellArea::Title => texts.push((Place::Title, table.title.clone())),

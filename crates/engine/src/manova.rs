@@ -695,9 +695,9 @@ impl Engine {
                 space.names.push(format!("T{}", set * r + j + 1));
             }
         }
-        for v in sets * r..k {
+        for (v, name) in s.cont.iter().enumerate().take(k).skip(sets * r) {
             space.rows.push(unit(k, v));
-            space.names.push(s.cont[v].clone());
+            space.names.push(name.clone());
         }
         space.rename(d)?;
         let mut out = Vec::new();

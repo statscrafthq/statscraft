@@ -916,10 +916,10 @@ impl Engine {
                 points_chart(&title, "Observations", "Disparities", groups)
             };
             if all && m > 1 && !command.unconditional {
-                for k in 0..m {
+                for (k, source) in input.sources.iter().enumerate().take(m) {
                     charts.push(transformation(
                         vec![k],
-                        format!("Transformation Plot: {}", input.sources[k]),
+                        format!("Transformation Plot: {source}"),
                     ));
                 }
             } else {

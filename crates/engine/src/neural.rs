@@ -1833,8 +1833,8 @@ fn mlp_solution(net: &Net, w: &[f64], inputs: &[String], outputs: &[String]) -> 
     };
     let mut columns = vec![String::new(), String::new()];
     let mut groups = vec![Vec::new(), Vec::new()];
-    for i in 1..layers {
-        for j in 0..net.sizes[i] {
+    for (i, &size) in net.sizes.iter().enumerate().take(layers).skip(1) {
+        for j in 0..size {
             columns.push(name(i, j));
             groups.push(vec![layer_name(i)]);
         }
