@@ -152,6 +152,7 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
         "window_status",
         "list_syntax_windows",
         "read_syntax",
+        "describe_plugin",
     ] {
         let t = tool(name);
         assert_eq!(t["annotations"]["readOnlyHint"], true, "{name}");
@@ -175,7 +176,15 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
     let run = tool("run_syntax");
     let fields = run["inputSchema"]["properties"].as_object().unwrap();
     for field in [
-        "syntax", "file", "lines", "session", "folder", "xlsx", "window",
+        "syntax",
+        "file",
+        "lines",
+        "session",
+        "folder",
+        "xlsx",
+        "window",
+        "xlsx_one_sheet",
+        "plugins",
     ] {
         assert!(fields.contains_key(field), "run_syntax lacks {field}");
     }
@@ -358,6 +367,68 @@ fn a_syntax_file_by_lines_and_a_workbook() {
     assert!(dir.0.join("tables.xlsx").exists());
     let described = client.call("describe", json!({ "session": "f" }));
     assert_eq!(described["structuredContent"]["variable_count"], 20);
+}
+
+/// The comments of a workbook's first sheet, or empty when it has none.
+fn workbook_comments(path: &Path) -> String {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+    let mut text = String::new();
+    if let Ok(mut file) = zip.by_name("xl/comments1.xml") {
+        std::io::Read::read_to_string(&mut file, &mut text).unwrap();
+    }
+    text
+}
+
+/// An agent decorates the workbook of a file session with a plugin, and turns its comments off
+/// with the attribute describe_plugin names.
+#[cfg(unix)]
+#[test]
+fn a_plugin_decorates_the_workbook_of_a_run() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Workdir::new("plugin");
+    // a made-up plugin: one comment on the first table's first cell, while its setting is on
+    let plugin = dir.0.join("note-plugin");
+    std::fs::write(
+        &plugin,
+        r#"#!/bin/sh
+if [ "$1" = --describe ]; then
+  echo '{"name": "Note", "version": "1.0.0", "protocol": 1, "settings": [{"key": "comments", "label": "Comments", "kind": "bool", "default": true}]}'
+  exit 0
+fi
+case "$(cat)" in
+  *'"comments":true'*) echo '{"tables": [{"id": 0, "cells": [{"row": 0, "col": 1, "comment": "made by the plugin"}]}]}';;
+  *) echo '{"tables": []}';;
+esac
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&plugin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let plugin = plugin.to_str().unwrap();
+    let (mut client, _) = Client::start(&dir, &dir.0);
+    let described = client.call("describe_plugin", json!({ "program": plugin }));
+    let attribute = &described["structuredContent"]["settings"][0]["attribute"];
+    assert_eq!(attribute, "plugin_note_comments", "{described}");
+    let folder = dir.0.to_str().unwrap();
+    let data = "DATA LIST LIST /answer group (2F1).\nBEGIN DATA\n1 1\n2 1\n1 2\n2 2\nEND DATA.\n";
+    let tables = "CTABLES /TABLE answer [C] [COUNT] BY group [C].";
+    let run = |client: &mut Client, syntax: String, file: &str| {
+        let arguments = json!({ "syntax": syntax, "session": "p", "folder": folder,
+            "xlsx": file, "xlsx_one_sheet": true, "plugins": [plugin] });
+        client.call("run_syntax", arguments)
+    };
+    let on = run(&mut client, format!("{data}{tables}"), "on.xlsx");
+    assert_eq!(on["structuredContent"]["ok"], true, "{on}");
+    assert!(workbook_comments(&dir.0.join("on.xlsx")).contains("made by the plugin"));
+    let off = format!("DATAFILE ATTRIBUTE ATTRIBUTE=plugin_note_comments('No').\n{tables}");
+    let off = run(&mut client, off, "off.xlsx");
+    assert_eq!(off["structuredContent"]["ok"], true, "{off}");
+    assert!(workbook_comments(&dir.0.join("off.xlsx")).is_empty());
+    // plugins are for the workbook
+    let alone = client.call(
+        "run_syntax",
+        json!({ "syntax": tables, "session": "p", "plugins": [plugin] }),
+    );
+    assert!(text(&alone).contains("give xlsx too"), "{alone}");
 }
 
 #[test]

@@ -103,6 +103,19 @@ struct RunInput {
     /// table, a chart as its data table with an editable chart beside it;
     /// an existing file is replaced. A relative path starts from folder.
     xlsx: Option<String>,
+    /// With xlsx: all tables on one sheet, one below the other, instead of one sheet per table.
+    xlsx_one_sheet: Option<bool>,
+    /// With xlsx, in a file session: absolute paths of plugin programs that colour, comment
+    /// and lay out the custom tables (CTABLES) in the workbook, in this order. Their settings
+    /// come from the active data's attributes: describe_plugin lists them and how to set them.
+    plugins: Option<Vec<String>>,
+}
+
+/// What `describe_plugin` takes.
+#[derive(Deserialize, JsonSchema)]
+struct PluginInput {
+    /// Absolute path of the plugin program.
+    program: String,
 }
 
 /// What `add_chart` takes.
@@ -324,11 +337,69 @@ fn json_reply(text: &str) -> CallToolResult {
     }
 }
 
+/// A plugin's description, each setting with the attribute that holds it, as JSON and as text.
+fn plugin_reply(description: &statscraft_engine::plugin::Description) -> CallToolResult {
+    let mut text = format!("{} {}\n", description.name, description.version);
+    let mut value = json!(description);
+    for (setting, json) in description
+        .settings
+        .iter()
+        .zip(value["settings"].as_array_mut().into_iter().flatten())
+    {
+        let attribute = description.attribute(&setting.key);
+        text.push_str(&format!(
+            "{attribute} ({}, default {}): {}\n",
+            json["kind"].as_str().unwrap_or(""),
+            setting.default,
+            setting.label
+        ));
+        json["attribute"] = attribute.into();
+    }
+    let mut reply = CallToolResult::structured(value);
+    reply.content = vec![ContentBlock::text(text)];
+    reply
+}
+
 fn text_reply(text: String) -> CallToolResult {
     CallToolResult::success(vec![ContentBlock::text(text)])
 }
 
-fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> CallToolResult {
+/// The plugins of a run: absolute, and only with a workbook in a file session.
+fn plugin_paths(
+    plugins: Option<Vec<String>>,
+    xlsx: bool,
+    window: bool,
+) -> Result<Vec<PathBuf>, &'static str> {
+    let plugins: Vec<PathBuf> = plugins
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| PathBuf::from(local(p)))
+        .collect();
+    if plugins.is_empty() {
+        return Ok(plugins);
+    }
+    if window {
+        return Err(
+            "plugins run in a file session: the open window decorates its tables with its own \
+             plugins, and File > Export there writes the workbook",
+        );
+    }
+    if !xlsx {
+        return Err("plugins decorate the Excel workbook: give xlsx too");
+    }
+    if plugins.iter().any(|p| !p.is_absolute()) {
+        return Err("plugins must be absolute paths");
+    }
+    Ok(plugins)
+}
+
+fn check_or_run(
+    input: SyntaxInput,
+    check_only: bool,
+    xlsx: Option<String>,
+    one_sheet: bool,
+    plugins: Option<Vec<String>>,
+) -> CallToolResult {
     let input = SyntaxInput {
         file: input.file.map(local),
         folder: input.folder.map(local),
@@ -338,6 +409,11 @@ fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> C
     if input.syntax.is_some() == input.file.is_some() {
         return usage("give either syntax or file");
     }
+    let session = session_or_default(input.session.clone());
+    let plugins = match plugin_paths(plugins, xlsx.is_some(), session == live::SESSION) {
+        Ok(plugins) => plugins,
+        Err(message) => return usage(message),
+    };
     // also keeps out "-", which would read standard input: it carries the protocol
     if input
         .file
@@ -357,7 +433,7 @@ fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> C
     let args = RunArgs {
         file: input.file,
         text: input.syntax,
-        session: Some(session_or_default(input.session)),
+        session: Some(session),
         lines: input.lines,
         json: true,
         vega_lite: input.vega_lite.unwrap_or(false),
@@ -365,8 +441,8 @@ fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> C
     };
     let xlsx = XlsxArgs {
         xlsx: xlsx.map(PathBuf::from),
-        xlsx_one_sheet: false,
-        plugin: Vec::new(),
+        xlsx_one_sheet: one_sheet,
+        plugin: plugins,
     };
     match crate::run_result(&args, check_only, &xlsx) {
         Ok(result) => run_reply(&result, check_only, args.vega_lite, xlsx.xlsx.as_deref()),
@@ -424,9 +500,12 @@ fn run_window(input: RunInput, window: String) -> CallToolResult {
         Ok(lines) => lines,
         Err(errors) => return failed(errors),
     };
+    if let Err(message) = plugin_paths(input.plugins, input.xlsx.is_some(), true) {
+        return usage(message);
+    }
     let xlsx = XlsxArgs {
         xlsx: input.xlsx.map(local).map(PathBuf::from),
-        xlsx_one_sheet: false,
+        xlsx_one_sheet: input.xlsx_one_sheet.unwrap_or(false),
         plugin: Vec::new(),
     };
     // for a relative xlsx, and for the relative names of a window without a file: one with a
@@ -568,7 +647,7 @@ impl Server {
         &self,
         Parameters(input): Parameters<SyntaxInput>,
     ) -> Result<CallToolResult, ErrorData> {
-        Ok(blocking(move || check_or_run(input, true, None)).await)
+        Ok(blocking(move || check_or_run(input, true, None, false, None)).await)
     }
 
     /// Runs syntax in a session and keeps the result there, so the next call builds on it. The
@@ -595,7 +674,43 @@ impl Server {
     ) -> Result<CallToolResult, ErrorData> {
         Ok(blocking(move || match input.window.take() {
             Some(window) => run_window(input, window),
-            None => check_or_run(input.syntax, false, input.xlsx),
+            None => check_or_run(
+                input.syntax,
+                false,
+                input.xlsx,
+                input.xlsx_one_sheet.unwrap_or(false),
+                input.plugins,
+            ),
+        })
+        .await)
+    }
+
+    /// Describes a plugin program: its name, version and settings, each with its kind, default
+    /// and the data file attribute that holds its value. A run with plugins takes each setting
+    /// from that attribute of the active data, else the default; set one with
+    /// DATAFILE ATTRIBUTE ATTRIBUTE=<attribute>('<value>'). in run_syntax before the tables
+    /// (yes/no as Yes or No, a colour as #rrggbb, a style as JSON).
+    #[tool(
+        title = "Describe plugin",
+        annotations(
+            title = "Describe plugin",
+            read_only_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn describe_plugin(
+        &self,
+        Parameters(input): Parameters<PluginInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || {
+            let program = PathBuf::from(local(input.program));
+            if !program.is_absolute() {
+                return usage("program must be an absolute path");
+            }
+            match statscraft_engine::plugin::describe(&program) {
+                Ok(description) => plugin_reply(&description),
+                Err(e) => failed(vec![Failure::plain("plugin", e)]),
+            }
         })
         .await)
     }
@@ -632,7 +747,7 @@ impl Server {
                 folder: None,
                 vega_lite: input.vega_lite,
             };
-            let mut reply = check_or_run(syntax, false, None);
+            let mut reply = check_or_run(syntax, false, None, false, None);
             let document = reply
                 .structured_content
                 .as_ref()

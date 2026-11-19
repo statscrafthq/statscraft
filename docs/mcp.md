@@ -12,7 +12,8 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 | `list_commands` | none | every supported command with a one-line summary, as `statscraft help` |
 | `command_help` | `command` | the syntax, rules and an example of one command, as `statscraft help COMMAND` |
 | `check_syntax` | `syntax` or `file`, and optional `lines`, `session`, `folder`, `vega_lite` | the result of a check, as `statscraft check --json`; nothing is kept or written |
-| `run_syntax` | the same as `check_syntax`, and optional `xlsx`; or `window` (with optional `lines`) instead of `syntax` and `file` | the result of a run, as `statscraft run --json`; the session keeps the new state, and `trail` says where its syntax was kept |
+| `run_syntax` | the same as `check_syntax`, and optional `xlsx`, `xlsx_one_sheet` and `plugins`; or `window` (with optional `lines`) instead of `syntax` and `file` | the result of a run, as `statscraft run --json`; the session keeps the new state, and `trail` says where its syntax was kept |
+| `describe_plugin` | `program` (the absolute path of a plugin) | the plugin's name, version and settings, each with its kind, default and the data file attribute that holds it |
 | `window_status` | none | whether a Statscraft window is open, and if so its datasets and output documents; also `platform` (`windows`, `macos`, `linux`) and `wsl_distro` when the agent runs inside WSL |
 | `list_syntax_windows` | none | the syntax windows of the open window: `id`, `name`, `file`, `unsaved`, `lines`, and whether it is the Agent window, the designated one or the one the person used last |
 | `read_syntax` | `window` | the text of a syntax window, each line with its number |
@@ -25,7 +26,8 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 - `syntax` is the text of one or more commands; `file` is the absolute path of a .sps file. Give one of them.
 - `lines` limits the run to the commands within a line range, such as `"12-20"`. Line numbers stay those of the whole text.
 - `folder` is the absolute folder that relative file names in the syntax start from. Default: your home folder. Give absolute paths in the syntax to be sure.
-- `xlsx` also writes every table and chart of the run to an Excel workbook, one sheet per table; a chart as its data table with an editable chart beside it.
+- `xlsx` also writes every table and chart of the run to an Excel workbook, one sheet per table; a chart as its data table with an editable chart beside it. `xlsx_one_sheet` set to true puts all tables on one sheet, one below the other.
+- `plugins`, with `xlsx` in a file session, lists the absolute paths of [plugins](plugins.md) that colour, comment and lay out the custom tables in the workbook, in that order, as `--plugin` does on the command line. See [Tables with a plugin](#tables-with-a-plugin).
 - `vega_lite` set to true gives every chart also as a Vega-Lite specification, as `--vega-lite` does on the command line.
 - An agent inside WSL that uses Statscraft on Windows may give Linux paths in the arguments; the server translates them. Inside the syntax, file names must be Windows paths. See [Agents inside WSL](connect.md#agents-inside-wsl).
 - `window` names a syntax window of the open window by its id or its name, as `list_syntax_windows` shows them. The syntax window tools work only while the window is open; without it they fail with "no Statscraft window is running".
@@ -54,6 +56,17 @@ Procedures draw their own charts. When the person wants a chart that no procedur
 - The tool runs the syntax BEGIN CHART, a Statscraft extension, with the chart's JSON inside. That syntax is kept like any run: in the Agent syntax window, or in `syntax.sps` of a file session, so running it again shows the chart again.
 - A file session keeps no output between calls. To write the chart to a file there, send the BEGIN CHART block and OUTPUT EXPORT or OUTPUT SAVE together through `run_syntax`.
 - A chart that cannot be drawn, a misspelt field, or a Vega-Lite feature that Statscraft does not read is an error to fix, like a syntax error: `ok` is false and the message names what is wrong. Nothing is added then.
+
+## Tables with a plugin
+
+A plugin decorates the CTABLES tables of a run in the workbook: colours, comments, column widths and the rest of its look. The agent asks `describe_plugin` for the plugin's settings. Each is kept in a data file attribute, such as `plugin_margins_confidence`, and a run takes each setting from that attribute of the active data, else the plugin's default. To change one, the agent runs `DATAFILE ATTRIBUTE ATTRIBUTE=plugin_margins_confidence('90').` before the tables (yes/no as `Yes` or `No`, a colour as `#rrggbb`, a style as JSON); SAVE keeps it with the data. Then:
+
+```json
+{ "file": "/home/anna/jobs/tables.sps", "session": "work", "xlsx": "/home/anna/jobs/tables.xlsx",
+  "xlsx_one_sheet": true, "plugins": ["/home/anna/plugins/statscraft-ctables-margins"] }
+```
+
+A plugin that fails fails the run, with its message. In the open window, the window decorates its own tables with the plugins of Edit > Settings > Plugins, and File > Export writes the workbook; `plugins` there is refused.
 
 ## Syntax windows
 
