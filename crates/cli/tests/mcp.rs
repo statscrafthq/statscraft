@@ -370,6 +370,7 @@ fn a_syntax_file_by_lines_and_a_workbook() {
 }
 
 /// The comments of a workbook's first sheet, or empty when it has none.
+#[cfg(unix)]
 fn workbook_comments(path: &Path) -> String {
     let mut zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
     let mut text = String::new();
