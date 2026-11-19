@@ -131,6 +131,10 @@ struct XlsxArgs {
     /// With --xlsx, put all tables on one sheet, one below the other
     #[arg(long, requires = "xlsx")]
     xlsx_one_sheet: bool,
+    /// With --xlsx, leave out the title above each table and chart; labels, captions and what a
+    /// plugin adds stay, and a sheet is still named after its table
+    #[arg(long, requires = "xlsx")]
+    xlsx_no_titles: bool,
     /// With --xlsx, let this plugin program colour, comment and lay out the custom tables, with
     /// its settings from the active data's attributes (see docs/plugins.md). Give it more than
     /// once for several plugins: they run in that order, and where two style the same thing
@@ -712,9 +716,25 @@ fn write_workbook(result: &RunResult, xlsx: &XlsxArgs) -> Result<(), Vec<Failure
         return Ok(());
     };
     use statscraft_export::Item;
-    let items = result.commands.iter().flat_map(|c| {
-        let tables = c.tables.iter().map(Item::Table);
-        tables.chain(c.charts.iter().map(Item::Chart))
+    let mut commands: Vec<_> = (result.commands.iter())
+        .map(|c| (c.tables.clone(), c.charts.clone()))
+        .collect();
+    if xlsx.xlsx_no_titles {
+        for (tables, charts) in &mut commands {
+            // the title still names the sheet, as the outline label
+            for table in tables {
+                let title = std::mem::take(&mut table.title);
+                table.outline.get_or_insert(title);
+            }
+            for chart in charts {
+                let title = std::mem::take(&mut chart.title);
+                chart.outline.get_or_insert(title);
+            }
+        }
+    }
+    let items = commands.iter().flat_map(|(tables, charts)| {
+        let tables = tables.iter().map(Item::Table);
+        tables.chain(charts.iter().map(Item::Chart))
     });
     statscraft_export::write_xlsx(path, items, xlsx.xlsx_one_sheet)
         .map_err(|e| vec![Failure::plain("file", format!("{}: {e}", path.display()))])

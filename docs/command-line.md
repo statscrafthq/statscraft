@@ -56,7 +56,7 @@ The open window (`-s gui`) lists what the window holds, the same way. A file ses
 ## run
 
 ```
-statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet] [--plugin PROGRAM]...] [--charts DIR [--chart-format svg|png]]
+statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet] [--xlsx-no-titles] [--plugin PROGRAM]...] [--charts DIR [--chart-format svg|png]]
 ```
 
 | Flag | Meaning |
@@ -70,6 +70,7 @@ statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [
 | `--encoding NAME` | encoding of the syntax file or standard input, such as `windows-1257` or `1252`; without it a file that is valid UTF-8 (with or without a byte order mark) is read as UTF-8 and any other file in the system's legacy code page |
 | `--xlsx FILE` | also write every table and chart of the run to an Excel workbook, one sheet per table |
 | `--xlsx-one-sheet` | with `--xlsx`, put all tables on one sheet, one below the other |
+| `--xlsx-no-titles` | with `--xlsx`, leave out the title row above each table and chart; variable labels, captions and what plugins add stay |
 | `--plugin PROGRAM` | with `--xlsx`, let a plugin colour, comment and lay out the custom tables (see [plugins](plugins.md)); its settings come from the active data's attributes. Give it more than once for several plugins: they run in that order and their answers merge, the later one winning where two style the same thing |
 | `--charts DIR` | also write every chart of the run as a picture into this folder (see [Chart pictures](#chart-pictures)) |
 | `--chart-format svg\|png` | with `--charts`, the picture format; default `svg` |
@@ -474,7 +475,7 @@ statscraft run job.sps --xlsx all.xlsx --xlsx-one-sheet
 statscraft run -s gui -e "FREQUENCIES VARIABLES=gender." --xlsx gender.xlsx
 ```
 
-Every table and chart of the run goes into the workbook, with or without a session, and also from the window session. With one sheet per table, each sheet is named after its table title (`Gender`, `Region of residence`, ...). With `--xlsx-one-sheet` there is one sheet `Tables` with the tables one below the other.
+Every table and chart of the run goes into the workbook, with or without a session, and also from the window session. With one sheet per table, each sheet is named after its table title (`Gender`, `Region of residence`, ...). With `--xlsx-one-sheet` there is one sheet `Tables` with the tables one below the other. `--xlsx-no-titles` drops the title row of every table and chart, for example to stack a set of custom tables on one sheet without a repeated title above each; each sheet keeps the name of its table, and a plugin's comments and colours stay on their cells.
 
 Each table has its title in bold, the column headers with merged cells for every level, the row labels, thin borders and its caption below. Numbers stay numbers, with a number format that shows them as the output does: a percentage cell holds 45.2 and shows 45.2%. Text such as significance letters and hidden small counts (`<5`) stays text. A bar, pie, line or area chart goes in as its data table with an editable chart beside it, drawn from those cells: change a number and the chart follows. The chart sets no colors, so it takes the workbook's theme. A statistical plot, such as a histogram or a boxplot, has no editable form: its picture stands beside its data table instead. The text output on the terminal is the same as without `--xlsx`.
 

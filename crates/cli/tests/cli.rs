@@ -412,6 +412,105 @@ fn sheet_names(path: &std::path::Path) -> Vec<String> {
 }
 
 #[test]
+fn xlsx_no_titles_leaves_out_the_title_rows_and_keeps_the_sheet_names() {
+    let dir = Workdir::new("xlsx-no-titles");
+    let syntax = format!(
+        "{}\nCROSSTABS /TABLES=gender BY region /STATISTICS=CHISQ.",
+        get_fixture("survey_basic.sav")
+    );
+    // the cells of every sheet, without the sheet names of the workbook and its properties
+    let cells = |file: &str| -> String {
+        workbook_parts(&dir.0.join(file))
+            .into_iter()
+            .filter(|(n, _)| n != "xl/workbook.xml" && !n.starts_with("docProps/"))
+            .map(|(_, text)| text)
+            .collect()
+    };
+    dir.ok(&["run", "--xlsx", "titled.xlsx", "-e", &syntax]);
+    let plain = [
+        "run",
+        "--xlsx",
+        "plain.xlsx",
+        "--xlsx-no-titles",
+        "-e",
+        &syntax,
+    ];
+    dir.ok(&plain);
+    assert!(cells("titled.xlsx").contains("Chi-Square Tests"));
+    assert!(!cells("plain.xlsx").contains("Chi-Square Tests"));
+    assert!(cells("plain.xlsx").contains("Region of residence"));
+    assert_eq!(
+        sheet_names(&dir.0.join("plain.xlsx")),
+        sheet_names(&dir.0.join("titled.xlsx"))
+    );
+    let one = [
+        "run",
+        "--xlsx",
+        "one.xlsx",
+        "--xlsx-one-sheet",
+        "--xlsx-no-titles",
+    ];
+    dir.ok(&[&one[..], &["-e", &syntax]].concat());
+    assert!(!cells("one.xlsx").contains("Chi-Square Tests"));
+    assert!(cells("one.xlsx").contains("Region of residence"));
+    let out = dir.run(&["run", "--xlsx-no-titles", "-e", &syntax]);
+    assert!(!out.status.success(), "--xlsx-no-titles needs --xlsx");
+}
+
+/// With a plugin, its comment stays on the same table cell when the title row goes.
+#[cfg(unix)]
+#[test]
+fn xlsx_no_titles_works_with_a_plugin() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Workdir::new("xlsx-no-titles-plugin");
+    // a made-up plugin: one comment on the first table's cell in row 0, column 1
+    let plugin = dir.0.join("note-plugin");
+    std::fs::write(
+        &plugin,
+        r#"#!/bin/sh
+if [ "$1" = --describe ]; then
+  echo '{"name": "Note", "version": "1.0.0", "protocol": 1, "settings": []}'
+  exit 0
+fi
+cat > /dev/null
+echo '{"tables": [{"id": 0, "cells": [{"row": 0, "col": 1, "comment": "made by the plugin"}]}]}'
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&plugin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let syntax = "DATA LIST LIST /answer group (2F1).\nBEGIN DATA\n1 1\n2 1\n1 2\n2 2\nEND DATA.\n\
+                  CTABLES /TABLE answer [C] [COUNT] BY group [C].";
+    let plugin = plugin.to_str().unwrap();
+    let run = |file: &str, more: &[&str]| {
+        let mut args = vec![
+            "run",
+            "--xlsx",
+            file,
+            "--xlsx-one-sheet",
+            "--plugin",
+            plugin,
+        ];
+        args.extend(more);
+        dir.ok(&[&args[..], &["-e", syntax]].concat());
+        let parts = workbook_parts(&dir.0.join(file));
+        let part = |name: &str| parts.iter().find(|(n, _)| n == name).unwrap().1.clone();
+        let comments = part("xl/comments1.xml");
+        assert!(comments.contains("made by the plugin"), "{comments}");
+        // the row of the commented cell, from ref="B7"
+        let at = comments.split("ref=\"").nth(1).unwrap();
+        let row: u32 = at[1..at.find('"').unwrap()].parse().unwrap();
+        (
+            part("xl/worksheets/sheet1.xml") + &part("xl/sharedStrings.xml"),
+            row,
+        )
+    };
+    let (titled, titled_row) = run("titled.xlsx", &[]);
+    let (plain, plain_row) = run("plain.xlsx", &["--xlsx-no-titles"]);
+    assert!(titled.contains("Custom Tables") && !plain.contains("Custom Tables"));
+    assert_eq!(plain_row + 1, titled_row);
+}
+
+#[test]
 fn run_writes_every_table_to_a_workbook() {
     let dir = Workdir::new("xlsx");
     let syntax = format!(

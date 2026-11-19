@@ -105,6 +105,9 @@ struct RunInput {
     xlsx: Option<String>,
     /// With xlsx: all tables on one sheet, one below the other, instead of one sheet per table.
     xlsx_one_sheet: Option<bool>,
+    /// With xlsx: leave out the title row above each table and chart; labels, captions and
+    /// what plugins add stay, and each sheet keeps its table's name.
+    xlsx_no_titles: Option<bool>,
     /// With xlsx, in a file session: absolute paths of plugin programs that colour, comment
     /// and lay out the custom tables (CTABLES) in the workbook, in this order. Their settings
     /// come from the active data's attributes: describe_plugin lists them and how to set them.
@@ -398,6 +401,7 @@ fn check_or_run(
     check_only: bool,
     xlsx: Option<String>,
     one_sheet: bool,
+    no_titles: bool,
     plugins: Option<Vec<String>>,
 ) -> CallToolResult {
     let input = SyntaxInput {
@@ -442,6 +446,7 @@ fn check_or_run(
     let xlsx = XlsxArgs {
         xlsx: xlsx.map(PathBuf::from),
         xlsx_one_sheet: one_sheet,
+        xlsx_no_titles: no_titles,
         plugin: plugins,
     };
     match crate::run_result(&args, check_only, &xlsx) {
@@ -506,6 +511,7 @@ fn run_window(input: RunInput, window: String) -> CallToolResult {
     let xlsx = XlsxArgs {
         xlsx: input.xlsx.map(local).map(PathBuf::from),
         xlsx_one_sheet: input.xlsx_one_sheet.unwrap_or(false),
+        xlsx_no_titles: input.xlsx_no_titles.unwrap_or(false),
         plugin: Vec::new(),
     };
     // for a relative xlsx, and for the relative names of a window without a file: one with a
@@ -647,7 +653,7 @@ impl Server {
         &self,
         Parameters(input): Parameters<SyntaxInput>,
     ) -> Result<CallToolResult, ErrorData> {
-        Ok(blocking(move || check_or_run(input, true, None, false, None)).await)
+        Ok(blocking(move || check_or_run(input, true, None, false, false, None)).await)
     }
 
     /// Runs syntax in a session and keeps the result there, so the next call builds on it. The
@@ -679,6 +685,7 @@ impl Server {
                 false,
                 input.xlsx,
                 input.xlsx_one_sheet.unwrap_or(false),
+                input.xlsx_no_titles.unwrap_or(false),
                 input.plugins,
             ),
         })
@@ -747,7 +754,7 @@ impl Server {
                 folder: None,
                 vega_lite: input.vega_lite,
             };
-            let mut reply = check_or_run(syntax, false, None, false, None);
+            let mut reply = check_or_run(syntax, false, None, false, false, None);
             let document = reply
                 .structured_content
                 .as_ref()

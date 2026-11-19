@@ -365,6 +365,26 @@ fn a_syntax_file_by_lines_and_a_workbook() {
         "DESCRIPTIVES"
     );
     assert!(dir.0.join("tables.xlsx").exists());
+    let plain = client.call(
+        "run_syntax",
+        json!({ "file": file, "lines": "3-3", "session": "f", "xlsx": "plain.xlsx",
+            "xlsx_no_titles": true, "folder": dir.0.to_str().unwrap() }),
+    );
+    assert_eq!(plain["structuredContent"]["ok"], true, "{plain}");
+    // the title is in the cells of the first workbook only
+    let cells = |name: &str| {
+        let file = std::fs::File::open(dir.0.join(name)).unwrap();
+        let mut zip = zip::ZipArchive::new(file).unwrap();
+        let mut text = String::new();
+        for part in ["xl/worksheets/sheet1.xml", "xl/sharedStrings.xml"] {
+            if let Ok(mut part) = zip.by_name(part) {
+                std::io::Read::read_to_string(&mut part, &mut text).unwrap();
+            }
+        }
+        text
+    };
+    assert!(cells("tables.xlsx").contains("Descriptive Statistics"));
+    assert!(!cells("plain.xlsx").contains("Descriptive Statistics"));
     let described = client.call("describe", json!({ "session": "f" }));
     assert_eq!(described["structuredContent"]["variable_count"], 20);
 }
