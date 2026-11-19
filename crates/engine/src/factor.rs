@@ -4,7 +4,7 @@
 //! - LISTWISE uses the cases valid on every variable of VARIABLES, PAIRWISE each pair's cases
 //!   (each variable's mean and deviation from its own cases), MEANSUB every case with the mean in
 //!   place of a missing value. SELECT limits the matrix to the cases with that value. Weights:
-//!   W is the sum of the case weights; covariances divide by W - 1.
+//!   W is the total case weight; covariances divide by W - 1.
 //! - The number of factors is FACTORS(n), else the count of eigenvalues of R above MINEIGEN.
 //! - PC: loadings are the eigenvectors times the square roots of the eigenvalues. PAF iterates
 //!   the communalities on the diagonal from the squared multiple correlations (or DIAGONAL).

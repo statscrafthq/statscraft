@@ -4,8 +4,8 @@
 //! our words:
 //! - The estimate at quantile p minimizes the sum over cases of w_i rho_p(y_i - x_i'b), where
 //!   rho_p(r) is p r above zero and (p - 1) r below, and w_i is the frequency (the case weight
-//!   rounded, used when 1 or more) times the regression weight (REGWGT, used when above 0). Cases
-//!   with a missing value on any variable are left out; CLASSMISSING=INCLUDE keeps user-missing
+//!   rounded, used when 1 or more) times the regression weight (REGWGT, used when above 0). A case
+//!   missing on any variable is left out; CLASSMISSING=INCLUDE keeps user-missing
 //!   factor values. A quantile of 0 or 1 is fitted as 1E-10 or 1 - 1E-10.
 //! - The design is the one of UNIANOVA: the intercept and the main effects by default, a column
 //!   that depends on earlier ones is redundant, its estimate 0 and its statistics empty.

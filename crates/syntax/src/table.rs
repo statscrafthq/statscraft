@@ -803,8 +803,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Make the changes that follow last only until the next procedure.",
         syntax: "TEMPORARY.\n\
                  Transformations, labels, formats, SELECT IF, SAMPLE, N OF CASES, WEIGHT, FILTER and\n\
-                 SPLIT FILE after it are undone once the next command that reads the data (a procedure,\n\
-                 EXECUTE or SAVE) has run, or at the end of the run. Variables that procedure adds stay.",
+                 SPLIT FILE after it are undone once the following data pass (a procedure, EXECUTE or\n\
+                 SAVE) is over, or at the end of the run. Variables that procedure adds stay.",
         example: "TEMPORARY.",
         parse: selection::temporary,
     },
@@ -6243,8 +6243,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "DOCUMENT",
         summary: "Add free text to the documents of the data file.",
         syntax: "DOCUMENT text.\n\
-                 The text may run over several lines and hold blank lines; a period at the end of a\n\
-                 line ends it. Every line becomes a line of the documents.",
+                 The text may run over several lines and hold blank lines; a line ending in a period\n\
+                 ends it. Every line becomes a line of the documents.",
         example: "DOCUMENT Weights were trimmed at 5.",
         parse: dictionary::document,
     },
@@ -6955,7 +6955,7 @@ pub fn help(command: Option<&str>) -> Option<String> {
 
 const GENERAL_HELP: &str = "
 General rules:
-  A command ends with a period at the end of a line, at a blank line, or at the end of input.
+  A command ends at a line whose last character is a period, at a blank line, or at the end of input.
   Command names and keywords are case-insensitive and may be shortened to three or more letters.
   varlist: variable names, a range written as first TO last, or ALL.
   Strings use single or double quotes; double the quote character to include it. A string may

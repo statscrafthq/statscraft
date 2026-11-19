@@ -785,7 +785,7 @@ pub struct Engine {
     input: Option<Box<input::InputState>>,
     /// LEAVE: the variables (lower case) that keep their value from case to case in this pass.
     leave: std::collections::HashSet<String>,
-    /// What TEMPORARY returns to after the next command that reads the data.
+    /// The dataset and case limit TEMPORARY puts back when the following data pass is over.
     temporary: Option<Box<split::Saved>>,
     /// N OF CASES, waiting for the next data pass.
     case_limit: Option<usize>,
@@ -1050,7 +1050,7 @@ impl Engine {
             }
             program.collecting = false;
         }
-        // the next command that reads the data uses a time program up (begin_pass drops it);
+        // the following data pass uses a time program up (begin_pass drops it);
         // only COXREG and CSCOXREG run it
         let runs_program = matches!(command, Command::Coxreg(_) | Command::CsCox(_));
         if !runs_program && output::stage(command) == output::Stage::Pass {

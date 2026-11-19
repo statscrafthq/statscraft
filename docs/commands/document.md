@@ -10,7 +10,7 @@ Add free text to the documents of the data file.
 DOCUMENT text.
 ```
 
-The text may run over several lines and hold blank lines; a period at the end of a line ends it. Every line becomes a line of the documents.
+The text may run over several lines and hold blank lines; a line ending in a period ends it. Every line becomes a line of the documents.
 
 ## Example
 

@@ -315,7 +315,7 @@ One page per supported command, generated from the same table that the parser an
 ## General rules of the language
 
 ```text
-  A command ends with a period at the end of a line, at a blank line, or at the end of input.
+  A command ends at a line whose last character is a period, at a blank line, or at the end of input.
   Command names and keywords are case-insensitive and may be shortened to three or more letters.
   varlist: variable names, a range written as first TO last, or ALL.
   Strings use single or double quotes; double the quote character to include it. A string may

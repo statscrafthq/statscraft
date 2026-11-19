@@ -149,7 +149,7 @@ fn vector_errors() {
     run(&mut session, "STRING s (A3).");
     let message = error(&mut session, "VECTOR m = z TO s.");
     assert!(
-        message.contains("all numeric or all strings of one width"),
+        message.contains("numeric, or string with one width"),
         "{message}"
     );
     let message = error(&mut session, "COMPUTE nothing(1) = 2.");

@@ -10,8 +10,9 @@
 //! - AGGREGATE ignores the split. It aggregates the cases the filter keeps; with
 //!   MODE=ADDVARIABLES the other cases get system-missing values, as z-scores of DESCRIPTIVES
 //!   do.
-//! - TEMPORARY: everything after it is undone once the next command that reads the data has
-//!   run. Variables that command adds stay, when the temporary changes kept the cases.
+//! - TEMPORARY: everything after it is undone once the following data pass (a procedure,
+//!   EXECUTE or SAVE) is over. Variables that pass adds stay, when the temporary changes
+//!   kept the cases.
 //! - N OF CASES keeps the first n cases at the next data pass, after case selection.
 //! - SAMPLE draws its random numbers from the session's generator, which SET SEED, RNG and
 //!   MTINDEX start.

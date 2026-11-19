@@ -352,7 +352,7 @@ impl Engine {
                         .collect::<Result<_, _>>()?;
                     if widths.iter().any(|w| *w != widths[0]) {
                         return Err(Error(format!(
-                            "the variables of vector {} must be all numeric or all strings of one width",
+                            "the variables of vector {} must share one type: numeric, or string with one width",
                             spec.names[0]
                         )));
                     }

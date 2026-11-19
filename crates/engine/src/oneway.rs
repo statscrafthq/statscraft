@@ -522,7 +522,7 @@ pub(crate) fn posthoc_tables(
         let mut caption = String::from("Means for groups in homogeneous subsets are displayed.");
         if groups.iter().any(|g| g.w != groups[0].w) {
             caption.push_str(&format!(
-                " The group sizes are unequal: the harmonic mean of the group sizes, {}, is used, except by the Ryan-Einot-Gabriel-Welsch tests.",
+                " The group sizes are unequal, so their harmonic mean, {}, stands in for them, except in the Ryan-Einot-Gabriel-Welsch tests.",
                 (harmonic * 1000.0).round() / 1000.0
             ));
         }

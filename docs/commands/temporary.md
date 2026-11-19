@@ -10,7 +10,7 @@ Make the changes that follow last only until the next procedure.
 TEMPORARY.
 ```
 
-Transformations, labels, formats, SELECT IF, SAMPLE, N OF CASES, WEIGHT, FILTER and SPLIT FILE after it are undone once the next command that reads the data (a procedure, EXECUTE or SAVE) has run, or at the end of the run. Variables that procedure adds stay.
+Transformations, labels, formats, SELECT IF, SAMPLE, N OF CASES, WEIGHT, FILTER and SPLIT FILE after it are undone once the following data pass (a procedure, EXECUTE or SAVE) is over, or at the end of the run. Variables that procedure adds stay.
 
 ## Example
 

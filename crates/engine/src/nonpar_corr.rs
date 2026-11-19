@@ -1,4 +1,4 @@
-//! NONPAR CORR: Spearman's rho and Kendall's tau-b with their significance.
+//! NONPAR CORR: rank correlations (Spearman's rho, Kendall's tau-b) and their p-values.
 //!
 //! Rules from the Command Syntax Reference (NONPAR CORR) and the Algorithms manual (NONPAR CORR
 //! Algorithms):

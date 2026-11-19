@@ -2,7 +2,7 @@
 //!
 //! Rules, from the description of scratch variables and of LAG:
 //! - A scratch variable (`#name`) is 0 or blank at the first case and keeps its value from
-//!   case to case; it is never reset. It is gone when the next command that reads the data
+//!   case to case; it is never reset. It is gone when the following data pass
 //!   begins, and at TEMPORARY. Procedures never see it, and a file never holds it.
 //! - LAG gives a variable's value in an earlier case as that case ended the pass, counting only
 //!   the cases that SELECT IF kept.

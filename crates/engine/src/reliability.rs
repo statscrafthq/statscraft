@@ -3,7 +3,7 @@
 //! Rules from the Command Syntax Reference (RELIABILITY) and the Algorithms manual
 //! (RELIABILITY):
 //! - A case missing on any variable of VARIABLES is left out (MISSING=INCLUDE makes user-missing
-//!   values valid). W is the sum of the case weights; variances and covariances divide by W - 1.
+//!   values valid). W is the total case weight; variances and covariances divide by W - 1.
 //! - Method 2 (the covariance matrix) is used when the model is GUTTMAN, PARALLEL or
 //!   STRICTPARALLEL, when CORR, COV, TUKEY or HOTELLING is asked for, when SUMMARY asks for more
 //!   than TOTAL, or with METHOD=COVARIANCE. It drops items without variance, with a warning;

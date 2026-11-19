@@ -11,8 +11,8 @@
 //! - Designs: one sample (no PAIR, no GROUP); paired (PAIR=TRUE with at least two test
 //!   variables; GROUP without SELECT is then ignored); independent groups (GROUP with
 //!   SELECT, which wins over PAIR). SELECT LEVEL(a b) puts the cases with value a in the
-//!   first group and b in the second; MIDPOINT and CUTPOINT(c) put the cases at or above
-//!   the midpoint of the smallest and largest group value (or c) first, the cases below it
+//!   first group and b in the second; MIDPOINT and CUTPOINT(c) put first the cases from
+//!   the middle of the smallest and largest group value (or from c) upward, the lower cases
 //!   second.
 //! - Cutoffs as ROC; when every test value lies strictly between 0 and 1 the outer cutoffs
 //!   are 0 and 1. Areas and their nonparametric (or bi-negative exponential) standard errors

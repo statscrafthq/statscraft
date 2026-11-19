@@ -1234,7 +1234,7 @@ fn median(v: &mut [f64]) -> f64 {
     (v[(n - 1) / 2] + v[n / 2]) / 2.0
 }
 
-/// The outliers the one-step errors of `model` point to, found one at a time: at each step
+/// The outliers the one-step errors of `model` point to, found one by one: each round takes
 /// the time and type with the largest standardized effect, while that passes `c`, the errors
 /// then cleared of it. `taken` holds the times already used.
 fn search_outliers(

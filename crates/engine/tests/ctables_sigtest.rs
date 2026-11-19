@@ -1072,7 +1072,7 @@ fn a_table_without_the_needed_variables_is_an_error() {
     let fails = |syntax: &str| run("survey_basic.sav", syntax).unwrap_err();
     let e = fails("CTABLES /TABLE gender /SIGTEST TYPE=CHISQUARE.");
     assert!(
-        e.contains("categorical variable in both the rows and the columns"),
+        e.contains("categorical variables on the rows and on the columns"),
         "{e}"
     );
     let e = fails("CTABLES /TABLE gender BY region /COMPARETEST TYPE=MEAN.");

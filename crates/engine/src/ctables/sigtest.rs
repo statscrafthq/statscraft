@@ -680,7 +680,7 @@ fn chi_square_table(
             return Err(Error(format!("/SIGTEST: nothing is left to test. {why}")));
         }
         return Err(Error(
-            "/SIGTEST: the chi-square test needs a categorical variable in both the rows and the columns of one nesting, without a scale variable".into(),
+            "/SIGTEST: the chi-square test needs categorical variables on the rows and on the columns of one nesting, without a scale variable".into(),
         ));
     }
     let mut caption = format!(
@@ -913,7 +913,7 @@ fn comparisons(
         return Err(Error(if means {
             "/COMPARETEST TYPE=MEAN needs a scale variable summarized by MEAN in the rows and a categorical variable in the columns".into()
         } else {
-            "/COMPARETEST TYPE=PROP needs a categorical variable in both the rows and the columns of one nesting, without a scale variable".into()
+            "/COMPARETEST TYPE=PROP needs categorical variables on the rows and on the columns of one nesting, without a scale variable".into()
         }));
     }
     Ok(Comparisons {

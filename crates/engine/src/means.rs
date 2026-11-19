@@ -1,5 +1,5 @@
 //! MEANS: statistics of dependent variables within the groups of control variables, with an
-//! optional one-way analysis of variance and test of linearity.
+//! an optional ANOVA table and linearity test.
 //!
 //! Rules from the Command Syntax Reference (MEANS) and the Algorithms manual (MEANS):
 //! - Each table list gives one Report per dependent and combination of control variables (one
