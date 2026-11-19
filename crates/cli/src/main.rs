@@ -58,6 +58,9 @@ enum Cmd {
     },
     /// Validate syntax without saving or writing anything; with --session, against its dataset
     Check(RunArgs),
+    /// Export the output of the running statscraft-gui window to a file, as its File > Export
+    /// does: the tables and charts of its designated output window
+    Export(ExportArgs),
     /// Show the syntax of a command, or list all commands
     Help { command: Vec<String> },
     /// Lower bounded syntax to an OpenStatSpec transformation plan (JSON), or apply it in a database
@@ -105,6 +108,24 @@ struct RunArgs {
     /// is valid UTF-8 (with or without a byte order mark), else the system's legacy code page
     #[arg(long, value_name = "NAME")]
     encoding: Option<String>,
+}
+
+#[derive(Args)]
+struct ExportArgs {
+    /// The file to write: .xlsx, .html or .pdf; a relative path starts in the current folder
+    file: PathBuf,
+    /// xlsx, html or pdf. Default: from the extension of the file
+    #[arg(long)]
+    format: Option<String>,
+    /// Excel: all tables on one sheet, one below the other, instead of one sheet per table
+    #[arg(long)]
+    one_sheet: bool,
+    /// Only the tables selected in the output window
+    #[arg(long)]
+    selected: bool,
+    /// Hidden items too
+    #[arg(long)]
+    hidden: bool,
 }
 
 #[derive(Args)]
@@ -174,6 +195,11 @@ fn main() -> ExitCode {
         Cmd::Run { args, xlsx, charts } => (args.json, run(args, false, &xlsx, Some(&charts))),
         Cmd::Chart { args, xlsx, charts } => (args.json, add_chart(args, &xlsx, &charts)),
         Cmd::Check(args) => (args.json, run(args, true, &XlsxArgs::default(), None)),
+        Cmd::Export(args) => (
+            false,
+            export(args, std::env::current_dir().ok())
+                .map(|path| println!("output exported to {path}")),
+        ),
         Cmd::Help { command } => (
             false,
             help(&command.join(" ")).map(|text| println!("{text}")),
@@ -628,6 +654,30 @@ fn run_result(
         }
     }
     Ok(result)
+}
+
+/// Has the window export its output as `args` say; a relative file starts in `cwd`. Returns
+/// the file the window wrote.
+fn export(args: ExportArgs, cwd: Option<PathBuf>) -> Result<String, Vec<Failure>> {
+    let format = live::ExportFormat::choose(args.format.as_deref(), &args.file)?;
+    let request = Request {
+        action: Action::Export,
+        path: Some(args.file),
+        cwd,
+        format: Some(format),
+        one_sheet: args.one_sheet,
+        selected: args.selected,
+        hidden: args.hidden,
+        ..Request::default()
+    };
+    let reply = live::send(&live::endpoint_file(), request)?;
+    let reply: serde_json::Value = serde_json::from_str(&reply).map_err(|e| {
+        vec![Failure::plain(
+            "session",
+            format!("reply of the window: {e}"),
+        )]
+    })?;
+    Ok(reply["exported"].as_str().unwrap_or_default().to_string())
 }
 
 /// Sends a run or check to the window and writes the workbook from its reply.

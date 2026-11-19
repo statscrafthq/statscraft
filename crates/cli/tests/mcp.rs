@@ -164,6 +164,7 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
     for (name, destructive) in [
         ("run_syntax", true),
         ("save_syntax", true),
+        ("export_output", true),
         ("edit_syntax", false),
         ("new_syntax_window", false),
         ("open_syntax_file", false),
@@ -507,6 +508,103 @@ fn without_a_session_calls_go_to_the_window_when_one_is_open() {
     assert_eq!(status["structuredContent"]["window"]["case_count"], 200);
     let described = client.call("describe", json!({}));
     assert_eq!(described["structuredContent"]["case_count"], 200);
+}
+
+/// What the window was asked to export: action, file, format, one sheet, selected, hidden.
+type Asked = (
+    live::Action,
+    PathBuf,
+    Option<live::ExportFormat>,
+    bool,
+    bool,
+    bool,
+);
+
+/// The window's half of an export: records what it was asked and writes nothing; a file named
+/// refused.pdf gets the window's error.
+fn export_window(endpoint: PathBuf) -> (live::Server, std::sync::mpsc::Receiver<Asked>) {
+    let (sender, asked) = std::sync::mpsc::channel();
+    let server = live::serve(endpoint, move |request| {
+        let path = request.export_path()?;
+        let r = &request;
+        let seen = (
+            r.action,
+            path.clone(),
+            r.format,
+            r.one_sheet,
+            r.selected,
+            r.hidden,
+        );
+        sender.send(seen).unwrap();
+        if path.ends_with("refused.pdf") {
+            let message = "the output window has no output to export";
+            return Err(vec![statscraft_engine::session::Failure::plain(
+                "window", message,
+            )]);
+        }
+        live::exported(&path)
+    })
+    .unwrap();
+    (server, asked)
+}
+
+#[test]
+fn export_output_asks_the_window_for_its_file_export() {
+    let dir = Workdir::new("export");
+    let (mut client, _) = Client::start(&dir, &dir.0);
+    let none = client.call("export_output", json!({ "path": dir.0.join("t.xlsx") }));
+    assert_eq!(none["isError"], true);
+    assert!(
+        text(&none).contains("no Statscraft window is running"),
+        "{none}"
+    );
+
+    let (_window, asked) = export_window(dir.endpoint());
+    let folder = dir.0.to_string_lossy();
+    let done = client.call(
+        "export_output",
+        json!({ "path": "tables.htm", "folder": folder, "selected": true, "hidden": true }),
+    );
+    let path = dir.0.join("tables.htm");
+    let shown = path.to_string_lossy();
+    assert_eq!(
+        done["structuredContent"]["exported"],
+        shown.as_ref(),
+        "{done}"
+    );
+    assert_eq!(text(&done), format!("output exported to {shown}"));
+    let html = Some(live::ExportFormat::Html);
+    let want = (live::Action::Export, path, html, false, true, true);
+    assert_eq!(asked.recv().unwrap(), want);
+    let pdf = dir.0.join("out.bin");
+    let named = json!({ "path": pdf, "format": "pdf", "one_sheet": true });
+    assert_eq!(client.call("export_output", named)["isError"], false);
+    let want = (
+        live::Action::Export,
+        pdf,
+        Some(live::ExportFormat::Pdf),
+        true,
+        false,
+        false,
+    );
+    assert_eq!(asked.recv().unwrap(), want);
+    // no format to be had, or a relative path without a folder: the window refuses or nothing is sent
+    let bad = client.call("export_output", json!({ "path": dir.0.join("notes.txt") }));
+    assert!(text(&bad).contains("give the format"), "{bad}");
+    let relative = client.call("export_output", json!({ "path": "t.xlsx" }));
+    assert!(
+        text(&relative).contains("not an absolute path"),
+        "{relative}"
+    );
+    // the window's refusal reaches the agent
+    let refused = client.call(
+        "export_output",
+        json!({ "path": dir.0.join("refused.pdf") }),
+    );
+    assert_eq!(refused["isError"], true);
+    assert!(text(&refused).contains("no output to export"), "{refused}");
+    assert_eq!(asked.recv().unwrap().1, dir.0.join("refused.pdf"));
+    assert!(asked.try_recv().is_err());
 }
 
 #[test]

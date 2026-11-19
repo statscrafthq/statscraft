@@ -264,6 +264,8 @@ The output of a window can be kept as a Statscraft output file (.scout) and open
 
 File > Export... opens the Export dialog for the output window; chosen in a data or syntax window, it exports the designated output window. The dialog asks for the **Format**, for an Excel workbook whether to put **One sheet per table** or **All tables on one sheet**, which **Items** (all items of the output, or only the selected tables) and whether to take **Hidden items too**. **Export...** then asks where to save. The choices stay for the next export.
 
+The command line (`statscraft export`, see [the command line](command-line.md#export)) and AI agents (the MCP tool `export_output`) export the designated output window the same way, with the same choices, while the window is open.
+
 - An Excel workbook is laid out as `--xlsx` does: a chart as its data table with the editable chart, or the picture of a statistical plot, beside it. Plugin comments become cell notes; a plugin's own settings decide whether it writes comments.
 - A web page holds the tables, each drawn chart as a PNG picture inside the page.
 - A PDF file has A4 pages, as OUTPUT EXPORT /PDF writes it: tables as text, charts as vector drawings, and bookmarks for the commands and their items.

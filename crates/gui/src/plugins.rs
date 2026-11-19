@@ -40,6 +40,8 @@ pub struct Plugins {
     pub generation: u64,
     /// The open settings dialog.
     pub dialog: Option<Dialog>,
+    /// Plugin runs started and not answered yet.
+    running: usize,
     /// The programs whose update check or update runs.
     busy: Vec<PathBuf>,
     /// What the last update check or update of a program in this session did.
@@ -210,6 +212,7 @@ impl Default for Plugins {
             redo: false,
             generation: 0,
             dialog: None,
+            running: 0,
             busy: Vec::new(),
             status: Vec::new(),
             update_sender,
@@ -433,7 +436,7 @@ impl Plugins {
     /// plugin's answer is laid over those before it; one that fails leaves the others' answers
     /// standing. Nothing runs while no plugin is on.
     pub fn start(
-        &self,
+        &mut self,
         settings: &Settings,
         data: Option<&Dataset>,
         (window, document): (WindowId, &str),
@@ -455,6 +458,7 @@ impl Plugins {
         let sender = self.sender.clone();
         let document = document.to_string();
         let generation = self.generation;
+        self.running += 1;
         std::thread::spawn(move || {
             let refs: Vec<(u64, &Table)> = tables.iter().map(|(id, t)| (*id, t)).collect();
             let (mut answers, mut errors) = (Vec::new(), Vec::new());
@@ -487,11 +491,15 @@ impl Plugins {
     /// Takes the answers that came in.
     pub fn receive(&mut self) {
         let generation = self.generation;
-        let current = self
-            .receiver
-            .try_iter()
-            .filter(|d| d.generation == generation);
+        let done: Vec<Done> = self.receiver.try_iter().collect();
+        self.running = self.running.saturating_sub(done.len());
+        let current = done.into_iter().filter(|d| d.generation == generation);
         self.waiting.extend(current);
+    }
+
+    /// Whether plugin runs are still out, whose answers have not reached the tables.
+    pub fn running(&self) -> bool {
+        self.running > 0 || !self.waiting.is_empty()
     }
 
     /// Opens the Plugin Settings dialog of a plugin with the values of the active dataset; an
@@ -1537,7 +1545,7 @@ mod tests {
             cell_stats: Some(Box::default()),
             ..Table::default()
         };
-        let plugins = Plugins::default();
+        let mut plugins = Plugins::default();
         plugins.start(&settings, None, (1, "doc"), vec![(4, table.clone())], || {});
         let done = plugins
             .receiver

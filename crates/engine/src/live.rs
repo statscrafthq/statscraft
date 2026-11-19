@@ -52,6 +52,41 @@ pub enum Action {
     /// Opens `files` as the window opens the files it starts with: a second start of the
     /// program hands its files to the running window this way.
     OpenFiles,
+    /// Writes the output of the designated output window to `path` in `format`, as File >
+    /// Export does.
+    Export,
+}
+
+/// The file formats of File > Export.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportFormat {
+    Xlsx,
+    Html,
+    Pdf,
+}
+
+impl ExportFormat {
+    /// The format `name` gives (xlsx, html or pdf), else the one the extension of `path` says.
+    pub fn choose(name: Option<&str>, path: &Path) -> Result<Self, Vec<Failure>> {
+        let given = name.is_some();
+        let name = name.map(str::to_string).or_else(|| {
+            let extension = path.extension()?.to_str()?;
+            Some(extension.to_ascii_lowercase())
+        });
+        match name.as_deref() {
+            Some("xlsx") => Ok(Self::Xlsx),
+            Some("html" | "htm") => Ok(Self::Html),
+            Some("pdf") => Ok(Self::Pdf),
+            Some(other) if given => Err(usage_failure(format!(
+                "unknown format {other}: give xlsx, html or pdf"
+            ))),
+            _ => Err(usage_failure(format!(
+                "{} does not end in .xlsx, .html or .pdf: give the format",
+                path.display()
+            ))),
+        }
+    }
 }
 
 /// A change to the text of a syntax window. Lines count from 1.
@@ -106,6 +141,18 @@ pub struct Request {
     /// The files of an OpenFiles request, as absolute paths.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<PathBuf>,
+    /// The format of an Export.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<ExportFormat>,
+    /// Export to Excel with all tables on one sheet, one below the other.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub one_sheet: bool,
+    /// Export only the tables selected in the output window.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub selected: bool,
+    /// Export hidden items too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 impl Request {
@@ -144,6 +191,21 @@ impl Request {
         }
         session.set_work_dir(dir.to_path_buf())?;
         session.run(&self.source, self.lines)
+    }
+
+    /// The file of an Export: `path` as given when absolute, else in the caller's folder.
+    pub fn export_path(&self) -> Result<PathBuf, Vec<Failure>> {
+        let Some(path) = self.path.as_deref() else {
+            return Err(window_failure("give the path of the file to export to"));
+        };
+        match self.folder_if_given()? {
+            _ if path.is_absolute() => Ok(path.to_path_buf()),
+            Some(dir) => Ok(dir.join(path)),
+            None => Err(window_failure(format!(
+                "{} is not an absolute path, and the request names no folder for it",
+                path.display()
+            ))),
+        }
     }
 
     /// The files of an OpenFiles request. Each must be an absolute path to an existing file,
@@ -254,6 +316,10 @@ pub trait SyntaxWindows {
 
 fn window_failure(message: impl Into<String>) -> Vec<Failure> {
     vec![Failure::plain("window", message)]
+}
+
+fn usage_failure(message: impl Into<String>) -> Vec<Failure> {
+    vec![Failure::plain("usage", message)]
 }
 
 /// The lines of a text as the line numbers of a run count them: a final line break ends the
@@ -373,6 +439,11 @@ pub fn find(windows: &impl SyntaxWindows, key: Option<&str>) -> Result<SyntaxInf
 
 fn json_reply(value: serde_json::Value) -> Response {
     Ok(serde_json::to_string(&value).expect("plain data"))
+}
+
+/// The reply to an Export that wrote `path`.
+pub fn exported(path: &Path) -> Response {
+    json_reply(serde_json::json!({ "exported": path }))
 }
 
 fn info(windows: &impl SyntaxWindows, id: u64) -> Option<SyntaxInfo> {
@@ -1272,6 +1343,72 @@ mod tests {
         // other requests carry no files and older ones still read
         let run: Request = serde_json::from_str(r#"{"action":"run"}"#).unwrap();
         assert!(run.files.is_empty());
+    }
+
+    #[test]
+    fn an_export_request_survives_the_wire_and_finds_its_file() {
+        let request = Request {
+            action: Action::Export,
+            path: Some("tables.xlsx".into()),
+            cwd: Some(std::env::temp_dir()),
+            format: Some(ExportFormat::Xlsx),
+            one_sheet: true,
+            hidden: true,
+            ..Request::default()
+        };
+        let text = serde_json::to_string(&request).unwrap();
+        assert!(
+            text.contains(r#""action":"export""#) && text.contains(r#""format":"xlsx""#),
+            "{text}"
+        );
+        assert!(!text.contains("selected"), "{text}");
+        let back: Request = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.action, Action::Export);
+        assert_eq!(back.format, Some(ExportFormat::Xlsx));
+        assert_eq!(
+            (back.one_sheet, back.selected, back.hidden),
+            (true, false, true)
+        );
+        // a relative path starts in the caller's folder; without one it is refused
+        assert_eq!(
+            back.export_path().unwrap(),
+            std::env::temp_dir().join("tables.xlsx")
+        );
+        let bare = Request { cwd: None, ..back };
+        assert!(
+            bare.export_path().unwrap_err()[0]
+                .message
+                .contains("not an absolute path")
+        );
+        let absolute = Request {
+            path: Some(std::env::temp_dir().join("t.pdf")),
+            ..bare
+        };
+        assert_eq!(
+            absolute.export_path().unwrap(),
+            std::env::temp_dir().join("t.pdf")
+        );
+        assert!(Request::default().export_path().is_err());
+    }
+
+    #[test]
+    fn the_export_format_is_named_or_comes_from_the_extension() {
+        let choose = |name, path: &str| ExportFormat::choose(name, Path::new(path));
+        assert_eq!(choose(None, "a.XLSX").unwrap(), ExportFormat::Xlsx);
+        assert_eq!(choose(None, "a.htm").unwrap(), ExportFormat::Html);
+        assert_eq!(choose(None, "a.pdf").unwrap(), ExportFormat::Pdf);
+        assert_eq!(choose(Some("pdf"), "a.out").unwrap(), ExportFormat::Pdf);
+        assert!(
+            choose(None, "a.txt").unwrap_err()[0]
+                .message
+                .contains("give the format")
+        );
+        assert!(choose(None, "tables").is_err());
+        assert!(
+            choose(Some("docx"), "a.xlsx").unwrap_err()[0]
+                .message
+                .contains("unknown format docx")
+        );
     }
 
     /// The window answers at once with the files to open; only existing files given by their

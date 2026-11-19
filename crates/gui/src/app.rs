@@ -27,6 +27,7 @@ use crate::dialogs::{
     label_command,
 };
 use crate::edits::{self, Field};
+use crate::export_dialog::{Choice, Format};
 use crate::graph_dialogs::{ChartBuilder, ProbabilityPlot, RocCurve};
 use crate::graph_dialogs_view;
 use crate::imputation_dialog::Imputation;
@@ -652,7 +653,7 @@ pub struct App {
     /// File > Export is open for this output window.
     export_open: Option<WindowId>,
     /// The last choice of File > Export in this session.
-    export_choice: crate::export_dialog::Choice,
+    export_choice: Choice,
     /// Edit > Settings > AI agents.
     connect: Connect,
     /// The dataset as the last open or save left it, to tell whether the data changed since.
@@ -679,6 +680,8 @@ pub struct App {
     warnings: usize,
     title: String,
     requests: mpsc::Receiver<Remote>,
+    /// An export that waits for the plugins' answers, and every request behind it.
+    held: Option<Remote>,
     /// Every run of every window and of the command line, one at a time in turn.
     runs: RunQueue<Run>,
     /// Data to open once nothing runs, as syntax that reads it: the name of a new dataset
@@ -772,6 +775,7 @@ impl App {
             warnings: 0,
             title: String::new(),
             requests,
+            held: None,
             runs,
             opens: Default::default(),
             ctx: app_ctx,
@@ -863,14 +867,26 @@ impl App {
             self.open_named(open, after);
         }
         while self.runs.is_idle()
+            && self.held.is_none()
             && let Ok(remote) = self.requests.try_recv()
         {
-            self.answer(remote);
+            // an export takes the tables with what the plugins put on them
+            if remote.0.action == Action::Export && self.plugins.running() {
+                self.held = Some(remote);
+            } else {
+                self.answer(remote);
+            }
         }
         self.plugins.receive();
         self.plugins.receive_updates(&mut self.settings);
         if self.runs.is_idle() {
             self.apply_plugin();
+            if !self.plugins.running()
+                && let Some(remote) = self.held.take()
+            {
+                self.answer(remote);
+                self.ctx.request_repaint();
+            }
         }
     }
 
@@ -983,7 +999,49 @@ impl App {
                 ctx.send_viewport_cmd_to(root, egui::ViewportCommand::Focus);
                 self.open_args(request.files);
             }
+            Action::Export => {
+                let answer = self.export_for(&request);
+                let _ = reply.send(answer);
+            }
             _ => self.answer_windows(request, reply),
+        }
+    }
+
+    /// File > Export of the designated output window for the command line or an agent, with
+    /// the choices the dialog offers; the person sees the result in the status bar.
+    fn export_for(&mut self, request: &Request) -> Response {
+        let refused = |message: &str| vec![Failure::plain("window", message)];
+        let path = request.export_path()?;
+        let format = match request.format {
+            Some(live::ExportFormat::Xlsx) => Format::Excel,
+            Some(live::ExportFormat::Html) => Format::Html,
+            Some(live::ExportFormat::Pdf) => Format::Pdf,
+            None => return Err(refused("give the format: xlsx, html or pdf")),
+        };
+        let output = self.windows.designated_output();
+        let Some(view) = output
+            .and_then(|id| self.windows.output(id))
+            .map(|o| &o.view)
+        else {
+            return Err(refused("the window has no output window"));
+        };
+        if view.is_empty() {
+            return Err(refused("the output window has no output to export"));
+        }
+        // the dialog offers only the selected tables when some are selected
+        if request.selected && view.selected.is_empty() {
+            return Err(refused("no tables are selected in the output window"));
+        }
+        let choice = Choice {
+            format,
+            one_sheet: request.one_sheet,
+            selected: request.selected,
+            hidden: request.hidden,
+        };
+        self.status = write_export(view, &path, choice);
+        match &self.status {
+            Ok(_) => live::exported(&path),
+            Err(e) => Err(refused(e)),
         }
     }
 
@@ -2751,57 +2809,26 @@ impl App {
     }
 
     /// Exports the whole output of a window, or with `selected` only the selected tables.
-    fn export(&mut self, id: WindowId, choice: crate::export_dialog::Choice) {
-        use crate::export_dialog::Format;
+    fn export(&mut self, id: WindowId, choice: Choice) {
         if self.settings.output.export_hidden != choice.hidden {
             self.settings.output.export_hidden = choice.hidden;
             // the window works on without them
             let _ = self.settings.save();
         }
-        match choice.format {
-            Format::Excel => self.export_xlsx(id, choice.one_sheet, choice.selected),
-            Format::Html => self.export_html(id, choice.selected),
-            Format::Pdf => self.export_pdf(id, choice.selected),
-        }
-    }
-
-    fn export_html(&mut self, id: WindowId, selected: bool) {
+        let (kind, extension) = match choice.format {
+            Format::Excel => ("Excel workbook", "xlsx"),
+            Format::Html => ("Web page", "html"),
+            Format::Pdf => ("PDF document", "pdf"),
+        };
         if let Some(path) = self
             .file_dialog()
-            .add_filter("Web page", &["html"])
+            .add_filter(kind, &[extension])
             .save_file()
         {
             self.settings.remember_folder(&path);
-            let Some(view) = self.windows.output(id).map(|o| &o.view) else {
-                return;
-            };
-            let chosen = &view.selected;
-            let keep = |id| !selected || chosen.contains(&id);
-            let page = output::html(&view.runs, keep, &view.exported());
-            self.status = match std::fs::write(&path, page) {
-                Ok(()) => Ok(format!("output exported to {}", path.display())),
-                Err(e) => Err(format!("{}: {e}", file_name(&path))),
-            };
-        }
-    }
-
-    fn export_pdf(&mut self, id: WindowId, selected: bool) {
-        if let Some(path) = self
-            .file_dialog()
-            .add_filter("PDF document", &["pdf"])
-            .save_file()
-        {
-            self.settings.remember_folder(&path);
-            let Some(view) = self.windows.output(id).map(|o| &o.view) else {
-                return;
-            };
-            let chosen = &view.selected;
-            let keep = |id| !selected || chosen.contains(&id);
-            let bytes = output::pdf(&view.runs, keep, &view.exported());
-            self.status = match std::fs::write(&path, bytes) {
-                Ok(()) => Ok(format!("output exported to {}", path.display())),
-                Err(e) => Err(format!("{}: {e}", file_name(&path))),
-            };
+            if let Some(o) = self.windows.output(id) {
+                self.status = write_export(&o.view, &path, choice);
+            }
         }
     }
 
@@ -2838,31 +2865,6 @@ impl App {
             Some(Err(e)) => Err(e),
             None => Err("this kind of chart has no picture yet".into()),
         };
-    }
-
-    fn export_xlsx(&mut self, id: WindowId, one_sheet: bool, selected: bool) {
-        if let Some(path) = self
-            .file_dialog()
-            .add_filter("Excel workbook", &["xlsx"])
-            .save_file()
-        {
-            self.settings.remember_folder(&path);
-            let Some(view) = self.windows.output(id).map(|o| &o.view) else {
-                return;
-            };
-            let chosen = &view.selected;
-            let keep = |id| !selected || chosen.contains(&id);
-            let exported = view.exported().exported(&view.runs, keep);
-            let items = exported.iter().flat_map(|(_, tables)| tables);
-            let items = items.map(|(table, chart, notes)| match chart {
-                Some(chart) => (statscraft_export::Item::Chart(chart), *notes),
-                None => (statscraft_export::Item::Table(table), *notes),
-            });
-            self.status = match statscraft_export::write_xlsx_parts(&path, items, one_sheet) {
-                Ok(()) => Ok(format!("output exported to {}", path.display())),
-                Err(e) => Err(format!("{}: {e}", file_name(&path))),
-            };
-        }
     }
 
     fn tabs(&mut self, ui: &mut Ui) {
@@ -4515,6 +4517,43 @@ pub(crate) fn file_name(path: &Path) -> String {
     match path.file_name() {
         Some(name) => name.to_string_lossy().into_owned(),
         None => path.display().to_string(),
+    }
+}
+
+/// Writes the output of a window to `path` as File > Export chose: what it wrote, or why not.
+/// The window, the command line and agents all export through here.
+fn write_export(
+    view: &output_view::OutputView,
+    path: &Path,
+    choice: Choice,
+) -> Result<String, String> {
+    let chosen = &view.selected;
+    let keep = |id| !choice.selected || chosen.contains(&id);
+    // the choice, not the settings the window last drew with, says whether hidden items go
+    let shown = output::Visibility {
+        all: choice.hidden,
+        ..view.exported()
+    };
+    let written =
+        match choice.format {
+            Format::Html => std::fs::write(path, output::html(&view.runs, keep, &shown))
+                .map_err(|e| e.to_string()),
+            Format::Pdf => std::fs::write(path, output::pdf(&view.runs, keep, &shown))
+                .map_err(|e| e.to_string()),
+            Format::Excel => {
+                let exported = shown.exported(&view.runs, keep);
+                let items = exported.iter().flat_map(|(_, tables)| tables);
+                let items = items.map(|(table, chart, notes)| match chart {
+                    Some(chart) => (statscraft_export::Item::Chart(chart), *notes),
+                    None => (statscraft_export::Item::Table(table), *notes),
+                });
+                statscraft_export::write_xlsx_parts(path, items, choice.one_sheet)
+                    .map_err(|e| e.to_string())
+            }
+        };
+    match written {
+        Ok(()) => Ok(format!("output exported to {}", path.display())),
+        Err(e) => Err(format!("{}: {e}", file_name(path))),
     }
 }
 
@@ -7460,5 +7499,70 @@ mod tests {
             panic!("not the Split File dialog")
         };
         assert_eq!((d.mode, d.variables), (SplitMode::Layered, v(&["region"])));
+    }
+
+    /// File > Export and the export of the command line and agents write through `write_export`;
+    /// here each format, the selection and the hidden items on output a run made.
+    #[test]
+    fn an_export_writes_each_format_with_the_chosen_items() {
+        let dir =
+            std::env::temp_dir().join(format!("statscraft-gui-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut session = open("survey_basic.sav");
+        let syntax = "FREQUENCIES gender.\nDESCRIPTIVES age.";
+        let out = session.run(syntax, None).unwrap().commands;
+        let mut view = output_view::OutputView::default();
+        for (_, label, commands) in output_groups(out, syntax, false) {
+            view.add_run(label.as_deref().unwrap_or("window"), commands);
+        }
+        let ids: Vec<u64> = output::tables(&view.runs).map(|t| t.id).collect();
+        assert!(ids.len() >= 2, "{ids:?}");
+        let export = |name: &str, choice: Choice, view: &output_view::OutputView| {
+            let path = dir.join(name);
+            let said = write_export(view, &path, choice).unwrap();
+            assert_eq!(said, format!("output exported to {}", path.display()));
+            std::fs::read(path).unwrap()
+        };
+        let html = |choice| Choice {
+            format: Format::Html,
+            ..choice
+        };
+        let page =
+            |choice, view: &_| String::from_utf8(export("t.html", html(choice), view)).unwrap();
+        let all = page(Choice::default(), &view);
+        assert_eq!(all.matches("<table>").count(), ids.len());
+        // command headings do not show by default: only with the hidden items
+        assert!(!all.contains("<h2>DESCRIPTIVES</h2>"), "{all}");
+        let hidden = Choice {
+            hidden: true,
+            ..Choice::default()
+        };
+        assert!(page(hidden, &view).contains("<h2>DESCRIPTIVES</h2>"));
+        view.selected = [ids[0]].into();
+        let selected = Choice {
+            selected: true,
+            ..Choice::default()
+        };
+        assert_eq!(page(selected, &view).matches("<table>").count(), 1);
+        let pdf = Choice {
+            format: Format::Pdf,
+            ..Choice::default()
+        };
+        let pdf = export("t.pdf", pdf, &view);
+        assert!(pdf.starts_with(b"%PDF-1.") && pdf.ends_with(b"%%EOF"));
+        let sheets = export("t.xlsx", Choice::default(), &view);
+        let one_sheet = Choice {
+            one_sheet: true,
+            ..Choice::default()
+        };
+        let one = export("one.xlsx", one_sheet, &view);
+        assert!(sheets.starts_with(b"PK") && one.starts_with(b"PK"));
+        assert_ne!(sheets, one);
+        // a file that cannot be written says so with its name
+        let bad = dir.join("missing").join("t.html");
+        let error = write_export(&view, &bad, html(Choice::default())).unwrap_err();
+        assert!(error.starts_with("t.html: "), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

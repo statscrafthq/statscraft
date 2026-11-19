@@ -44,6 +44,8 @@ their syntax, call list_syntax_windows and read_syntax, say what you would chang
 change with edit_syntax and run it with run_syntax and window (and lines), as their own Run \
 does. When the person works in a syntax window, prefer putting the syntax there and running it \
 from there. save_syntax is the only one of these tools that writes a file.
+Export (only with the window open): when the person wants the window's output as an Excel \
+workbook, web page or PDF, call export_output; it writes what File > Export would.
 Charts: procedures draw their own. For a chart no procedure makes, call add_chart with chart JSON \
 as run_syntax returns it, or a simple Vega-Lite specification; it lands in the output like any \
 other chart. Draw only numbers the result tables gave.
@@ -233,6 +235,24 @@ struct SaveInput {
     /// Replace path even though it is a file other than the window's own. Default: false; ask
     /// the person first.
     overwrite: Option<bool>,
+}
+
+/// What `export_output` takes.
+#[derive(Deserialize, JsonSchema)]
+struct ExportInput {
+    /// The file to write: absolute, or relative to folder. Its extension gives the format
+    /// when format is left out.
+    path: String,
+    /// Absolute folder a relative path starts from.
+    folder: Option<String>,
+    /// xlsx, html or pdf. Default: from the extension of path.
+    format: Option<String>,
+    /// Excel: all tables on one sheet, one below the other. Default: false, one sheet per table.
+    one_sheet: Option<bool>,
+    /// Only the tables the person selected in the output window. Default: false, all of them.
+    selected: Option<bool>,
+    /// Hidden items too. Default: false, only what the output window shows.
+    hidden: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -982,6 +1002,50 @@ impl Server {
                 overwrite: input.overwrite.unwrap_or(false),
                 ..Request::default()
             })
+        })
+        .await)
+    }
+
+    /// Exports the output of the open Statscraft window to an Excel workbook, a web page or a
+    /// PDF document, exactly as its File > Export does: the designated output window, with
+    /// the colours and comments of its plugins. It replaces an existing file. Fails when no
+    /// window is open or its output window is empty.
+    #[tool(
+        title = "Export window output",
+        annotations(
+            title = "Export window output",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn export_output(
+        &self,
+        Parameters(input): Parameters<ExportInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || {
+            let args = crate::ExportArgs {
+                file: local(input.path).into(),
+                format: input.format,
+                one_sheet: input.one_sheet.unwrap_or(false),
+                selected: input.selected.unwrap_or(false),
+                hidden: input.hidden.unwrap_or(false),
+            };
+            let folder = input.folder.map(local).map(PathBuf::from);
+            match crate::export(args, folder) {
+                Ok(path) => {
+                    let (shown, linux) = both(&path);
+                    let mut value = json!({ "ok": true, "exported": path });
+                    if let Some(linux) = linux {
+                        value["exported_wsl"] = linux.into();
+                    }
+                    let mut reply = CallToolResult::structured(value);
+                    reply.content = vec![ContentBlock::text(format!("output exported to {shown}"))];
+                    reply
+                }
+                Err(errors) => failed(errors),
+            }
         })
         .await)
     }

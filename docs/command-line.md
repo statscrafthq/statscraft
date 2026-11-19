@@ -5,6 +5,7 @@ statscraft describe   dictionary and counts of a data file or a session
 statscraft run        run syntax
 statscraft check      validate syntax without saving or writing anything
 statscraft chart      add a chart given as JSON to the output
+statscraft export     export the output of the open window, as its File > Export
 statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
 statscraft db         store datasets in an OpenStatSpec database and read them back
@@ -576,6 +577,33 @@ statscraft describe -s gui --json
 - When no window is open, `-s gui` fails with "no Statscraft window is running". With several windows open, the one started last answers.
 
 How it connects, and why it is safe: see [AI agents](ai-agents.md#safety-of-the-live-session).
+
+## export
+
+```
+statscraft export FILE [--format xlsx|html|pdf] [--one-sheet] [--selected] [--hidden]
+```
+
+Writes the output of the open `statscraft-gui` window to a file, exactly as its File > Export does (see [the window](window.md#exporting-all-output)): the designated output window, with what its plugins put on the tables.
+
+| Flag | Meaning |
+|---|---|
+| `FILE` | the file to write; a relative path starts in the current folder. An existing file is replaced |
+| `--format xlsx\|html\|pdf` | an Excel workbook, a web page or a PDF document; without it the extension of `FILE` says (`.xlsx`, `.html` or `.htm`, `.pdf`) |
+| `--one-sheet` | Excel: all tables on one sheet, one below the other, instead of one sheet per table |
+| `--selected` | only the tables selected in the output window; fails when none is selected |
+| `--hidden` | hidden items too; without it only what the output window shows |
+
+```
+statscraft run -s gui -e "FREQUENCIES region."
+statscraft export tables.xlsx --one-sheet
+```
+
+```
+output exported to /home/me/work/tables.xlsx
+```
+
+It fails when no window is open, when the window has no output, and when the file cannot be written. An export waits until the plugins have answered for the tables of the last run.
 
 ## mcp
 

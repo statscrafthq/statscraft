@@ -1,8 +1,8 @@
 //! `--session gui` end to end without a display: the window's half (a listener answering with a
 //! `Session`, as the window does) runs in this process, the real command line drives it.
 
-use statscraft_engine::live::{self, Action, Request};
-use statscraft_engine::session::Session;
+use statscraft_engine::live::{self, Action, ExportFormat, Request};
+use statscraft_engine::session::{Failure, Session};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -395,4 +395,62 @@ fn a_command_line_without_a_readable_folder_sends_nothing() {
         stderr.contains("cannot read the current folder"),
         "{stderr}"
     );
+}
+
+#[test]
+fn export_sends_the_choices_to_the_window_and_prints_its_answer() {
+    let dir = Workdir::new("export");
+    let (ok, _, err) = text(&dir.cli(&["export", "tables.xlsx"]));
+    assert!(
+        !ok && err.contains("no Statscraft window is running"),
+        "{err}"
+    );
+
+    let (sender, asked) = std::sync::mpsc::channel();
+    let _server = live::serve(dir.endpoint(), move |request| {
+        let path = request.export_path()?;
+        let r = &request;
+        let seen = (
+            r.action,
+            path.clone(),
+            r.format,
+            r.one_sheet,
+            r.selected,
+            r.hidden,
+        );
+        sender.send(seen).unwrap();
+        if path.ends_with("refused.pdf") {
+            let message = "the output window has no output to export";
+            return Err(vec![Failure::plain("window", message)]);
+        }
+        live::exported(&path)
+    })
+    .unwrap();
+    // a relative file starts in the caller's folder; the extension gives the format
+    let (ok, out, err) = text(&dir.cli(&["export", "tables.XLSX", "--one-sheet", "--hidden"]));
+    assert!(ok, "{err}");
+    let path = dir.0.canonicalize().unwrap().join("tables.XLSX");
+    assert_eq!(out, format!("output exported to {}\n", path.display()));
+    let xlsx = Some(ExportFormat::Xlsx);
+    assert_eq!(
+        asked.recv().unwrap(),
+        (Action::Export, path, xlsx, true, false, true)
+    );
+    // --format wins over the extension
+    let html = ["export", "page.out", "--format", "html", "--selected"];
+    let (ok, _, err) = text(&dir.cli(&html));
+    assert!(ok, "{err}");
+    let seen = asked.recv().unwrap();
+    let html = Some(ExportFormat::Html);
+    assert_eq!((seen.2, seen.3, seen.4, seen.5), (html, false, true, false));
+    // without a format to be had nothing is sent
+    let (ok, _, err) = text(&dir.cli(&["export", "notes.txt"]));
+    assert!(!ok && err.contains("give the format"), "{err}");
+    let (ok, _, err) = text(&dir.cli(&["export", "t.xlsx", "--format", "docx"]));
+    assert!(!ok && err.contains("unknown format docx"), "{err}");
+    // the window's refusal is the command's error
+    let (ok, _, err) = text(&dir.cli(&["export", "refused.pdf"]));
+    assert!(!ok && err.contains("no output to export"), "{err}");
+    assert!(asked.recv().unwrap().1.ends_with("refused.pdf"));
+    assert!(asked.try_recv().is_err());
 }
