@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- MCP server: `run_syntax` takes `charts` and `chart_format` to write the run's charts as pictures, and `check_syntax` and `run_syntax` take `encoding` for a syntax file in a legacy code page, as the command line's `--charts`, `--chart-format` and `--encoding` do.
 - Command line and MCP server: `--xlsx-no-titles` (`xlsx_no_titles` in `run_syntax`) leaves the title row of every table and chart out of the workbook `--xlsx` writes, also with `--xlsx-one-sheet` and `--plugin`; labels, captions and plugin comments stay (issue #168).
 
 ## 0.20.0 (2026-11-19)

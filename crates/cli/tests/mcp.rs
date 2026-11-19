@@ -389,6 +389,39 @@ fn a_syntax_file_by_lines_and_a_workbook() {
     assert_eq!(described["structuredContent"]["variable_count"], 20);
 }
 
+/// run_syntax reads a file in a named encoding and writes the run's charts as pictures, as
+/// the command line's --encoding and --charts do.
+#[test]
+fn a_run_reads_a_legacy_file_and_writes_chart_pictures() {
+    let dir = Workdir::new("encoding-charts");
+    // "\u{160}oti" in Windows-1257, where 0xD0 is S with caron; not valid UTF-8
+    let mut bytes = format!("GET FILE='{}'.\n", fixture("survey_basic.sav")).into_bytes();
+    bytes.extend_from_slice(b"VARIABLE LABELS age '\xD0oti'.\nGRAPH /BAR=COUNT BY gender.\n");
+    std::fs::write(dir.0.join("legacy.sps"), &bytes).unwrap();
+    let (mut client, _) = Client::start(&dir, &dir.0);
+    let run = client.call(
+        "run_syntax",
+        json!({ "file": dir.0.join("legacy.sps").to_str().unwrap(), "encoding": "windows-1257",
+            "session": "e", "folder": dir.0.to_str().unwrap(), "charts": "pictures",
+            "chart_format": "png" }),
+    );
+    assert_eq!(run["structuredContent"]["ok"], true, "{run}");
+    let described = client.call("describe", json!({ "session": "e" }));
+    let variables = described["structuredContent"]["variables"]
+        .as_array()
+        .unwrap();
+    let age = variables.iter().find(|v| v["name"] == "age").unwrap();
+    assert_eq!(age["label"], "\u{160}oti", "{described}");
+    let pictures: Vec<_> = std::fs::read_dir(dir.0.join("pictures"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert!(
+        pictures.len() == 1 && pictures[0].starts_with("01-") && pictures[0].ends_with(".png"),
+        "{pictures:?}"
+    );
+}
+
 /// The comments of a workbook's first sheet, or empty when it has none.
 #[cfg(unix)]
 fn workbook_comments(path: &Path) -> String {

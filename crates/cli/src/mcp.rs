@@ -2,7 +2,7 @@
 //! input and output, and the syntax windows of the open window. Standard output carries the
 //! protocol only; messages go to standard error.
 
-use crate::{RunArgs, XlsxArgs};
+use crate::{ChartArgs, ChartFormat, RunArgs, XlsxArgs};
 use rmcp::handler::server::router::prompt::PromptRouter;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -88,6 +88,9 @@ struct SyntaxInput {
     /// Also give every chart as a Vega-Lite specification (member vega_lite of the chart), with
     /// the numbers inline. Default: false; the chart's own description is always there.
     vega_lite: Option<bool>,
+    /// Encoding of the syntax file, such as windows-1257 or 1252. Default: UTF-8 when the file
+    /// is valid UTF-8 (with or without a byte order mark), else the system's legacy code page.
+    encoding: Option<String>,
 }
 
 /// What `run_syntax` takes.
@@ -99,6 +102,13 @@ struct RunInput {
     /// or name from list_syntax_windows. With lines, only the commands those lines touch, as the
     /// window's own Run does. The window's text is the record of the run.
     window: Option<String>,
+    #[serde(flatten)]
+    out: Outputs,
+}
+
+/// The files a run writes besides its reply, as the command line's --xlsx and --charts.
+#[derive(Deserialize, JsonSchema, Default)]
+struct Outputs {
     /// Also write every table and chart of this run to this Excel workbook (.xlsx), one sheet per
     /// table, a chart as its data table with an editable chart beside it;
     /// an existing file is replaced. A relative path starts from folder.
@@ -112,6 +122,34 @@ struct RunInput {
     /// and lay out the custom tables (CTABLES) in the workbook, in this order. Their settings
     /// come from the active data's attributes: describe_plugin lists them and how to set them.
     plugins: Option<Vec<String>>,
+    /// Also write every chart of this run as a picture into this folder, made if missing:
+    /// 01-<title>.svg, 02-<title>.svg and so on. A relative path starts from folder.
+    charts: Option<String>,
+    /// With charts: the picture format. Default: svg.
+    chart_format: Option<PictureFormat>,
+}
+
+/// A chart picture's format.
+#[derive(Deserialize, JsonSchema, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum PictureFormat {
+    Svg,
+    Png,
+}
+
+impl Outputs {
+    /// The --charts of the command line, when charts is given.
+    fn charts(&self) -> Option<ChartArgs> {
+        let charts = self.charts.clone().map(local).map(PathBuf::from)?;
+        let chart_format = match self.chart_format {
+            Some(PictureFormat::Png) => ChartFormat::Png,
+            _ => ChartFormat::Svg,
+        };
+        Some(ChartArgs {
+            charts: Some(charts),
+            chart_format,
+        })
+    }
 }
 
 /// What `describe_plugin` takes.
@@ -396,25 +434,19 @@ fn plugin_paths(
     Ok(plugins)
 }
 
-fn check_or_run(
-    input: SyntaxInput,
-    check_only: bool,
-    xlsx: Option<String>,
-    one_sheet: bool,
-    no_titles: bool,
-    plugins: Option<Vec<String>>,
-) -> CallToolResult {
+fn check_or_run(input: SyntaxInput, check_only: bool, out: Outputs) -> CallToolResult {
     let input = SyntaxInput {
         file: input.file.map(local),
         folder: input.folder.map(local),
         ..input
     };
-    let xlsx = xlsx.map(local);
+    let charts = out.charts();
+    let xlsx = out.xlsx.map(local);
     if input.syntax.is_some() == input.file.is_some() {
         return usage("give either syntax or file");
     }
     let session = session_or_default(input.session.clone());
-    let plugins = match plugin_paths(plugins, xlsx.is_some(), session == live::SESSION) {
+    let plugins = match plugin_paths(out.plugins, xlsx.is_some(), session == live::SESSION) {
         Ok(plugins) => plugins,
         Err(message) => return usage(message),
     };
@@ -441,15 +473,21 @@ fn check_or_run(
         lines: input.lines,
         json: true,
         vega_lite: input.vega_lite.unwrap_or(false),
-        encoding: None,
+        encoding: input.encoding,
     };
     let xlsx = XlsxArgs {
         xlsx: xlsx.map(PathBuf::from),
-        xlsx_one_sheet: one_sheet,
-        xlsx_no_titles: no_titles,
+        xlsx_one_sheet: out.xlsx_one_sheet.unwrap_or(false),
+        xlsx_no_titles: out.xlsx_no_titles.unwrap_or(false),
         plugin: plugins,
     };
-    match crate::run_result(&args, check_only, &xlsx) {
+    let result = crate::run_result(&args, check_only, &xlsx).and_then(|result| {
+        match charts.filter(|_| !check_only) {
+            Some(charts) => crate::write_charts(&result, &charts).map(|()| result),
+            None => Ok(result),
+        }
+    });
+    match result {
         Ok(result) => run_reply(&result, check_only, args.vega_lite, xlsx.xlsx.as_deref()),
         Err(errors) => failed(errors),
     }
@@ -505,13 +543,15 @@ fn run_window(input: RunInput, window: String) -> CallToolResult {
         Ok(lines) => lines,
         Err(errors) => return failed(errors),
     };
-    if let Err(message) = plugin_paths(input.plugins, input.xlsx.is_some(), true) {
+    let out = input.out;
+    if let Err(message) = plugin_paths(out.plugins.clone(), out.xlsx.is_some(), true) {
         return usage(message);
     }
+    let charts = out.charts();
     let xlsx = XlsxArgs {
-        xlsx: input.xlsx.map(local).map(PathBuf::from),
-        xlsx_one_sheet: input.xlsx_one_sheet.unwrap_or(false),
-        xlsx_no_titles: input.xlsx_no_titles.unwrap_or(false),
+        xlsx: out.xlsx.map(local).map(PathBuf::from),
+        xlsx_one_sheet: out.xlsx_one_sheet.unwrap_or(false),
+        xlsx_no_titles: out.xlsx_no_titles.unwrap_or(false),
         plugin: Vec::new(),
     };
     // for a relative xlsx, and for the relative names of a window without a file: one with a
@@ -529,7 +569,11 @@ fn run_window(input: RunInput, window: String) -> CallToolResult {
         cwd: Some(folder),
         ..Request::default()
     };
-    match crate::run_in_window(request, &xlsx) {
+    let result = crate::run_in_window(request, &xlsx).and_then(|result| match &charts {
+        Some(charts) => crate::write_charts(&result, charts).map(|()| result),
+        None => Ok(result),
+    });
+    match result {
         Ok(result) => run_reply(
             &result,
             false,
@@ -653,7 +697,7 @@ impl Server {
         &self,
         Parameters(input): Parameters<SyntaxInput>,
     ) -> Result<CallToolResult, ErrorData> {
-        Ok(blocking(move || check_or_run(input, true, None, false, false, None)).await)
+        Ok(blocking(move || check_or_run(input, true, Outputs::default())).await)
     }
 
     /// Runs syntax in a session and keeps the result there, so the next call builds on it. The
@@ -680,14 +724,7 @@ impl Server {
     ) -> Result<CallToolResult, ErrorData> {
         Ok(blocking(move || match input.window.take() {
             Some(window) => run_window(input, window),
-            None => check_or_run(
-                input.syntax,
-                false,
-                input.xlsx,
-                input.xlsx_one_sheet.unwrap_or(false),
-                input.xlsx_no_titles.unwrap_or(false),
-                input.plugins,
-            ),
+            None => check_or_run(input.syntax, false, input.out),
         })
         .await)
     }
@@ -753,8 +790,9 @@ impl Server {
                 session: input.session,
                 folder: None,
                 vega_lite: input.vega_lite,
+                encoding: None,
             };
-            let mut reply = check_or_run(syntax, false, None, false, false, None);
+            let mut reply = check_or_run(syntax, false, Outputs::default());
             let document = reply
                 .structured_content
                 .as_ref()

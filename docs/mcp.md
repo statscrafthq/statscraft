@@ -11,8 +11,8 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 | `describe` | `file` (a .sav or .zsav file), or `session` | the dictionary and counts, and for a session what it keeps; the same JSON as `statscraft describe --json` |
 | `list_commands` | none | every supported command with a one-line summary, as `statscraft help` |
 | `command_help` | `command` | the syntax, rules and an example of one command, as `statscraft help COMMAND` |
-| `check_syntax` | `syntax` or `file`, and optional `lines`, `session`, `folder`, `vega_lite` | the result of a check, as `statscraft check --json`; nothing is kept or written |
-| `run_syntax` | the same as `check_syntax`, and optional `xlsx`, `xlsx_one_sheet`, `xlsx_no_titles` and `plugins`; or `window` (with optional `lines`) instead of `syntax` and `file` | the result of a run, as `statscraft run --json`; the session keeps the new state, and `trail` says where its syntax was kept |
+| `check_syntax` | `syntax` or `file`, and optional `lines`, `session`, `folder`, `vega_lite`, `encoding` | the result of a check, as `statscraft check --json`; nothing is kept or written |
+| `run_syntax` | the same as `check_syntax`, and optional `xlsx`, `xlsx_one_sheet`, `xlsx_no_titles`, `plugins`, `charts` and `chart_format`; or `window` (with optional `lines`) instead of `syntax` and `file` | the result of a run, as `statscraft run --json`; the session keeps the new state, and `trail` says where its syntax was kept |
 | `describe_plugin` | `program` (the absolute path of a plugin) | the plugin's name, version and settings, each with its kind, default and the data file attribute that holds it |
 | `window_status` | none | whether a Statscraft window is open, and if so its datasets and output documents; also `platform` (`windows`, `macos`, `linux`) and `wsl_distro` when the agent runs inside WSL |
 | `list_syntax_windows` | none | the syntax windows of the open window: `id`, `name`, `file`, `unsaved`, `lines`, and whether it is the Agent window, the designated one or the one the person used last |
@@ -29,6 +29,8 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 - `xlsx` also writes every table and chart of the run to an Excel workbook, one sheet per table; a chart as its data table with an editable chart beside it. `xlsx_one_sheet` set to true puts all tables on one sheet, one below the other. `xlsx_no_titles` set to true leaves out the title row above each table and chart, as `--xlsx-no-titles` does on the command line.
 - `plugins`, with `xlsx` in a file session, lists the absolute paths of [plugins](plugins.md) that colour, comment and lay out the custom tables in the workbook, in that order, as `--plugin` does on the command line. See [Tables with a plugin](#tables-with-a-plugin).
 - `vega_lite` set to true gives every chart also as a Vega-Lite specification, as `--vega-lite` does on the command line.
+- `encoding` names the encoding of `file`, such as `windows-1257`, as `--encoding` does on the command line. Default: UTF-8 when the file is valid UTF-8, else the system's legacy code page.
+- `charts` writes every chart of the run as a picture into that folder (made if missing; a relative path starts from `folder`), and `chart_format` picks `svg` (the default) or `png`, as `--charts` and `--chart-format` do on the command line.
 - An agent inside WSL that uses Statscraft on Windows may give Linux paths in the arguments; the server translates them. Inside the syntax, file names must be Windows paths. See [Agents inside WSL](connect.md#agents-inside-wsl).
 - `window` names a syntax window of the open window by its id or its name, as `list_syntax_windows` shows them. The syntax window tools work only while the window is open; without it they fail with "no Statscraft window is running".
 
