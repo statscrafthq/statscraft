@@ -658,7 +658,8 @@ fn run_result(
     let changed = std::mem::take(&mut result.saved);
     // only when a workbook is written: the plugins' look is for the workbook
     if !check_only && !xlsx.plugin.is_empty() && xlsx.xlsx.is_some() {
-        decorate(&mut result, &xlsx.plugin, &session)?;
+        let attributes = session.dataset().map(|d| d.attributes().to_vec());
+        decorate(&mut result, &xlsx.plugin, &attributes.unwrap_or_default())?;
     }
     // before the session is saved, so a workbook that cannot be written leaves the session as it was
     write_workbook(&result, xlsx)?;
@@ -729,15 +730,51 @@ fn read_output(
 
 /// Sends a run or check to the window and writes the workbook from its reply.
 fn run_in_window(request: Request, xlsx: &XlsxArgs) -> Result<RunResult, Vec<Failure>> {
+    let check_only = request.action == Action::Check;
     let reply = live::send(&live::endpoint_file(), request)?;
-    let result: RunResult = serde_json::from_str(&reply).map_err(|e| {
+    let mut result: RunResult = serde_json::from_str(&reply).map_err(|e| {
         vec![Failure::plain(
             "session",
             format!("reply of the window: {e}"),
         )]
     })?;
+    // as in a file session, with the settings the window's active data holds after the run;
+    // a run without tables has nothing to read them for
+    if !check_only && result.ok && !xlsx.plugin.is_empty() && xlsx.xlsx.is_some() {
+        let tables = result.commands.iter().any(|c| !c.tables.is_empty());
+        let attributes = if tables {
+            window_attributes()?
+        } else {
+            Vec::new()
+        };
+        decorate(&mut result, &xlsx.plugin, &attributes)?;
+    }
     write_workbook(&result, xlsx)?;
     Ok(result)
+}
+
+/// The data file attributes of the window's active dataset.
+fn window_attributes() -> Result<Vec<(String, Vec<String>)>, Vec<Failure>> {
+    let request = Request {
+        action: Action::Describe,
+        json: true,
+        ..Request::default()
+    };
+    let reply = live::send(&live::endpoint_file(), request)?;
+    let described: serde_json::Value = serde_json::from_str(&reply).map_err(|e| {
+        vec![Failure::plain(
+            "session",
+            format!("reply of the window: {e}"),
+        )]
+    })?;
+    let attributes = described["attributes"].as_object().into_iter().flatten();
+    Ok(attributes
+        .map(|(name, values)| {
+            let values = values.as_array().into_iter().flatten();
+            let values = values.filter_map(|v| v.as_str().map(str::to_string));
+            (name.clone(), values.collect())
+        })
+        .collect())
 }
 
 /// Adds the syntax of a run to `syntax.sps` beside the session's data, so the session's folder
@@ -767,14 +804,10 @@ fn keep_trail(data: &std::path::Path, syntax: &str) -> Result<PathBuf, String> {
 fn decorate(
     result: &mut RunResult,
     programs: &[PathBuf],
-    session: &Session,
+    attributes: &[(String, Vec<String>)],
 ) -> Result<(), Vec<Failure>> {
     use statscraft_engine::plugin;
     let failed = |e: String| vec![Failure::plain("plugin", e)];
-    let attributes = session
-        .dataset()
-        .map(|d| d.attributes())
-        .unwrap_or_default();
     let tables: Vec<(u64, &statscraft_engine::Table)> = result
         .commands
         .iter()

@@ -28,7 +28,7 @@ statscraft describe -s SESSION [--json]
 |---|---|
 | `FILE` | a .sav or .zsav file |
 | `-s`, `--session NAME` | describe a session instead: its dataset and the state it keeps; `gui` is the open window |
-| `--json` | the full dictionary as JSON instead of one line per variable |
+| `--json` | the full dictionary as JSON instead of one line per variable, with the data file attributes under `attributes` (each name with its list of values) when there are any |
 
 Give either a file or a session. The text form prints `cases, variables` and then, per variable, name, format, measurement level, valid count and label, separated by tabs. For a session it goes on with what the session keeps besides the data, one line each when there is something: `settings:`, `PRESERVE levels:`, `directory:` (where relative file names start: the folder of the last CD, else, for the window, its last caller's folder), `active dataset:`, `datasets:`, `macros:`, `output documents:`, `designated output:`. In JSON these are the object `session` (see [Sessions](#sessions-and-line-ranges)).
 
@@ -73,7 +73,7 @@ statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [
 | `--xlsx FILE` | also write every table and chart of the run to an Excel workbook, one sheet per table |
 | `--xlsx-one-sheet` | with `--xlsx`, put all tables on one sheet, one below the other |
 | `--xlsx-no-titles` | with `--xlsx`, leave out the title row above each table and chart; variable labels, captions and what plugins add stay |
-| `--plugin PROGRAM` | with `--xlsx`, let a plugin colour, comment and lay out the custom tables (see [plugins](plugins.md)); its settings come from the active data's attributes. Give it more than once for several plugins: they run in that order and their answers merge, the later one winning where two style the same thing |
+| `--plugin PROGRAM` | with `--xlsx`, let a plugin colour, comment and lay out the custom tables (see [plugins](plugins.md)); its settings come from the active data's attributes, with `-s gui` those of the window's active data. Give it more than once for several plugins: they run in that order and their answers merge, the later one winning where two style the same thing |
 | `--charts DIR` | also write every chart of the run as a picture into this folder (see [Chart pictures](#chart-pictures)) |
 | `--chart-format svg\|png` | with `--charts`, the picture format; default `svg` |
 

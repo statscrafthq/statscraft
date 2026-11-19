@@ -316,6 +316,9 @@ pub struct Description {
     pub filter_variable: Option<String>,
     pub variables: Vec<VariableDescription>,
     pub multiple_response_sets: Vec<MultipleResponseSet>,
+    /// The data file attributes (DATAFILE ATTRIBUTE), each name with its values in order.
+    #[serde(skip_serializing_if = "Map::is_empty")]
+    pub attributes: Map<String, Json>,
 }
 
 #[derive(Serialize)]
@@ -515,6 +518,9 @@ impl Dataset {
             filter_variable: dict.filter_variable.clone(),
             variables: self.variables().map(describe_variable).collect(),
             multiple_response_sets: dict.multiple_response_sets.clone(),
+            attributes: (dict.attributes.iter())
+                .map(|(name, values)| (name.clone(), Json::from(values.clone())))
+                .collect(),
         }
     }
 }

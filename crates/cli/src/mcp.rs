@@ -123,9 +123,10 @@ struct Outputs {
     /// With xlsx: leave out the title row above each table and chart; labels, captions and
     /// what plugins add stay, and each sheet keeps its table's name.
     xlsx_no_titles: Option<bool>,
-    /// With xlsx, in a file session: absolute paths of plugin programs that colour, comment
-    /// and lay out the custom tables (CTABLES) in the workbook, in this order. Their settings
-    /// come from the active data's attributes: describe_plugin lists them and how to set them.
+    /// With xlsx: absolute paths of plugin programs that colour, comment and lay out the
+    /// custom tables (CTABLES) in the workbook, in this order. Their settings come from the
+    /// active data's attributes, also in the open window: describe_plugin lists them and how
+    /// to set them.
     plugins: Option<Vec<String>>,
     /// Also write every chart of this run as a picture into this folder, made if missing:
     /// 01-<title>.svg, 02-<title>.svg and so on. A relative path starts from folder.
@@ -445,12 +446,8 @@ fn text_reply(text: String) -> CallToolResult {
     CallToolResult::success(vec![ContentBlock::text(text)])
 }
 
-/// The plugins of a run: absolute, and only with a workbook in a file session.
-fn plugin_paths(
-    plugins: Option<Vec<String>>,
-    xlsx: bool,
-    window: bool,
-) -> Result<Vec<PathBuf>, &'static str> {
+/// The plugins of a run: absolute, and only with a workbook.
+fn plugin_paths(plugins: Option<Vec<String>>, xlsx: bool) -> Result<Vec<PathBuf>, &'static str> {
     let plugins: Vec<PathBuf> = plugins
         .unwrap_or_default()
         .into_iter()
@@ -458,12 +455,6 @@ fn plugin_paths(
         .collect();
     if plugins.is_empty() {
         return Ok(plugins);
-    }
-    if window {
-        return Err(
-            "plugins run in a file session: the open window decorates its tables with its own \
-             plugins, and File > Export there writes the workbook",
-        );
     }
     if !xlsx {
         return Err("plugins decorate the Excel workbook: give xlsx too");
@@ -486,7 +477,7 @@ fn check_or_run(input: SyntaxInput, check_only: bool, out: Outputs) -> CallToolR
         return usage("give either syntax or file");
     }
     let session = session_or_default(input.session.clone());
-    let plugins = match plugin_paths(out.plugins, xlsx.is_some(), session == live::SESSION) {
+    let plugins = match plugin_paths(out.plugins, xlsx.is_some()) {
         Ok(plugins) => plugins,
         Err(message) => return usage(message),
     };
@@ -584,15 +575,16 @@ fn run_window(input: RunInput, window: String) -> CallToolResult {
         Err(errors) => return failed(errors),
     };
     let out = input.out;
-    if let Err(message) = plugin_paths(out.plugins.clone(), out.xlsx.is_some(), true) {
-        return usage(message);
-    }
+    let plugins = match plugin_paths(out.plugins.clone(), out.xlsx.is_some()) {
+        Ok(plugins) => plugins,
+        Err(message) => return usage(message),
+    };
     let charts = out.charts();
     let xlsx = XlsxArgs {
         xlsx: out.xlsx.map(local).map(PathBuf::from),
         xlsx_one_sheet: out.xlsx_one_sheet.unwrap_or(false),
         xlsx_no_titles: out.xlsx_no_titles.unwrap_or(false),
-        plugin: Vec::new(),
+        plugin: plugins,
     };
     // for a relative xlsx, and for the relative names of a window without a file: one with a
     // file starts from its own folder, as its Run does

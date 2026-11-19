@@ -486,6 +486,25 @@ esac
         json!({ "syntax": tables, "session": "p", "plugins": [plugin] }),
     );
     assert!(text(&alone).contains("give xlsx too"), "{alone}");
+
+    // the open window: the same plugin, with the setting its active data holds after the run
+    let mut desk = live::Desk::default();
+    let _window = live::serve(dir.endpoint(), move |request| desk.answer(&request)).unwrap();
+    let windowed = |client: &mut Client, syntax: String, file: &str| {
+        let arguments =
+            json!({ "syntax": syntax, "folder": folder, "xlsx": file, "plugins": [plugin] });
+        client.call("run_syntax", arguments)
+    };
+    let on = windowed(&mut client, format!("{data}{tables}"), "window-on.xlsx");
+    assert_eq!(
+        on["structuredContent"]["trail"], "syntax window Agent",
+        "{on}"
+    );
+    assert!(workbook_comments(&dir.0.join("window-on.xlsx")).contains("made by the plugin"));
+    let off = format!("DATAFILE ATTRIBUTE ATTRIBUTE=plugin_note_comments('No').\n{tables}");
+    let off = windowed(&mut client, off, "window-off.xlsx");
+    assert_eq!(off["structuredContent"]["ok"], true, "{off}");
+    assert!(workbook_comments(&dir.0.join("window-off.xlsx")).is_empty());
 }
 
 #[test]

@@ -30,7 +30,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 - `lines` limits the run to the commands within a line range, such as `"12-20"`. Line numbers stay those of the whole text.
 - `folder` is the absolute folder that relative file names in the syntax start from. Default: your home folder. Give absolute paths in the syntax to be sure.
 - `xlsx` also writes every table and chart of the run to an Excel workbook, one sheet per table; a chart as its data table with an editable chart beside it. `xlsx_one_sheet` set to true puts all tables on one sheet, one below the other. `xlsx_no_titles` set to true leaves out the title row above each table and chart, as `--xlsx-no-titles` does on the command line.
-- `plugins`, with `xlsx` in a file session, lists the absolute paths of [plugins](plugins.md) that colour, comment and lay out the custom tables in the workbook, in that order, as `--plugin` does on the command line. See [Tables with a plugin](#tables-with-a-plugin).
+- `plugins`, with `xlsx`, lists the absolute paths of [plugins](plugins.md) that colour, comment and lay out the custom tables in the workbook, in that order, as `--plugin` does on the command line. See [Tables with a plugin](#tables-with-a-plugin).
 - `vega_lite` set to true gives every chart also as a Vega-Lite specification, as `--vega-lite` does on the command line.
 - `encoding` names the encoding of `file`, such as `windows-1257`, as `--encoding` does on the command line. Default: UTF-8 when the file is valid UTF-8, else the system's legacy code page.
 - `charts` writes every chart of the run as a picture into that folder (made if missing; a relative path starts from `folder`), and `chart_format` picks `svg` (the default) or `png`, as `--charts` and `--chart-format` do on the command line.
@@ -71,7 +71,7 @@ A plugin decorates the CTABLES tables of a run in the workbook: colours, comment
   "xlsx_one_sheet": true, "plugins": ["/home/anna/plugins/statscraft-ctables-margins"] }
 ```
 
-A plugin that fails fails the run, with its message. In the open window, the window decorates its own tables with the plugins of Edit > Settings > Plugins, and File > Export writes the workbook; `plugins` there is refused.
+A plugin that fails fails the run, with its message. In the open window `plugins` works the same way: the settings come from the attributes of the window's active data after the run, and only this run's workbook gets the plugins' look. The window's own output keeps the plugins of Edit > Settings > Plugins, which `export_output` writes.
 
 ## Syntax windows
 
