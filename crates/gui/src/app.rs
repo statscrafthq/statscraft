@@ -1023,6 +1023,10 @@ impl App {
                 let contents = read_output(&self.windows, request.document.as_deref());
                 let _ = reply.send(contents.and_then(|c| c.reply()));
             }
+            Action::Undo => {
+                let undone = self.undo();
+                let _ = reply.send(live::undone(undone));
+            }
             _ => self.answer_windows(request, reply),
         }
     }
@@ -1246,12 +1250,13 @@ impl App {
         }
     }
 
-    /// Puts back the dataset and the data file from before the last change.
-    fn undo(&mut self) {
+    /// Puts back the dataset and the data file from before the last change. Returns the syntax
+    /// of the run taken back, if there was one.
+    fn undo(&mut self) -> Option<String> {
         if !self.runs.is_idle() {
-            return;
+            return None;
         }
-        let syntax = self.session.undoable().unwrap_or_default().to_string();
+        let syntax = self.session.undoable()?.to_string();
         let was = active_name(&self.session);
         if self.session.undo() {
             self.macros = session_macros(&self.session.log);
@@ -1265,7 +1270,9 @@ impl App {
             }
             let first = syntax.lines().next().unwrap_or_default();
             self.status = Ok(format!("undone: {first}"));
+            return Some(syntax);
         }
+        None
     }
 
     /// Puts the tables of a run in the output, or its errors in the status bar and, for a

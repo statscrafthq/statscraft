@@ -7,6 +7,7 @@ statscraft check      validate syntax without saving or writing anything
 statscraft chart      add a chart given as JSON to the output
 statscraft export     export the output of the open window, as its File > Export
 statscraft output     show what an output window of the open window holds
+statscraft undo       take back the last change to the data in the open window, as its Edit > Undo
 statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
 statscraft db         store datasets in an OpenStatSpec database and read them back
@@ -631,6 +632,25 @@ output document Document1: 1 commands, 1 tables, 0 charts, 0 hidden, 1 selected;
 ```
 
 With `--json` it prints the window's answer: `document`, `shows` (`headings`, `titles`, `tables`, `notes`, `charts`, each true or false) and `commands`, each with `id`, `heading`, `hidden` and `items`; an item has `id`, `hidden`, `selected` and a `table` or a `chart` in the form `run --json` gives them. It fails when no window is open, when the window has no output window, and when no output document has that name.
+
+## undo
+
+```
+statscraft undo
+```
+
+Takes back the last run that changed the data in the open `statscraft-gui` window, exactly as its Edit > Undo last change does (see [the window](window.md#syntax-is-the-only-command-layer)): the datasets are as they were before that run, the output stays, and the log marks the run as undone. It goes one step back, and an undo cannot itself be taken back. It prints the first line of the syntax it took back:
+
+```
+statscraft run -s gui -e "COMPUTE total = q1 + q2."
+statscraft undo
+```
+
+```
+undone: COMPUTE total = q1 + q2.
+```
+
+It fails when no window is open, and when no run since the last undo changed the data. File sessions have no undo.
 
 ## mcp
 

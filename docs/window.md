@@ -693,7 +693,7 @@ Every change and every result in the window comes from syntax run by the engine,
 - Editing a cell runs `IF ($CASENUM = n) var = value.`
 - Editing a label runs `VARIABLE LABELS`, and so on.
 - Macros defined by one run (DEFINE, or INCLUDE of a macro library) stay defined for the later runs while the window is open, with the macro settings of SET.
-- Edit > Undo last change (Ctrl+Z outside a text field) puts back the dataset from before the last run that changed it. It goes one step back. The log marks that run as undone, and Copy syntax leaves it out.
+- Edit > Undo last change (Ctrl+Z outside a text field) puts back the dataset from before the last run that changed it. It goes one step back. The log marks that run as undone, and Copy syntax leaves it out. The command line and an agent do the same with `statscraft undo` and the MCP tool `undo`.
 - Opening a file and every run happen off the drawing thread. The status bar shows what is running, and the window stays responsive.
 - One run goes at a time. Runs from every window and requests from the command line wait their turn, in the order they came.
 

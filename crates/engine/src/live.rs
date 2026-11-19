@@ -60,6 +60,8 @@ pub enum Action {
     /// The tables and charts of an output window, as the person sees them there: `document`,
     /// else the designated one. Changes nothing.
     ReadOutput,
+    /// Takes back the last run that changed the data, as Edit > Undo does.
+    Undo,
 }
 
 /// The reply to ReadOutput: an output document's commands in order, each with its tables and
@@ -383,6 +385,16 @@ pub fn describe(session: &Session, json: bool) -> Response {
         let message = format!("session {SESSION} has no dataset yet");
         vec![Failure::plain("session", message)]
     })
+}
+
+/// The reply to an Undo: the syntax of the run taken back, or that there was none.
+pub fn undone(syntax: Option<String>) -> Response {
+    match syntax {
+        Some(syntax) => json_reply(serde_json::json!({ "undone": syntax })),
+        None => Err(window_failure(
+            "there is nothing to undo: no run since the last undo changed the data",
+        )),
+    }
 }
 
 /// Answers a request on the calling thread. The window runs on a worker thread instead, with
@@ -881,6 +893,10 @@ impl Desk {
                 reply(&mut result, request)
             }
             Action::Check | Action::Describe => answer(&mut self.session, request),
+            Action::Undo => {
+                let syntax = self.session.undoable().map(str::to_string);
+                undone(syntax.filter(|_| self.session.undo()))
+            }
             _ => answer_windows(self, request),
         }
     }
@@ -1432,6 +1448,27 @@ mod tests {
             "no syntax window nope; open: 1 Syntax1, 2 Recodes"
         );
         assert!(find(&desk, None).is_err());
+    }
+
+    #[test]
+    fn undo_takes_back_the_last_change_to_the_data_once() {
+        let mut desk = Desk::default();
+        let run = |desk: &mut Desk, source: &str| {
+            desk.answer(&Request {
+                source: source.into(),
+                ..request(Action::Run)
+            })
+            .unwrap()
+        };
+        assert!(desk.answer(&request(Action::Undo)).is_err());
+        run(&mut desk, "DATA LIST LIST /x.\nBEGIN DATA\n1\n2\nEND DATA.");
+        run(&mut desk, "COMPUTE y = x * 2.");
+        let undone = reply_json(desk.answer(&request(Action::Undo)));
+        assert_eq!(undone["undone"], "COMPUTE y = x * 2.");
+        let data = desk.session.dataset().unwrap();
+        assert!(data.variable_index("y").is_none() && data.variable_index("x").is_some());
+        let again = desk.answer(&request(Action::Undo)).unwrap_err();
+        assert!(again[0].message.contains("nothing to undo"), "{again:?}");
     }
 
     #[test]

@@ -71,6 +71,9 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Take back the last run that changed the data in the running statscraft-gui window, as
+    /// its Edit > Undo does; the output stays
+    Undo,
     /// Show the syntax of a command, or list all commands
     Help { command: Vec<String> },
     /// Lower bounded syntax to an OpenStatSpec transformation plan (JSON), or apply it in a database
@@ -218,6 +221,13 @@ fn main() -> ExitCode {
                     serde_json::to_string_pretty(&value).expect("plain data")
                 ),
                 false => print!("{}", contents.text()),
+            }),
+        ),
+        Cmd::Undo => (
+            false,
+            undo().map(|syntax| {
+                let first = syntax.lines().next().unwrap_or_default();
+                println!("undone: {first}");
             }),
         ),
         Cmd::Help { command } => (
@@ -703,6 +713,28 @@ fn export(args: ExportArgs, cwd: Option<PathBuf>) -> Result<String, Vec<Failure>
         None => Err(vec![Failure::plain(
             "session",
             format!("reply of the window names no exported file: {reply}"),
+        )]),
+    }
+}
+
+/// Has the window take back its last change to the data. Returns the syntax of that run.
+fn undo() -> Result<String, Vec<Failure>> {
+    let request = Request {
+        action: Action::Undo,
+        ..Request::default()
+    };
+    let reply = live::send(&live::endpoint_file(), request)?;
+    let reply: serde_json::Value = serde_json::from_str(&reply).map_err(|e| {
+        vec![Failure::plain(
+            "session",
+            format!("reply of the window: {e}"),
+        )]
+    })?;
+    match reply["undone"].as_str() {
+        Some(syntax) => Ok(syntax.to_string()),
+        None => Err(vec![Failure::plain(
+            "session",
+            format!("reply of the window names no undone run: {reply}"),
         )]),
     }
 }

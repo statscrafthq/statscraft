@@ -166,6 +166,7 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
         ("run_syntax", true),
         ("save_syntax", true),
         ("close_syntax", true),
+        ("undo", true),
         ("export_output", true),
         ("edit_syntax", false),
         ("new_syntax_window", false),
@@ -844,6 +845,20 @@ fn syntax_windows_are_read_edited_run_and_saved_and_runs_leave_their_syntax() {
         client.call("close_syntax", json!({ "window": "2" }))["isError"],
         true
     );
+
+    // undo takes back the window's run of lines 1-2, the last that changed the data, once
+    let undone = client.call("undo", json!({}));
+    let syntax = undone["structuredContent"]["undone"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(syntax.starts_with("COMPUTE older = age + 10."), "{undone}");
+    assert!(
+        text(&undone).starts_with("undone:\nCOMPUTE older"),
+        "{undone}"
+    );
+    let again = client.call("undo", json!({}));
+    assert_eq!(again["isError"], true, "{again}");
+    assert!(text(&again).contains("nothing to undo"), "{again}");
 }
 
 #[test]

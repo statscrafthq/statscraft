@@ -321,6 +321,36 @@ fn runs_sent_to_the_window_leave_their_syntax_and_file_sessions_keep_theirs() {
     assert_eq!(std::fs::read_to_string(&trail).unwrap(), kept);
 }
 
+#[test]
+fn undo_has_the_window_take_back_its_last_change_to_the_data() {
+    let dir = Workdir::new("undo");
+    let (ok, _, err) = text(&dir.cli(&["undo"]));
+    assert!(
+        !ok && err.contains("no Statscraft window is running"),
+        "{err}"
+    );
+    let mut desk = live::Desk::default();
+    let _server = live::serve(dir.endpoint(), move |request| desk.answer(&request)).unwrap();
+    let data = "DATA LIST LIST /x.\nBEGIN DATA\n1\n2\nEND DATA.";
+    assert!(dir.cli(&["run", "-s", "gui", "-e", data]).status.success());
+    let compute = "COMPUTE y = x * 2.\nEXECUTE.";
+    assert!(
+        dir.cli(&["run", "-s", "gui", "-e", compute])
+            .status
+            .success()
+    );
+    let (ok, out, err) = text(&dir.cli(&["undo"]));
+    assert!(ok, "{err}");
+    assert_eq!(out, "undone: COMPUTE y = x * 2.\n");
+    let (_, described, _) = text(&dir.cli(&["describe", "-s", "gui"]));
+    assert!(
+        described.contains("\nx\t") && !described.contains("\ny\t"),
+        "{described}"
+    );
+    let (ok, _, err) = text(&dir.cli(&["undo"]));
+    assert!(!ok && err.contains("nothing to undo"), "{err}");
+}
+
 /// A window from before a request existed answers "bad request: unknown variant"; the client
 /// says to update instead of passing that on.
 #[test]
