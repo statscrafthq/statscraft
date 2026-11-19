@@ -72,8 +72,9 @@ impl ExportFormat {
         let given = name.is_some();
         let name = name.map(str::to_string).or_else(|| {
             let extension = path.extension()?.to_str()?;
-            Some(extension.to_ascii_lowercase())
+            Some(extension.to_string())
         });
+        let name = name.map(|n| n.to_ascii_lowercase());
         match name.as_deref() {
             Some("xlsx") => Ok(Self::Xlsx),
             Some("html" | "htm") => Ok(Self::Html),
@@ -1398,6 +1399,7 @@ mod tests {
         assert_eq!(choose(None, "a.htm").unwrap(), ExportFormat::Html);
         assert_eq!(choose(None, "a.pdf").unwrap(), ExportFormat::Pdf);
         assert_eq!(choose(Some("pdf"), "a.out").unwrap(), ExportFormat::Pdf);
+        assert_eq!(choose(Some("PDF"), "a.out").unwrap(), ExportFormat::Pdf);
         assert!(
             choose(None, "a.txt").unwrap_err()[0]
                 .message

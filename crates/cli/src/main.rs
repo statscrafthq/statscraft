@@ -677,7 +677,13 @@ fn export(args: ExportArgs, cwd: Option<PathBuf>) -> Result<String, Vec<Failure>
             format!("reply of the window: {e}"),
         )]
     })?;
-    Ok(reply["exported"].as_str().unwrap_or_default().to_string())
+    match reply["exported"].as_str() {
+        Some(path) => Ok(path.to_string()),
+        None => Err(vec![Failure::plain(
+            "session",
+            format!("reply of the window names no exported file: {reply}"),
+        )]),
+    }
 }
 
 /// Sends a run or check to the window and writes the workbook from its reply.

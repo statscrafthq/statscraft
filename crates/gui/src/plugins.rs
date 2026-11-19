@@ -460,23 +460,33 @@ impl Plugins {
         let generation = self.generation;
         self.running += 1;
         std::thread::spawn(move || {
-            let refs: Vec<(u64, &Table)> = tables.iter().map(|(id, t)| (*id, t)).collect();
-            let (mut answers, mut errors) = (Vec::new(), Vec::new());
-            for program in &programs {
-                let result = plugin::describe(program).and_then(|description| {
-                    let template = active_template(&templates, &active, &description);
-                    let known = with_template(&description, attributes.clone(), template);
-                    let values = description.values(|name| first_value(&known, name));
-                    plugin::decorate(program, &values, &refs)
-                });
-                match result {
-                    Ok(answer) => plugin::merge(&mut answers, answer),
-                    Err(e) => errors.push(match program.file_name() {
-                        Some(name) => format!("{}: {e}", name.to_string_lossy()),
-                        None => e,
-                    }),
+            // Done always goes back, also when a plugin run panics: a held export counts on it
+            let run = std::panic::AssertUnwindSafe(|| {
+                let refs: Vec<(u64, &Table)> = tables.iter().map(|(id, t)| (*id, t)).collect();
+                let (mut answers, mut errors) = (Vec::new(), Vec::new());
+                for program in &programs {
+                    let result = plugin::describe(program).and_then(|description| {
+                        let template = active_template(&templates, &active, &description);
+                        let known = with_template(&description, attributes.clone(), template);
+                        let values = description.values(|name| first_value(&known, name));
+                        plugin::decorate(program, &values, &refs)
+                    });
+                    match result {
+                        Ok(answer) => plugin::merge(&mut answers, answer),
+                        Err(e) => errors.push(match program.file_name() {
+                            Some(name) => format!("{}: {e}", name.to_string_lossy()),
+                            None => e,
+                        }),
+                    }
                 }
-            }
+                (answers, errors)
+            });
+            let (answers, errors) = std::panic::catch_unwind(run).unwrap_or_else(|_| {
+                (
+                    Vec::new(),
+                    vec!["a plugin run stopped with an error".into()],
+                )
+            });
             let _ = sender.send(Done {
                 window,
                 document,
