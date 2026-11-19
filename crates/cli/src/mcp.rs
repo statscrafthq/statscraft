@@ -130,6 +130,10 @@ struct Outputs {
     /// active data's attributes, also in the open window: describe_plugin lists them and how
     /// to set them.
     plugins: Option<Vec<String>>,
+    /// With plugins: absolute paths of design template files (made by Export in the window's
+    /// Plugin Settings), one per plugin, each holding one template. Its settings win over the
+    /// data's attributes, as an active template does in the window.
+    plugin_templates: Option<Vec<String>>,
     /// Also write every chart of this run as a picture into this folder, made if missing:
     /// 01-<title>.svg, 02-<title>.svg and so on. A relative path starts from folder.
     charts: Option<String>,
@@ -467,6 +471,25 @@ fn plugin_paths(plugins: Option<Vec<String>>, xlsx: bool) -> Result<Vec<PathBuf>
     Ok(plugins)
 }
 
+/// The design template files of a run: absolute, and only with plugins.
+fn template_paths(
+    templates: Option<Vec<String>>,
+    plugins: &[PathBuf],
+) -> Result<Vec<PathBuf>, &'static str> {
+    let templates: Vec<PathBuf> = templates
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| PathBuf::from(local(p)))
+        .collect();
+    if !templates.is_empty() && plugins.is_empty() {
+        return Err("plugin_templates belong to plugins: give plugins too");
+    }
+    if templates.iter().any(|p| !p.is_absolute()) {
+        return Err("plugin_templates must be absolute paths");
+    }
+    Ok(templates)
+}
+
 fn check_or_run(input: SyntaxInput, check_only: bool, out: Outputs) -> CallToolResult {
     let input = SyntaxInput {
         file: input.file.map(local),
@@ -481,6 +504,10 @@ fn check_or_run(input: SyntaxInput, check_only: bool, out: Outputs) -> CallToolR
     let session = session_or_default(input.session.clone());
     let plugins = match plugin_paths(out.plugins, xlsx.is_some()) {
         Ok(plugins) => plugins,
+        Err(message) => return usage(message),
+    };
+    let templates = match template_paths(out.plugin_templates, &plugins) {
+        Ok(templates) => templates,
         Err(message) => return usage(message),
     };
     // also keeps out "-", which would read standard input: it carries the protocol
@@ -513,6 +540,7 @@ fn check_or_run(input: SyntaxInput, check_only: bool, out: Outputs) -> CallToolR
         xlsx_one_sheet: out.xlsx_one_sheet.unwrap_or(false),
         xlsx_no_titles: out.xlsx_no_titles.unwrap_or(false),
         plugin: plugins,
+        plugin_template: templates,
     };
     let result = crate::run_result(&args, check_only, &xlsx).and_then(|result| {
         match charts.filter(|_| !check_only) {
@@ -581,12 +609,17 @@ fn run_window(input: RunInput, window: String) -> CallToolResult {
         Ok(plugins) => plugins,
         Err(message) => return usage(message),
     };
+    let templates = match template_paths(out.plugin_templates.clone(), &plugins) {
+        Ok(templates) => templates,
+        Err(message) => return usage(message),
+    };
     let charts = out.charts();
     let xlsx = XlsxArgs {
         xlsx: out.xlsx.map(local).map(PathBuf::from),
         xlsx_one_sheet: out.xlsx_one_sheet.unwrap_or(false),
         xlsx_no_titles: out.xlsx_no_titles.unwrap_or(false),
         plugin: plugins,
+        plugin_template: templates,
     };
     // for a relative xlsx, and for the relative names of a window without a file: one with a
     // file starts from its own folder, as its Run does

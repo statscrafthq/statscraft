@@ -59,7 +59,7 @@ The open window (`-s gui`) lists what the window holds, the same way. A file ses
 ## run
 
 ```
-statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet] [--xlsx-no-titles] [--plugin PROGRAM]...] [--charts DIR [--chart-format svg|png]]
+statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet] [--xlsx-no-titles] [--plugin PROGRAM]... [--plugin-template FILE]...] [--charts DIR [--chart-format svg|png]]
 ```
 
 | Flag | Meaning |
@@ -75,6 +75,7 @@ statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [
 | `--xlsx-one-sheet` | with `--xlsx`, put all tables on one sheet, one below the other |
 | `--xlsx-no-titles` | with `--xlsx`, leave out the title row above each table and chart; variable labels, captions and what plugins add stay |
 | `--plugin PROGRAM` | with `--xlsx`, let a plugin colour, comment and lay out the custom tables (see [plugins](plugins.md)); its settings come from the active data's attributes, with `-s gui` those of the window's active data. Give it more than once for several plugins: they run in that order and their answers merge, the later one winning where two style the same thing |
+| `--plugin-template FILE` | with `--plugin`, lay a design template file, made by Export in the window's Plugin Settings ([plugins](plugins.md)), over the data's attributes for this run, as an active template does in the window. One file per plugin, each holding exactly one template of one of the `--plugin` programs |
 | `--charts DIR` | also write every chart of the run as a picture into this folder (see [Chart pictures](#chart-pictures)) |
 | `--chart-format svg\|png` | with `--charts`, the picture format; default `svg` |
 

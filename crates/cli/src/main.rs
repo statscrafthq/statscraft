@@ -179,6 +179,11 @@ struct XlsxArgs {
     /// the later one wins
     #[arg(long, value_name = "PROGRAM", requires = "xlsx")]
     plugin: Vec<PathBuf>,
+    /// With --plugin, a design template file (made by Export in the window's Plugin Settings,
+    /// see docs/plugins.md): its settings win over the data's attributes, as an active template
+    /// does in the window. One file per plugin, holding exactly one template of it
+    #[arg(long, value_name = "FILE", requires = "plugin")]
+    plugin_template: Vec<PathBuf>,
 }
 
 #[derive(Args)]
@@ -775,7 +780,12 @@ fn run_result(
     // only when a workbook is written: the plugins' look is for the workbook
     if !check_only && !xlsx.plugin.is_empty() && xlsx.xlsx.is_some() {
         let attributes = session.dataset().map(|d| d.attributes().to_vec());
-        decorate(&mut result, &xlsx.plugin, &attributes.unwrap_or_default())?;
+        decorate(
+            &mut result,
+            &xlsx.plugin,
+            &xlsx.plugin_template,
+            &attributes.unwrap_or_default(),
+        )?;
     }
     // before the session is saved, so a workbook that cannot be written leaves the session as it was
     write_workbook(&result, xlsx)?;
@@ -895,7 +905,12 @@ fn run_in_window(request: Request, xlsx: &XlsxArgs) -> Result<RunResult, Vec<Fai
         } else {
             Vec::new()
         };
-        decorate(&mut result, &xlsx.plugin, &attributes)?;
+        decorate(
+            &mut result,
+            &xlsx.plugin,
+            &xlsx.plugin_template,
+            &attributes,
+        )?;
     }
     write_workbook(&result, xlsx)?;
     Ok(result)
@@ -952,9 +967,10 @@ fn keep_trail(data: &std::path::Path, syntax: &str) -> Result<PathBuf, String> {
 fn decorate(
     result: &mut RunResult,
     programs: &[PathBuf],
+    template_files: &[PathBuf],
     attributes: &[(String, Vec<String>)],
 ) -> Result<(), Vec<Failure>> {
-    use statscraft_engine::plugin;
+    use statscraft_engine::{plugin, plugin_template};
     let failed = |e: String| vec![Failure::plain("plugin", e)];
     let tables: Vec<(u64, &statscraft_engine::Table)> = result
         .commands
@@ -964,8 +980,15 @@ fn decorate(
         .map(|(i, t)| (i as u64, t))
         .collect();
     let mut answers = Vec::new();
-    for program in programs {
-        let description = plugin::describe(program).map_err(failed)?;
+    let descriptions = programs
+        .iter()
+        .map(|program| plugin::describe(program).map_err(failed))
+        .collect::<Result<Vec<_>, _>>()?;
+    let templates = plugin_template::load(template_files, &descriptions).map_err(failed)?;
+    for (program, description) in programs.iter().zip(&descriptions) {
+        // the template's values win over the data's, as an active template does in the window
+        let template = templates.iter().find(|t| t.belongs_to(description));
+        let attributes = plugin_template::with_template(description, attributes.to_vec(), template);
         let values = description.values(|name| {
             let mut found = attributes
                 .iter()

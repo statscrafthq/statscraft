@@ -11,6 +11,7 @@ use crate::windows::WindowId;
 use eframe::egui::{self, Ui};
 use statscraft_data::Dataset;
 use statscraft_engine::plugin::{self, Description, Kind, Update, Value};
+use statscraft_engine::plugin_template::{TemplateFile, with_template};
 use statscraft_engine::{Table, parse_colour};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -89,6 +90,8 @@ pub struct Dialog {
     chosen: Option<String>,
     /// The name typed for a new template.
     new_name: String,
+    /// What the last Export or Import said when it failed; empty otherwise.
+    note: String,
 }
 
 /// One setting in Edit > Plugin Settings.
@@ -235,36 +238,6 @@ fn attributes(settings: &Settings, data: Option<&Dataset>) -> Vec<(String, Vec<S
         for (name, value) in settings.values_for(file) {
             if !all.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
                 all.push((name, value));
-            }
-        }
-    }
-    all
-}
-
-/// The attributes with the template laid over them: its values win for every setting not kept
-/// per data file (with the setting's preset name); a setting the template lacks keeps what the
-/// data or this computer has, else the plugin's default.
-fn with_template(
-    description: &Description,
-    mut all: Vec<(String, Vec<String>)>,
-    template: Option<&Template>,
-) -> Vec<(String, Vec<String>)> {
-    let Some(template) = template else {
-        return all;
-    };
-    for s in description.settings.iter().filter(|s| !s.per_file) {
-        let preset = s.presets.then(|| description.preset_attribute(&s.key));
-        for name in [Some(description.attribute(&s.key)), preset]
-            .into_iter()
-            .flatten()
-        {
-            let found = template
-                .values
-                .iter()
-                .find(|(a, _)| a.eq_ignore_ascii_case(&name));
-            if let Some((_, value)) = found {
-                all.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
-                all.push((name, vec![value.clone()]));
             }
         }
     }
@@ -552,6 +525,7 @@ impl Plugins {
             description,
             fields,
             new_name: String::new(),
+            note: String::new(),
         });
         Ok(())
     }
@@ -565,6 +539,7 @@ impl Plugins {
         ctx: &egui::Context,
         settings: &mut Settings,
     ) -> Option<(String, Vec<(String, String)>)> {
+        let folder = settings.folder.clone();
         let presets = &mut settings.presets;
         let Dialog {
             description,
@@ -572,6 +547,7 @@ impl Plugins {
             templates,
             chosen,
             new_name,
+            note,
         } = self.dialog.as_mut()?;
         let (mut open, mut ok, mut cancel) = (true, false, false);
         let screen = ctx.content_rect();
@@ -623,7 +599,51 @@ impl Plugins {
                         *chosen = Some(save_template(description, fields, templates, new_name));
                         new_name.clear();
                     }
+                    let export = chosen.is_some() && all_valid;
+                    if ui
+                        .add_enabled(export, egui::Button::new("Export..."))
+                        .on_hover_text(
+                            "Write the chosen template and this plugin's presets to a file, \
+                             for statscraft --plugin-template or for Import on another computer",
+                        )
+                        .clicked()
+                        && let Some(name) = chosen.as_deref()
+                        && let Some(path) = crate::app::file_dialog(&folder)
+                            .set_file_name(format!("{name}.txt"))
+                            .add_filter("Plugin template", &["txt"])
+                            .save_file()
+                    {
+                        let text = export_file(description, fields, name, presets).text();
+                        *note = match std::fs::write(&path, text) {
+                            Ok(()) => String::new(),
+                            Err(e) => format!("{}: {e}", path.display()),
+                        };
+                    }
+                    if ui.button("Import...").clicked()
+                        && let Some(path) = crate::app::file_dialog(&folder)
+                            .add_filter("Plugin template", &["txt"])
+                            .pick_file()
+                    {
+                        let read = std::fs::read_to_string(&path)
+                            .map_err(|e| e.to_string())
+                            .and_then(|text| TemplateFile::parse(&text))
+                            .and_then(|file| {
+                                import_file(description, file, fields, templates, presets)
+                            });
+                        *note = match read {
+                            Ok(name) => {
+                                if name.is_some() {
+                                    *chosen = name;
+                                }
+                                String::new()
+                            }
+                            Err(e) => format!("{}: {e}", path.display()),
+                        };
+                    }
                 });
+                if !note.is_empty() {
+                    ui.colored_label(ui.visuals().error_fg_color, note.as_str());
+                }
                 ui.weak(
                     "A template holds every setting except those kept per data file, and is \
                      used for every data file until another is chosen.",
@@ -755,6 +775,79 @@ fn save_template(
         None => templates.push(template),
     }
     name
+}
+
+/// What Export writes: the template as the dialog holds it now under `name`, and the saved
+/// values of this plugin's settings.
+fn export_file(
+    description: &Description,
+    fields: &[Field],
+    name: &str,
+    presets: &[Preset],
+) -> TemplateFile {
+    let mine = fields.iter().filter(|f| !f.setting.per_file);
+    let values = attribute_values(description, mine);
+    let attributes = preset_attributes(description);
+    TemplateFile {
+        templates: vec![Template::new(&description.name, name, &values)],
+        presets: presets
+            .iter()
+            .filter(|p| attributes.contains(&p.attribute))
+            .map(|p| (p.attribute.clone(), p.name.clone(), p.value.clone()))
+            .collect(),
+    }
+}
+
+/// The attributes of the settings that offer presets.
+fn preset_attributes(description: &Description) -> Vec<String> {
+    let offers = description.settings.iter().filter(|s| s.presets);
+    offers.map(|s| description.attribute(&s.key)).collect()
+}
+
+/// Import: the file's templates join the dialog's, one of the same name replaced, and its
+/// presets join the saved ones; the first template is loaded into the fields and its name
+/// returned. Nothing changes when the file holds something that is not for this plugin.
+fn import_file(
+    description: &Description,
+    file: TemplateFile,
+    fields: &mut [Field],
+    templates: &mut Vec<Template>,
+    presets: &mut Vec<Preset>,
+) -> Result<Option<String>, String> {
+    if let Some(t) = file.templates.iter().find(|t| !t.belongs_to(description)) {
+        return Err(format!(
+            "the template {} is not for {}",
+            t.name, description.name
+        ));
+    }
+    let attributes = preset_attributes(description);
+    if let Some(p) = file.presets.iter().find(|p| !attributes.contains(&p.0)) {
+        return Err(format!(
+            "the preset {} is for {}, which {} does not offer presets for",
+            p.1, p.0, description.name
+        ));
+    }
+    for (attribute, name, value) in &file.presets {
+        let preset = Preset::new(attribute, name, value);
+        presets.retain(|p| !(p.attribute == preset.attribute && p.name == preset.name));
+        presets.push(preset);
+    }
+    let mut first = None;
+    for t in &file.templates {
+        let t = Template::new(&description.name, &t.name, &t.values);
+        first.get_or_insert_with(|| t.name.clone());
+        match templates.iter_mut().find(|x| x.name == t.name) {
+            Some(x) => *x = t,
+            None => templates.push(t),
+        }
+    }
+    if let Some(t) = first
+        .as_ref()
+        .and_then(|name| templates.iter().find(|t| &t.name == name))
+    {
+        load_template(description, fields, t);
+    }
+    Ok(first)
 }
 
 /// The settings by section: those without a group first, then each group in the order it first
@@ -1451,6 +1544,7 @@ mod tests {
             templates,
             chosen: Some("Client B".into()),
             new_name: String::new(),
+            note: String::new(),
         };
         // another plugin's template and choice stay as they are
         let other = Template::new("Heat", "Client B", &[]);
@@ -1573,5 +1667,56 @@ mod tests {
         assert_eq!(d.fill.as_deref(), Some("#ff0000"));
         assert!(d.bold);
         assert_eq!(d.text.as_deref(), Some("#9c0006"));
+    }
+
+    #[test]
+    fn export_then_import_carries_a_template_and_its_presets_to_another_dialog() {
+        let description = Description {
+            name: "House".into(),
+            version: "1".into(),
+            protocol: 1,
+            settings: vec![plugin::Setting {
+                key: "limit".into(),
+                label: "Limit".into(),
+                kind: Kind::Text,
+                default: "".into(),
+                presets: true,
+                per_file: false,
+                group: None,
+            }],
+            updates: false,
+        };
+        let field = |text: &str| Field {
+            setting: description.settings[0].clone(),
+            text: text.into(),
+            preset: None,
+            new_name: String::new(),
+            style: None,
+        };
+        let attribute = description.attribute("limit");
+        let presets = vec![
+            Preset::new(&attribute, "Strict", "5"),
+            Preset::new("plugin_other_limit", "Not mine", "1"),
+        ];
+        let file = export_file(&description, &[field("5")], "Client A", &presets);
+        // only this plugin's presets leave, and the file reads back as written
+        assert_eq!(file.presets.len(), 1);
+        let file = TemplateFile::parse(&file.text()).unwrap();
+        let mut fields = [field("")];
+        let mut templates = vec![Template::new("House", "Client A", &[])];
+        let mut kept = vec![Preset::new(&attribute, "Strict", "9")];
+        let chosen = import_file(&description, file, &mut fields, &mut templates, &mut kept);
+        assert_eq!(chosen, Ok(Some("Client A".into())));
+        // the template of the same name was replaced and its values are in the fields
+        assert_eq!(templates.len(), 1);
+        assert_eq!(fields[0].text, "5");
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].value, "5");
+        // a template of another plugin changes nothing
+        let other = TemplateFile::parse("plugin-template Heat\tX\tplugin_heat_low\t1\n").unwrap();
+        let before = templates.clone();
+        let result = import_file(&description, other, &mut fields, &mut templates, &mut kept);
+        assert!(result.is_err());
+        assert_eq!(templates, before);
     }
 }

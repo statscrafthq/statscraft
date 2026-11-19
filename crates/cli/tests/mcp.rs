@@ -482,6 +482,58 @@ esac
     let off = run(&mut client, off, "off.xlsx");
     assert_eq!(off["structuredContent"]["ok"], true, "{off}");
     assert!(workbook_comments(&dir.0.join("off.xlsx")).is_empty());
+    // a design template file lies over the data: its setting turns the comments off with no
+    // attribute on the data, and the CLI flag does the same
+    let template = dir.0.join("quiet.txt");
+    std::fs::write(
+        &template,
+        "* made in the window\nplugin-template Note\tQuiet\tplugin_note_comments\tNo\n",
+    )
+    .unwrap();
+    let template = template.to_str().unwrap();
+    let quiet = client.call(
+        "run_syntax",
+        json!({ "syntax": tables, "session": "p", "folder": folder, "xlsx": "quiet.xlsx",
+            "plugins": [plugin], "plugin_templates": [template] }),
+    );
+    assert_eq!(quiet["structuredContent"]["ok"], true, "{quiet}");
+    assert!(workbook_comments(&dir.0.join("quiet.xlsx")).is_empty());
+    let both = format!("{data}{tables}");
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_statscraft"))
+        .current_dir(&dir.0)
+        .args([
+            "run",
+            "--xlsx",
+            "quiet-cli.xlsx",
+            "--plugin",
+            plugin,
+            "--plugin-template",
+            template,
+            "-e",
+            &both,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(workbook_comments(&dir.0.join("quiet-cli.xlsx")).is_empty());
+    // a template for another plugin, and one without plugins, are refused
+    let other = dir.0.join("other.txt");
+    std::fs::write(&other, "plugin-template Heat\tQuiet\tplugin_heat_low\t1\n").unwrap();
+    let wrong = client.call(
+        "run_syntax",
+        json!({ "syntax": tables, "session": "p", "folder": folder, "xlsx": "w.xlsx",
+            "plugins": [plugin], "plugin_templates": [other.to_str().unwrap()] }),
+    );
+    assert!(text(&wrong).contains("is for the plugin Heat"), "{wrong}");
+    let bare = client.call(
+        "run_syntax",
+        json!({ "syntax": tables, "session": "p", "plugin_templates": [template] }),
+    );
+    assert!(text(&bare).contains("give plugins too"), "{bare}");
     // plugins are for the workbook
     let alone = client.call(
         "run_syntax",
@@ -511,6 +563,13 @@ esac
     let off = windowed(&mut client, off, "window-off.xlsx");
     assert_eq!(off["structuredContent"]["ok"], true, "{off}");
     assert!(workbook_comments(&dir.0.join("window-off.xlsx")).is_empty());
+    let quiet = client.call(
+        "run_syntax",
+        json!({ "syntax": tables, "folder": folder, "xlsx": "window-quiet.xlsx",
+            "plugins": [plugin], "plugin_templates": [template] }),
+    );
+    assert_eq!(quiet["structuredContent"]["ok"], true, "{quiet}");
+    assert!(workbook_comments(&dir.0.join("window-quiet.xlsx")).is_empty());
 }
 
 #[test]

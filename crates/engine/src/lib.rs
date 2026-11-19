@@ -106,6 +106,7 @@ pub mod picture;
 pub mod plot;
 mod pls;
 pub mod plugin;
+pub mod plugin_template;
 mod plum;
 mod pooling;
 mod portable;

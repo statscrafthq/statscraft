@@ -85,41 +85,7 @@ pub struct Plugin {
     pub on: bool,
 }
 
-/// A named set of one plugin's setting values (every setting not kept per data file), as
-/// (attribute, value) pairs; one template per client's look, say.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Template {
-    /// The name the plugin describes itself with; empty in a template saved before there were
-    /// several plugins.
-    pub plugin: String,
-    pub name: String,
-    pub values: Vec<(String, String)>,
-}
-
-impl Template {
-    /// A template from the dialog: tabs and line breaks become spaces, so each value fits its
-    /// line of the settings file.
-    pub fn new(plugin: &str, name: &str, values: &[(String, String)]) -> Self {
-        let values = values.iter().map(|(a, v)| (clean(a), clean(v)));
-        Template {
-            plugin: clean(plugin),
-            name: clean(name).trim().to_string(),
-            values: values.collect(),
-        }
-    }
-
-    /// Whether the template holds settings of the plugin: it was saved for it, or it has no
-    /// plugin name and every attribute it holds is one of the plugin's (`plugin_<name>_...`).
-    pub fn belongs_to(&self, plugin: &Description) -> bool {
-        if !self.plugin.is_empty() {
-            return self.plugin == plugin.name;
-        }
-        let prefix = plugin.attribute("");
-        let mine = |a: &str| a.to_ascii_lowercase().starts_with(&prefix);
-        // an older template without values names no plugin, so it belongs to none
-        !self.values.is_empty() && self.values.iter().all(|(a, _)| mine(a))
-    }
-}
+pub use statscraft_engine::plugin_template::Template;
 
 /// The template in use for a plugin: the one chosen for it, else one chosen before there were
 /// several plugins that holds its settings.
@@ -376,27 +342,8 @@ impl Settings {
         settings
     }
 
-    /// A template line after its plugin name: `NAME<tab>ATTRIBUTE<tab>VALUE`, or `NAME` for a
-    /// template without values.
     fn read_template(&mut self, plugin: &str, rest: &str) {
-        let parts: Vec<&str> = rest.split('\t').collect();
-        if parts[0].is_empty() {
-            return;
-        }
-        let found = self
-            .templates
-            .iter()
-            .position(|t| t.plugin == plugin && t.name == parts[0]);
-        let at = found.unwrap_or_else(|| {
-            self.templates.push(Template::new(plugin, parts[0], &[]));
-            self.templates.len() - 1
-        });
-        if let [_, attribute, value] = parts[..]
-            && !attribute.is_empty()
-        {
-            let pair = (attribute.to_string(), value.to_string());
-            self.templates[at].values.push(pair);
-        }
+        statscraft_engine::plugin_template::read_template(&mut self.templates, plugin, rest);
     }
 
     pub fn text(&self) -> String {

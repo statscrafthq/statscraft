@@ -64,6 +64,22 @@ note to a cell, or giving the exports a look of your own.
   plugin describes itself with. Lines `template` and `template-active` without the plugin's
   name, from before there were several plugins, are still read: such a template belongs to the
   plugin whose attributes it holds.
+- **Export and Import** (beside **Save as template**): **Export...** writes the chosen template,
+  as the dialog holds it now, and the saved values (presets) of this plugin's settings to a
+  text file. **Import...** reads such a file: its templates join the list (one of the same name
+  is replaced), its presets join the saved ones (the same setting and name replaced), and the
+  first template is chosen and fills the settings. A file with a template of another plugin, or
+  a preset of a setting that has none, changes nothing and says so in the dialog. The file is
+  the window's own settings lines (`plugin-template ...` and `preset ...` as above), so it can
+  also be written or edited by hand; blank lines and lines starting with `*` are skipped, and
+  any other line is an error with its number.
+- **Headless**: `statscraft run --xlsx FILE --plugin PROGRAM --plugin-template FILE` (and the
+  MCP argument `plugin_templates`) lays that file's template over the data's attributes for the
+  run, as an active template does in the window: its values win for every setting not kept per
+  data file, and a setting it lacks takes the data's value or the default. Each file holds
+  exactly one template, for one of the `--plugin` programs, and no two files go to the same
+  plugin. Presets in the file are ignored there, since a preset is only a saved value. The
+  command line never reads the window's own settings file.
 
 - **Updates**: a plugin that offers updates (`"updates": true`, see [Updates](#updates)
   below) has **Check now** in its row. While the Plugins page is open, Statscraft also asks
