@@ -14,6 +14,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 | `check_syntax` | `syntax` or `file`, and optional `lines`, `session`, `folder`, `vega_lite`, `encoding` | the result of a check, as `statscraft check --json`; nothing is kept or written |
 | `run_syntax` | the same as `check_syntax`, and optional `xlsx`, `xlsx_one_sheet`, `xlsx_no_titles`, `plugins`, `charts` and `chart_format`; or `window` (with optional `lines`) instead of `syntax` and `file` | the result of a run, as `statscraft run --json`; the session keeps the new state, and `trail` says where its syntax was kept |
 | `describe_plugin` | `program` (the absolute path of a plugin) | the plugin's name, version and settings, each with its kind, default and the data file attribute that holds it |
+| `check_plugin_update` | `program` (the absolute path of a plugin) | whether the plugin offers a newer version, as `statscraft update --check --plugin`: `plugin`, `current`, `latest`, `update`, `notes`; it installs nothing |
 | `window_status` | none | whether a Statscraft window is open, and if so its datasets and output documents; also `platform` (`windows`, `macos`, `linux`) and `wsl_distro` when the agent runs inside WSL |
 | `list_syntax_windows` | none | the syntax windows of the open window: `id`, `name`, `file`, `unsaved`, `lines`, and whether it is the Agent window, the designated one or the one the person used last |
 | `read_syntax` | `window` | the text of a syntax window, each line with its number |

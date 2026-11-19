@@ -793,6 +793,39 @@ impl Server {
         .await)
     }
 
+    /// Asks a plugin program whether a newer version of it exists, as statscraft update --check
+    /// --plugin does: its version, the newer one and its notes. Installs nothing: the person
+    /// installs an update in the window, Edit > Settings > Plugins. The plugin may ask its
+    /// own server.
+    #[tool(
+        title = "Check plugin update",
+        annotations(
+            title = "Check plugin update",
+            read_only_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn check_plugin_update(
+        &self,
+        Parameters(input): Parameters<PluginInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || {
+            let program = PathBuf::from(local(input.program));
+            if !program.is_absolute() {
+                return usage("program must be an absolute path");
+            }
+            match crate::update::PluginCheck::of(&program) {
+                Ok(check) => {
+                    let mut reply = CallToolResult::structured(check.json());
+                    reply.content = vec![ContentBlock::text(check.text())];
+                    reply
+                }
+                Err(e) => failed(vec![Failure::plain("plugin", e)]),
+            }
+        })
+        .await)
+    }
+
     /// Adds a chart of your own to the output, drawn the Statscraft way: in the open window it
     /// appears in the designated output window, is saved with it and exported by OUTPUT
     /// EXPORT, Copy and Open in the office programs, like a procedure's chart. Give the chart

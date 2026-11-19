@@ -371,6 +371,10 @@ out), it exits with another code and writes a one-line reason to its standard er
 failure, or an answer that breaks these rules, means "no update information", and the row
 says why.
 
+Without the window, `statscraft update --check --plugin PROGRAM` and the MCP tool
+`check_plugin_update` run the same check and report what it found; they never install
+anything (see [the command line](command-line.md#update)).
+
 How Update installs the new program:
 
 1. It downloads the file to a hidden temporary file in the plugin's own folder.

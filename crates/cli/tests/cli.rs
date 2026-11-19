@@ -457,6 +457,70 @@ fn xlsx_no_titles_leaves_out_the_title_rows_and_keeps_the_sheet_names() {
     assert!(!out.status.success(), "--xlsx-no-titles needs --xlsx");
 }
 
+/// A made-up plugin at version 1.0.0 that offers updates: its update check prints `answer`.
+#[cfg(unix)]
+fn updating_plugin(dir: &std::path::Path, name: &str, updates: bool, answer: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let plugin = dir.join(name);
+    let script = format!(
+        "#!/bin/sh\nif [ \"$1\" = --describe ]; then\n  echo '{{\"name\": \"Note\", \"version\": \
+         \"1.0.0\", \"protocol\": 1, \"updates\": {updates}}}'\n  exit 0\nfi\n\
+         if [ \"$1\" = --update-check ]; then\n  echo '{answer}'\n  exit 0\nfi\nexit 1\n"
+    );
+    std::fs::write(&plugin, script).unwrap();
+    std::fs::set_permissions(&plugin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    plugin
+}
+
+#[cfg(unix)]
+#[test]
+fn update_check_of_a_plugin_reports_its_newer_version_and_installs_nothing() {
+    let dir = Workdir::new("plugin-update");
+    let sha = "a".repeat(64);
+    let offer = format!(
+        r#"{{"version": "1.2.0", "url": "https://example.com/note-1.2.0", "sha256": "{sha}", "notes": "Faster"}}"#
+    );
+    let newer = updating_plugin(&dir.0, "newer", true, &offer);
+    let before = std::fs::read(&newer).unwrap();
+    let out = dir.run(&["update", "--check", "--plugin", newer.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(10));
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(
+        text,
+        "plugin: Note\ncurrent: 1.0.0\nlatest: 1.2.0\n\
+         an update is available; Edit > Settings > Plugins installs it, notes: Faster\n"
+    );
+    assert_eq!(
+        std::fs::read(&newer).unwrap(),
+        before,
+        "nothing is installed"
+    );
+    let out = dir.run(&[
+        "update",
+        "--check",
+        "--json",
+        "--plugin",
+        newer.to_str().unwrap(),
+    ]);
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        report,
+        serde_json::json!({ "plugin": "Note", "current": "1.0.0", "latest": "1.2.0",
+            "update": true, "notes": "Faster" })
+    );
+    let current = updating_plugin(&dir.0, "current", true, "{}");
+    let text = dir.ok(&["update", "--check", "--plugin", current.to_str().unwrap()]);
+    assert_eq!(text, "plugin: Note\ncurrent: 1.0.0\nup to date\n");
+    let silent = updating_plugin(&dir.0, "silent", false, "{}");
+    let out = dir.run(&["update", "--check", "--plugin", silent.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("does not offer updates"));
+    // never an install: --plugin needs --check
+    let out = dir.run(&["update", "--plugin", newer.to_str().unwrap()]);
+    assert!(!out.status.success());
+    assert_eq!(std::fs::read(&newer).unwrap(), before);
+}
+
 /// With a plugin, its comment stays on the same table cell when the title row goes.
 #[cfg(unix)]
 #[test]

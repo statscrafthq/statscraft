@@ -88,6 +88,10 @@ enum Cmd {
         /// With --check, print the result as JSON
         #[arg(long, requires = "check")]
         json: bool,
+        /// With --check, check this plugin program for a newer version instead; it never
+        /// installs one (the window's Edit > Settings > Plugins does that)
+        #[arg(long, requires = "check")]
+        plugin: Option<PathBuf>,
     },
     /// Serve the tools of this program to an AI agent over MCP (standard input and output)
     Mcp,
@@ -238,7 +242,15 @@ fn main() -> ExitCode {
         Cmd::Db(args) => return db::run(args),
         Cmd::Mcp => return mcp::serve(),
         Cmd::Connect(args) => return connect::run(args),
-        Cmd::Update { check, json } => match update::run(check, json) {
+        Cmd::Update {
+            json,
+            plugin: Some(program),
+            ..
+        } => match update::plugin(&program, json) {
+            Ok(code) => return code,
+            Err(failures) => (json, Err(failures)),
+        },
+        Cmd::Update { check, json, .. } => match update::run(check, json) {
             Ok(code) => return code,
             Err(failures) => (json, Err(failures)),
         },

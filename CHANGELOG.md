@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Command line and MCP server: `statscraft update --check --plugin PROGRAM` and the tool `check_plugin_update` ask a plugin whether a newer version of it exists, as the window's Check in the plugin settings does; they install nothing.
+
 ## 0.20.2 (2026-11-19)
 
 - Command line and MCP server: `statscraft undo` and the tool `undo` take back the last run that changed the data in the open window, as its Edit > Undo last change does.

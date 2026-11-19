@@ -154,6 +154,7 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
         "read_syntax",
         "describe_plugin",
         "read_output",
+        "check_plugin_update",
     ] {
         let t = tool(name);
         assert_eq!(t["annotations"]["readOnlyHint"], true, "{name}");
@@ -487,6 +488,10 @@ esac
         json!({ "syntax": tables, "session": "p", "plugins": [plugin] }),
     );
     assert!(text(&alone).contains("give xlsx too"), "{alone}");
+    // this plugin offers no updates
+    let check = client.call("check_plugin_update", json!({ "program": plugin }));
+    assert_eq!(check["isError"], true, "{check}");
+    assert!(text(&check).contains("does not offer updates"), "{check}");
 
     // the open window: the same plugin, with the setting its active data holds after the run
     let mut desk = live::Desk::default();

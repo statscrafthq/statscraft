@@ -441,6 +441,8 @@ warning: line 1: DESCRIPTIVES: no statistics for string variables: plan
 ```
 statscraft update --check          current and latest version; exit code 10 when an update exists
 statscraft update --check --json   the same as JSON
+statscraft update --check --plugin PROGRAM [--json]
+                                   whether a plugin offers a newer version; installs nothing
 statscraft update                  update this installation to the latest release
 ```
 
@@ -451,6 +453,8 @@ The latest release is the newest published release on the GitHub repository; dra
 ```
 
 `latest` is null when no release is published yet, and `notes` is the release page when there is an update.
+
+`update --check --plugin PROGRAM` asks a [plugin](plugins.md#updates) instead, as the window's Check in Edit > Settings > Plugins does: it prints the plugin's name, its version and, when the plugin offers a newer one, that version and its notes; exit code 10 when there is an update, else 0. With `--json`: `{"plugin":"Margins","current":"0.2.1","latest":"0.2.2","update":true,"notes":"Faster tables"}`. It never installs the plugin: `--plugin` only goes with `--check`, and Update in the window's plugin settings installs it. A plugin that does not offer updates, or cannot check, is an error with its reason.
 
 `update` does what the window's Update now does, for the way this copy was installed:
 
