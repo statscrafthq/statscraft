@@ -512,8 +512,10 @@ fn outputs_folder(data: &std::path::Path) -> PathBuf {
 
 fn load_output(data: &std::path::Path, session: &mut Session) -> Result<(), Vec<Failure>> {
     let folder = outputs_folder(data);
-    let Ok(text) = std::fs::read_to_string(folder.join("names.json")) else {
-        return Ok(());
+    let text = match std::fs::read_to_string(folder.join("names.json")) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(session_failure(e.to_string())),
     };
     let names: KeptNames =
         serde_json::from_str(&text).map_err(|e| session_failure(e.to_string()))?;
@@ -566,8 +568,17 @@ fn save_output(data: &std::path::Path, session: &Session) -> Result<(), String> 
     }
     let text = serde_json::to_string_pretty(&names).expect("plain data");
     std::fs::write(fresh.join("names.json"), text).map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_dir_all(&folder);
-    std::fs::rename(&fresh, &folder).map_err(|e| e.to_string())
+    let old = folder.with_file_name("outputs.old");
+    let _ = std::fs::remove_dir_all(&old);
+    let had = std::fs::rename(&folder, &old).is_ok();
+    if let Err(e) = std::fs::rename(&fresh, &folder) {
+        if had {
+            let _ = std::fs::rename(&old, &folder);
+        }
+        return Err(e.to_string());
+    }
+    let _ = std::fs::remove_dir_all(&old);
+    Ok(())
 }
 
 /// Writes everything a session keeps. A session left without an active dataset keeps its
