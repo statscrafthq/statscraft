@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.20.3 (2026-11-20)
 
+- Command line and MCP server: a file session keeps its output documents between runs (folder `outputs` in the session): tables, charts, hidden items, labels, plugin comments and the designated document, so several runs can collect output that OUTPUT EXPORT or OUTPUT SAVE writes once at the end. `OUTPUT CLOSE ALL.` empties it. Workbooks OUTPUT EXPORT wrote are not kept, so CREATESHEET and MODIFYSHEET add only to one written in the same run; `--xlsx` still writes only the tables of its own run. A failed write of the session output leaves the earlier output in place.
 - Command line and MCP server: `statscraft update --check --plugin PROGRAM` and the tool `check_plugin_update` ask a plugin whether a newer version of it exists, as the window's Check in the plugin settings does; they install nothing.
 
 ## 0.20.2 (2026-11-19)
