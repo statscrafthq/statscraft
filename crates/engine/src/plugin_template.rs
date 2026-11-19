@@ -289,7 +289,7 @@ mod tests {
         let none = write("none.txt", "* nothing\n");
         let other = write("other.txt", "plugin-template Heat\tA\tplugin_heat_low\t1\n");
         let house = [house()];
-        let found = load(&[one.clone()], &house).unwrap();
+        let found = load(std::slice::from_ref(&one), &house).unwrap();
         assert_eq!(found[0].name, "A");
         let error = |files: &[std::path::PathBuf]| load(files, &house).unwrap_err();
         assert!(error(&[two]).contains("holds 2 templates"));
