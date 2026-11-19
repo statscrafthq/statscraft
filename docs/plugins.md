@@ -14,8 +14,8 @@ note to a cell, or giving the exports a look of your own.
   shows the plugin's name and version (or why it cannot be used) beside a box that turns it on
   and off, its full path, **Up** and **Down** to change the order, **Remove**, and
   **Settings...** for its own settings (below). **Add plugin...** adds an executable file to
-  the end of the list. **Write plugin comments as Excel comments** decides whether Excel
-  exports carry the comments as cell notes.
+  the end of the list. Whether a plugin writes comments, in the window and in Excel, is one of
+  its own settings.
 - **Several plugins**: after a run, every plugin that is on decorates the tables, one after
   the other in the order of the list, each with its own settings. Their answers are merged
   table by table: for a cell, a header cell, the caption and the title, each key the later

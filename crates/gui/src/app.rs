@@ -649,6 +649,10 @@ pub struct App {
     about: bool,
     /// The Settings dialog is open at this section.
     settings_section: Option<Section>,
+    /// File > Export is open for this output window.
+    export_open: Option<WindowId>,
+    /// The last choice of File > Export in this session.
+    export_choice: crate::export_dialog::Choice,
     /// Edit > Settings > AI agents.
     connect: Connect,
     /// The dataset as the last open or save left it, to tell whether the data changed since.
@@ -750,6 +754,8 @@ impl App {
             macros: Vec::new(),
             about: false,
             settings_section: None,
+            export_open: None,
+            export_choice: Default::default(),
             connect: Connect::default(),
             data_saved: None,
             data_files: Default::default(),
@@ -1652,31 +1658,12 @@ impl App {
                     self.save_output(id, true);
                 }
                 if ui
-                    .add_enabled(has_output, egui::Button::new("Export output as HTML..."))
+                    .add_enabled(has_output, egui::Button::new("Export..."))
                     .clicked()
                     && let Some(id) = output
                 {
-                    self.export_html(id, false);
+                    self.open_export(id, false);
                 }
-                if ui
-                    .add_enabled(has_output, egui::Button::new("Export output as PDF..."))
-                    .clicked()
-                    && let Some(id) = output
-                {
-                    self.export_pdf(id);
-                }
-                ui.add_enabled_ui(has_output, |ui| {
-                    ui.menu_button("Export output as Excel", |ui| {
-                        if let Some(id) = output {
-                            if ui.button("One sheet per table...").clicked() {
-                                self.export_xlsx(id, false, false);
-                            }
-                            if ui.button("All tables on one sheet...").clicked() {
-                                self.export_xlsx(id, true, false);
-                            }
-                        }
-                    });
-                });
                 ui.menu_button("Output Management", |ui| {
                     if ui.button("Start...").clicked() {
                         self.open_dialog(Dialog::Advanced(Advanced::Oms(Default::default())));
@@ -2755,6 +2742,22 @@ impl App {
     }
 
     /// Exports the whole output of a window, or with `selected` only the selected tables.
+    /// Opens File > Export for an output window, set to its selected tables or to all.
+    fn open_export(&mut self, id: WindowId, selected: bool) {
+        self.export_open = Some(id);
+        self.export_choice.selected = selected;
+        self.popups = self.here;
+    }
+
+    fn export(&mut self, id: WindowId, choice: crate::export_dialog::Choice) {
+        use crate::export_dialog::Format;
+        match choice.format {
+            Format::Excel => self.export_xlsx(id, choice.one_sheet, choice.selected),
+            Format::Html => self.export_html(id, choice.selected),
+            Format::Pdf => self.export_pdf(id, choice.selected),
+        }
+    }
+
     fn export_html(&mut self, id: WindowId, selected: bool) {
         if let Some(path) = self
             .file_dialog()
@@ -2775,7 +2778,7 @@ impl App {
         }
     }
 
-    fn export_pdf(&mut self, id: WindowId) {
+    fn export_pdf(&mut self, id: WindowId, selected: bool) {
         if let Some(path) = self
             .file_dialog()
             .add_filter("PDF document", &["pdf"])
@@ -2785,7 +2788,9 @@ impl App {
             let Some(view) = self.windows.output(id).map(|o| &o.view) else {
                 return;
             };
-            let bytes = output::pdf(&view.runs, |_| true, &view.exported());
+            let chosen = &view.selected;
+            let keep = |id| !selected || chosen.contains(&id);
+            let bytes = output::pdf(&view.runs, keep, &view.exported());
             self.status = match std::fs::write(&path, bytes) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", file_name(&path))),
@@ -2840,12 +2845,7 @@ impl App {
             };
             let chosen = &view.selected;
             let keep = |id| !selected || chosen.contains(&id);
-            let mut exported = view.exported().exported(&view.runs, keep);
-            if self.settings.excel_comments_off {
-                let tables = exported.iter_mut().flat_map(|(_, tables)| tables);
-                let decorations = tables.flat_map(|(table, ..)| &mut table.decorations);
-                decorations.for_each(|d| d.comment = None);
-            }
+            let exported = view.exported().exported(&view.runs, keep);
             let items = exported.iter().flat_map(|(_, tables)| tables);
             let items = items.map(|(table, chart, notes)| match chart {
                 Some(chart) => (statscraft_export::Item::Chart(chart), *notes),
@@ -4206,9 +4206,10 @@ impl App {
         o.view.light_paper = light;
         o.view.show = show;
         match o.view.ui(ui) {
-            Some(output_view::Request::ExportHtml) => self.export_html(id, true),
-            Some(output_view::Request::ExportXlsx { one_sheet }) => {
-                self.export_xlsx(id, one_sheet, true)
+            Some(output_view::Request::Export) => {
+                self.export_open = Some(id);
+                self.export_choice.selected = true;
+                self.popups = id;
             }
             Some(output_view::Request::SaveChart { chart, png, paper }) => {
                 self.save_chart(&chart, png, paper)
@@ -4284,6 +4285,27 @@ impl App {
             }
             _ => Vec::new(),
         };
+        if let Some(id) = self.export_open {
+            let any_selected = self
+                .windows
+                .output(id)
+                .is_some_and(|o| !o.view.selected.is_empty());
+            let hidden = self.settings.output.export_hidden;
+            let chosen = crate::export_dialog::show(
+                ctx,
+                &mut self.export_open,
+                &mut self.export_choice,
+                &mut self.settings.output.export_hidden,
+                any_selected,
+            );
+            if self.settings.output.export_hidden != hidden {
+                // the window works on without them
+                let _ = self.settings.save();
+            }
+            if let Some((id, choice)) = chosen {
+                self.export(id, choice);
+            }
+        }
         let chosen = self.settings.plugins.clone();
         let mut action = None;
         let set = settings_window::show(

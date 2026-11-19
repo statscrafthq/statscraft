@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The window: File > Export... opens one Export dialog for the output: Excel workbook (one sheet per table or all tables on one sheet), web page or PDF, all items or only the selected tables, and hidden items or not. It replaces the three Export output items of the File menu, the Export selection menu over the tables (now **Export...**, set to the selected tables) and Edit > Settings > Export hidden items. A PDF can now take only the selected tables too.
+- Plugins: Edit > Settings > Plugins no longer has its own "Write plugin comments as Excel comments" switch, which left the comments out of Excel while the window showed them. A plugin's own settings decide whether it writes comments, in the window and in Excel.
+
 ## 0.19.1 (2026-11-18)
 
 - Windows: running a plugin (for each table, its description and the update check) no longer flashes a console window.

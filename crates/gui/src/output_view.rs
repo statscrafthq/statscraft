@@ -37,11 +37,8 @@ const CHART_WIDTH: (f32, f32) = (320.0, 760.0);
 
 /// What an output window asks of the app.
 pub enum Request {
-    /// Export the selected tables, as a web page or as an Excel workbook (with one sheet for all).
-    ExportHtml,
-    ExportXlsx {
-        one_sheet: bool,
-    },
+    /// Open File > Export for the selected tables.
+    Export,
     Status(Result<String, String>),
     /// Put the syntax in the syntax editor.
     Paste(String),
@@ -470,19 +467,13 @@ impl OutputView {
             {
                 request = Some(Request::Delete);
             }
-            ui.add_enabled_ui(some, |ui| {
-                ui.menu_button("Export selection", |ui| {
-                    if ui.button("Web page...").clicked() {
-                        request = Some(Request::ExportHtml);
-                    }
-                    if ui.button("Excel, one sheet per table...").clicked() {
-                        request = Some(Request::ExportXlsx { one_sheet: false });
-                    }
-                    if ui.button("Excel, all tables on one sheet...").clicked() {
-                        request = Some(Request::ExportXlsx { one_sheet: true });
-                    }
-                });
-            });
+            if ui
+                .add_enabled(some, egui::Button::new("Export..."))
+                .on_hover_text("Export the selected tables")
+                .clicked()
+            {
+                request = Some(Request::Export);
+            }
             ui.separator();
             if ui.button("Select all").clicked() {
                 self.selected = output::tables(&self.runs).map(|t| t.id).collect();

@@ -260,15 +260,6 @@ fn plugin_list(
         changed = true;
     }
     ui.add_space(8.0);
-    let mut comments = !settings.excel_comments_off;
-    if ui
-        .checkbox(&mut comments, "Write plugin comments as Excel comments")
-        .changed()
-    {
-        settings.excel_comments_off = !comments;
-        changed = true;
-    }
-    ui.add_space(8.0);
     ui.weak(
         "The plugins colour and comment tables in this order; where two style the same thing, \
          the lower one wins. Settings... sets a plugin's values for the active data.",
@@ -391,10 +382,6 @@ fn body(ui: &mut Ui, section: Section, settings: &mut Settings) -> bool {
             for (part, on) in Part::ALL.into_iter().zip(&mut output.kinds) {
                 changed |= ui.checkbox(on, part.label()).changed();
             }
-            changed |= ui
-                .checkbox(&mut output.export_hidden, "Export hidden items")
-                .on_hover_text("Exports and copies take what the output does not show too")
-                .changed();
         }
         Section::Updates => {
             let mut on = settings.updates != Some(false);

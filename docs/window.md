@@ -223,10 +223,10 @@ The buttons over the tables act on the selected tables. A right click on a table
 - **Copy** (Ctrl+C) puts the tables on the clipboard with their layout, for a word processor or spreadsheet, and as plain text beside it.
 - **Copy as text** gives tab-separated text.
 - **Delete** removes them from the window and from its output document, so OUTPUT SAVE and OUTPUT EXPORT leave them out too. The log shows the deletion as a comment line. While a run is going, Delete waits: the status bar asks to try again when it ends.
-- **Export selection** saves only them, as a web page or an Excel workbook (one sheet per table, or all tables on one sheet).
+- **Export...** opens the Export dialog (below) set to only them.
 - **Clear output** deletes every table, the same way.
 
-Copies and exports (web page, PDF, Excel, from these buttons and from the File menu) take only what the output shows: no hidden tables, and no headings, titles or notes that do not show. A table whose title does not show has no title row in Excel, and its sheet and PDF bookmark keep its name. With Edit > Settings > Grids and output > **Export hidden items** on, they take everything, as before.
+Copies and exports (web page, PDF, Excel, from these buttons and from the File menu) take only what the output shows: no hidden tables, and no headings, titles or notes that do not show. A table whose title does not show has no title row in Excel, and its sheet and PDF bookmark keep its name. With **Hidden items too** in the Export dialog on, they take everything; the box is remembered, and copies follow it too.
 
 ### Charts
 
@@ -262,16 +262,18 @@ The output of a window can be kept as a Statscraft output file (.scout) and open
 
 ### Exporting all output
 
-- File > Export output as HTML saves all the tables of the output window as one web page, each drawn chart as a PNG picture inside the page. Chosen in a data or syntax window, it exports the designated output window.
-- File > Export output as PDF saves all the tables and charts of the output window as one PDF file on A4 pages, as OUTPUT EXPORT /PDF writes it: tables as text, charts as vector drawings, and bookmarks for the commands and their items. Chosen in a data or syntax window, it exports the designated output window.
-- File > Export output as Excel saves them as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does: a chart as its data table with the editable chart, or the picture of a statistical plot, beside it.
+File > Export... opens the Export dialog for the output window; chosen in a data or syntax window, it exports the designated output window. The dialog asks for the **Format**, for an Excel workbook whether to put **One sheet per table** or **All tables on one sheet**, which **Items** (all items of the output, or only the selected tables) and whether to take **Hidden items too**. **Export...** then asks where to save. The choices stay for the next export.
+
+- An Excel workbook is laid out as `--xlsx` does: a chart as its data table with the editable chart, or the picture of a statistical plot, beside it. Plugin comments become cell notes; a plugin's own settings decide whether it writes comments.
+- A web page holds the tables, each drawn chart as a PNG picture inside the page.
+- A PDF file has A4 pages, as OUTPUT EXPORT /PDF writes it: tables as text, charts as vector drawings, and bookmarks for the commands and their items.
 - From syntax, OUTPUT EXPORT writes the tables and charts of an output document to a workbook, a Word document, a presentation, a web page, text or a CSV file.
 
 ## Menus
 
 ### File
 
-Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Open output, Recent files, Save syntax, Save syntax as; Save output, Save output as, Export output as HTML, Export output as PDF, Export output as Excel; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
+Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Open output, Recent files, Save syntax, Save syntax as; Save output, Save output as, Export; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
 
 ### Window
 
@@ -703,7 +705,7 @@ Edit > Settings holds every setting of the window in one dialog, with its sectio
 - **Grids and output**
   - **Paper of the grids and the output**: the Data and Variables grids and the output tables. **Always light** (the default) keeps them dark text on a light sheet, as a spreadsheet or a document page does, while menus, panels and dialogs follow the system's dark or light theme. **Follow the system theme** draws them in the system theme too.
   - **Log under Syntax and Output** (on by default).
-  - **Show in the output**: Command headings (off by default), Titles, Tables, Notes under tables and Charts (on by default), and **Export hidden items** (off by default). See [What the output shows](#what-the-output-shows). Kept in `window.txt` as lines such as `output-shows titles tables charts` and `export hidden`.
+  - **Show in the output**: Command headings (off by default), Titles, Tables, Notes under tables and Charts (on by default). See [What the output shows](#what-the-output-shows). Kept in `window.txt` as a line such as `output-shows titles tables charts`; the Export dialog's **Hidden items too** is kept as `export hidden`.
   - **Variables in tables** (Labels, Names, or Names and labels) and **Values in tables** (Labels, Values, or Values and labels). These belong to the session, not the window. A choice runs `SET TVARS` or `SET TNUMBERS` like any other command, shows in the log and stays for the later runs. A SET in syntax changes the dialog too. The window also keeps the choice (lines such as `tvars names` and `tnumbers both` in `window.txt`) and runs the same SET when it starts, so you set it once.
   - **Output for multiply imputed data**: Original data, Each imputation, Pooled and Diagnostics, for procedures run on data split by `Imputation_`. A change runs `SET MIOUTPUT=[...]`; at least one part stays checked. Like the table labels it belongs to the session, is kept in `window.txt` (a line such as `mioutput observed pooled`) and is set again when the window starts.
 - **Updates**
@@ -712,7 +714,7 @@ Edit > Settings holds every setting of the window in one dialog, with its sectio
   - Adds the Statscraft MCP server to the AI apps on this computer, or takes it out again, with a click per app, and says what to restart. For Claude Desktop, **Install extension** downloads and opens the Statscraft extension of this version. **Check** shows each app's settings files and whether the entry is in them now. See [Connect your AI agent](connect.md#from-the-window-edit--settings--ai-agents).
 
 - **Plugins**
-  - The installed plugins, programs that colour and comment the cells of custom tables, in the order they run: each with its name and version, a box that turns it on and off, its full path, **Up**, **Down**, **Remove** and **Settings...**, which opens the plugin's own settings (kept with the data file). **Add plugin...** adds one. Where two plugins style the same thing, the later one wins. **Write plugin comments as Excel comments** (on by default) decides whether Excel exports carry the comments as cell notes. Kept in `window.txt` as one line per plugin, `plugin PATH` or `plugin-off PATH`, and `excel-comments off`. See [Plugins](plugins.md).
+  - The installed plugins, programs that colour and comment the cells of custom tables, in the order they run: each with its name and version, a box that turns it on and off, its full path, **Up**, **Down**, **Remove** and **Settings...**, which opens the plugin's own settings (kept with the data file). **Add plugin...** adds one. Where two plugins style the same thing, the later one wins. Kept in `window.txt` as one line per plugin, `plugin PATH` or `plugin-off PATH`. See [Plugins](plugins.md).
 
 ## What the window remembers
 

@@ -54,8 +54,6 @@ pub struct Settings {
     pub output: Show,
     /// The plugin programs that decorate tables (docs/plugins.md), in the order they run.
     pub plugins: Vec<Plugin>,
-    /// Excel exports leave out the plugins' comments.
-    pub excel_comments_off: bool,
     /// Saved values of plugin settings, for every data file.
     pub presets: Vec<Preset>,
     /// The plugin settings last chosen for each data file, by its path: they hold when the
@@ -309,7 +307,6 @@ impl Settings {
                 }),
                 // the older form: one `plugin PATH` line and this one turning it off
                 "plugin-off" => old_off = true,
-                "excel-comments" => settings.excel_comments_off = rest == "off",
                 "preset" => {
                     if let [attribute, name, value] = rest.split('\t').collect::<Vec<_>>()[..]
                         && !name.is_empty()
@@ -465,9 +462,6 @@ impl Settings {
         for p in &self.plugins {
             let key = if p.on { "plugin" } else { "plugin-off" };
             text.push_str(&format!("{key} {}\n", p.path.display()));
-        }
-        if self.excel_comments_off {
-            text.push_str("excel-comments off\n");
         }
         for p in &self.presets {
             text.push_str(&format!(
@@ -679,7 +673,6 @@ mod tests {
                     on: true,
                 },
             ],
-            excel_comments_off: true,
             presets: vec![
                 Preset::new("plugin_house_limit", "Strict 1-10", "1043000"),
                 Preset::new("plugin_house_limit", "All: steps\t0+", "1331000"),
@@ -885,6 +878,13 @@ mod tests {
         settings.output.kinds = [false; 5];
         assert_eq!(settings.text(), "output-shows\nexport hidden\n");
         assert_eq!(Settings::parse(&settings.text()), settings);
+    }
+
+    #[test]
+    fn the_old_excel_comments_switch_is_dropped() {
+        // the plugin's own settings decide its comments now; the old line is read and forgotten
+        let settings = Settings::parse("excel-comments off\nexport hidden\n");
+        assert_eq!(settings.text(), "export hidden\n");
     }
 
     #[test]

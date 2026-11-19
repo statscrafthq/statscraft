@@ -34,6 +34,7 @@ mod data_tools_dialog_view;
 mod dialogs;
 mod editor;
 mod edits;
+mod export_dialog;
 mod fonts;
 mod forecast_more_dialog;
 mod forecast_more_dialog_view;
