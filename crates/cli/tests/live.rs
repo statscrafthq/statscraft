@@ -429,12 +429,16 @@ fn export_sends_the_choices_to_the_window_and_prints_its_answer() {
     // a relative file starts in the caller's folder; the extension gives the format
     let (ok, out, err) = text(&dir.cli(&["export", "tables.XLSX", "--one-sheet", "--hidden"]));
     assert!(ok, "{err}");
-    let path = dir.0.canonicalize().unwrap().join("tables.XLSX");
+    let (action, path, format, one_sheet, selected, hidden) = asked.recv().unwrap();
     assert_eq!(out, format!("output exported to {}\n", path.display()));
+    // the folder as the caller names it, which on Windows may be a short or long form
+    assert_eq!(path.file_name().unwrap(), "tables.XLSX");
+    let folder = path.parent().unwrap().canonicalize().unwrap();
+    assert_eq!(folder, dir.0.canonicalize().unwrap());
     let xlsx = Some(ExportFormat::Xlsx);
     assert_eq!(
-        asked.recv().unwrap(),
-        (Action::Export, path, xlsx, true, false, true)
+        (action, format, one_sheet, selected, hidden),
+        (Action::Export, xlsx, true, false, true)
     );
     // --format wins over the extension
     let html = ["export", "page.out", "--format", "html", "--selected"];
