@@ -2000,3 +2000,17 @@ fn omega_needs_three_items_and_deleted_omega_four() {
     assert!(items.rows.iter().all(|r| *r.last().unwrap() == Cell::Empty));
     assert!(number(&find(&tables, "Reliability Statistics").rows[0][0]) > 0.0);
 }
+
+#[test]
+fn omega_drops_an_item_without_variance_first() {
+    let mut engine = one_factor();
+    run(&mut engine, "COMPUTE flat = 1.");
+    let tables = run(
+        &mut engine,
+        "RELIABILITY /VARIABLES=a b c d e flat /MODEL=OMEGA.",
+    );
+    let t = find(&tables, "Reliability Statistics");
+    assert!((number(&t.rows[0][0]) - 0.830_507_843_459_371).abs() < 1e-10);
+    assert_eq!(number(&t.rows[0][1]), 5.0);
+    assert!(engine.warnings()[0].contains("flat has no variance"));
+}
