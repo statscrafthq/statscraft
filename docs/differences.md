@@ -401,6 +401,7 @@ This page lists, by topic and command:
 - "Valid N (listwise)" always counts the cases valid on every listed variable (GNU PSPP differs).
 - String variables are skipped with a warning.
 - Saved z-scores are named Z plus the variable name, then ZSC001 to ZSC099, STDZ01 to STDZ09, ZZZZ01 to ZZZZ09 and ZQZQ01 to ZQZQ09.
+- SORT changes only the order of the table. A variable without the sorted statistic (the skewness of a constant, say) goes last in both directions; variables that tie keep the order written. Z-scores are still added in the order written.
 
 ### CROSSTABS
 
@@ -471,6 +472,7 @@ This page lists, by topic and command:
 ### ONEWAY
 
 - Games-Howell uses separate variances (GNU PSPP differs).
+- POLYNOMIAL gives one row per term in the ANOVA table, named like "Linear Term: Weighted". The weighted terms are the sequential sums of squares of the group means on the powers of the group value, the groups weighted by their sizes (checked against a linear model in R); the unweighted terms are the equal-weight polynomial contrasts, shown only when the group sizes differ and the group values are equally spaced. The deviation row after the last degree the groups allow has no degrees of freedom and is left out.
 
 ### EXAMINE
 
@@ -1836,7 +1838,7 @@ Where the documentation is silent:
 
 - **Commands.** The commands of the language that Statscraft recognizes but does not run are listed at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
 - **Subcommands.** Every command page lists what it accepts. Notably:
-  - ONEWAY has no POLYNOMIAL, RANGES, EFFECTS or WALLER.
+  - ONEWAY has no RANGES, EFFECTS or WALLER.
   - NONPAR CORR has no MATRIX or CI. PARTIAL CORR has no MATRIX.
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
   - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.

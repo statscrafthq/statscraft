@@ -951,6 +951,16 @@ pub struct Descriptives {
     pub include: bool,
     /// `/SAVE`: add a z-score variable per variable.
     pub save: bool,
+    /// `/SORT=key (A|D)`: the order of the variables in the table; None keeps the order written.
+    pub sort: Option<DescriptiveSort>,
+}
+
+/// What `/SORT` of DESCRIPTIVES orders the variables by.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DescriptiveSort {
+    /// A statistic, or None for the variable name.
+    pub by: Option<DescriptiveStatistic>,
+    pub descending: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1240,6 +1250,8 @@ pub struct Oneway {
     pub ci: f64,
     /// `/PLOT MEANS`: a line chart of the group means of every dependent.
     pub plot_means: bool,
+    /// `/POLYNOMIAL=n`: trend components up to this degree (1 to 5), the last one given.
+    pub polynomial: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1185,9 +1185,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "DESCRIPTIVES",
         summary: "Summary statistics of numeric variables, optionally saved as z-scores.",
-        syntax: "DESCRIPTIVES [/]VARIABLES=varlist [/STATISTICS=stat ...] [/MISSING=VARIABLE | LISTWISE [INCLUDE]] [/SAVE].\n\
+        syntax: "DESCRIPTIVES [/]VARIABLES=varlist [/STATISTICS=stat ...] [/SORT=[key] [(A | D)]]\n\
+                 \x20            [/MISSING=VARIABLE | LISTWISE [INCLUDE]] [/SAVE].\n\
                  stat: MEAN SEMEAN STDDEV VARIANCE KURTOSIS SKEWNESS RANGE MINIMUM MAXIMUM SUM DEFAULT ALL.\n\
                  DEFAULT is MEAN STDDEV MINIMUM MAXIMUM; N is always shown. Weighted when a weight variable is set.\n\
+                 SORT lists the variables by key (MEAN SEMEAN STDDEV VARIANCE KURTOSIS SKEWNESS RANGE MIN MAX SUM\n\
+                 or NAME), ascending (A, the default) or descending (D); without a key it is the mean. A variable\n\
+                 without the statistic goes last. The key need not be among the statistics shown.\n\
                  MISSING=VARIABLE (the default) leaves out the missing values of each variable on its own;\n\
                  LISTWISE leaves out a case missing on any listed variable; INCLUDE counts user-missing values.\n\
                  The row Valid N (listwise) counts the cases valid on every listed variable. String variables get no\n\
@@ -1379,7 +1383,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "ONEWAY",
         summary: "One-way analysis of variance with contrasts and post hoc comparisons.",
         syntax: "ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]\n\
-                 \x20      [/CONTRAST=coefficients] [/POSTHOC=test ... [ALPHA(0.05)]]\n\
+                 \x20      [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]\n\
                  \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS].\n\
                  test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GT2 GABRIEL GH T2 T3 C (pairwise comparisons),\n\
                  DUNNETT DUNNETTL DUNNETTR [(refcat)] (each group against the reference group, by default the last;\n\
@@ -1391,7 +1395,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Homogeneous subsets use the harmonic mean of the group sizes (the R-E-G-W tests the sizes\n\
                  themselves); Tukey B shows no significance. Weighted when a weight variable is set. PLOT MEANS\n\
                  gives each dependent a line chart through the mean of every group, as chart data.\n\
-                 Not supported yet: POLYNOMIAL, RANGES, EFFECTS, WALLER.",
+                 POLYNOMIAL (1 to 5, the last one given counts; lowered with a warning to the groups minus 1)\n\
+                 splits the between-groups sum of squares into trend terms in the ANOVA table, with the group\n\
+                 value as the metric: a Weighted row per degree (sequential, the groups weighted by size) and a\n\
+                 Deviation row of what is left (none after the last possible degree); when the group sizes differ\n\
+                 and the groups are equally spaced there is also an Unweighted row per degree.\n\
+                 Not supported yet: RANGES, EFFECTS, WALLER.",
         example: "ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.",
         parse: stats::oneway,
     },

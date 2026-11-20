@@ -197,7 +197,34 @@ impl Engine {
             kinds.push(kind(stat));
             kinds.extend(std::iter::repeat_n(None, count - 1));
         }
-        for ((name, _), summary) in variables.iter().zip(&summaries) {
+        // the table lists the variables in this order; the z-scores keep the order written
+        let mut order: Vec<usize> = (0..variables.len()).collect();
+        if let Some(sort) = command.sort {
+            let key = |index: usize| {
+                sort.by
+                    .and_then(|stat| columns(stat, &summaries[index])[0].1)
+                    .filter(|v| !v.is_nan())
+            };
+            order.sort_by(|&a, &b| {
+                let by = match sort.by {
+                    Some(_) => match (key(a), key(b)) {
+                        // a variable without the statistic goes last, whichever way it sorts
+                        (None, None) => std::cmp::Ordering::Equal,
+                        (None, _) => return std::cmp::Ordering::Greater,
+                        (_, None) => return std::cmp::Ordering::Less,
+                        (Some(x), Some(y)) => x.total_cmp(&y),
+                    },
+                    None => variables[a]
+                        .0
+                        .to_lowercase()
+                        .cmp(&variables[b].0.to_lowercase()),
+                };
+                if sort.descending { by.reverse() } else { by }
+            });
+        }
+        for &index in &order {
+            let (name, _) = &variables[index];
+            let summary = &summaries[index];
             let label = data.variable(name)?.label();
             let mut row = vec![
                 Cell::Text(name.clone()),
@@ -227,8 +254,8 @@ impl Engine {
         }
         let formats = formats_of(&rows, |r, c| {
             let kind = c.checked_sub(3).and_then(|i| kinds[i]);
-            match (variables.get(r), kind) {
-                (Some(_), Some(kind)) => procedure_format(columns_of[r].format(), kind),
+            match (order.get(r), kind) {
+                (Some(&index), Some(kind)) => procedure_format(columns_of[index].format(), kind),
                 _ => String::new(),
             }
         });

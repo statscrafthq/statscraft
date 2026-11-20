@@ -31,6 +31,7 @@ fn descriptives() {
             listwise: false,
             include: false,
             save: false,
+            sort: None,
         })
     );
     assert_eq!(
@@ -46,6 +47,7 @@ fn descriptives() {
             listwise: true,
             include: true,
             save: true,
+            sort: None,
         })
     );
     let Command::Descriptives(d) = one("DESCRIPTIVES x /STATISTICS=DEFAULT VARIANCE ALL.") else {
@@ -53,10 +55,39 @@ fn descriptives() {
     };
     assert_eq!(d.statistics.len(), 10);
 
+    let sorted = |text: &str| {
+        let Command::Descriptives(d) = one(text) else {
+            panic!()
+        };
+        d.sort.map(|s| (s.by, s.descending))
+    };
+    assert_eq!(sorted("DESCRIPTIVES x."), None);
+    assert_eq!(
+        sorted("DESCRIPTIVES x /SORT."),
+        Some((Some(DescriptiveStatistic::Mean), false))
+    );
+    assert_eq!(
+        sorted("DESCRIPTIVES x /SORT=MEAN (A)."),
+        Some((Some(DescriptiveStatistic::Mean), false))
+    );
+    assert_eq!(
+        sorted("DESCRIPTIVES x /SORT=RANGE (D)."),
+        Some((Some(DescriptiveStatistic::Range), true))
+    );
+    assert_eq!(sorted("DESCRIPTIVES x /SORT=NAME (D)."), Some((None, true)));
+    assert_eq!(
+        sorted("DESCRIPTIVES x /SORT=(D)."),
+        Some((Some(DescriptiveStatistic::Mean), true))
+    );
     assert!(
-        err("DESCRIPTIVES x /SORT=MEAN (A).")
-            .message
-            .contains("SORT of DESCRIPTIVES is not supported yet")
+        err("DESCRIPTIVES x /SORT=MEDIAN.")
+            .expected
+            .contains(&"NAME".to_string())
+    );
+    assert!(
+        err("DESCRIPTIVES x /SORT=MEAN (X).")
+            .expected
+            .contains(&"D".to_string())
     );
     let e = err("DESCRIPTIVES x /STATISTICS=PHI.");
     assert!(e.message.contains("unexpected word PHI"), "{e}");
@@ -605,11 +636,26 @@ fn oneway() {
             .message
             .contains("WALLER in ONEWAY /POSTHOC is not supported yet")
     );
-    assert!(
-        err("ONEWAY a BY g /POLYNOMIAL=2.")
-            .message
-            .contains("POLYNOMIAL of ONEWAY is not supported yet")
+    let polynomial = |text: &str| {
+        let Command::Oneway(o) = one(text) else {
+            panic!()
+        };
+        o.polynomial
+    };
+    assert_eq!(polynomial("ONEWAY a BY g."), None);
+    assert_eq!(polynomial("ONEWAY a BY g /POLYNOMIAL=2."), Some(2));
+    // only the last POLYNOMIAL counts
+    assert_eq!(
+        polynomial("ONEWAY a BY g /POLYNOMIAL=2 /POLYNOMIAL 5."),
+        Some(5)
     );
+    for bad in ["0", "6", "1.5", "-1"] {
+        assert!(
+            err(&format!("ONEWAY a BY g /POLYNOMIAL={bad}."))
+                .message
+                .contains("POLYNOMIAL needs a whole number from 1 to 5")
+        );
+    }
     assert!(
         err("ONEWAY a BY g /STATISTICS=EFFECTS.")
             .message

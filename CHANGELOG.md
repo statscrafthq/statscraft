@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- ONEWAY /POLYNOMIAL=degree (1 to 5) splits the between-groups sum of squares into linear, quadratic and higher trend terms in the ANOVA table, weighted and, for unequal group sizes with equally spaced groups, unweighted, each with the deviation from that degree.
+- DESCRIPTIVES /SORT=key (A or D) lists the variables by mean, standard deviation, range, name or any other statistic.
+
 ## 0.20.6 (2026-11-20)
 
 - Window: File > Export to Excel puts all tables on one sheet, one below the other, unless One sheet per table is picked; it was one sheet per table. The command line and agents keep one sheet per table unless asked otherwise.

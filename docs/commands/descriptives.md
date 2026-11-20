@@ -7,12 +7,15 @@ Summary statistics of numeric variables, optionally saved as z-scores.
 ## Syntax
 
 ```text
-DESCRIPTIVES [/]VARIABLES=varlist [/STATISTICS=stat ...] [/MISSING=VARIABLE | LISTWISE [INCLUDE]] [/SAVE].
+DESCRIPTIVES [/]VARIABLES=varlist [/STATISTICS=stat ...] [/SORT=[key] [(A | D)]]
+             [/MISSING=VARIABLE | LISTWISE [INCLUDE]] [/SAVE].
 ```
 
 stat: MEAN SEMEAN STDDEV VARIANCE KURTOSIS SKEWNESS RANGE MINIMUM MAXIMUM SUM DEFAULT ALL.
 
 DEFAULT is MEAN STDDEV MINIMUM MAXIMUM; N is always shown. Weighted when a weight variable is set.
+
+SORT lists the variables by key (MEAN SEMEAN STDDEV VARIANCE KURTOSIS SKEWNESS RANGE MIN MAX SUM or NAME), ascending (A, the default) or descending (D); without a key it is the mean. A variable without the statistic goes last. The key need not be among the statistics shown.
 
 MISSING=VARIABLE (the default) leaves out the missing values of each variable on its own; LISTWISE leaves out a case missing on any listed variable; INCLUDE counts user-missing values.
 

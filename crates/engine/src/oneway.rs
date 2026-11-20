@@ -706,21 +706,39 @@ impl Engine {
                     number(Some(f_p(statistic, k - 1.0, df_within))),
                 ]);
             }
-            let f = between / (k - 1.0) / ms_within;
-            let rows = [
-                ("Between Groups", between, k - 1.0, true),
-                ("Within Groups", within, df_within, false),
-                ("Total", between + within, w - 1.0, false),
-            ];
-            for (i, (source, ss, df, tested)) in rows.into_iter().enumerate() {
+            let combined = if command.polynomial.is_some() {
+                "Between Groups (Combined)"
+            } else {
+                "Between Groups"
+            };
+            // source, sum of squares, df, whether the mean square is shown, whether F is tested
+            let mut rows = vec![(combined.to_string(), between, k - 1.0, true, true)];
+            if let Some(asked) = command.polynomial.filter(|_| k >= 2.0) {
+                let degree = usize::from(asked).min(present.len() - 1);
+                if degree < usize::from(asked) {
+                    warnings.push(format!(
+                        "POLYNOMIAL for {} is lowered to {degree}: there are {} groups",
+                        dependent.name(),
+                        present.len()
+                    ));
+                }
+                let x: Vec<f64> = present.iter().map(|(l, _)| *l).collect();
+                let sizes: Vec<f64> = present.iter().map(|(_, g)| g.w).collect();
+                let means: Vec<f64> = present.iter().map(|(_, g)| g.mean).collect();
+                rows.extend(trend_rows(&x, &sizes, &means, degree, between));
+            }
+            rows.push(("Within Groups".into(), within, df_within, true, false));
+            rows.push(("Total".into(), between + within, w - 1.0, false, false));
+            for (i, (source, ss, df, with_ms, tested)) in rows.into_iter().enumerate() {
+                let f = ss / df / ms_within;
                 anova.push(vec![
                     if i == 0 { name() } else { Cell::Empty },
-                    Cell::Text(source.into()),
+                    Cell::Text(source),
                     number(Some(ss)),
                     number(Some(df)),
-                    number((i < 2).then_some(ss / df)),
+                    number(with_ms.then_some(ss / df)),
                     number(tested.then_some(f)),
-                    number(tested.then(|| f_p(f, k - 1.0, df_within))),
+                    number(tested.then(|| f_p(f, df, df_within))),
                 ]);
             }
             if command.welch || command.brown_forsythe {
@@ -936,6 +954,92 @@ impl Engine {
         }
         Ok(out)
     }
+}
+
+/// The rows of the trend components in the analysis of variance table: for each degree up to
+/// `degree` the unweighted contrast (only when the group sizes differ and the groups are equally
+/// spaced), the weighted contrast and the deviation from the polynomial of that degree. Each
+/// is (source, sum of squares, df, mean square shown, F tested). The weighted components are the
+/// sequential sums of squares of the group means on the powers of the group code, the groups
+/// weighted by their sizes; the deviation is what the combined sum of squares keeps beyond them.
+fn trend_rows(
+    x: &[f64],
+    sizes: &[f64],
+    means: &[f64],
+    degree: usize,
+    between: f64,
+) -> Vec<(String, f64, f64, bool, bool)> {
+    let close = |a: f64, b: f64| (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0);
+    let balanced = sizes.iter().all(|&n| close(n, sizes[0]));
+    let step = x[1] - x[0];
+    let spaced = x.windows(2).all(|p| close(p[1] - p[0], step));
+    let weighted = orthogonal_polynomials(x, sizes, degree);
+    let unweighted =
+        (!balanced && spaced).then(|| orthogonal_polynomials(x, &vec![1.0; x.len()], degree));
+    let names = ["Linear", "Quadratic", "Cubic", "4th-degree", "5th-degree"];
+    let groups = x.len() as f64;
+    let mut rows = Vec::new();
+    let mut explained = 0.0;
+    for q in 1..=degree {
+        let name = names[q - 1];
+        if let Some(c) = unweighted.as_ref().map(|u| &u[q - 1]) {
+            let value: f64 = c.iter().zip(means).map(|(c, m)| c * m).sum();
+            let scale: f64 = c.iter().zip(sizes).map(|(c, n)| c * c / n).sum();
+            rows.push((
+                format!("{name} Term: Unweighted"),
+                value * value / scale,
+                1.0,
+                true,
+                true,
+            ));
+        }
+        let c = &weighted[q - 1];
+        let value: f64 = c
+            .iter()
+            .zip(sizes)
+            .zip(means)
+            .map(|((c, n), m)| c * n * m)
+            .sum();
+        let scale: f64 = c.iter().zip(sizes).map(|(c, n)| c * c * n).sum();
+        let ss = value * value / scale;
+        explained += ss;
+        rows.push((format!("{name} Term: Weighted"), ss, 1.0, true, true));
+        let df = groups - 1.0 - q as f64;
+        if df > 0.0 {
+            let ss = (between - explained).max(0.0);
+            rows.push((format!("{name} Term: Deviation"), ss, df, true, true));
+        }
+    }
+    rows
+}
+
+/// The orthogonal polynomials of degree 1 to `degree` in `x`, each as its values at the points,
+/// orthogonal to each other and to the constant with the points weighted by `weights`.
+fn orthogonal_polynomials(x: &[f64], weights: &[f64], degree: usize) -> Vec<Vec<f64>> {
+    let dot = |a: &[f64], b: &[f64]| -> f64 {
+        a.iter()
+            .zip(b)
+            .zip(weights)
+            .map(|((a, b), w)| a * b * w)
+            .sum()
+    };
+    // centered and scaled so the powers stay well conditioned
+    let mid = (x[0] + x[x.len() - 1]) / 2.0;
+    let half = (x[x.len() - 1] - x[0]) / 2.0;
+    let t: Vec<f64> = x.iter().map(|x| (x - mid) / half).collect();
+    let mut basis: Vec<Vec<f64>> = vec![vec![1.0; x.len()]];
+    for q in 1..=degree {
+        let mut v: Vec<f64> = t.iter().map(|t| t.powi(q as i32)).collect();
+        // twice, so rounding left by the first pass is removed
+        for _ in 0..2 {
+            for b in &basis {
+                let along = dot(&v, b) / dot(b, b);
+                v.iter_mut().zip(b).for_each(|(v, b)| *v -= along * b);
+            }
+        }
+        basis.push(v);
+    }
+    basis.split_off(1)
 }
 
 /// The means plot of one dependent: a line through the (weighted) mean of every group with

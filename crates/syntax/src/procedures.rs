@@ -1,15 +1,15 @@
 //! Parsers of the statistical procedures DESCRIPTIVES and CROSSTABS.
 
 use crate::ast::{
-    Command, Crosstabs, CrosstabsCell, CrosstabsMethod, DescriptiveStatistic as Stat, Descriptives,
-    VarItem, WeightCount,
+    Command, Crosstabs, CrosstabsCell, CrosstabsMethod, DescriptiveSort,
+    DescriptiveStatistic as Stat, Descriptives, VarItem, WeightCount,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::table::matches_keyword;
 
-const DESCRIPTIVES_SUBCOMMANDS: [&str; 2] = ["SORT", "FORMAT"];
+const DESCRIPTIVES_SUBCOMMANDS: [&str; 1] = ["FORMAT"];
 
 const STATISTICS: [(&str, &[Stat]); 14] = [
     ("MEAN", &[Stat::Mean]),
@@ -168,6 +168,42 @@ fn z_list(p: &mut Parser) -> PResult<Vec<(VarItem, Option<String>)>> {
     Ok(items)
 }
 
+/// `SORT` of DESCRIPTIVES: an optional key (the mean when left out) and an optional (A) or (D).
+fn descriptive_sort(p: &mut Parser) -> PResult<DescriptiveSort> {
+    const KEYS: [(&str, Option<Stat>); 11] = [
+        ("MEAN", Some(Stat::Mean)),
+        ("SEMEAN", Some(Stat::SeMean)),
+        ("STDDEV", Some(Stat::StdDev)),
+        ("VARIANCE", Some(Stat::Variance)),
+        ("KURTOSIS", Some(Stat::Kurtosis)),
+        ("SKEWNESS", Some(Stat::Skewness)),
+        ("RANGE", Some(Stat::Range)),
+        ("MIN", Some(Stat::Min)),
+        ("MAX", Some(Stat::Max)),
+        ("SUM", Some(Stat::Sum)),
+        ("NAME", None),
+    ];
+    let mut by = Some(Stat::Mean);
+    if let Some((_, key)) = KEYS.iter().find(|(name, _)| p.at_keyword(name)) {
+        by = *key;
+        p.pos += 1;
+    } else if !at_end(p) && !p.at(Punct::LParen) {
+        return Err(p.unexpected(&names(&KEYS)));
+    }
+    let mut descending = false;
+    if p.eat(Punct::LParen) {
+        descending = if p.eat_word("D") {
+            true
+        } else if p.eat_word("A") {
+            false
+        } else {
+            return Err(p.unexpected(&["A", "D"]));
+        };
+        p.expect(Punct::RParen)?;
+    }
+    Ok(DescriptiveSort { by, descending })
+}
+
 pub(crate) fn descriptives(p: &mut Parser) -> PResult<Command> {
     let mut command = Descriptives {
         variables: Vec::new(),
@@ -175,6 +211,7 @@ pub(crate) fn descriptives(p: &mut Parser) -> PResult<Command> {
         listwise: false,
         include: false,
         save: false,
+        sort: None,
     };
     let mut statistics: Option<Vec<Stat>> = None;
     p.eat(Punct::Slash);
@@ -206,6 +243,9 @@ pub(crate) fn descriptives(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("SAVE") {
             command.save = true;
+        } else if p.eat_keyword("SORT") {
+            p.eat(Punct::Eq);
+            command.sort = Some(descriptive_sort(p)?);
         } else {
             return Err(p.subcommand_error("DESCRIPTIVES", &DESCRIPTIVES_SUBCOMMANDS));
         }

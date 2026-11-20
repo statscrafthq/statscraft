@@ -8,7 +8,7 @@ One-way analysis of variance with contrasts and post hoc comparisons.
 
 ```text
 ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]
-       [/CONTRAST=coefficients] [/POSTHOC=test ... [ALPHA(0.05)]]
+       [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]
        [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS].
 ```
 
@@ -16,7 +16,9 @@ test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GT2 GABRIEL GH T2 T3 C (pairwise compar
 
 Homogeneous subsets use the harmonic mean of the group sizes (the R-E-G-W tests the sizes themselves); Tukey B shows no significance. Weighted when a weight variable is set. PLOT MEANS gives each dependent a line chart through the mean of every group, as chart data.
 
-Not supported yet: POLYNOMIAL, RANGES, EFFECTS, WALLER.
+POLYNOMIAL (1 to 5, the last one given counts; lowered with a warning to the groups minus 1) splits the between-groups sum of squares into trend terms in the ANOVA table, with the group value as the metric: a Weighted row per degree (sequential, the groups weighted by size) and a Deviation row of what is left (none after the last possible degree); when the group sizes differ and the groups are equally spaced there is also an Unweighted row per degree.
+
+Not supported yet: RANGES, EFFECTS, WALLER.
 
 ## Example
 

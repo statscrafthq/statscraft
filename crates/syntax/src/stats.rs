@@ -413,7 +413,7 @@ pub(crate) fn t_test(p: &mut Parser) -> PResult<Command> {
     Ok(Command::TTest(command))
 }
 
-const ONEWAY_UNSUPPORTED: [&str; 5] = ["POLYNOMIAL", "RANGES", "MATRIX", "TEMPLATE", "ES"];
+const ONEWAY_UNSUPPORTED: [&str; 4] = ["RANGES", "MATRIX", "TEMPLATE", "ES"];
 
 const POSTHOCS: [(&str, &[Posthoc]); 19] = [
     ("LSD", &[Posthoc::Lsd]),
@@ -501,9 +501,22 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
         include: false,
         ci: 0.95,
         plot_means: false,
+        polynomial: None,
     };
     while p.eat(Punct::Slash) {
-        if p.eat_keyword("POSTHOC") {
+        if p.eat_keyword("POLYNOMIAL") {
+            p.eat(Punct::Eq);
+            let start = p.pos;
+            let degree = p
+                .number()
+                .filter(|d| (1.0..=5.0).contains(d) && d.fract() == 0.0);
+            let Some(degree) = degree else {
+                let message = "POLYNOMIAL needs a whole number from 1 to 5";
+                return Err(SyntaxError::new(p.span_from(start), message));
+            };
+            // only one POLYNOMIAL counts: the last
+            command.polynomial = Some(degree as u8);
+        } else if p.eat_keyword("POSTHOC") {
             p.eat(Punct::Eq);
             let mut chosen = Vec::new();
             while !at_end(p) {

@@ -999,3 +999,153 @@ fn nonpar_corr_flags_layout_and_constant_variables() {
     assert_eq!(table.rows[3][5], Cell::Empty);
     assert!(!matches!(table.rows[3][3], Cell::Empty));
 }
+
+/// Eighteen cases in four groups of 3, 5, 4 and 6, the group written as `codes`.
+fn trend_data(codes: [u32; 4]) -> Engine {
+    let sizes = [3, 5, 4, 6];
+    let y = [
+        4.1, 5.0, 4.6, 5.2, 6.1, 5.8, 6.6, 5.5, 7.0, 6.2, 7.9, 7.1, 6.0, 7.4, 8.1, 6.9, 7.7, 8.4,
+    ];
+    let mut cases = Vec::new();
+    for (code, size) in codes.iter().zip(sizes) {
+        cases.extend(std::iter::repeat_n(*code, size));
+    }
+    let lines: String = cases
+        .iter()
+        .zip(y)
+        .map(|(g, y)| format!("{g} {y}\n"))
+        .collect();
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!("DATA LIST FREE / g y.\nBEGIN DATA\n{lines}END DATA."),
+    );
+    engine
+}
+
+// The expected numbers come from R: the weighted components are the sequential sums of squares
+// of lm(y ~ x + x^2 + x^3) on the group code, the unweighted ones the equal-weight orthogonal
+// polynomial contrasts of contr.poly(4), tested against the mean square within (6.817 / 14).
+#[test]
+fn oneway_polynomial_trends_with_unequal_sizes_and_equal_spacing() {
+    let tables = run(
+        &mut trend_data([1, 2, 3, 4]),
+        "ONEWAY y BY g /POLYNOMIAL=3.",
+    );
+    let anova = titled(&tables, "ANOVA");
+    let sources: Vec<&str> = anova.rows.iter().map(|r| text(&r[1])).collect();
+    assert_eq!(
+        sources,
+        [
+            "Between Groups (Combined)",
+            "Linear Term: Unweighted",
+            "Linear Term: Weighted",
+            "Linear Term: Deviation",
+            "Quadratic Term: Unweighted",
+            "Quadratic Term: Weighted",
+            "Quadratic Term: Deviation",
+            "Cubic Term: Unweighted",
+            "Cubic Term: Weighted",
+            "Within Groups",
+            "Total",
+        ]
+    );
+    let ss: Vec<f64> = anova.rows.iter().map(|r| number(&r[2])).collect();
+    let expected = [
+        19.534_111_111_111_1,
+        19.243_959_595_959_6,
+        18.529_568_694_659,
+        1.004_542_416_452_45,
+        0.865_309_941_520_467,
+        0.870_828_130_738,
+        0.133_714_285_714_3,
+        0.133_714_285_714_286,
+        0.133_714_285_714,
+        6.817,
+        26.351_111_111_111_1,
+    ];
+    for (got, want) in ss.iter().zip(expected) {
+        near(*got, want, 9);
+    }
+    let df: Vec<f64> = anova.rows.iter().map(|r| number(&r[3])).collect();
+    assert_eq!(
+        df,
+        [3.0, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 14.0, 17.0]
+    );
+    // F and Sig. of the weighted linear term (R: 38.05398, 2.4397e-05)
+    near(number(&anova.rows[2][5]), 38.053_98, 5);
+    near(number(&anova.rows[2][6]), 2.4397e-5, 9);
+    assert_eq!(anova.rows[10][5], Cell::Empty);
+}
+
+#[test]
+fn oneway_polynomial_with_unequal_spacing_has_weighted_terms_only() {
+    let tables = run(
+        &mut trend_data([1, 2, 4, 7]),
+        "ONEWAY y BY g /POLYNOMIAL=2.",
+    );
+    let anova = titled(&tables, "ANOVA");
+    let sources: Vec<&str> = anova.rows.iter().map(|r| text(&r[1])).collect();
+    assert_eq!(
+        sources,
+        [
+            "Between Groups (Combined)",
+            "Linear Term: Weighted",
+            "Linear Term: Deviation",
+            "Quadratic Term: Weighted",
+            "Quadratic Term: Deviation",
+            "Within Groups",
+            "Total",
+        ]
+    );
+    near(number(&anova.rows[1][2]), 16.186_686_234_942, 9);
+    near(number(&anova.rows[2][2]), 3.347_424_876_169_53, 9);
+    near(number(&anova.rows[3][2]), 3.231_602_223_145, 9);
+    near(number(&anova.rows[4][2]), 0.115_822_653_025, 9);
+    near(number(&anova.rows[3][6]), 0.021_972, 6);
+}
+
+#[test]
+fn oneway_polynomial_above_the_groups_is_lowered_with_a_warning() {
+    let mut engine = trend_data([1, 2, 3, 4]);
+    run(&mut engine, "SELECT IF g < 4.");
+    let tables = run(&mut engine, "ONEWAY y BY g /POLYNOMIAL=5.");
+    let anova = titled(&tables, "ANOVA");
+    // three groups: linear and quadratic, the quadratic leaves no deviation
+    assert_eq!(anova.rows.len(), 1 + 3 + 2 + 2);
+    assert_eq!(
+        engine.warnings(),
+        ["POLYNOMIAL for y is lowered to 2: there are 3 groups"]
+    );
+}
+
+#[test]
+fn descriptives_sort_orders_the_variables_and_keeps_their_values() {
+    let mut engine = trend_data([1, 2, 3, 4]);
+    run(
+        &mut engine,
+        "COMPUTE b = y * 2.\nCOMPUTE a = y * 0.5 - 10.\nCOMPUTE c = y.",
+    );
+    let names = |tables: &[Table]| -> Vec<String> {
+        tables[0].rows[..3]
+            .iter()
+            .map(|r| text(&r[0]).to_string())
+            .collect()
+    };
+    let by = |engine: &mut Engine, sort: &str| {
+        names(&run(engine, &format!("DESCRIPTIVES b a c /SORT={sort}.")))
+    };
+    // means: a about -6.9, c about 6.3, b about 12.6; spreads in the same order
+    assert_eq!(by(&mut engine, "MEAN"), ["a", "c", "b"]);
+    assert_eq!(by(&mut engine, "MEAN (D)"), ["b", "c", "a"]);
+    assert_eq!(by(&mut engine, "NAME"), ["a", "b", "c"]);
+    assert_eq!(by(&mut engine, "NAME (D)"), ["c", "b", "a"]);
+    assert_eq!(by(&mut engine, "STDDEV (D)"), ["b", "c", "a"]);
+    assert_eq!(by(&mut engine, ""), ["a", "c", "b"]);
+    assert_eq!(by(&mut engine, "(D)"), ["b", "c", "a"]);
+    // the written order stays without SORT
+    assert_eq!(
+        names(&run(&mut engine, "DESCRIPTIVES b a c.")),
+        ["b", "a", "c"]
+    );
+}
