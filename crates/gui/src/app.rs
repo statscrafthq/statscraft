@@ -4737,7 +4737,7 @@ fn close_data(
 type Groups = Vec<(
     Option<String>,
     Option<String>,
-    Vec<(String, String, Vec<output_view::Shown>)>,
+    Vec<statscraft_engine::output_file::Shown>,
 )>;
 
 fn output_groups(outputs: Vec<CommandResult>, source: &str, from_editor: bool) -> Groups {
@@ -4760,7 +4760,12 @@ fn output_groups(outputs: Vec<CommandResult>, source: &str, from_editor: bool) -
         let mut tables: Vec<_> = out.tables.into_iter().map(|t| (t, None)).collect();
         let charts = out.charts.into_iter();
         tables.extend(charts.map(|chart| (chart.data_table(), Some(chart))));
-        let command = (heading, syntax, tables);
+        let command = statscraft_engine::output_file::Shown {
+            heading,
+            heading_hidden: false,
+            syntax,
+            leaves: tables,
+        };
         let group = groups
             .iter_mut()
             .find(|(d, label, _)| label.is_none() && *d == out.document);

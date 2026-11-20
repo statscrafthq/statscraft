@@ -299,7 +299,7 @@ fn hidden_items_stay_in_the_file_and_leave_visible_exports() {
     assert_eq!(left, ["variety", "yield"]);
     run(
         &mut s,
-        "OUTPUT MODIFY NAME=ALL /SELECT HEADINGS /OBJECTPROPERTIES VISIBLE=YES.",
+        "OUTPUT MODIFY NAME=ALL /SELECT OUTLINEHEADERS /OBJECTPROPERTIES VISIBLE=YES.",
     );
     assert!(shown(&s).iter().all(|t| !t.hidden));
     std::fs::remove_dir_all(dir).unwrap();
@@ -382,4 +382,86 @@ fn what_changes_nothing_says_so_and_wrong_syntax_is_refused() {
         let error = fails(&mut s, source);
         assert!(error.contains(message), "{source}: {error}");
     }
+}
+
+/// The `h2` headings of an HTML page, in order.
+fn html_headings(page: &str) -> Vec<&str> {
+    let heads = page.split("<h2>").skip(1);
+    heads.filter_map(|h| h.split("</h2>").next()).collect()
+}
+
+#[test]
+fn a_hidden_heading_leaves_its_tables_and_an_export_of_the_visible_leaves_it_out() {
+    let dir: PathBuf =
+        std::env::temp_dir().join(format!("statscraft-hide-heading-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut s = orchard();
+    let result = run(
+        &mut s,
+        &format!(
+            "CD '{}'.\n\
+             OUTPUT MODIFY /SELECT HEADINGS /IF COMMANDS=['DESCRIPTIVES'] \
+             /OBJECTPROPERTIES VISIBLE=NO.\n\
+             OUTPUT EXPORT /CONTENTS EXPORT=VISIBLE /HTML DOCUMENTFILE='seen.html'.\n\
+             OUTPUT EXPORT /HTML DOCUMENTFILE='all.html'.\n\
+             OUTPUT SAVE OUTFILE='orchard.scout'.",
+            dir.display()
+        ),
+    );
+    // the tables are still there and not hidden; the window is told about the heading
+    assert!(shown(&s).iter().all(|t| !t.hidden));
+    let modified: Vec<_> = result.commands.iter().flat_map(|c| &c.modified).collect();
+    let changed: Vec<_> = modified.iter().flat_map(|m| &m.items).collect();
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].heading_hidden, Some(true));
+    let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap();
+    let all = read("all.html");
+    let seen = read("seen.html");
+    assert_eq!(
+        html_headings(&all),
+        ["DESCRIPTIVES", "FREQUENCIES", "MEANS", "FREQUENCIES"]
+    );
+    assert_eq!(
+        html_headings(&seen),
+        ["FREQUENCIES", "MEANS", "FREQUENCIES"]
+    );
+    assert!(seen.contains("Descriptive Statistics") || seen.contains("Mean"));
+    assert_eq!(
+        seen.matches("<table>").count(),
+        all.matches("<table>").count()
+    );
+    // kept in the file; shown again by VISIBLE=YES
+    assert_eq!(read("orchard.scout").matches("\"hidden\": true").count(), 1);
+    run(&mut s, "OUTPUT OPEN FILE='orchard.scout' NAME=back.");
+    let kept = s.output_items("back").unwrap();
+    let hidden = |items: &[Item]| {
+        items
+            .iter()
+            .any(|i| matches!(i, Item::Command(c) if c.heading_hidden))
+    };
+    assert!(hidden(kept));
+    run(
+        &mut s,
+        "OUTPUT MODIFY NAME=back /SELECT HEADINGS /OBJECTPROPERTIES VISIBLE=YES.",
+    );
+    assert!(!hidden(s.output_items("back").unwrap()));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn outline_headers_take_the_items_of_the_command_with_them() {
+    let mut s = orchard();
+    run(
+        &mut s,
+        "OUTPUT MODIFY /SELECT OUTLINEHEADERS /IF COMMANDS=['MEANS'] \
+         /OBJECTPROPERTIES VISIBLE=NO.",
+    );
+    let items = s.output_items("Document1").unwrap();
+    let hidden: Vec<(String, bool)> = leaves(items)
+        .iter()
+        .map(|(command, i)| (command.to_string(), i.shown().0.hidden))
+        .collect();
+    assert!(hidden.iter().any(|(_, h)| *h));
+    assert!(hidden.iter().all(|(command, h)| *h == (command == "MEANS")));
 }

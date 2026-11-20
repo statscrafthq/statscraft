@@ -11,6 +11,7 @@ use eframe::egui::{
 };
 use statscraft_engine::live;
 use statscraft_engine::office::is_office_chart;
+use statscraft_engine::output_file::Shown as CommandShown;
 use statscraft_engine::output_modify::ModifiedItem;
 use statscraft_engine::plugin::Answer;
 use statscraft_engine::{Chart, Decoration, Table, parse_colour};
@@ -55,9 +56,6 @@ pub enum Request {
         paper: Paper,
     },
 }
-
-/// A table, or a chart as its data table with the chart.
-pub type Shown = (Table, Option<Chart>);
 
 /// The context menu of a table.
 #[derive(Clone, Copy)]
@@ -194,14 +192,18 @@ impl OutputView {
     /// Adds the tables of one run, with a heading per command; returns whether there were any.
     /// Each command comes with its heading and the syntax that made it; a chart comes as its
     /// data table with the chart.
-    pub fn add_run(&mut self, origin: &str, commands: Vec<(String, String, Vec<Shown>)>) -> bool {
+    pub fn add_run(&mut self, origin: &str, commands: Vec<CommandShown>) -> bool {
         let mut items = Vec::new();
-        for (heading, syntax, tables) in commands {
+        for command in commands {
+            let (heading, syntax, tables) = (command.heading, command.syntax, command.leaves);
             if tables.is_empty() {
                 continue;
             }
             self.next_id += 1;
             let id = self.next_id;
+            if command.heading_hidden {
+                self.hidden.insert((id, Part::Heading));
+            }
             let tables = tables
                 .into_iter()
                 .map(|(table, chart)| {
@@ -248,6 +250,11 @@ impl OutputView {
                         if let Some(heading) = &m.heading {
                             item.heading = heading.clone();
                         }
+                        match m.heading_hidden {
+                            Some(true) => self.hidden.insert((item.id, Part::Heading)),
+                            Some(false) => self.hidden.remove(&(item.id, Part::Heading)),
+                            None => false,
+                        };
                         if let Some(table) = &m.table {
                             t.table = table.clone();
                             t.chart = m.chart.clone();
@@ -1371,6 +1378,33 @@ fn paint_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_heading_hidden_in_the_document_is_hidden_in_the_view_and_follows_changes() {
+        let table = || (statscraft_engine::Table::default(), None);
+        let command = |heading: &str, heading_hidden| CommandShown {
+            heading: heading.into(),
+            heading_hidden,
+            syntax: String::new(),
+            leaves: vec![table()],
+        };
+        let mut view = OutputView::default();
+        view.add_run("file", vec![command("A", true), command("B", false)]);
+        let (a, b) = (view.runs[0].items[0].id, view.runs[0].items[1].id);
+        assert!(view.hidden.contains(&(a, Part::Heading)));
+        assert!(!view.hidden.contains(&(b, Part::Heading)));
+        let change = |position, heading_hidden| ModifiedItem {
+            position,
+            deleted: false,
+            heading: None,
+            heading_hidden: Some(heading_hidden),
+            table: Some(statscraft_engine::Table::default()),
+            chart: None,
+        };
+        view.apply_modified(&[change(0, false), change(1, true)]);
+        assert!(!view.hidden.contains(&(a, Part::Heading)));
+        assert!(view.hidden.contains(&(b, Part::Heading)));
+    }
 
     #[test]
     fn a_click_on_the_selection_as_it_is_takes_it_away() {

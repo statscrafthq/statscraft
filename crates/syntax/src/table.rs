@@ -6016,7 +6016,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  titles, any case. LABELS test the outline text, case counts. INSTANCES pick the nth item\n\
                  within each command. DELETE=YES removes the items; a heading goes with its command's items.\n\
                  VISIBLE=NO hides items: the window and OUTPUT EXPORT with /CONTENTS EXPORT=VISIBLE leave them\n\
-                 out, the document and its file keep them. OUTLINELABEL, TABLETITLE and TEXT take )LABEL (the\n\
+                 out, the document and its file keep them. On HEADINGS it hides the heading alone and the\n\
+                 tables under it stay; with OUTLINEHEADERS picked as well the command's items go too. OUTLINELABEL, TABLETITLE and TEXT take )LABEL (the\n\
                  text so far), )INDEX (from INDEXING, else 1, 2, 3), )DATE, )ADATE, )SDATE, )EDATE, )TIME and\n\
                  )ETIME. SORT orders the rows by a column; empty cells go last, rows labelled Total stay, and a\n\
                  table with nested row labels stays as it is. TABLECELLS picks rows or columns by label (any\n\

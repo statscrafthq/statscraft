@@ -1057,6 +1057,42 @@ fn a_file_session_keeps_its_output_between_runs() {
 }
 
 #[test]
+fn a_heading_hidden_in_one_run_leaves_the_exports_of_a_later_run_without_it() {
+    let w = Workdir::new("keepheading");
+    let data = get_fixture("survey_basic.sav");
+    w.ok(&[
+        "run",
+        "-s",
+        "h",
+        "-e",
+        &format!(
+            "{data}\nFREQUENCIES gender.\nDESCRIPTIVES age.\n\
+             OUTPUT MODIFY /SELECT HEADINGS /IF COMMANDS=['FREQUENCIES'] \
+             /OBJECTPROPERTIES VISIBLE=NO."
+        ),
+    ]);
+    w.ok(&[
+        "run",
+        "-s",
+        "h",
+        "-e",
+        "OUTPUT EXPORT /CONTENTS EXPORT=VISIBLE /HTML DOCUMENTFILE='seen.html' \
+         /PDF DOCUMENTFILE='seen.pdf'.\n\
+         OUTPUT EXPORT /HTML DOCUMENTFILE='all.html'.",
+    ]);
+    let read = |name: &str| std::fs::read_to_string(w.0.join(name)).unwrap();
+    let (seen, all) = (read("seen.html"), read("all.html"));
+    assert!(all.contains("<h2>FREQUENCIES</h2>") && all.contains("<h2>DESCRIPTIVES</h2>"));
+    assert!(!seen.contains("<h2>FREQUENCIES</h2>") && seen.contains("<h2>DESCRIPTIVES</h2>"));
+    // the tables of the command stay
+    assert_eq!(
+        seen.matches("<table>").count(),
+        all.matches("<table>").count()
+    );
+    assert!(w.0.join("seen.pdf").metadata().unwrap().len() > 0);
+}
+
+#[test]
 fn a_file_session_keeps_which_output_document_is_designated() {
     let w = Workdir::new("keepdesignated");
     let data = get_fixture("survey_basic.sav");

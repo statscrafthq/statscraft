@@ -23,8 +23,10 @@
 //!   identifiers Factor Analysis, Cases to Variables, Variables to Cases, Explore and Custom
 //!   Tables name FACTOR, CASESTOVARS, VARSTOCASES, EXAMINE and CTABLES. A subtype is a table
 //!   title, in any case.
-//! - Deleting a heading deletes the command's items with it; VISIBLE on a heading hides or
-//!   shows all of them. OUTLINELABEL and TEXT on a heading change the heading.
+//! - Deleting a heading deletes the command's items with it. VISIBLE on HEADINGS hides or
+//!   shows the heading alone, the tables under it staying as they are, as the window's
+//!   Command headings do; with OUTLINEHEADERS picked too it reaches all the items of the
+//!   command as well. OUTLINELABEL and TEXT on a heading change the heading.
 //! - Without /INDEXING, )INDEX counts 1, 2, 3, ...
 //! - TABLECELLS works on the table as the block found it, then SORT, then TRANSPOSE.
 //! - Labels in TABLECELLS SELECT match a row label or any level of a column header, in any
@@ -69,6 +71,9 @@ pub struct ModifiedItem {
     /// The new heading of its command, when that changed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heading: Option<String>,
+    /// Whether the heading of its command is hidden now, when that changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heading_hidden: Option<bool>,
     /// The item as it is now: a table, or a chart with its data table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub table: Option<Table>,
@@ -122,7 +127,7 @@ fn objects(items: &[Item]) -> Vec<Object> {
                         command_name: c.command.clone(),
                         label: c.heading().to_string(),
                         title: c.heading().to_string(),
-                        hidden: false,
+                        hidden: c.heading_hidden,
                         leaf: None,
                     });
                     walk(&c.items, Some((seq, &c.command)), next, out);
@@ -879,7 +884,9 @@ fn modify_items(
         let start = block.indexing.map_or(1, |i| i.start);
         let style = block.indexing.map_or(IndexStyle::Number, |i| i.style);
         let mut changes: HashMap<usize, Change> = HashMap::new();
-        // VISIBLE on a heading reaches the items of its command
+        // VISIBLE on a heading hides the heading alone; with OUTLINEHEADERS picked it reaches
+        // the items of the command too
+        let whole = block.kinds.contains(&ItemKind::OutlineHeaders);
         let mut shown: HashMap<usize, bool> = HashMap::new();
         for (n, &i) in picked.iter().enumerate() {
             let o = &all[i];
@@ -899,13 +906,12 @@ fn modify_items(
                     },
                 );
                 if let Some(visible) = block.visible.filter(|_| o.kind != Kind::Unknown) {
-                    if o.kind == Kind::Heading {
+                    shown.insert(i, visible);
+                    if o.kind == Kind::Heading && whole {
                         let members = all.iter().enumerate().filter(|(_, m)| {
                             m.leaf.is_some() && m.command == o.command && !gone(m)
                         });
                         shown.extend(members.map(|(j, _)| (j, visible)));
-                    } else {
-                        shown.insert(i, visible);
                     }
                     what.push(if visible { "shown" } else { "hidden" });
                 }
@@ -921,6 +927,10 @@ fn modify_items(
                 (Some(&visible), Target::Leaf(item)) => {
                     hide(item, !visible);
                     Target::Leaf(item)
+                }
+                (Some(&visible), Target::Heading(c)) => {
+                    c.heading_hidden = !visible;
+                    Target::Heading(c)
                 }
                 (_, target) => target,
             };
@@ -939,7 +949,7 @@ fn modify_items(
         |l| !deleted_leaves.contains(&l),
     );
     // what the window shows: compare every leaf with what it was
-    let mut leaves_after: Vec<Option<(String, &Item)>> = Vec::new();
+    let mut leaves_after: Vec<Option<(String, bool, &Item)>> = Vec::new();
     {
         let mut after_leaves = leaves_with_heading(items).into_iter();
         for o in objects_before.iter().filter(|o| o.leaf.is_some()) {
@@ -950,7 +960,8 @@ fn modify_items(
     }
     let old = leaves_with_heading(&before);
     let mut modified = Vec::new();
-    for (position, (now_leaf, (old_heading, old_item))) in leaves_after.iter().zip(old).enumerate()
+    for (position, (now_leaf, (old_heading, old_hidden, old_item))) in
+        leaves_after.iter().zip(old).enumerate()
     {
         let item = match now_leaf {
             None => {
@@ -958,6 +969,7 @@ fn modify_items(
                     position,
                     deleted: true,
                     heading: None,
+                    heading_hidden: None,
                     table: None,
                     chart: None,
                 });
@@ -966,15 +978,17 @@ fn modify_items(
             Some(now) => now,
         };
         let heading = (item.0 != old_heading).then(|| item.0.clone());
-        let same = output_value(item.1) == output_value(old_item);
-        if same && heading.is_none() {
+        let heading_hidden = (item.1 != old_hidden).then_some(item.1);
+        let same = output_value(item.2) == output_value(old_item);
+        if same && heading.is_none() && heading_hidden.is_none() {
             continue;
         }
-        let (table, chart) = item.1.shown();
+        let (table, chart) = item.2.shown();
         modified.push(ModifiedItem {
             position,
             deleted: false,
             heading,
+            heading_hidden,
             table: Some(table),
             chart,
         });
@@ -1032,18 +1046,19 @@ fn output_value(item: &Item) -> String {
     output_file::write(std::slice::from_ref(item))
 }
 
-/// Every leaf with the heading of the command that holds it ("" at the top level).
-fn leaves_with_heading(items: &[Item]) -> Vec<(String, &Item)> {
-    fn walk<'a>(items: &'a [Item], heading: &str, out: &mut Vec<(String, &'a Item)>) {
+/// Every leaf with the heading of the command that holds it ("" at the top level) and whether
+/// that heading is hidden.
+fn leaves_with_heading(items: &[Item]) -> Vec<(String, bool, &Item)> {
+    fn walk<'a>(items: &'a [Item], heading: (&str, bool), out: &mut Vec<(String, bool, &'a Item)>) {
         for item in items {
             match item {
-                Item::Command(c) => walk(&c.items, c.heading(), out),
-                leaf => out.push((heading.to_string(), leaf)),
+                Item::Command(c) => walk(&c.items, (c.heading(), c.heading_hidden), out),
+                leaf => out.push((heading.0.to_string(), heading.1, leaf)),
             }
         }
     }
     let mut out = Vec::new();
-    walk(items, "", &mut out);
+    walk(items, ("", false), &mut out);
     out
 }
 

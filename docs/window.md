@@ -199,7 +199,7 @@ Everything the output shows is an element in the navigator. Under each command c
 - An element shows when its kind is on and it is not hidden itself. A table or chart that does not show takes its title and notes with it, and a command whose tables all are hidden has no heading.
 - An element that does not show is greyed and in italics in the navigator. The output closes up around it at once.
 - A chart's notes are its subtitle and footnote.
-- Hiding is a matter of the window: OUTPUT SAVE keeps everything, with the hidden flags `OUTPUT MODIFY` set.
+- Hiding is a matter of the window: OUTPUT SAVE keeps everything, with the hidden flags `OUTPUT MODIFY` set. A command heading hidden by `OUTPUT MODIFY /SELECT HEADINGS ... VISIBLE=NO` is a cleared Command headings box of that command only; its tables stay.
 
 ### How tables look
 

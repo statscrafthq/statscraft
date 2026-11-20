@@ -35,7 +35,8 @@
 //!   Any kind may stand at the top level. An item of another kind is kept as it was read and
 //!   written back unchanged; the window shows it as one line naming the kind.
 //! - What OUTPUT MODIFY changes is kept in optional fields: `label` on a command (its new
-//!   heading), `outline` and `hidden` on a table or a chart.
+//!   heading) and `hidden` on it (the heading alone does not show), `outline` and `hidden` on
+//!   a table or a chart. A file without `hidden` on a command shows its heading.
 //! - A CTABLES table keeps the statistics behind its cells in `cell_stats`, and the colours and
 //!   comments a plugin gave in `decorations` (docs/plugins.md), so a saved document shows them
 //!   without the plugin. Decorations off the table or with a colour that is not #rrggbb are
@@ -82,6 +83,8 @@ pub struct CommandItem {
     pub command: String,
     /// The heading OUTPUT MODIFY gave it; None shows the command name.
     pub label: Option<String>,
+    /// OUTPUT MODIFY hid the heading; the command's items stay as they are.
+    pub heading_hidden: bool,
     pub syntax: String,
     pub warnings: Vec<String>,
     pub items: Vec<Item>,
@@ -155,8 +158,14 @@ pub(crate) fn for_each_leaf(items: &mut [Item], f: &mut impl FnMut(&mut Item)) {
     }
 }
 
-/// One command as an output window shows it: its heading, its syntax and its leaves.
-pub type Shown = (String, String, Vec<(Table, Option<Chart>)>);
+/// One command as an output window shows it: its heading (and whether that is hidden), its
+/// syntax and its leaves.
+pub struct Shown {
+    pub heading: String,
+    pub heading_hidden: bool,
+    pub syntax: String,
+    pub leaves: Vec<(Table, Option<Chart>)>,
+}
 
 /// The items grouped as an output window shows them: per command its name, its syntax and its
 /// leaves; a leaf at the top level stands alone under its own title.
@@ -166,11 +175,21 @@ pub fn by_command(items: &[Item]) -> Vec<Shown> {
         .map(|item| match item {
             Item::Command(c) => {
                 let shown = leaves(&c.items).into_iter().map(|(_, l)| l.shown());
-                (c.heading().to_string(), c.syntax.clone(), shown.collect())
+                Shown {
+                    heading: c.heading().to_string(),
+                    heading_hidden: c.heading_hidden,
+                    syntax: c.syntax.clone(),
+                    leaves: shown.collect(),
+                }
             }
             leaf => {
                 let shown = leaf.shown();
-                (shown.0.title.clone(), String::new(), vec![shown])
+                Shown {
+                    heading: shown.0.title.clone(),
+                    heading_hidden: false,
+                    syntax: String::new(),
+                    leaves: vec![shown],
+                }
             }
         })
         .collect()
@@ -247,6 +266,9 @@ fn item_value(item: &Item) -> Value {
             map.insert("command".into(), c.command.clone().into());
             if let Some(label) = &c.label {
                 map.insert("label".into(), label.clone().into());
+            }
+            if c.heading_hidden {
+                map.insert("hidden".into(), true.into());
             }
             map.insert("syntax".into(), c.syntax.clone().into());
             map.insert("warnings".into(), c.warnings.clone().into());
@@ -465,6 +487,7 @@ fn read_item(value: &Value, command: &str, warnings: &mut Vec<String>) -> Result
                     .get("label")
                     .and_then(Value::as_str)
                     .map(str::to_string),
+                heading_hidden: value.get("hidden").and_then(Value::as_bool) == Some(true),
                 syntax: text("syntax").into(),
                 warnings: own.unwrap_or_default(),
                 items,
@@ -535,7 +558,27 @@ mod tests {
         assert_eq!(items.len(), 3);
         assert!(remove(&mut items, &[0]));
         assert_eq!(items.len(), 2);
-        assert_eq!(by_command(&items)[0].0, "top");
+        assert_eq!(by_command(&items)[0].heading, "top");
+    }
+
+    #[test]
+    fn a_hidden_heading_is_kept_and_a_file_without_the_key_shows_its_heading() {
+        let hidden = Item::Command(CommandItem {
+            command: "A".into(),
+            heading_hidden: true,
+            items: vec![table("a1")],
+            ..CommandItem::default()
+        });
+        let text = write(std::slice::from_ref(&hidden));
+        assert!(text.contains("\"hidden\": true"), "{text}");
+        let heading_hidden = |text: &str| match &read(text).unwrap()[0] {
+            Item::Command(c) => c.heading_hidden,
+            _ => panic!("not a command"),
+        };
+        assert!(heading_hidden(&text));
+        let mut old: Value = serde_json::from_str(&text).unwrap();
+        old["items"][0].as_object_mut().unwrap().remove("hidden");
+        assert!(!heading_hidden(&old.to_string()));
     }
 
     #[test]

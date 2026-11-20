@@ -90,19 +90,36 @@ pub(crate) struct Document {
 
 impl Document {
     /// Its tables and charts, each with the command that made it; a chart as its data table
-    /// and itself. Items of an unknown kind are left out.
-    fn shown(&self) -> Vec<(String, Shown)> {
-        let leaves = output_file::leaves(&self.items).into_iter();
-        leaves
-            .filter_map(|(command, item)| {
+    /// and itself. Items of an unknown kind are left out. With `visible_only` the command of
+    /// an item whose heading OUTPUT MODIFY hid is "", which exports write without a heading.
+    fn shown(&self, visible_only: bool) -> Vec<(String, Shown)> {
+        fn walk(
+            items: &[output_file::Item],
+            command: &str,
+            hide: bool,
+            out: &mut Vec<(String, Shown)>,
+        ) {
+            for item in items {
                 let shown = match item {
+                    output_file::Item::Command(c) => {
+                        let command = if hide && c.heading_hidden {
+                            ""
+                        } else {
+                            &c.command
+                        };
+                        walk(&c.items, command, hide, out);
+                        continue;
+                    }
                     output_file::Item::Table(t) => (t.clone(), None),
                     output_file::Item::Chart(c) => (Arc::new(c.data_table()), Some(c.clone())),
-                    _ => return None,
+                    _ => continue,
                 };
-                Some((command.to_string(), shown))
-            })
-            .collect()
+                out.push((command.to_string(), shown));
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.items, "", visible_only, &mut out);
+        out
     }
 
     fn count(&self) -> usize {
@@ -337,6 +354,7 @@ impl Engine {
             _ => document.items.push(Out::Command(CommandItem {
                 command: command.to_string(),
                 label: None,
+                heading_hidden: false,
                 syntax: syntax.to_string(),
                 warnings,
                 items,
@@ -630,7 +648,8 @@ impl Engine {
 
     fn export(&mut self, export: &OutputExport) -> Result<(), Error> {
         let at = self.document_at("OUTPUT EXPORT", export.name.as_deref())?;
-        let mut all = at.map_or_else(Vec::new, |at| self.documents.open[at].shown());
+        let visible = export.visible_only;
+        let mut all = at.map_or_else(Vec::new, |at| self.documents.open[at].shown(visible));
         // CONTENTS EXPORT=VISIBLE leaves out what OUTPUT MODIFY hid
         all.retain(|(_, (table, _))| !(export.visible_only && table.hidden));
         if all.is_empty() {

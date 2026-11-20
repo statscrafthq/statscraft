@@ -268,7 +268,10 @@ pub(crate) fn page<'a>(
     let mut heading = None;
     for (command, piece) in pieces {
         if heading != Some(command) {
-            body.push_str(&format!("<h2>{}</h2>\n", escape(command)));
+            // no heading: OUTPUT MODIFY hid it
+            if !command.is_empty() {
+                body.push_str(&format!("<h2>{}</h2>\n", escape(command)));
+            }
             heading = Some(command);
         }
         body.push_str(&piece);
