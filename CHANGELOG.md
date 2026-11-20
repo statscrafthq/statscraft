@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.20.6 (2026-11-20)
+
 - Window: File > Export to Excel puts all tables on one sheet, one below the other, unless One sheet per table is picked; it was one sheet per table. The command line and agents keep one sheet per table unless asked otherwise.
 - Windows: data files (.sav, .zsav), syntax files (.sps) and output files (.scout) each have their own icon in Explorer: a table, lines of text and a bar chart on a page, with the Statscraft logo in the corner. Before, all three showed the program's icon.
 - Window: the status bar shows the program's version (Statscraft 0.20.5, say) in its right corner.
