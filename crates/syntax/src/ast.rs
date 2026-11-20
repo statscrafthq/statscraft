@@ -1239,6 +1239,8 @@ pub struct Oneway {
     /// `/POSTHOC ... ALPHA(value)`
     pub alpha: f64,
     pub descriptives: bool,
+    /// `/STATISTICS=EFFECTS`: the fixed and random effects rows of the descriptives.
+    pub effects: bool,
     pub homogeneity: bool,
     pub welch: bool,
     pub brown_forsythe: bool,

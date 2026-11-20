@@ -7,7 +7,7 @@ One-way analysis of variance with contrasts and post hoc comparisons.
 ## Syntax
 
 ```text
-ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]
+ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES EFFECTS HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]
        [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]
        [/RANGES=LSD | DUNCAN | SNK | TUKEYB | TUKEY | MODLSD | SCHEFFE [(alpha)]] ...
        [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS].
@@ -21,7 +21,9 @@ POLYNOMIAL (1 to 5, the last one given counts; lowered with a warning to the gro
 
 RANGES names one of these post hoc tests (MODLSD, also LSDMOD, is Bonferroni), at most 10 times; its tests add to those of POSTHOC and the last alpha given anywhere counts for all of them.
 
-Not supported yet: EFFECTS, WALLER.
+EFFECTS adds the rows Fixed Effects (pooled standard deviation, and the error and interval of the overall mean from the within mean square) and Random Effects (error and interval from the between-groups component, which has its own column) to the Descriptives table; without DESCRIPTIVES it holds only those two rows. A negative component counts as 0 in the error, with a warning.
+
+Not supported yet: WALLER.
 
 ## Example
 

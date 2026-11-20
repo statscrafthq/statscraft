@@ -1172,3 +1172,58 @@ fn oneway_ranges_give_the_tables_of_the_same_posthoc_tests() {
     assert!(titles.iter().any(|t| t.starts_with("Multiple Comparisons")));
     assert!(titles.iter().any(|t| t.starts_with("Homogeneous Subsets")));
 }
+
+// Expected values: the formulas of the Algorithms manual written out in R from the raw values
+// (fixed effects around the overall mean with the pooled error, random effects with the
+// between-groups component of Snedecor and Cochran and Brownlee's error).
+#[test]
+fn oneway_effects_give_the_fixed_and_random_effects_rows() {
+    let mut engine = trend_data([1, 2, 3, 4]);
+    let tables = run(&mut engine, "ONEWAY y BY g /STATISTICS=EFFECTS.");
+    let t = titled(&tables, "Descriptives");
+    assert_eq!(t.columns.last().unwrap(), "Between-Component Variance");
+    // without DESCRIPTIVES only the two model rows
+    assert_eq!(t.rows.len(), 2);
+    let (fixed, random) = (&t.rows[0], &t.rows[1]);
+    assert_eq!(text(&fixed[1]), "Fixed Effects");
+    near(number(&fixed[4]), 0.697_802_673_704_086, 10);
+    near(number(&fixed[5]), 0.164_473_667_502_088, 10);
+    near(number(&fixed[6]), 6.069_461_289_650_73, 9);
+    near(number(&fixed[7]), 6.774_983_154_793_72, 9);
+    assert_eq!(text(&random[1]), "Random Effects");
+    near(number(&random[5]), 0.624_394_194_565_457, 10);
+    near(number(&random[6]), 4.435_121_224_686_79, 8);
+    near(number(&random[7]), 8.409_323_219_757_66, 8);
+    near(number(&random[10]), 1.366_890_156_062_43, 10);
+    assert!(engine.warnings().is_empty());
+    // with DESCRIPTIVES the groups and the total come first, the model rows after them
+    let tables = run(
+        &mut engine,
+        "ONEWAY y BY g /STATISTICS=DESCRIPTIVES EFFECTS.",
+    );
+    let t = titled(&tables, "Descriptives");
+    assert_eq!(t.rows.len(), 4 + 1 + 2);
+    assert_eq!(text(&t.rows[5][1]), "Fixed Effects");
+    assert_eq!(t.rows[0][10], Cell::Empty);
+    // ALL includes the effects; without EFFECTS the table keeps its ten columns
+    let all = run(&mut engine, "ONEWAY y BY g /STATISTICS=ALL.");
+    assert_eq!(titled(&all, "Descriptives").rows.len(), 7);
+    let plain = run(&mut engine, "ONEWAY y BY g /STATISTICS=DESCRIPTIVES.");
+    assert_eq!(titled(&plain, "Descriptives").columns.len(), 10);
+}
+
+#[test]
+fn oneway_effects_count_a_negative_component_as_zero_in_the_error() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        "DATA LIST FREE / g y.\nBEGIN DATA\n1 1\n1 5\n1 2\n1 6\n2 5\n2 1\n2 6\n2 2\n3 2\n3 6\n3 1\n3 5\nEND DATA.",
+    );
+    let tables = run(&mut engine, "ONEWAY y BY g /STATISTICS=EFFECTS.");
+    let random = &titled(&tables, "Descriptives").rows[1];
+    near(number(&random[10]), -1.416_666_666_666_67, 10);
+    near(number(&random[5]), 0.687_184_270_936_277, 10);
+    near(number(&random[6]), 0.543_284_720_815_135, 8);
+    near(number(&random[7]), 6.456_715_278_171_52, 6);
+    assert!(engine.warnings()[0].contains("variance component of y is negative"));
+}

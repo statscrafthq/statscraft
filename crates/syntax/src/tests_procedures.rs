@@ -642,6 +642,16 @@ fn oneway() {
         };
         o.polynomial
     };
+    let effects = |text: &str| {
+        let Command::Oneway(o) = one(text) else {
+            panic!()
+        };
+        (o.effects, o.descriptives)
+    };
+    assert_eq!(effects("ONEWAY a BY g."), (false, false));
+    assert_eq!(effects("ONEWAY a BY g /STATISTICS=EFFECTS."), (true, false));
+    assert_eq!(effects("ONEWAY a BY g /STAT=DESC EFF."), (true, true));
+    assert_eq!(effects("ONEWAY a BY g /STATISTICS=ALL."), (true, true));
     let post = |text: &str| {
         let Command::Oneway(o) = one(text) else {
             panic!()
@@ -702,9 +712,9 @@ fn oneway() {
         );
     }
     assert!(
-        err("ONEWAY a BY g /STATISTICS=EFFECTS.")
-            .message
-            .contains("EFFECTS")
+        err("ONEWAY a BY g /STATISTICS=EFFECT2.")
+            .expected
+            .contains(&"EFFECTS".to_string())
     );
 }
 

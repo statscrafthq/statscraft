@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- ONEWAY /STATISTICS=EFFECTS adds the Fixed Effects and Random Effects rows (with the between-groups component of variance) to the Descriptives table; STATISTICS=ALL now includes them.
+
 - ONEWAY /RANGES=LSD, DUNCAN, SNK, TUKEYB, TUKEY, MODLSD or SCHEFFE (with an optional alpha) runs the same post hoc tests as /POSTHOC.
 
 - RELIABILITY /MODEL=OMEGA gives McDonald's omega for a scale (3 or more items), and with /SUMMARY=TOTAL the omega if each item is deleted (4 or more items).

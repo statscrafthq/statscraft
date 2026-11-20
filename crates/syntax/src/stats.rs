@@ -509,6 +509,7 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
         posthoc: Vec::new(),
         alpha: 0.05,
         descriptives: false,
+        effects: false,
         homogeneity: false,
         welch: false,
         brown_forsythe: false,
@@ -613,23 +614,23 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
             command.contrasts.push(coefficients);
         } else if p.eat_keyword("STATISTICS") {
             p.eat(Punct::Eq);
-            const CHOICES: [(&str, &[u8]); 6] = [
+            const CHOICES: [(&str, &[u8]); 7] = [
                 ("DESCRIPTIVES", &[1]),
+                ("EFFECTS", &[5]),
                 ("HOMOGENEITY", &[2]),
                 ("WELCH", &[3]),
                 ("BROWNFORSYTHE", &[4]),
-                ("ALL", &[1, 2, 3, 4]),
+                ("ALL", &[1, 2, 3, 4, 5]),
                 ("NONE", &[0]),
             ];
-            let chosen = keywords(p, &CHOICES, |p| {
-                keyword_error(p, "ONEWAY /STATISTICS", &["EFFECTS"], &names(&CHOICES))
-            })?;
+            let chosen = keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))?;
             for choice in chosen {
                 match choice {
                     1 => command.descriptives = true,
                     2 => command.homogeneity = true,
                     3 => command.welch = true,
                     4 => command.brown_forsythe = true,
+                    5 => command.effects = true,
                     _ => {}
                 }
             }

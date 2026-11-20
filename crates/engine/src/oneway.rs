@@ -648,18 +648,18 @@ impl Engine {
                     dependent.name()
                 ));
             }
+            let first_row = descriptives.len();
             if command.descriptives {
                 let t_crit = |g: &Group| t_quantile(alpha / 2.0, g.w - 1.0);
-                for (i, (label_value, g)) in present
+                for (label_value, g) in present
                     .iter()
                     .map(|(l, g)| (Some(*l), g))
                     .chain([(None, &total)])
-                    .enumerate()
                 {
                     let se = (g.variance / g.w).sqrt();
                     let half = t_crit(g) * se;
                     let mut row = vec![
-                        if i == 0 { name() } else { Cell::Empty },
+                        Cell::Empty,
                         Cell::Text(label_value.map_or("Total".into(), |l| label(&factor, l))),
                     ];
                     row.extend(
@@ -675,8 +675,65 @@ impl Engine {
                         ]
                         .map(|v| number(Some(v))),
                     );
+                    if command.effects {
+                        row.push(Cell::Empty);
+                    }
                     descriptives.push(row);
                 }
+            }
+            if command.effects && k >= 2.0 {
+                // fixed effects: the pooled standard deviation and the error of the overall mean
+                let fixed_se = (ms_within / w).sqrt();
+                let fixed_half = if df_within > 0.0 {
+                    t_quantile(alpha / 2.0, df_within) * fixed_se
+                } else {
+                    f64::NAN
+                };
+                descriptives.push(vec![
+                    Cell::Empty,
+                    Cell::Text("Fixed Effects".into()),
+                    Cell::Empty,
+                    Cell::Empty,
+                    number(Some(ms_within.sqrt())),
+                    number(Some(fixed_se)),
+                    number(Some(grand - fixed_half)),
+                    number(Some(grand + fixed_half)),
+                    Cell::Empty,
+                    Cell::Empty,
+                    Cell::Empty,
+                ]);
+                // random effects: the between-groups component and the error it adds
+                let spread: f64 = present.iter().map(|(_, g)| g.w * g.w).sum();
+                let weight_part = w * w - spread;
+                let ms_between = between / (k - 1.0);
+                let component = (ms_between - ms_within) * (w * (k - 1.0)) / weight_part;
+                let variance = if ms_between < ms_within {
+                    warnings.push(format!(
+                        "the variance component of {} is negative; it counts as 0 in the standard error of the random effects",
+                        dependent.name()
+                    ));
+                    ms_within / w
+                } else {
+                    spread * (k - 1.0) * (ms_between - ms_within) / (w * weight_part)
+                        + ms_within / w
+                };
+                let half = t_quantile(alpha / 2.0, k - 1.0) * variance.sqrt();
+                descriptives.push(vec![
+                    Cell::Empty,
+                    Cell::Text("Random Effects".into()),
+                    Cell::Empty,
+                    Cell::Empty,
+                    Cell::Empty,
+                    number(Some(variance.sqrt())),
+                    number(Some(grand - half)),
+                    number(Some(grand + half)),
+                    Cell::Empty,
+                    Cell::Empty,
+                    number(Some(component)),
+                ]);
+            }
+            if descriptives.len() > first_row {
+                descriptives[first_row][0] = name();
             }
             if command.homogeneity {
                 // Levene's test on absolute deviations from the group means
@@ -861,23 +918,23 @@ impl Engine {
             subset_tables.extend(subset);
         }
         let mut out = Vec::new();
-        if command.descriptives {
-            let mut table = simple(
-                "Descriptives".into(),
-                &[
-                    "",
-                    "",
-                    "N",
-                    "Mean",
-                    "Std. Deviation",
-                    "Std. Error",
-                    "Lower Bound",
-                    "Upper Bound",
-                    "Minimum",
-                    "Maximum",
-                ],
-                descriptives,
-            );
+        if command.descriptives || command.effects {
+            let mut columns = vec![
+                "",
+                "",
+                "N",
+                "Mean",
+                "Std. Deviation",
+                "Std. Error",
+                "Lower Bound",
+                "Upper Bound",
+                "Minimum",
+                "Maximum",
+            ];
+            if command.effects {
+                columns.push("Between-Component Variance");
+            }
+            let mut table = simple("Descriptives".into(), &columns, descriptives);
             table.columns[1] = shown.variable(&factor);
             let level = format!("{ci} for Mean");
             table.column_groups[6] = vec![level.clone()];

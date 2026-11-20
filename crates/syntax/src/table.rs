@@ -1382,7 +1382,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "ONEWAY",
         summary: "One-way analysis of variance with contrasts and post hoc comparisons.",
-        syntax: "ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]\n\
+        syntax: "ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES EFFECTS HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]\n\
                  \x20      [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]\n\
                  \x20      [/RANGES=LSD | DUNCAN | SNK | TUKEYB | TUKEY | MODLSD | SCHEFFE [(alpha)]] ...\n\
                  \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS].\n\
@@ -1403,7 +1403,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  and the groups are equally spaced there is also an Unweighted row per degree.\n\
                  RANGES names one of these post hoc tests (MODLSD, also LSDMOD, is Bonferroni), at most 10 times;\n\
                  its tests add to those of POSTHOC and the last alpha given anywhere counts for all of them.\n\
-                 Not supported yet: EFFECTS, WALLER.",
+                 EFFECTS adds the rows Fixed Effects (pooled standard deviation, and the error and interval of the\n\
+                 overall mean from the within mean square) and Random Effects (error and interval from the\n\
+                 between-groups component, which has its own column) to the Descriptives table; without DESCRIPTIVES\n\
+                 it holds only those two rows. A negative component counts as 0 in the error, with a warning.\n\
+                 Not supported yet: WALLER.",
         example: "ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.",
         parse: stats::oneway,
     },
