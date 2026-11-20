@@ -918,7 +918,7 @@ impl Engine {
             subset_tables.extend(subset);
         }
         let mut out = Vec::new();
-        if command.descriptives || command.effects {
+        if command.descriptives || (command.effects && !descriptives.is_empty()) {
             let mut columns = vec![
                 "",
                 "",

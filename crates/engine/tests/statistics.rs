@@ -1227,3 +1227,11 @@ fn oneway_effects_count_a_negative_component_as_zero_in_the_error() {
     near(number(&random[7]), 6.456_715_278_171_52, 6);
     assert!(engine.warnings()[0].contains("variance component of y is negative"));
 }
+
+#[test]
+fn oneway_effects_with_a_single_group_leave_out_the_empty_table() {
+    let mut engine = trend_data([1, 2, 3, 4]);
+    run(&mut engine, "SELECT IF g = 2.");
+    let tables = run(&mut engine, "ONEWAY y BY g /STATISTICS=EFFECTS.");
+    assert!(tables.iter().all(|t| t.title != "Descriptives"));
+}
