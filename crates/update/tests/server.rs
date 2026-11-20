@@ -174,9 +174,7 @@ fn update_from_archive(
     }
     let client = Client::at(&base);
     let release = client.latest().unwrap().unwrap();
-    let done = client
-        .update(&release, &install(bin.clone()), false)
-        .unwrap();
+    let done = client.update(&release, &install(bin.clone())).unwrap();
     assert_eq!(done, Done::Replaced(bin.clone()));
     for p in programs {
         assert_eq!(
@@ -189,7 +187,7 @@ fn update_from_archive(
 
     // a copy that no package installed is refused
     let error = client
-        .update(&release, &Install::Unmanaged(root.clone()), false)
+        .update(&release, &Install::Unmanaged(root.clone()))
         .unwrap_err();
     assert!(
         error.contains("update it the way you installed it"),

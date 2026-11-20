@@ -108,14 +108,17 @@ pub fn run(check: bool, json: bool) -> Result<ExitCode, Vec<Failure>> {
         return Ok(ExitCode::SUCCESS);
     };
     println!("downloading Statscraft {}", release.version);
-    match client
-        .update(release, &Install::detect(), false)
-        .map_err(fail)?
-    {
-        Done::InstallerStarted => println!(
-            "the installer is updating Statscraft to {} in the background and closes an open window first",
-            release.version
-        ),
+    match client.update(release, &Install::detect()).map_err(fail)? {
+        // this program ends right after, so its file is free before the installer needs it
+        Done::Installer(file) => {
+            statscraft_update::installer(&file, false)
+                .spawn()
+                .map_err(|e| fail(format!("cannot start {}: {e}", file.display())))?;
+            println!(
+                "the installer is updating Statscraft to {} in the background and closes an open window first",
+                release.version
+            )
+        }
         Done::Replaced(bin) => println!(
             "updated the programs in {} to Statscraft {}; restart an open window to use it",
             bin.display(),

@@ -207,8 +207,10 @@ impl Install {
 /// What an update did.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Done {
-    /// The Windows installer runs now; the program must exit so that it can replace it.
-    InstallerStarted,
+    /// The Windows installer was saved here. `installer` gives the command that runs it; start
+    /// it only once the window has closed, since the installer gives up on a program it cannot
+    /// close and a window that asks about unsaved work does not close in time.
+    Installer(PathBuf),
     /// The programs in this folder were replaced; the next start runs the new version.
     Replaced(PathBuf),
     /// The package was saved here; this command installs it.
@@ -369,9 +371,8 @@ impl Client {
         Ok(format!("{:x}", hasher.finalize()))
     }
 
-    /// Updates this installation to the release. With `relaunch` the Windows installer starts
-    /// the window again when it is done.
-    pub fn update(&self, release: &Release, install: &Install, relaunch: bool) -> Result<Done> {
+    /// Updates this installation to the release; on Windows it only downloads the installer.
+    pub fn update(&self, release: &Release, install: &Install) -> Result<Done> {
         let Some(name) = install.asset(&release.version) else {
             let Install::Unmanaged(dir) = install else {
                 unreachable!("every other installation has a package")
@@ -387,24 +388,11 @@ impl Client {
         match install {
             Install::Windows => {
                 clean();
-                let file = self.download(release, &name, &temp_folder())?;
-                // the same per-user install: Inno Setup keeps the folder of the earlier install
-                let mut setup = Command::new(&file);
-                setup.args([
-                    "/VERYSILENT",
-                    "/SUPPRESSMSGBOXES",
-                    "/NORESTART",
-                    "/CLOSEAPPLICATIONS",
-                ]);
-                // Restart Manager restarts only programs registered with it, so the installer
-                // script starts the window itself when it gets this parameter
-                if relaunch {
-                    setup.arg("/RELAUNCH=1");
-                }
-                setup
-                    .spawn()
-                    .map_err(|e| format!("cannot start {}: {e}", file.display()))?;
-                Ok(Done::InstallerStarted)
+                Ok(Done::Installer(self.download(
+                    release,
+                    &name,
+                    &temp_folder(),
+                )?))
             }
             Install::Portable(bin) | Install::Tarball(bin) => {
                 clean();
@@ -435,6 +423,30 @@ impl Client {
             Install::Unmanaged(_) => unreachable!("handled above"),
         }
     }
+}
+
+/// The command that runs the downloaded Windows installer `file` over this installation: the
+/// same per-user folder, since Inno Setup keeps the folder of the earlier install. With
+/// `relaunch` it starts the window again when done. It logs to `statscraft-setup.log` in the
+/// temporary folder, outside the folder `clean` deletes, so a failed update can be read later.
+pub fn installer(file: &Path, relaunch: bool) -> Command {
+    let mut setup = Command::new(file);
+    setup.args([
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        "/CLOSEAPPLICATIONS",
+    ]);
+    setup.arg(format!(
+        "/LOG={}",
+        std::env::temp_dir().join("statscraft-setup.log").display()
+    ));
+    // Restart Manager restarts only programs registered with it, so the installer script
+    // starts the window itself when it gets this parameter
+    if relaunch {
+        setup.arg("/RELAUNCH=1");
+    }
+    setup
 }
 
 /// Downloads `url` to `file` over https only (redirects too) and returns the file's SHA-256 in
@@ -531,6 +543,24 @@ mod tests {
              "browser_download_url": "https://github.com/statscrafthq/statscraft/releases/download/v0.2.0/statscraft_0.2.0_amd64.deb"}
         ]
     }"#;
+
+    #[test]
+    fn the_installer_runs_silently_logs_and_relaunches_on_request() {
+        let args = |relaunch| {
+            installer(Path::new("setup.exe"), relaunch)
+                .get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        let with = args(true);
+        assert!(with.contains(&"/VERYSILENT".to_string()));
+        assert!(
+            with.iter()
+                .any(|a| a.starts_with("/LOG=") && a.ends_with("statscraft-setup.log"))
+        );
+        assert_eq!(with.last().unwrap(), "/RELAUNCH=1");
+        assert!(!args(false).contains(&"/RELAUNCH=1".to_string()));
+    }
 
     #[test]
     fn versions_compare_as_semver() {

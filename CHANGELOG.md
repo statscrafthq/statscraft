@@ -3,6 +3,7 @@
 ## Unreleased
 
 - CROSSTABS /METHOD EXACT: the memory an exact test may use is now an eighth of what is free on the computer, or of what a container's memory limit leaves (at least 256 MB, at most 8 GB; it was a fixed 256 MB), so larger tables, such as a 5 x 5 table of 62 cases, get their exact significance when the memory is there; when it is not, the warning names the amount and METHOD=MC remains.
+- Windows: Update in the window starts the installer only after the window has closed. Before, the installer started at once, could not close a window that was still asking about unsaved work, and gave up silently, so the window stayed at the old version. The installer now writes `statscraft-setup.log` in the temporary folder. A window of 0.20.4 or older still has the old updater: close it and run the installer once by hand.
 - Command line and MCP server: a file session whose output save stopped between its two folder renames takes its output back from `outputs.old` the next time it opens, instead of starting without it.
 
 ## 0.20.4 (2026-11-20)

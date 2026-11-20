@@ -45,8 +45,9 @@ pub struct Updates {
     events: mpsc::Receiver<Event>,
     ctx: egui::Context,
     install: Install,
-    /// The new window to start once this one has closed, after Restart now.
-    restart: Option<PathBuf>,
+    /// What starts once this window has closed: the new window after Restart now, or the
+    /// Windows installer, which cannot replace a window that is still open.
+    restart: Option<std::process::Command>,
     /// The program should end, for the installer or Restart now (`take_quit`).
     quit: bool,
 }
@@ -104,7 +105,7 @@ impl Updates {
         let (sender, ctx, install) = (self.sender.clone(), self.ctx.clone(), self.install.clone());
         std::thread::spawn(move || {
             let done = Client::new()
-                .update(&release, &install, true)
+                .update(&release, &install)
                 .map(install_package);
             let _ = sender.send(Event::Updated(done.map(|d| (d, version))));
             ctx.request_repaint();
@@ -126,9 +127,10 @@ impl Updates {
                 }
                 // an automatic check says nothing unless there is an update
                 Event::Checked(_, false) => continue,
-                Event::Updated(Ok((Done::InstallerStarted, _))) => {
-                    // the installer replaces the programs once the window is gone, then
-                    // starts it again; the quit asks first when work is unsaved
+                Event::Updated(Ok((Done::Installer(file), _))) => {
+                    // the installer starts on exit and opens the window again; the quit asks
+                    // first when work is unsaved, and a cancelled quit drops the installer
+                    self.restart = Some(statscraft_update::installer(&file, true));
                     self.quit = true;
                     Bar::Hidden
                 }
@@ -240,7 +242,7 @@ impl Updates {
                 let program = bin.join(gui);
                 if program.is_file() {
                     // the quit asks about unsaved work first; the new window starts on exit
-                    self.restart = Some(program);
+                    self.restart = Some(std::process::Command::new(program));
                     self.quit = true;
                     ui.ctx().request_repaint();
                 } else {
@@ -257,17 +259,17 @@ impl Updates {
         std::mem::take(&mut self.quit)
     }
 
-    /// The close after Restart now was cancelled: no new window.
+    /// The close for an update was cancelled: no new window and no installer.
     pub fn cancel_restart(&mut self) {
         self.restart = None;
     }
 
-    /// Starts the new window when Restart now closed this one.
+    /// Starts the new window or the installer when the update closed this one.
     pub fn restart(&mut self) {
-        if let Some(program) = self.restart.take()
-            && let Err(e) = std::process::Command::new(&program).spawn()
+        if let Some(mut command) = self.restart.take()
+            && let Err(e) = command.spawn()
         {
-            eprintln!("cannot restart {}: {e}", program.display());
+            eprintln!("cannot start {}: {e}", command.get_program().display());
         }
     }
 

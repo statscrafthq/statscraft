@@ -6,7 +6,8 @@
 ; No administrator rights: everything goes to the user's own program folder and registry.
 ;
 ; The updater in Statscraft runs this installer as
-;   setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RELAUNCH=1
+;   setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /LOG=%TEMP%\statscraft-setup.log /RELAUNCH=1
+; The window starts it only after it has closed: a silent setup gives up on a window it cannot close.
 ; It installs over the earlier version in the same folder (the AppId below and
 ; UsePreviousAppDir), rewrites the same file types, and with /RELAUNCH=1 starts the window again.
 
