@@ -1149,3 +1149,26 @@ fn descriptives_sort_orders_the_variables_and_keeps_their_values() {
         ["b", "a", "c"]
     );
 }
+
+// RANGES runs the post hoc tests of POSTHOC under other names, so the tables must be the same.
+#[test]
+fn oneway_ranges_give_the_tables_of_the_same_posthoc_tests() {
+    let ranges = run(
+        &mut survey(),
+        "ONEWAY age BY region /RANGES=TUKEYB /RANGES=MODLSD /RANGES=LSD(0.1) /RANGES=SNK.",
+    );
+    let posthoc = run(
+        &mut survey(),
+        "ONEWAY age BY region /POSTHOC=BTUKEY BONFERRONI LSD SNK ALPHA(0.1).",
+    );
+    assert_eq!(format!("{ranges:?}"), format!("{posthoc:?}"));
+    let default_alpha = run(
+        &mut survey(),
+        "ONEWAY age BY region /POSTHOC=BTUKEY BONFERRONI LSD SNK.",
+    );
+    // the alpha reaches the homogeneous subsets, so it is not ignored
+    assert_ne!(format!("{ranges:?}"), format!("{default_alpha:?}"));
+    let titles: Vec<&str> = ranges.iter().map(|t| t.title.as_str()).collect();
+    assert!(titles.iter().any(|t| t.starts_with("Multiple Comparisons")));
+    assert!(titles.iter().any(|t| t.starts_with("Homogeneous Subsets")));
+}

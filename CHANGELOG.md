@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- ONEWAY /RANGES=LSD, DUNCAN, SNK, TUKEYB, TUKEY, MODLSD or SCHEFFE (with an optional alpha) runs the same post hoc tests as /POSTHOC.
+
 - RELIABILITY /MODEL=OMEGA gives McDonald's omega for a scale (3 or more items), and with /SUMMARY=TOTAL the omega if each item is deleted (4 or more items).
 
 - ONEWAY /POLYNOMIAL=degree (1 to 5) splits the between-groups sum of squares into linear, quadratic and higher trend terms in the ANOVA table, weighted and, for unequal group sizes with equally spaced groups, unweighted, each with the deviation from that degree.

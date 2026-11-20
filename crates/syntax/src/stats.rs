@@ -413,7 +413,7 @@ pub(crate) fn t_test(p: &mut Parser) -> PResult<Command> {
     Ok(Command::TTest(command))
 }
 
-const ONEWAY_UNSUPPORTED: [&str; 4] = ["RANGES", "MATRIX", "TEMPLATE", "ES"];
+const ONEWAY_UNSUPPORTED: [&str; 3] = ["MATRIX", "TEMPLATE", "ES"];
 
 const POSTHOCS: [(&str, &[Posthoc]); 19] = [
     ("LSD", &[Posthoc::Lsd]),
@@ -441,6 +441,21 @@ const POSTHOCS: [(&str, &[Posthoc]); 19] = [
 const FULL_POSTHOCS: [&str; 4] = ["DUNCAN", "DUNNETT", "DUNNETTL", "DUNNETTR"];
 
 const UNSUPPORTED_POSTHOCS: [&str; 1] = ["WALLER"];
+
+/// The tests of ONEWAY /RANGES. MODLSD, and LSDMOD as its alias, is Bonferroni.
+const RANGE_TESTS: [(&str, Posthoc); 8] = [
+    ("LSD", Posthoc::Lsd),
+    ("DUNCAN", Posthoc::Duncan),
+    ("SNK", Posthoc::Snk),
+    ("TUKEYB", Posthoc::TukeyB),
+    ("TUKEY", Posthoc::Tukey),
+    ("MODLSD", Posthoc::Bonferroni),
+    ("LSDMOD", Posthoc::Bonferroni),
+    ("SCHEFFE", Posthoc::Scheffe),
+];
+
+/// The most `/RANGES` subcommands one ONEWAY takes.
+const MOST_RANGES: usize = 10;
 
 /// One post hoc test keyword, with the reference category of the Dunnett tests. `more` names the
 /// other keywords the subcommand takes, for the error message.
@@ -503,8 +518,41 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
         plot_means: false,
         polynomial: None,
     };
+    // the tests of /RANGES add up, and stay when a later /POSTHOC replaces the post hoc tests
+    let mut ranges: Vec<Posthoc> = Vec::new();
+    let mut range_subcommands = 0;
     while p.eat(Punct::Slash) {
-        if p.eat_keyword("POLYNOMIAL") {
+        if p.eat_keyword("RANGES") {
+            let start = p.pos - 1;
+            range_subcommands += 1;
+            if range_subcommands > MOST_RANGES {
+                let message = format!("ONEWAY takes at most {MOST_RANGES} RANGES subcommands");
+                return Err(SyntaxError::new(p.span_from(start), message));
+            }
+            p.eat(Punct::Eq);
+            let word = match p.peek() {
+                Some(TokenKind::Word(w)) => w.to_string(),
+                _ => return Err(p.unexpected(&names(&RANGE_TESTS))),
+            };
+            let exact = RANGE_TESTS
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(&word));
+            let mut shortened = RANGE_TESTS
+                .iter()
+                .filter(|(n, _)| matches_keyword(&word, n));
+            let found = exact.or_else(|| shortened.next().filter(|_| shortened.next().is_none()));
+            let Some((_, test)) = found else {
+                return Err(p.unexpected(&names(&RANGE_TESTS)));
+            };
+            p.pos += 1;
+            if p.at(Punct::LParen) {
+                // the last alpha given counts for every test
+                command.alpha = level(p, "ALPHA")?;
+            }
+            if !ranges.contains(test) {
+                ranges.push(*test);
+            }
+        } else if p.eat_keyword("POLYNOMIAL") {
             p.eat(Punct::Eq);
             let start = p.pos;
             let degree = p
@@ -618,6 +666,11 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
         }
     }
     p.finish(&["'/'"])?;
+    for test in ranges {
+        if !command.posthoc.contains(&test) {
+            command.posthoc.push(test);
+        }
+    }
     Ok(Command::Oneway(command))
 }
 

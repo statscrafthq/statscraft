@@ -642,6 +642,51 @@ fn oneway() {
         };
         o.polynomial
     };
+    let post = |text: &str| {
+        let Command::Oneway(o) = one(text) else {
+            panic!()
+        };
+        (o.posthoc, o.alpha)
+    };
+    assert_eq!(
+        post("ONEWAY a BY g /RANGES=TUKEYB /RANGES=MODLSD(0.01) /RANGES=SNK."),
+        (
+            vec![Posthoc::TukeyB, Posthoc::Bonferroni, Posthoc::Snk],
+            0.01
+        )
+    );
+    // RANGES adds to POSTHOC, a later POSTHOC replaces only the earlier POSTHOC, tests count once
+    assert_eq!(
+        post(
+            "ONEWAY a BY g /POSTHOC=LSD /RANGES=SCHEFFE /POSTHOC=TUKEY ALPHA(0.1) /RANGES=LSDMOD /RANGES=tukey"
+        ),
+        (
+            vec![Posthoc::Tukey, Posthoc::Scheffe, Posthoc::Bonferroni],
+            0.1
+        )
+    );
+    assert_eq!(post("ONEWAY a BY g /RANGES=SCH.").0, vec![Posthoc::Scheffe]);
+    assert!(
+        err("ONEWAY a BY g /RANGES=TUK.")
+            .expected
+            .contains(&"TUKEYB".to_string())
+    );
+    assert!(
+        err("ONEWAY a BY g /RANGES=GH.")
+            .expected
+            .contains(&"SNK".to_string())
+    );
+    assert!(
+        err("ONEWAY a BY g /RANGES=LSD(2).")
+            .message
+            .contains("between 0 and 1")
+    );
+    let eleven = "/RANGES=LSD".repeat(11);
+    assert!(
+        err(&format!("ONEWAY a BY g {eleven}."))
+            .message
+            .contains("at most 10 RANGES")
+    );
     assert_eq!(polynomial("ONEWAY a BY g."), None);
     assert_eq!(polynomial("ONEWAY a BY g /POLYNOMIAL=2."), Some(2));
     // only the last POLYNOMIAL counts

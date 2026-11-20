@@ -1384,6 +1384,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "One-way analysis of variance with contrasts and post hoc comparisons.",
         syntax: "ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]\n\
                  \x20      [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]\n\
+                 \x20      [/RANGES=LSD | DUNCAN | SNK | TUKEYB | TUKEY | MODLSD | SCHEFFE [(alpha)]] ...\n\
                  \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS].\n\
                  test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GT2 GABRIEL GH T2 T3 C (pairwise comparisons),\n\
                  DUNNETT DUNNETTL DUNNETTR [(refcat)] (each group against the reference group, by default the last;\n\
@@ -1400,7 +1401,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  value as the metric: a Weighted row per degree (sequential, the groups weighted by size) and a\n\
                  Deviation row of what is left (none after the last possible degree); when the group sizes differ\n\
                  and the groups are equally spaced there is also an Unweighted row per degree.\n\
-                 Not supported yet: RANGES, EFFECTS, WALLER.",
+                 RANGES names one of these post hoc tests (MODLSD, also LSDMOD, is Bonferroni), at most 10 times;\n\
+                 its tests add to those of POSTHOC and the last alpha given anywhere counts for all of them.\n\
+                 Not supported yet: EFFECTS, WALLER.",
         example: "ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.",
         parse: stats::oneway,
     },

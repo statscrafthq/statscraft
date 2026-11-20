@@ -472,6 +472,7 @@ This page lists, by topic and command:
 ### ONEWAY
 
 - Games-Howell uses separate variances (GNU PSPP differs).
+- RANGES runs the same post hoc tests as POSTHOC, under the names TUKEYB for Tukey's b and MODLSD (or LSDMOD) for Bonferroni. Its tests are added to those of POSTHOC, and the last alpha written on either subcommand counts for every test.
 - POLYNOMIAL gives one row per term in the ANOVA table, named like "Linear Term: Weighted". The weighted terms are the sequential sums of squares of the group means on the powers of the group value, the groups weighted by their sizes (checked against a linear model in R); the unweighted terms are the equal-weight polynomial contrasts, shown only when the group sizes differ and the group values are equally spaced. The deviation row after the last degree the groups allow has no degrees of freedom and is left out.
 
 ### EXAMINE
@@ -1839,7 +1840,7 @@ Where the documentation is silent:
 
 - **Commands.** The commands of the language that Statscraft recognizes but does not run are listed at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
 - **Subcommands.** Every command page lists what it accepts. Notably:
-  - ONEWAY has no RANGES, EFFECTS or WALLER.
+  - ONEWAY has no EFFECTS or WALLER.
   - NONPAR CORR has no MATRIX or CI. PARTIAL CORR has no MATRIX.
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
   - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.

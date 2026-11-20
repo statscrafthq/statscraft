@@ -9,6 +9,7 @@ One-way analysis of variance with contrasts and post hoc comparisons.
 ```text
 ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]
        [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]
+       [/RANGES=LSD | DUNCAN | SNK | TUKEYB | TUKEY | MODLSD | SCHEFFE [(alpha)]] ...
        [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS].
 ```
 
@@ -18,7 +19,9 @@ Homogeneous subsets use the harmonic mean of the group sizes (the R-E-G-W tests 
 
 POLYNOMIAL (1 to 5, the last one given counts; lowered with a warning to the groups minus 1) splits the between-groups sum of squares into trend terms in the ANOVA table, with the group value as the metric: a Weighted row per degree (sequential, the groups weighted by size) and a Deviation row of what is left (none after the last possible degree); when the group sizes differ and the groups are equally spaced there is also an Unweighted row per degree.
 
-Not supported yet: RANGES, EFFECTS, WALLER.
+RANGES names one of these post hoc tests (MODLSD, also LSDMOD, is Bonferroni), at most 10 times; its tests add to those of POSTHOC and the last alpha given anywhere counts for all of them.
+
+Not supported yet: EFFECTS, WALLER.
 
 ## Example
 
