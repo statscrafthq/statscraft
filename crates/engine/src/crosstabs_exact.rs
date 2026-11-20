@@ -147,8 +147,69 @@ struct Whole {
 }
 
 /// How many bytes the nodes and partial values of one exact computation may take, as counted
-/// here; the process peaks at about twice that.
+/// here, when the memory of the computer cannot be read; the process peaks at about twice that.
 const MOST_BYTES: usize = 256 << 20;
+
+/// What one exact computation may count when the memory of the computer is known: a quarter of
+/// what is free, at least `MOST_BYTES` and at most 8 GiB.
+const MOST_SHARE: u64 = 4;
+const LARGEST_BYTES: u64 = 8 << 30;
+
+/// The memory free for new work, None when this system does not tell.
+#[cfg(target_os = "linux")]
+fn free_memory() -> Option<u64> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let line = text.lines().find(|l| l.starts_with("MemAvailable:"))?;
+    let kilobytes: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kilobytes * 1024)
+}
+
+#[cfg(windows)]
+fn free_memory() -> Option<u64> {
+    #[repr(C)]
+    struct MemoryStatus {
+        length: u32,
+        load: u32,
+        total_physical: u64,
+        free_physical: u64,
+        total_page_file: u64,
+        free_page_file: u64,
+        total_virtual: u64,
+        free_virtual: u64,
+        free_extended: u64,
+    }
+    unsafe extern "system" {
+        fn GlobalMemoryStatusEx(status: *mut MemoryStatus) -> i32;
+    }
+    let mut status = MemoryStatus {
+        length: std::mem::size_of::<MemoryStatus>() as u32,
+        load: 0,
+        total_physical: 0,
+        free_physical: 0,
+        total_page_file: 0,
+        free_page_file: 0,
+        total_virtual: 0,
+        free_virtual: 0,
+        free_extended: 0,
+    };
+    // SAFETY: `status` is a MEMORYSTATUSEX with its length set, as the call requires.
+    let done = unsafe { GlobalMemoryStatusEx(&mut status) };
+    (done != 0).then_some(status.free_physical)
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
+fn free_memory() -> Option<u64> {
+    None
+}
+
+/// The bytes one exact computation may count on this computer.
+fn memory_budget() -> usize {
+    let share = free_memory().map(|free| free / MOST_SHARE);
+    let bytes = share.map_or(MOST_BYTES as u64, |b| {
+        b.clamp(MOST_BYTES as u64, LARGEST_BYTES)
+    });
+    usize::try_from(bytes).unwrap_or(MOST_BYTES)
+}
 
 /// Stops the work when the time of TIMER has run out or too much is held in memory.
 struct Clock {
@@ -157,6 +218,8 @@ struct Clock {
     /// Bytes of the known ranges, and of the partial values of the next cell.
     held: [usize; 2],
     full: bool,
+    /// How many bytes it may hold.
+    most: usize,
 }
 
 impl Clock {
@@ -166,6 +229,15 @@ impl Clock {
             ticks: 0,
             held: [0, 0],
             full: false,
+            most: MOST_BYTES,
+        }
+    }
+
+    /// A clock that lets the computation use what this computer has free.
+    fn sized(deadline: Option<Instant>) -> Clock {
+        Clock {
+            most: memory_budget(),
+            ..Clock::new(deadline)
         }
     }
 
@@ -179,7 +251,7 @@ impl Clock {
     /// Counts `bytes` more of `kind` (0 ranges, 1 partial values).
     fn hold(&mut self, kind: usize, bytes: usize) -> Option<()> {
         self.held[kind] += bytes;
-        self.full = self.held[0] + self.held[1] > MOST_BYTES;
+        self.full = self.held[0] + self.held[1] > self.most;
         (!self.full).then_some(())
     }
 }
@@ -715,14 +787,17 @@ pub(crate) fn significances(
     match method {
         CrosstabsMethod::Exact { minutes } => (tests.into_iter())
             .filter_map(|(stat, at, kind, centre)| {
-                let mut clock = Clock::new(
+                let mut clock = Clock::sized(
                     (minutes > 0.0)
                         .then(|| Instant::now() + Duration::from_secs_f64(minutes * 60.0)),
                 );
                 let found = table(at).exact(&kind, centre, &mut clock);
                 if found.is_none() {
                     let why = match clock.full {
-                        true => "is too large to hold in memory".to_string(),
+                        true => format!(
+                            "needs more memory than the {} MB it may use here (a quarter of what is free)",
+                            clock.most >> 20
+                        ),
                         false => format!("ran past TIMER ({minutes} minutes)"),
                     };
                     warnings.push(format!(
@@ -922,5 +997,22 @@ mod tests {
         let mut clock = Clock::new(Some(Instant::now() - Duration::from_secs(1)));
         clock.ticks = 1023;
         assert_eq!(table.exact(&Kind::Probability, None, &mut clock), None);
+    }
+
+    #[test]
+    fn a_small_budget_stops_the_work_and_the_computers_budget_is_in_range() {
+        let f = vec![
+            vec![5.0, 4.0, 3.0],
+            vec![2.0, 6.0, 4.0],
+            vec![3.0, 3.0, 7.0],
+        ];
+        let (table, ..) = Whole::new(&f, false);
+        let mut clock = Clock::new(None);
+        clock.most = 1 << 10;
+        assert_eq!(table.exact(&Kind::Probability, None, &mut clock), None);
+        assert!(clock.full);
+        // the budget a computer gets is between the two limits, whatever it has free
+        let budget = memory_budget() as u64;
+        assert!((MOST_BYTES as u64..=LARGEST_BYTES).contains(&budget));
     }
 }

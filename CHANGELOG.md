@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CROSSTABS /METHOD EXACT: the memory an exact test may use is now a quarter of what is free on the computer (at least 256 MB, at most 8 GB; it was a fixed 256 MB), so larger tables, such as a 5 x 5 table of 62 cases, get their exact significance when the memory is there; when it is not, the warning names the amount and METHOD=MC remains.
 - Command line and MCP server: a file session whose output save stopped between its two folder renames takes its output back from `outputs.old` the next time it opens, instead of starting without it.
 
 ## 0.20.4 (2026-11-20)
