@@ -52,6 +52,10 @@ Source: "target\release\statscraft.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\release\statscraft-gui.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+; one icon per file type, so data, syntax and output files tell apart in Explorer
+Source: "crates\gui\icons\file-data.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "crates\gui\icons\file-syntax.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "crates\gui\icons\file-output.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Statscraft"; Filename: "{app}\statscraft-gui.exe"
@@ -64,13 +68,13 @@ Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; Value
 ; file) in an output window
 ; registry names ignore case, so these are the same keys earlier versions registered
 Root: HKA; Subkey: "Software\Classes\Statscraft.Data"; ValueType: string; ValueName: ""; ValueData: "Statscraft data file"; Flags: uninsdeletekey
-Root: HKA; Subkey: "Software\Classes\Statscraft.Data\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
+Root: HKA; Subkey: "Software\Classes\Statscraft.Data\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\icons\file-data.ico"
 Root: HKA; Subkey: "Software\Classes\Statscraft.Data\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
 Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax"; ValueType: string; ValueName: ""; ValueData: "Statscraft syntax file"; Flags: uninsdeletekey
-Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
+Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\icons\file-syntax.ico"
 Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
 Root: HKA; Subkey: "Software\Classes\Statscraft.Output"; ValueType: string; ValueName: ""; ValueData: "Statscraft output file"; Flags: uninsdeletekey
-Root: HKA; Subkey: "Software\Classes\Statscraft.Output\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
+Root: HKA; Subkey: "Software\Classes\Statscraft.Output\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\icons\file-output.ico"
 Root: HKA; Subkey: "Software\Classes\Statscraft.Output\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
 
 ; Statscraft is offered under Open with for each type
