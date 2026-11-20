@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.4 (2026-11-20)
+
+- Plugins: Edit > Plugin Settings has **Export...** and **Import...** beside Save as template. Export writes the chosen template and the plugin's presets to a text file; Import reads one on another computer (a template of another plugin, or a preset of a setting without presets, changes nothing and says so). On the command line `--plugin-template FILE` (with `--plugin`) and in the MCP tool `run_syntax` `plugin_templates` lay such a template over the data's settings for a run, as an active template does in the window.
+- OUTPUT MODIFY: VISIBLE=NO on HEADINGS now hides the command's heading alone and keeps its tables, in the window and in OUTPUT EXPORT with /CONTENTS EXPORT=VISIBLE; a saved output file keeps the flag. Earlier versions hid the command's items as well; a program that wants that now picks OUTLINEHEADERS too.
+- Help text, docs and three error messages (CTABLES chi-square and proportion tests, VECTOR types, the ONEWAY note on unequal group sizes) are reworded.
+
 ## 0.20.3 (2026-11-20)
 
 - Command line and MCP server: a file session keeps its output documents between runs (folder `outputs` in the session): tables, charts, hidden items, labels, plugin comments and the designated document, so several runs can collect output that OUTPUT EXPORT or OUTPUT SAVE writes once at the end. `OUTPUT CLOSE ALL.` empties it. Workbooks OUTPUT EXPORT wrote are not kept, so CREATESHEET and MODIFYSHEET add only to one written in the same run; `--xlsx` still writes only the tables of its own run. A failed write of the session output leaves the earlier output in place.
