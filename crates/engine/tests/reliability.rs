@@ -1905,12 +1905,7 @@ fn a_negative_alpha_says_why() {
 }
 
 #[test]
-fn unsupported_models_and_matrices_say_so() {
-    let (_, errors) = parse("RELIABILITY /VARIABLES=a b c /MODEL=OMEGA.");
-    assert_eq!(
-        errors[0].message,
-        "OMEGA in RELIABILITY /MODEL is not supported yet"
-    );
+fn unsupported_matrices_say_so() {
     let (_, errors) = parse("RELIABILITY /VARIABLES=a b c /MATRIX=OUT(*).");
     assert_eq!(
         errors[0].message,
@@ -1918,4 +1913,90 @@ fn unsupported_models_and_matrices_say_so() {
     );
     let (_, errors) = parse("RELIABILITY /MODEL=ALPHA.");
     assert!(errors[0].hint.as_ref().unwrap().contains("VARIABLES"));
+}
+
+/// Twenty-four cases of five items made so that the covariances follow one common factor (loadings
+/// .9 .8 .7 .6 .5, error variances .3 .4 .5 .6 .7), rounded to four decimals. Expected values are
+/// the manual's closed form written out in R from the printed values; for the exact structure
+/// omega is (sum of loadings)^2 / ((sum of loadings)^2 + sum of error variances) = 0.8305085.
+fn one_factor() -> Engine {
+    let rows = [
+        "0.9573 2.5923 3.9882 5.6002 6.2624",
+        "4.5448 4.9519 4.5827 6.8721 7.9994",
+        "3.5328 5.2685 4.1978 6.292 6.5991",
+        "2.5384 3.3822 4.8414 5.2747 6.3233",
+        "3.5796 4.0516 5.8268 7.0717 7.278",
+        "4.5027 5.9662 5.3914 6.9312 6.7981",
+        "3.324 4.6257 5.6665 7.1781 8.641",
+        "2.7806 2.8869 4.5511 4.3967 7.0321",
+        "1.0574 4.044 4.893 4.6574 6.0159",
+        "3.9125 4.7715 6.3147 5.8919 8.8075",
+        "2.0611 2.948 4.3241 5.3012 6.6012",
+        "3.6751 5.248 5.2876 6.0575 6.7993",
+        "3.7368 6.0799 7.3665 7.0298 7.5936",
+        "3.1652 2.9962 5.9612 6.8922 5.0736",
+        "4.0453 3.3953 5.6364 6.0577 8.2155",
+        "1.8731 3.5496 4.3303 5.3702 6.2197",
+        "3.2535 3.8828 5.2398 7.3191 7.4675",
+        "3.794 4.4077 4.9861 4.6373 6.8735",
+        "3.0521 4.1235 5.646 6.3279 8.8921",
+        "3.8991 3.8062 5.3465 7.283 5.9611",
+        "1.0644 2.0812 2.4893 4.8385 6.1538",
+        "1.738 3.793 4.0953 6.4543 7.0613",
+        "2.932 3.7446 3.6289 6.0274 7.1423",
+        "2.9802 3.4031 5.4085 4.2379 6.1888",
+    ];
+    let lines: String = rows.iter().map(|r| format!("{r}\n")).collect();
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!("DATA LIST FREE / a b c d e.\nBEGIN DATA\n{lines}END DATA."),
+    );
+    engine
+}
+
+#[test]
+fn omega_follows_the_closed_form_and_the_known_structure() {
+    let mut engine = one_factor();
+    let tables = run(
+        &mut engine,
+        "RELIABILITY /VARIABLES=a b c d e /MODEL=OMEGA /SUMMARY=TOTAL.",
+    );
+    let t = find(&tables, "Reliability Statistics");
+    assert_eq!(t.columns, ["McDonald's Omega", "N of Items"]);
+    assert!((number(&t.rows[0][0]) - 0.830_507_843_459_371).abs() < 1e-10);
+    // near the value of the exact structure, which the rounding of the data barely moves
+    assert!((number(&t.rows[0][0]) - 0.830_508_474_576_271).abs() < 1e-5);
+    assert_eq!(number(&t.rows[0][1]), 5.0);
+    let items = find(&tables, "Item-Total Statistics");
+    assert_eq!(
+        items.columns.last().unwrap(),
+        "McDonald's Omega if Item Deleted"
+    );
+    let deleted = [
+        0.754_461_144_438_241,
+        0.776_355_354_207_927,
+        0.796_749_471_843_414,
+        0.815_714_436_728_863,
+        0.833_332_319_856_858,
+    ];
+    for (row, want) in items.rows.iter().zip(deleted) {
+        assert!((number(row.last().unwrap()) - want).abs() < 1e-10);
+    }
+}
+
+#[test]
+fn omega_needs_three_items_and_deleted_omega_four() {
+    let mut engine = one_factor();
+    let tables = run(&mut engine, "RELIABILITY /VARIABLES=a b /MODEL=OMEGA.");
+    let t = find(&tables, "Reliability Statistics");
+    assert_eq!(t.rows[0][0], Cell::Empty);
+    assert!(engine.warnings()[0].contains("needs at least 3 items"));
+    let tables = run(
+        &mut engine,
+        "RELIABILITY /VARIABLES=a b c /MODEL=OMEGA /SUMMARY=TOTAL.",
+    );
+    let items = find(&tables, "Item-Total Statistics");
+    assert!(items.rows.iter().all(|r| *r.last().unwrap() == Cell::Empty));
+    assert!(number(&find(&tables, "Reliability Statistics").rows[0][0]) > 0.0);
 }

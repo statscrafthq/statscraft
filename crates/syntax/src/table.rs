@@ -1638,13 +1638,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "RELIABILITY",
         summary: "Reliability of a scale: Cronbach's alpha, split-half and other models, item statistics and ICC.",
         syntax: "RELIABILITY /VARIABLES=varlist [/SCALE(label)=varlist | ALL]\n\
-                 \x20           [/MODEL=ALPHA | SPLIT[(n)] | GUTTMAN | PARALLEL | STRICTPARALLEL]\n\
+                 \x20           [/MODEL=ALPHA | OMEGA | SPLIT[(n)] | GUTTMAN | PARALLEL | STRICTPARALLEL]\n\
                  \x20           [/STATISTICS=DESCRIPTIVE SCALE CORR COV ANOVA [FRIEDMAN | COCHRAN] TUKEY HOTELLING ALL]\n\
                  \x20           [/SUMMARY=MEANS VARIANCE COV CORR TOTAL ALL]\n\
                  \x20           [/ICC=[MODEL(MIXED | RANDOM | ONEWAY)] [TYPE(CONSISTENCY | ABSOLUTE)] [CIN=95] [TESTVAL=0]]\n\
                  \x20           [/METHOD=COVARIANCE] [/MISSING=EXCLUDE | INCLUDE].\n\
                  A case missing on any variable of VARIABLES is left out. ALPHA (default) gives Cronbach's alpha\n\
-                 and the alpha of the standardized items; SPLIT puts n items (default half, the odd one in the\n\
+                 and the alpha of the standardized items; OMEGA gives McDonald's omega for one common factor, from the\n\
+                 closed form built on the covariances (it needs 3 items; with SUMMARY TOTAL the last column of\n\
+                 Item-Total Statistics is omega if the item is deleted, which needs 4); SPLIT puts n items (default half, the odd one in the\n\
                  first part) in the second part and gives the alpha of each part, the correlation between them,\n\
                  Spearman-Brown and Guttman's split-half; GUTTMAN gives lambda 1 to 6; PARALLEL and STRICTPARALLEL\n\
                  give the maximum likelihood estimates and a chi-square test of the model. SUMMARY TOTAL is the\n\
@@ -1655,7 +1657,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  equal. ICC gives single and average measure coefficients with confidence intervals and F tests.\n\
                  Items without variance are dropped, with a warning, when the model or a statistic needs the\n\
                  covariance matrix (all but ALPHA and SPLIT with DESCRIPTIVE, SCALE, ANOVA and TOTAL).\n\
-                 Weighted when a weight variable is set. Not supported yet: MODEL=OMEGA, MATRIX.",
+                 Weighted when a weight variable is set. Not supported yet: MATRIX.",
         example: "RELIABILITY /VARIABLES=q1 TO q10 /SCALE('Satisfaction') ALL /MODEL=ALPHA /STATISTICS=DESCRIPTIVE SCALE /SUMMARY=TOTAL.",
         parse: reliability::reliability,
     },

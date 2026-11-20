@@ -282,9 +282,10 @@ fn reliability_defaults_and_keywords() {
 
 #[test]
 fn reliability_errors() {
-    assert_eq!(
-        err("RELIABILITY /VARIABLES=a b /MODEL=OMEGA.").message,
-        "OMEGA in RELIABILITY /MODEL is not supported yet"
+    assert!(
+        err("RELIABILITY /VARIABLES=a b /MODEL=KAPPA.")
+            .expected
+            .contains(&"OMEGA".to_string())
     );
     assert_eq!(
         err("RELIABILITY /VARIABLES=a b /MATRIX=OUT(*).").message,

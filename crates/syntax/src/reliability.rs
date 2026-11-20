@@ -2,7 +2,7 @@
 //!
 //! Rules from the Command Syntax Reference (RELIABILITY): VARIABLES comes first; SCALE(label)
 //! names the items of the scale among them (default: all, labelled ALL); MODEL is ALPHA
-//! (default), SPLIT[(n)] with n items in the second part, GUTTMAN, PARALLEL or STRICTPARALLEL;
+//! (default), OMEGA, SPLIT[(n)] with n items in the second part, GUTTMAN, PARALLEL or STRICTPARALLEL;
 //! STATISTICS and SUMMARY add up when given twice; FRIEDMAN and COCHRAN count only with ANOVA;
 //! ICC defaults to MODEL(MIXED) TYPE(CONSISTENCY) CIN=95 TESTVAL=0; MISSING is EXCLUDE or
 //! INCLUDE.
@@ -38,6 +38,8 @@ pub struct Reliability {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReliabilityModel {
     Alpha,
+    /// McDonald's omega from the closed form for one factor.
+    Omega,
     /// The number of items in the second part, if given.
     Split(Option<u32>),
     Guttman,
@@ -192,6 +194,8 @@ pub(crate) fn reliability(p: &mut Parser) -> PResult<Command> {
             p.eat(Punct::Eq);
             command.model = if p.eat_keyword("ALPHA") {
                 ReliabilityModel::Alpha
+            } else if p.eat_keyword("OMEGA") {
+                ReliabilityModel::Omega
             } else if p.eat_keyword("SPLIT") {
                 let mut n = None;
                 if p.eat(Punct::LParen) {
@@ -216,9 +220,15 @@ pub(crate) fn reliability(p: &mut Parser) -> PResult<Command> {
             } else if p.eat_keyword("STRICTPARALLEL") {
                 ReliabilityModel::StrictParallel
             } else {
-                const MODELS: [&str; 5] =
-                    ["ALPHA", "SPLIT", "GUTTMAN", "PARALLEL", "STRICTPARALLEL"];
-                return Err(keyword_error(p, "RELIABILITY /MODEL", &["OMEGA"], &MODELS));
+                const MODELS: [&str; 6] = [
+                    "ALPHA",
+                    "OMEGA",
+                    "SPLIT",
+                    "GUTTMAN",
+                    "PARALLEL",
+                    "STRICTPARALLEL",
+                ];
+                return Err(keyword_error(p, "RELIABILITY /MODEL", &[], &MODELS));
             };
         } else if p.eat_keyword("STATISTICS") {
             p.eat(Punct::Eq);

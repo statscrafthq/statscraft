@@ -931,6 +931,7 @@ Choices where the documentation says nothing, and where it is not followed:
 
 - The weight variable is used. SPLIT(n) puts n items in the second part, and SPLIT alone splits in halves, the odd item going to the first part (GNU PSPP differs).
 - The standardized alpha is always shown with ALPHA.
+- OMEGA follows the manual's closed form built on the covariances. The loading of an item is the root of a ratio; when that ratio is negative (covariances that no single factor produces) omega is left empty with a warning. With SUMMARY=TOTAL the last column of Item-Total Statistics is the omega if the item is deleted, in place of Cronbach's alpha if the item is deleted. Items without variance are dropped first, as for the other covariance models.
 - The summaries of inter-item covariances and correlations run over every ordered pair of items, the variance dividing by k(k - 1) - 1, as the formula reads.
 - The goodness-of-fit test of PARALLEL and STRICTPARALLEL uses the determinant of the constrained matrix, as the manual's text describes (its likelihood ratio formula prints k + 1 and 1/k where that matrix has k - 1 and 1/(k - 1)).
 - FRIEDMAN and COCHRAN use the values as they are, so the items must be ranks within each case, or 0 and 1.
@@ -1842,7 +1843,7 @@ Where the documentation is silent:
   - NONPAR CORR has no MATRIX or CI. PARTIAL CORR has no MATRIX.
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
   - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.
-  - RELIABILITY has no MODEL=OMEGA or MATRIX.
+  - RELIABILITY has no MATRIX.
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
   - COXREG has no OUTFILE.
   - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.

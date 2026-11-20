@@ -332,6 +332,26 @@ impl Engine {
                 });
                 tables.push(t);
             }
+            ReliabilityModel::Omega => {
+                let all: Vec<usize> = (0..k).collect();
+                let omega = mcdonald_omega(&scale.v, &all);
+                if omega.is_none() {
+                    warnings.push(match k < 3 {
+                        true => format!("McDonald's omega needs at least 3 items; the scale {label} has {k}"),
+                        false => format!(
+                            "McDonald's omega is not estimated for the scale {label}: the covariances do not fit one common factor (a loading would be the root of a negative number)"
+                        ),
+                    });
+                }
+                let mut t = plain_table(
+                    "Reliability Statistics",
+                    0,
+                    &["McDonald's Omega", "N of Items"],
+                    vec![vec![number(omega), Cell::Number(kf)]],
+                );
+                t.caption = Some(scale_caption.clone());
+                tables.push(t);
+            }
             ReliabilityModel::Split(_) => {
                 let r = (total_var - var1 - var2) / (2.0 * (var1 * var2).sqrt());
                 let alpha =
@@ -664,15 +684,24 @@ impl Engine {
             if smc.is_some() {
                 columns.push("Squared Multiple Correlation");
             }
-            columns.push("Cronbach's Alpha if Item Deleted");
+            let omega_model = command.model == ReliabilityModel::Omega;
+            columns.push(if omega_model {
+                "McDonald's Omega if Item Deleted"
+            } else {
+                "Cronbach's Alpha if Item Deleted"
+            });
             let rows = (0..k)
                 .map(|i| {
                     let cov_ip: f64 = (0..k).map(|j| scale.v[i][j]).sum();
                     let si2 = scale.v[i][i];
                     let deleted = total_var + si2 - 2.0 * cov_ip;
                     let r = (cov_ip - si2) / (si2 * deleted).sqrt();
-                    let alpha = (k > 2)
-                        .then(|| (kf - 1.0) / (kf - 2.0) * (1.0 - (sum_var - si2) / deleted));
+                    let alpha = if omega_model {
+                        let rest: Vec<usize> = (0..k).filter(|&j| j != i).collect();
+                        mcdonald_omega(&scale.v, &rest)
+                    } else {
+                        (k > 2).then(|| (kf - 1.0) / (kf - 2.0) * (1.0 - (sum_var - si2) / deleted))
+                    };
                     let mut row = vec![
                         Cell::Text(scale.names[i].clone()),
                         number(Some(scale_mean - scale.mean[i])),
@@ -1114,4 +1143,37 @@ fn icc_table(icc: &Icc, k: f64, w: f64, [bp, bm, res, wp]: [f64; 4]) -> Table {
     }
     t.caption = Some(caption);
     t
+}
+
+/// McDonald's omega of the items `keep` for one common factor, from the closed form that builds
+/// each loading from the covariances alone: the loading of item i is the root of the sum, over
+/// the pairs r < s of the other items, of v(i,r) v(i,s), divided by the sum of v(r,s) over those
+/// pairs; omega is the square of the summed loadings over the variance of the sum of the items.
+/// None for fewer than 3 items, or where a loading would be the root of a negative number or of
+/// a division by zero.
+fn mcdonald_omega(v: &[Vec<f64>], keep: &[usize]) -> Option<f64> {
+    if keep.len() < 3 {
+        return None;
+    }
+    let mut loadings = 0.0;
+    for &i in keep {
+        let others: Vec<usize> = keep.iter().copied().filter(|&j| j != i).collect();
+        let (mut above, mut below) = (0.0, 0.0);
+        for (a, &r) in others.iter().enumerate() {
+            for &s in &others[a + 1..] {
+                above += v[i][r] * v[i][s];
+                below += v[r][s];
+            }
+        }
+        let square = above / below;
+        if !square.is_finite() || square < 0.0 {
+            return None;
+        }
+        loadings += square.sqrt();
+    }
+    let variance: f64 = keep
+        .iter()
+        .map(|&r| keep.iter().map(|&s| v[r][s]).sum::<f64>())
+        .sum();
+    Some(loadings * loadings / variance).filter(|o| o.is_finite())
 }
