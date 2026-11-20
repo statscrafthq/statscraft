@@ -179,7 +179,8 @@ fn cgroup_left() -> Option<u64> {
         let text = std::fs::read_to_string(format!("{folder}/{name}")).ok()?;
         text.trim().parse().ok()
     };
-    // "max" (no limit) does not parse
+    // shortcut: only this group's own limit, and its usage counts page cache, so the room is
+    // understated; walk the parent groups if that ever matters. "max" (no limit) does not parse
     Some(number("memory.max")?.saturating_sub(number("memory.current")?))
 }
 
@@ -221,17 +222,13 @@ fn free_memory() -> Option<u64> {
     None
 }
 
-/// The bytes one exact computation may count on this computer, and whether they follow from
-/// the free memory (else the fixed `MOST_BYTES`).
-fn memory_budget() -> (usize, bool) {
+/// The bytes one exact computation may count on this computer.
+fn memory_budget() -> usize {
     let share = free_memory().map(|free| free / MOST_SHARE);
     let bytes = share.map_or(MOST_BYTES as u64, |b| {
         b.clamp(MOST_BYTES as u64, LARGEST_BYTES)
     });
-    (
-        usize::try_from(bytes).unwrap_or(MOST_BYTES),
-        share.is_some(),
-    )
+    usize::try_from(bytes).unwrap_or(MOST_BYTES)
 }
 
 /// Stops the work when the time of TIMER has run out or too much is held in memory.
@@ -241,9 +238,8 @@ struct Clock {
     /// Bytes of the known ranges, and of the partial values of the next cell.
     held: [usize; 2],
     full: bool,
-    /// How many bytes it may hold, and whether that follows from the free memory.
+    /// How many bytes it may hold.
     most: usize,
-    sized: bool,
 }
 
 impl Clock {
@@ -254,16 +250,13 @@ impl Clock {
             held: [0, 0],
             full: false,
             most: MOST_BYTES,
-            sized: false,
         }
     }
 
     /// A clock that lets the computation use what this computer has free.
     fn sized(deadline: Option<Instant>) -> Clock {
-        let (most, sized) = memory_budget();
         Clock {
-            most,
-            sized,
+            most: memory_budget(),
             ..Clock::new(deadline)
         }
     }
@@ -821,10 +814,6 @@ pub(crate) fn significances(
                 let found = table(at).exact(&kind, centre, &mut clock);
                 if found.is_none() {
                     let why = match clock.full {
-                        true if clock.sized => format!(
-                            "needs more memory than the {} MB it may use here (an eighth of what is free)",
-                            clock.most >> 20
-                        ),
                         true => format!(
                             "needs more memory than the {} MB it may use here",
                             clock.most >> 20
@@ -1043,7 +1032,7 @@ mod tests {
         assert_eq!(table.exact(&Kind::Probability, None, &mut clock), None);
         assert!(clock.full);
         // the budget a computer gets is between the two limits, whatever it has free
-        let budget = memory_budget().0 as u64;
+        let budget = memory_budget() as u64;
         assert!((MOST_BYTES as u64..=LARGEST_BYTES).contains(&budget));
     }
 }
