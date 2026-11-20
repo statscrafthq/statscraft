@@ -42,7 +42,8 @@ fn delimited_text_with_a_qualifier_header_and_formats() {
         "CD '{}'.\n\
          GET DATA /TYPE=TXT /FILE='survey.dat' /DELCASE=LINE /DELIMITERS=\",\" /QUALIFIER=\"'\"\n\
            /ARRANGEMENT=DELIMITED /FIRSTCASE=2 /IMPORTCASE=ALL\n\
-           /VARIABLES=id F3 started DATETIME23.2 comment A20 score F1.",
+           /VARIABLES=id F3 started DATETIME23.2 comment A20 score F1\n\
+           /MAP.",
         dir.display()
     );
     session
@@ -78,7 +79,7 @@ fn fixed_columns_auto_formats_skips_and_first_cases() {
     let mut session = Session::default();
     let source = format!(
         "GET DATA /TYPE=TXT /FILE='{}' /ARRANGEMENT=FIXED /IMPORTCASE=FIRST 2\n\
-           /VARIABLES=id 0-1 F2 name 2-6 AUTO flag 7-7 X amount 8-11 AUTO.",
+           /VARIABLES=id 0-1 F2 name 2-6 AUTO flag 7-7 X amount 8-11 AUTO /MAP.",
         file.display()
     );
     session

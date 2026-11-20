@@ -6339,7 +6339,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20        [/FIRSTCASE=n] [/DELCASE=LINE | VARIABLES n] [/FIXCASE=n] [/DELIMITERS=\"chars\"]\n\
                  \x20        [/QUALIFIER=\"c\"] [/IMPORTCASE=ALL | FIRST n] [/MULTIPLESPACES IGNORE=NO | YES]\n\
                  \x20        [/LEADINGSPACES IGNORE=NO | YES]\n\
-                 \x20        /VARIABLES=name format [name format ...].\n\
+                 \x20        /VARIABLES=name format [name format ...] [/MAP].\n\
                  GET DATA /TYPE=XLSX | XLSM | XLS /FILE='path' [/SHEET=INDEX n | NAME 'name']\n\
                  \x20        [/CELLRANGE=FULL | RANGE 'A1:K14'] [/READNAMES=ON | OFF] [/ASSUMEDSTRWIDTH=n]\n\
                  \x20        [/HIDDEN IGNORE=NO | YES] [/LEADINGSPACES IGNORE=NO | YES]\n\
@@ -6350,7 +6350,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  longest value; X skips the field. DELIMITERS: \\t is a tab, \\\\ a backslash; two delimiters\n\
                  in a row leave a value empty. Default delimiters: tab and comma. A value between\n\
                  qualifiers may hold delimiters and line breaks; a doubled qualifier is one. SET DECIMAL=COMMA\n\
-                 reads a comma as the decimal mark. ENCODING as for INSERT; a byte order mark wins.\n\
+                 reads a comma as the decimal mark. ENCODING as for INSERT; a byte order mark wins. MAP, the\n\
+                 only subcommand allowed after VARIABLES, is accepted and shows nothing.\n\
                  Workbooks (XLSX and XLSM from Excel 2007 on, XLS from Excel 95 to 2003). The first sheet by\n\
                  default; FULL reads from the first to the last cell with a value. READNAMES=ON (default)\n\
                  takes the first row as names, made valid: other characters become _, a name that does not\n\

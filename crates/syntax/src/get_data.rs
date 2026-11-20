@@ -334,6 +334,12 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
             equals(p);
             variables(p, &mut command)?;
             seen.push(("VARIABLES", at));
+            // VARIABLES comes last; only MAP may follow it, as the text import wizard writes it
+            while p.eat(Punct::Slash) {
+                if !p.eat_keyword("MAP") {
+                    return Err(p.unexpected(&["MAP"]));
+                }
+            }
             break;
         } else if p.eat_keyword("MAP") {
             // MAP only lists the variables read: accepted, nothing to do
@@ -412,7 +418,12 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
 fn variables(p: &mut Parser, command: &mut GetData) -> PResult<()> {
     let mut record = 1;
     loop {
-        if command.fixed && p.eat(Punct::Slash) {
+        // a record number (`/2`), not the MAP subcommand after the list
+        if command.fixed
+            && p.peek() == Some(&TokenKind::Punct(Punct::Slash))
+            && !matches!(p.peek_at(1), Some(TokenKind::Word(_)))
+        {
+            p.pos += 1;
             record = whole(p, "a record number")?.max(1);
             continue;
         }
