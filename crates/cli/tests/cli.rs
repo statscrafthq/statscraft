@@ -1093,6 +1093,25 @@ fn a_heading_hidden_in_one_run_leaves_the_exports_of_a_later_run_without_it() {
 }
 
 #[test]
+fn a_file_session_takes_its_output_back_from_a_save_that_stopped_halfway() {
+    let w = Workdir::new("keepswap");
+    let data = get_fixture("survey_basic.sav");
+    w.ok(&[
+        "run",
+        "-s",
+        "x",
+        "-e",
+        &format!("{data}\nFREQUENCIES gender."),
+    ]);
+    // the state after the first rename of a save and before the second
+    let session = w.0.join(".statscraft/sessions/x");
+    std::fs::rename(session.join("outputs"), session.join("outputs.old")).unwrap();
+    let described = w.json(&["describe", "-s", "x", "--json"]);
+    assert_eq!(described["session"]["output_documents"][0]["tables"], 1);
+    assert!(session.join("outputs").is_dir() && !session.join("outputs.old").exists());
+}
+
+#[test]
 fn a_file_session_keeps_which_output_document_is_designated() {
     let w = Workdir::new("keepdesignated");
     let data = get_fixture("survey_basic.sav");

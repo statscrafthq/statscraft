@@ -517,6 +517,11 @@ fn outputs_folder(data: &std::path::Path) -> PathBuf {
 
 fn load_output(data: &std::path::Path, session: &mut Session) -> Result<(), Vec<Failure>> {
     let folder = outputs_folder(data);
+    // a save that stopped between its two renames left the output in outputs.old: take it back
+    let old = folder.with_file_name("outputs.old");
+    if !folder.exists() && old.is_dir() {
+        let _ = std::fs::rename(&old, &folder);
+    }
     let text = match std::fs::read_to_string(folder.join("names.json")) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
