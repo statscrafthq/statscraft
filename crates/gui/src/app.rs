@@ -7621,12 +7621,14 @@ mod tests {
         };
         let pdf = export("t.pdf", pdf, &view);
         assert!(pdf.starts_with(b"%PDF-1.") && pdf.ends_with(b"%%EOF"));
-        let sheets = export("t.xlsx", Choice::default(), &view);
-        let one_sheet = Choice {
-            one_sheet: true,
+        // Excel: all tables on one sheet by default
+        assert!(Choice::default().one_sheet);
+        let per_table = Choice {
+            one_sheet: false,
             ..Choice::default()
         };
-        let one = export("one.xlsx", one_sheet, &view);
+        let sheets = export("t.xlsx", per_table, &view);
+        let one = export("one.xlsx", Choice::default(), &view);
         assert!(sheets.starts_with(b"PK") && one.starts_with(b"PK"));
         assert_ne!(sheets, one);
         // a file that cannot be written says so with its name

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Window: File > Export to Excel puts all tables on one sheet, one below the other, unless One sheet per table is picked; it was one sheet per table. The command line and agents keep one sheet per table unless asked otherwise.
+
 ## 0.20.5 (2026-11-20)
 
 - CROSSTABS /METHOD EXACT: the memory an exact test may use is now an eighth of what is free on the computer, or of what a container's memory limit leaves (at least 256 MB, at most 8 GB; it was a fixed 256 MB), so larger tables, such as a 5 x 5 table of 62 cases, get their exact significance when the memory is there; when it is not, the warning names the amount and METHOD=MC remains.

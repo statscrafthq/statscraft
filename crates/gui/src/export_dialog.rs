@@ -11,7 +11,7 @@ pub enum Format {
 }
 
 /// What the dialog chose; kept for the next export of the session.
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Choice {
     pub format: Format,
     /// Excel: all tables on one sheet, one below the other.
@@ -20,6 +20,18 @@ pub struct Choice {
     pub selected: bool,
     /// Hidden items too; kept in the settings when the export goes ahead.
     pub hidden: bool,
+}
+
+/// Excel puts all tables on one sheet unless the dialog says otherwise.
+impl Default for Choice {
+    fn default() -> Self {
+        Choice {
+            format: Format::default(),
+            one_sheet: true,
+            selected: false,
+            hidden: false,
+        }
+    }
 }
 
 /// Draws the dialog while `open` holds the output window it exports; returns the choice when
