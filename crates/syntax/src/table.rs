@@ -1249,7 +1249,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  contingency coefficient, lambda (not the symmetric value), Goodman and Kruskal's tau, the\n\
                  uncertainty coefficient, Kendall's tau-b and tau-c, Somers' d, Spearman, Pearson's R and\n\
                  kappa. TIMER(minutes) bounds each statistic (0: no bound); one that runs over, or would\n\
-                 need more memory than a quarter of what is free on the computer (at least 256 MB, at most 8 GB), keeps only its asymptotic value, with a warning that gives the amount. MC instead draws SAMPLES random tables with those\n\
+                 need more memory than an eighth of what is free on the computer (at least 256 MB, at most 8 GB; less under a memory limit of a container), keeps only its asymptotic value, with a warning that gives the amount. MC instead draws SAMPLES random tables with those\n\
                  totals from the SET SEED generator and shows the share at least as extreme with its\n\
                  interval at CIN percent. Gamma, eta, McNemar-Bowker and CMH stay asymptotic.",
         example: "CROSSTABS /TABLES=region BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.",
