@@ -2921,7 +2921,23 @@ impl App {
         });
     }
 
+    /// The status, and in the right corner the version of this program.
     fn status_bar(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                ui.label(
+                    RichText::new(concat!("Statscraft ", env!("CARGO_PKG_VERSION")))
+                        .small()
+                        .weak(),
+                );
+                ui.with_layout(egui::Layout::left_to_right(Align::Center), |ui| {
+                    self.status(ui)
+                });
+            });
+        });
+    }
+
+    fn status(&mut self, ui: &mut Ui) {
         if let Some((run, label)) = self.runs.running() {
             let text = match &run.after {
                 After::OpenData(path) => format!("Opening {}", path.display()),
