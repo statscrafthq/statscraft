@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Command line and MCP server: a file session whose output save stopped between its two folder renames takes its output back from `outputs.old` the next time it opens, instead of starting without it.
+
 ## 0.20.4 (2026-11-20)
 
 - Plugins: Edit > Plugin Settings has **Export...** and **Import...** beside Save as template. Export writes the chosen template and the plugin's presets to a text file; Import reads one on another computer (a template of another plugin, or a preset of a setting without presets, changes nothing and says so). On the command line `--plugin-template FILE` (with `--plugin`) and in the MCP tool `run_syntax` `plugin_templates` lay such a template over the data's settings for a run, as an active template does in the window.
