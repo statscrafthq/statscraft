@@ -762,6 +762,8 @@ mod tests {
             syntax.starts_with("TSAPPLY /MODELSUMMARY PRINT=NONE PLOT=[RMSE]\n"),
             "{syntax}"
         );
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
         assert!(Tsapply::default().syntax().is_err());
     }
 }
