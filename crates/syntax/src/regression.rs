@@ -54,6 +54,9 @@ pub struct Regression {
     pub partial: Option<Vec<VarItem>>,
     /// `/TEMPLATE` was given; it styles charts and is ignored.
     pub template: bool,
+    /// `/SELECT=var relation value`: only the cases where it holds go into the correlation
+    /// matrix and the tests; the others are still given residuals and predicted values.
+    pub select: Option<RegressionSelect>,
 }
 
 /// A variable of a scatterplot: a temporary variable (written with `*`) or one of the data.
@@ -221,6 +224,21 @@ pub(crate) const TEMP_VARS: [(&str, TempVar); 19] = [
     ("ICIN", TempVar::Icin),
 ];
 
+/// The condition of `/SELECT`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegressionSelect {
+    pub variable: String,
+    pub relation: crate::logistic::SelectRelation,
+    pub value: SelectValue,
+}
+
+/// What a SELECT compares with: a number, or the text of a string variable.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SelectValue {
+    Number(f64),
+    Text(String),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegressionResiduals {
     /// `DURBIN`: the Durbin-Watson statistic in the Model Summary.
@@ -229,6 +247,9 @@ pub struct RegressionResiduals {
     pub outliers: Vec<TempVar>,
     /// `ID(var)`: labels the cases of the outlier and casewise tables.
     pub id: Option<String>,
+    /// `POOLED`: with SELECT, the statistics and plots use all cases, not each group alone
+    /// (`SEPARATE`, the default).
+    pub pooled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -321,6 +342,40 @@ fn checked(p: &Parser, start: usize, value: f64, ok: bool, what: &str) -> PResul
             format!("{what}, got {value}"),
         ))
     }
+}
+
+/// `varname relation value`, the relation EQ, NE, LT, LE, GT or GE, the value a number or, for a
+/// string variable, quoted text.
+fn select(p: &mut Parser) -> PResult<RegressionSelect> {
+    use crate::logistic::SelectRelation as R;
+    let variable = p.name("a variable name")?;
+    const RELATIONS: [(&str, R); 6] = [
+        ("EQ", R::Eq),
+        ("NE", R::Ne),
+        ("LT", R::Lt),
+        ("LE", R::Le),
+        ("GT", R::Gt),
+        ("GE", R::Ge),
+    ];
+    let found = RELATIONS.iter().find(
+        |(name, _)| matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(name)),
+    );
+    let Some(&(_, relation)) = found else {
+        return Err(p.unexpected(&["EQ", "NE", "LT", "LE", "GT", "GE"]));
+    };
+    p.pos += 1;
+    let value = if let Some(TokenKind::Str(_)) = p.peek() {
+        SelectValue::Text(p.string("a quoted value")?)
+    } else if let Some(number) = p.number() {
+        SelectValue::Number(number)
+    } else {
+        return Err(p.unexpected(&["a number or a quoted value"]));
+    };
+    Ok(RegressionSelect {
+        variable,
+        relation,
+        value,
+    })
 }
 
 /// Skips the rest of a subcommand: charts and their settings.
@@ -658,6 +713,7 @@ fn residuals(p: &mut Parser, command: &mut Regression) -> PResult<RegressionResi
         durbin: false,
         outliers: Vec::new(),
         id: None,
+        pooled: false,
     };
     use TempVar as T;
     let defaults = |r: &mut RegressionResiduals, command: &mut Regression| {
@@ -733,13 +789,18 @@ fn residuals(p: &mut Parser, command: &mut Regression) -> PResult<RegressionResi
             }
             6 => {
                 p.expect(Punct::LParen)?;
-                if !(p.eat_keyword("SEPARATE") || p.eat_keyword("POOLED")) {
+                if p.eat_keyword("POOLED") {
+                    r.pooled = true;
+                } else if p.eat_keyword("SEPARATE") {
+                    r.pooled = false;
+                } else {
                     return Err(p.unexpected(&["SEPARATE", "POOLED"]));
                 }
                 p.expect(Punct::RParen)?;
             }
-            // without SELECT there is only one group of cases
-            _ => {}
+            // SEPARATE and POOLED stand alone as well as inside SIZE( )
+            7 => r.pooled = false,
+            _ => r.pooled = true,
         }
         p.eat(Punct::Comma);
     }
@@ -895,6 +956,7 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
         scatterplots: Vec::new(),
         partial: None,
         template: false,
+        select: None,
     };
     let mut first = true;
     loop {
@@ -999,8 +1061,11 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("TEMPLATE") {
             command.template = true;
             skip(p);
+        } else if p.eat_keyword("SELECT") {
+            p.eat(Punct::Eq);
+            command.select = Some(select(p)?);
         } else {
-            return Err(p.subcommand_error("REGRESSION", &["SELECT", "OUTFILE", "MATRIX"]));
+            return Err(p.subcommand_error("REGRESSION", &["OUTFILE", "MATRIX"]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

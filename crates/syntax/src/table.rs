@@ -1626,7 +1626,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Linear regression with forced entry or removal and stepwise selection, residuals and diagnostics.",
         syntax: "REGRESSION [/VARIABLES=varlist | (COLLECT)] [/DESCRIPTIVES=[DEFAULTS MEAN STDDEV VARIANCE CORR SIG\n\
                  \x20          BADCORR COV XPROD N ALL NONE]] [/MISSING=LISTWISE | PAIRWISE | MEANSUBSTITUTION [INCLUDE]]\n\
-                 \x20          [/REGWGT=var] [/STATISTICS=[DEFAULTS R ANOVA COEFF OUTS ZPP CHANGE CI[(95)] BCOV COLLIN TOL\n\
+                 \x20          [/SELECT=var EQ | NE | LT | LE | GT | GE value] [/REGWGT=var] [/STATISTICS=[DEFAULTS R ANOVA COEFF OUTS ZPP CHANGE CI[(95)] BCOV COLLIN TOL\n\
                  \x20          F SES XTX SELECTION LABEL ALL]] [/CRITERIA=[DEFAULTS PIN[(0.05)] | FIN[(3.84)] POUT[(0.10)] |\n\
                  \x20          FOUT[(2.71)] TOLERANCE[(0.0001)] MAXSTEPS(n) CIN[(95)]]] [/ORIGIN | NOORIGIN]\n\
                  \x20          /DEPENDENT=varlist /[METHOD=]ENTER [varlist] | REMOVE varlist | STEPWISE [varlist] |\n\
@@ -1659,7 +1659,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Entered/Removed says Test), then gives a Subset Tests table: for each set the change in R square\n\
                  when it leaves the equation, the change in the regression sum of squares, df, mean square and F\n\
                  (against the residual mean square of the full equation) with its significance, and a Residual row.\n\
-                 Not supported yet: SELECT, MATRIX, OUTFILE.",
+                 SELECT makes the correlation matrix, the equation and its tests from the cases where the condition\n\
+                 holds (a missing value on the variable leaves the case out; the variable is not on VARIABLES,\n\
+                 DEPENDENT or METHOD, and its value is quoted for a string variable). The other cases still get\n\
+                 predictions, residuals, leverage, Mahalanobis and Cook's distance (formulas of the Algorithms\n\
+                 manual for cases outside the fit); the residual statistics, the outlier lists and the plots are of\n\
+                 the selected and the unselected cases apart (SEPARATE, the default) or of all of them (POOLED),\n\
+                 Casewise Diagnostics list both with a Selected Status, and SAVE fills every case.\n\
+                 Not supported yet: MATRIX, OUTFILE.",
         example: "REGRESSION /STATISTICS=COEFF OUTS R ANOVA CHANGE /DEPENDENT=spend /METHOD=ENTER age /METHOD=STEPWISE q1 TO q5 /SAVE=PRED ZRESID.",
         parse: regression::regression,
     },

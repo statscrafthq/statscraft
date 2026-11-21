@@ -552,6 +552,8 @@ Where the documentation is silent or reads two ways:
 
 ### REGRESSION
 
+- SELECT: the equation and every table of the analysis come from the selected cases; the unselected ones with a prediction get PRED, RESID, ZRESID, SRESID, DRESID, SDRESID, ADJPRED, SEPRED, the intervals, and the leverage h', MAHAL and COOK of the Algorithms manual's formulas for such cases (no DFBETA, DFFIT or COVRATIO, which need the case in the fit). The manual's Cook formula adds 1/W to the leverage h' where the equation refitted with the case has 1/(W + 1); Statscraft follows the manual. SEPARATE (also as SIZE(SEPARATE)) gives the Residuals Statistics, Outlier Statistics and the residual plots for the selected and the unselected cases in turn, titled so; POOLED one set over all cases. The Casewise Diagnostics list both, with a Selected Status column. Cases that PAIRWISE or MEANSUBSTITUTION leave out of the fit count as unselected in the same way.
+
 - METHOD=TEST enters the variables of all its sets at once, as one model, and shows the Subset Tests table: per set the R square change, sum of squares, df, mean square, F and significance (F against the full equation's residual mean square), then the full equation's residual. The tables the manual describes for it are not drawn, so the layout is Statscraft's. The sets keep only variables that entered (a variable refused for tolerance is left out of its set, with the usual warning).
 
 - METHOD takes variable lists and STEPWISE, FORWARD, BACKWARD and REMOVE (GNU PSPP differs).
@@ -1853,7 +1855,7 @@ Where the documentation is silent:
   - ONEWAY has no WALLER.
   - NONPAR CORR has no MATRIX or CI. PARTIAL CORR has no MATRIX.
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
-  - REGRESSION has no SELECT, MATRIX or OUTFILE.
+  - REGRESSION has no MATRIX or OUTFILE.
   - RELIABILITY has no MATRIX.
   - LOGISTIC REGRESSION has no OUTFILE.
   - COXREG has no OUTFILE.

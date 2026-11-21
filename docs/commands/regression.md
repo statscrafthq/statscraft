@@ -9,7 +9,7 @@ Linear regression with forced entry or removal and stepwise selection, residuals
 ```text
 REGRESSION [/VARIABLES=varlist | (COLLECT)] [/DESCRIPTIVES=[DEFAULTS MEAN STDDEV VARIANCE CORR SIG
            BADCORR COV XPROD N ALL NONE]] [/MISSING=LISTWISE | PAIRWISE | MEANSUBSTITUTION [INCLUDE]]
-           [/REGWGT=var] [/STATISTICS=[DEFAULTS R ANOVA COEFF OUTS ZPP CHANGE CI[(95)] BCOV COLLIN TOL
+           [/SELECT=var EQ | NE | LT | LE | GT | GE value] [/REGWGT=var] [/STATISTICS=[DEFAULTS R ANOVA COEFF OUTS ZPP CHANGE CI[(95)] BCOV COLLIN TOL
            F SES XTX SELECTION LABEL ALL]] [/CRITERIA=[DEFAULTS PIN[(0.05)] | FIN[(3.84)] POUT[(0.10)] |
            FOUT[(2.71)] TOLERANCE[(0.0001)] MAXSTEPS(n) CIN[(95)]]] [/ORIGIN | NOORIGIN]
            /DEPENDENT=varlist /[METHOD=]ENTER [varlist] | REMOVE varlist | STEPWISE [varlist] |
@@ -27,7 +27,9 @@ Weighted when a weight variable is set; REGWGT gives weighted least squares. Cha
 
 PARTIALPLOT plots, for each independent (or those listed), the dependent's residuals against the independent's, both regressed on the other independents; it needs two in the equation. TEMPLATE is ignored with a warning. LABEL changes nothing. TEST enters every variable named in its sets together (Model Variables Entered/Removed says Test), then gives a Subset Tests table: for each set the change in R square when it leaves the equation, the change in the regression sum of squares, df, mean square and F (against the residual mean square of the full equation) with its significance, and a Residual row.
 
-Not supported yet: SELECT, MATRIX, OUTFILE.
+SELECT makes the correlation matrix, the equation and its tests from the cases where the condition holds (a missing value on the variable leaves the case out; the variable is not on VARIABLES, DEPENDENT or METHOD, and its value is quoted for a string variable). The other cases still get predictions, residuals, leverage, Mahalanobis and Cook's distance (formulas of the Algorithms manual for cases outside the fit); the residual statistics, the outlier lists and the plots are of the selected and the unselected cases apart (SEPARATE, the default) or of all of them (POOLED), Casewise Diagnostics list both with a Selected Status, and SAVE fills every case.
+
+Not supported yet: MATRIX, OUTFILE.
 
 ## Example
 

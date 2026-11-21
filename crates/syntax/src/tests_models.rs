@@ -318,3 +318,41 @@ fn reliability_errors() {
         "SPLIT takes a positive whole number of items, got 1.5"
     );
 }
+
+#[test]
+fn regression_select_reads_a_condition_and_residuals_separate_or_pooled() {
+    use crate::{SelectRelation, SelectValue};
+    let r = regression("REGRESSION SELECT sex EQ 'M' /VARIABLES=a b /DEPENDENT=b /METHOD=ENTER a.");
+    let select = r.select.expect("a selection");
+    assert_eq!(select.variable, "sex");
+    assert_eq!(select.relation, SelectRelation::Eq);
+    assert_eq!(select.value, SelectValue::Text("M".into()));
+    let r = regression("REGRESSION /DEPENDENT=y /METHOD=ENTER a /SELECT=g GE -1.5.");
+    assert_eq!(
+        r.select.map(|s| (s.relation, s.value)),
+        Some((SelectRelation::Ge, SelectValue::Number(-1.5)))
+    );
+    assert!(
+        regression("REGRESSION /DEPENDENT=y /METHOD=ENTER a.")
+            .select
+            .is_none()
+    );
+    let pooled = |text: &str| regression(text).residuals.expect("residuals").pooled;
+    assert!(!pooled(
+        "REGRESSION /DEPENDENT=y /METHOD=ENTER a /RESIDUALS=DURBIN."
+    ));
+    assert!(pooled(
+        "REGRESSION /DEPENDENT=y /METHOD=ENTER a /RESIDUALS=DURBIN POOLED."
+    ));
+    assert!(pooled(
+        "REGRESSION /DEPENDENT=y /METHOD=ENTER a /RESIDUALS=DURBIN SIZE(POOLED)."
+    ));
+    assert!(!pooled(
+        "REGRESSION /DEPENDENT=y /METHOD=ENTER a /RESIDUALS=POOLED SEPARATE."
+    ));
+    assert!(
+        err("REGRESSION /DEPENDENT=y /METHOD=ENTER a /SELECT=g IS 1.")
+            .expected
+            .contains(&"EQ".to_string())
+    );
+}

@@ -2394,11 +2394,8 @@ fn errors_and_unsupported_methods() {
         )),
         "REGRESSION needs numeric variables, but s is a string variable"
     );
-    let (_, errors) = parse("REGRESSION /DEPENDENT=y /METHOD=ENTER x1 /SELECT=x2 EQ 1.");
-    assert_eq!(
-        errors[0].message,
-        "subcommand SELECT of REGRESSION is not supported yet"
-    );
+    let (_, errors) = parse("REGRESSION /DEPENDENT=y /METHOD=ENTER x1 /SELECT=x2 IS 1.");
+    assert!(errors[0].expected.contains(&"EQ".to_string()));
     let (_, errors) = parse("REGRESSION /DEPENDENT=y /METHOD=ENTER.");
     assert!(
         errors[0].message.contains("needs a variable list"),
@@ -2479,4 +2476,256 @@ fn method_test_enters_the_sets_and_tests_each_by_the_change_in_r_square() {
     // the residual of the full equation: sum of squares and df
     near(value(2, 3), 28.353_914_377_671_8);
     near(value(2, 4), 25.0);
+}
+
+/// A saved numeric column of the active dataset.
+fn values(engine: &Engine, name: &str) -> Vec<Option<f64>> {
+    let data = engine.dataset().unwrap();
+    match data.variable(name).unwrap().values() {
+        Values::Numeric(v) => (0..data.case_count()).map(|k| v.get(k)).collect(),
+        Values::String(_) => panic!("{name} is a string"),
+    }
+}
+
+// Twenty-four cases, those with g = 1 (16) make the equation. The expected values are those of lm()
+// on them; for an unselected case i the leverage, Mahalanobis distance and Cook's distance are
+// the ones of case i in the equation with that case added (hatvalues, minus 1/(C+1) for the
+// centred leverage, and cooks.distance); the manual's Cook formula uses 1/W where that refit has
+// 1/(W + 1), which the test allows for.
+const SELECT_DATA: &str = "DATA LIST FREE / y x1 x2 g.
+BEGIN DATA
+3.5 8.5 4 1
+0.3 8.4 9 1
+5.9 9.7 5.3 2
+4.4 9.4 3.9 1
+3.7 10.9 5.6 1
+2.9 7.6 5.6 2
+6.5 12.4 3.6 1
+3.7 10 4.5 1
+3.4 9.5 6.6 2
+4.3 9.3 5.3 1
+8 12.6 5 1
+6.3 9.1 3.5 2
+4.4 10.1 5.6 1
+3.9 9.5 3.8 1
+6.5 13.7 5.5 2
+3.9 8.3 5.1 1
+4.7 9.8 3.8 1
+3.1 4.8 2 2
+5.9 11.8 3.9 1
+4.9 8.6 5.6 1
+5 13.5 7.6 2
+6.5 10.4 4.7 1
+5.5 9.5 3.5 1
+4.9 11.9 3 2
+END DATA.
+";
+
+#[test]
+fn select_fits_the_selected_cases_and_gives_the_others_leverage_and_cooks_distance() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{SELECT_DATA}REGRESSION SELECT g EQ 1 /DEPENDENT=y /METHOD=ENTER x1 x2\n\
+             /SAVE=PRED RESID ZRESID SRESID LEVER MAHAL COOK."
+        ),
+    );
+    let coefficients = tables.iter().find(|t| t.title == "Coefficients").unwrap();
+    let b = coefficients
+        .column_titles()
+        .iter()
+        .position(|t| t == "Unstandardized Coefficients / B")
+        .unwrap();
+    let number = |cell: &Cell| match cell {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    let near = |a: f64, b: f64| assert!((a - b).abs() < 1e-7 * b.abs().max(1.0), "{a} vs {b}");
+    near(number(&coefficients.rows[0][b]), -0.119_126_571_122_113);
+    near(number(&coefficients.rows[1][b]), 0.736_070_419_929_582);
+    near(number(&coefficients.rows[2][b]), -0.538_325_186_486_534);
+    let column = |name: &str| values(&engine, name);
+    let pred = column("PRE_1");
+    let resid = column("RES_1");
+    let zresid = column("ZRE_1");
+    let sresid = column("SRE_1");
+    let lever = column("LEV_1");
+    let mahal = column("MAH_1");
+    let cook = column("COO_1");
+    // (case number, prediction, residual, ZRESID, SRESID, centred leverage, MAHAL, COOK)
+    for (case, p, e, z, sr, h, m, d) in [
+        (
+            3,
+            4.167_633_013_816_2,
+            1.732_366_986_186_1,
+            1.678_842_202_295_65,
+            1.621_580_187_795_83,
+            0.008_229_189_330_701_74,
+            0.131_667_029_291_228,
+            0.056_428_333_399_845_6,
+        ),
+        (
+            6,
+            2.460_387_576_018_12,
+            0.439_612_423_981_883,
+            0.426_029_759_237_15,
+            0.378_848_358_788_158,
+            0.150_405_082_901_49,
+            2.406_481_326_555_83,
+            0.013_483_288_832_205_2,
+        ),
+        (
+            15,
+            7.004_249_656_232_19,
+            -0.504_249_656_237_219,
+            -0.488_669_900_855_694,
+            -0.373_998_346_145_313,
+            0.355_432_018_810_661,
+            5.686_912_300_970_58,
+            0.035_132_986_479_461_2,
+        ),
+    ] {
+        let k = case - 1;
+        near(pred[k].unwrap(), p);
+        near(resid[k].unwrap(), e);
+        near(zresid[k].unwrap(), z);
+        near(sresid[k].unwrap(), sr);
+        near(lever[k].unwrap(), h);
+        near(mahal[k].unwrap(), m);
+        // the manual's numerator is h' + 1/W where the equation with the case added has
+        // h' + 1/(W + 1), so Cook's distance is that of the refit times the ratio of the two
+        near(cook[k].unwrap(), d * (h + 1.0 / 16.0) / (h + 1.0 / 17.0));
+    }
+    // a selected case has the leverage of the equation itself: it lies between 0 and 1
+    assert!(lever[0].unwrap() > 0.0 && lever[0].unwrap() < 1.0);
+}
+
+#[test]
+fn select_reports_residuals_for_both_groups_apart_or_pooled_and_marks_the_casewise_list() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{SELECT_DATA}REGRESSION SELECT g EQ 1 /DEPENDENT=y /METHOD=ENTER x1 x2\n\
+             /RESIDUALS=DURBIN OUTLIERS(RESID) /CASEWISE=ALL PLOT(ZRESID)."
+        ),
+    );
+    let n_of = |t: &Table| match t.rows[0].last() {
+        Some(Cell::Number(n)) => *n,
+        other => panic!("{other:?}"),
+    };
+    let selected = tables
+        .iter()
+        .find(|t| t.title == "Residuals Statistics")
+        .unwrap();
+    let unselected = tables
+        .iter()
+        .find(|t| t.title == "Residuals Statistics: Unselected Cases")
+        .unwrap();
+    assert_eq!(n_of(selected), 16.0);
+    assert_eq!(n_of(unselected), 8.0);
+    // one casewise list with a status for each case
+    let casewise = tables
+        .iter()
+        .find(|t| t.title == "Casewise Diagnostics")
+        .unwrap();
+    let status = casewise
+        .column_titles()
+        .iter()
+        .position(|t| t == "Selected Status")
+        .unwrap();
+    let marks: Vec<&Cell> = casewise.rows.iter().map(|r| &r[status]).collect();
+    assert_eq!(marks.len(), 24);
+    assert_eq!(
+        marks
+            .iter()
+            .filter(|m| ***m == Cell::Text("S".into()))
+            .count(),
+        16
+    );
+    // outlier statistics apart
+    assert!(tables.iter().any(|t| t.title == "Outlier Statistics"));
+    assert!(
+        tables
+            .iter()
+            .any(|t| t.title == "Outlier Statistics: Unselected Cases")
+    );
+    // POOLED: one table over all cases
+    let pooled = run(
+        &mut engine,
+        "REGRESSION SELECT g EQ 1 /DEPENDENT=y /METHOD=ENTER x1 x2 /RESIDUALS=DURBIN POOLED.",
+    );
+    let all = pooled
+        .iter()
+        .find(|t| t.title == "Residuals Statistics")
+        .unwrap();
+    assert_eq!(n_of(all), 24.0);
+    assert!(
+        pooled
+            .iter()
+            .all(|t| t.title != "Residuals Statistics: Unselected Cases")
+    );
+    // without SELECT nothing changes: one table of every case
+    let plain = run(
+        &mut engine,
+        "REGRESSION /DEPENDENT=y /METHOD=ENTER x1 x2 /RESIDUALS=DURBIN.",
+    );
+    assert_eq!(
+        n_of(
+            plain
+                .iter()
+                .find(|t| t.title == "Residuals Statistics")
+                .unwrap()
+        ),
+        24.0
+    );
+}
+
+#[test]
+fn select_charts_come_apart_or_pooled_and_a_string_variable_selects_by_text() {
+    let mut engine = Engine::default();
+    run(&mut engine, SELECT_DATA);
+    run(
+        &mut engine,
+        "STRING grp (A1).\nCOMPUTE grp = 'a'.\nIF (g = 2) grp = 'b'.",
+    );
+    let apart = run(
+        &mut engine,
+        "REGRESSION SELECT grp EQ 'a' /DEPENDENT=y /METHOD=ENTER x1 x2 /RESIDUALS=HISTOGRAM(ZRESID).",
+    );
+    assert!(!apart.is_empty());
+    let titles: Vec<String> = engine
+        .take_charts()
+        .iter()
+        .map(|c| c.title.clone())
+        .collect();
+    assert!(
+        titles.iter().any(|t| t.ends_with("(selected cases)")),
+        "{titles:?}"
+    );
+    assert!(
+        titles.iter().any(|t| t.ends_with("(unselected cases)")),
+        "{titles:?}"
+    );
+    run(
+        &mut engine,
+        "REGRESSION SELECT grp EQ 'a' /DEPENDENT=y /METHOD=ENTER x1 x2 /RESIDUALS=HISTOGRAM(ZRESID) POOLED.",
+    );
+    let titles: Vec<String> = engine
+        .take_charts()
+        .iter()
+        .map(|c| c.title.clone())
+        .collect();
+    assert_eq!(titles.len(), 1, "{titles:?}");
+    assert!(titles[0].ends_with("(all cases)"));
+    // errors: a number against a string variable, the variable on the analysis
+    let error = run_error(&format!(
+        "{SELECT_DATA}\nREGRESSION SELECT g EQ 'a' /DEPENDENT=y /METHOD=ENTER x1."
+    ));
+    assert!(error.contains("not quoted text"), "{error}");
+    let error = run_error(&format!(
+        "{SELECT_DATA}\nREGRESSION SELECT x1 GT 5 /DEPENDENT=y /METHOD=ENTER x1."
+    ));
+    assert!(error.contains("cannot be on SELECT"), "{error}");
 }

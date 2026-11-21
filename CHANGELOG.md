@@ -2,11 +2,13 @@
 
 ## Unreleased
 
+- REGRESSION /SELECT=var relation value (EQ, NE, LT, LE, GT, GE; text for a string variable) builds the equation from the selected cases and reports the others too: predictions, residuals, leverage, Mahalanobis and Cook's distance, residual statistics, outlier lists and plots apart or pooled (SEPARATE or POOLED), a Selected Status in the casewise list, and SAVE for every case.
 - Window: Multinomial Logistic Regression has Cell probabilities, Monotonicity measures and Iteration history (every n-th iteration) under Statistics. The error term of GLM post hoc tests (VS) stays syntax only, as the reference dialog has no such choice.
 - GLM and UNIANOVA /POSTHOC=factor(tests) VS effect uses the mean square and df of that effect as the error term of the post hoc tests, instead of refusing VS.
 - NOMREG /PRINT=CELLPROB adds the table of observed and predicted counts and proportions and the raw and standardized residuals for every subpopulation and response category.
 - NOMREG /PRINT=ASSOCIATION, for a two-category response, adds the concordant, discordant and tied pairs and Somers' D, Goodman and Kruskal's gamma, Kendall's tau-a and the concordance index C.
 - NOMREG /PRINT=HISTORY(n) adds an Iteration History table of the final model: -2 log likelihood and parameter estimates at iteration 0, every n-th iteration and the last.
+
 ## 0.22.0 (2026-11-21)
 
 - GLM and UNIANOVA /CONTRAST(factor)=SPECIAL(matrix): the matrix is read column by column, the first column the constant and each other column one contrast, as the manual's example shows.

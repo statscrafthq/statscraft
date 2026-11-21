@@ -33,7 +33,7 @@ use statscraft_data::{Measure, Values, Variable};
 mod plots;
 use statscraft_syntax::{
     Criterion, MethodKind, Regression, RegressionCriteria, RegressionDescriptives,
-    RegressionMissing, TempVar,
+    RegressionMissing, SelectRelation, SelectValue, TempVar,
 };
 
 /// Weighted sums of one pair of variables over their common cases.
@@ -258,6 +258,9 @@ impl Equation {
         (f, f_p(f, 1.0, df))
     }
 }
+
+/// The cases of one group of residual statistics: each case number with its values.
+type GroupCases<'a> = [(usize, &'a CaseValues)];
 
 /// A METHOD as indices into the equation: the kind, its variables and, for TEST, its sets.
 type MethodBlock = (MethodKind, Vec<usize>, Vec<Vec<usize>>);
@@ -875,6 +878,64 @@ impl Engine {
         let complete: Vec<bool> = (0..cases)
             .map(|k| c[k] > 0.0 && raw.iter().all(|col| !col[k].is_nan()))
             .collect();
+        // SELECT: the cases where the condition holds make the correlation matrix and the tests;
+        // the others, a missing value on the variable included, keep only residuals and predictions
+        let selected: Vec<bool> = match &command.select {
+            None => vec![true; cases],
+            Some(select) => {
+                let v = data.variable(&select.variable)?;
+                if names.iter().any(|n| n.eq_ignore_ascii_case(v.name())) {
+                    return Err(Error(format!(
+                        "{} is named on VARIABLES, DEPENDENT or METHOD and cannot be on SELECT",
+                        v.name()
+                    )));
+                }
+                let holds = |k: usize| -> Result<bool, Error> {
+                    if !is_valid(&v, k, false) {
+                        return Ok(false);
+                    }
+                    match (v.values(), &select.value) {
+                        (Values::Numeric(values), SelectValue::Number(n)) => {
+                            Ok(values.get(k).is_some_and(|x| select.relation.holds(x, *n)))
+                        }
+                        (Values::String(values), SelectValue::Text(t)) => {
+                            let (a, b) = (values.get(k).trim_end(), t.trim_end());
+                            Ok(match select.relation {
+                                SelectRelation::Eq => a == b,
+                                SelectRelation::Ne => a != b,
+                                SelectRelation::Lt => a < b,
+                                SelectRelation::Le => a <= b,
+                                SelectRelation::Gt => a > b,
+                                SelectRelation::Ge => a >= b,
+                            })
+                        }
+                        (Values::Numeric(_), SelectValue::Text(_)) => Err(Error(format!(
+                            "SELECT compares the numeric variable {} with a number, not quoted text",
+                            v.name()
+                        ))),
+                        (Values::String(_), SelectValue::Number(_)) => Err(Error(format!(
+                            "SELECT compares the string variable {} with quoted text, not a number",
+                            v.name()
+                        ))),
+                    }
+                };
+                (0..cases).map(holds).collect::<Result<_, _>>()?
+            }
+        };
+        // case weights of the cases that make the matrix
+        let cf: Vec<f64> = (0..cases)
+            .map(|k| if selected[k] { c[k] } else { 0.0 })
+            .collect();
+        let mask = |cols: &[Vec<f64>]| -> Vec<Vec<f64>> {
+            cols.iter()
+                .map(|col| {
+                    col.iter()
+                        .zip(&selected)
+                        .map(|(v, s)| if *s { *v } else { f64::NAN })
+                        .collect()
+                })
+                .collect()
+        };
         // the columns the matrix is built from
         let columns: Vec<Vec<f64>> = match command.missing {
             RegressionMissing::Listwise => raw
@@ -891,7 +952,7 @@ impl Engine {
                 .iter()
                 .map(|col| {
                     let (mut sum, mut w) = (0.0, 0.0);
-                    for k in 0..cases {
+                    for k in (0..cases).filter(|&k| selected[k]) {
                         if !col[k].is_nan() {
                             sum += c[k] * g[k] * col[k];
                             w += c[k] * g[k];
@@ -910,12 +971,13 @@ impl Engine {
                 })
                 .collect(),
         };
-        let mo = moments(&columns, &c, &g, command.origin);
+        let fit_columns = mask(&columns);
+        let mo = moments(&fit_columns, &cf, &g, command.origin);
         let mut tables = Vec::new();
         if let Some(d) = command.descriptives {
             // the descriptive statistics use the cases valid on each variable unless LISTWISE
             let own = (command.missing == RegressionMissing::MeanSubstitution)
-                .then(|| moments(&raw, &c, &g, command.origin));
+                .then(|| moments(&mask(&raw), &cf, &g, command.origin));
             let texts: Vec<String> = variables.iter().map(|v| shown.variable(v)).collect();
             tables.extend(descriptive_tables(
                 &texts,
@@ -1015,10 +1077,10 @@ impl Engine {
                 || charted;
             let in_fit: Vec<bool> = (0..cases)
                 .map(|k| match command.missing {
-                    RegressionMissing::Listwise => complete[k],
-                    RegressionMissing::MeanSubstitution => c[k] > 0.0,
+                    RegressionMissing::Listwise => complete[k] && selected[k],
+                    RegressionMissing::MeanSubstitution => cf[k] > 0.0,
                     RegressionMissing::Pairwise => {
-                        c[k] > 0.0
+                        cf[k] > 0.0
                             && !raw[yi][k].is_nan()
                             && last.b.iter().all(|b| !raw[order[b.0]][k].is_nan())
                     }
@@ -1040,19 +1102,43 @@ impl Engine {
                         let i = names.iter().position(|n| n.eq_ignore_ascii_case(name))?;
                         Some((shown.variable(&variables[i]), source[i].clone()))
                     };
-                    let plots = plots::Plots {
-                        command,
-                        eq: &eq,
-                        fit: last,
-                        x: &x,
-                        rows: &rows,
-                        c: &c,
-                        g: &g,
-                        in_fit: &in_fit,
-                        variable: &variable,
-                        partial: &partial,
+                    // with SELECT the plots are of the selected and the unselected cases apart,
+                    // or of all cases together (POOLED)
+                    let unselected: Vec<bool> = (0..cases)
+                        .map(|k| command.select.is_some() && !selected[k] && !in_fit[k])
+                        .collect();
+                    let everyone: Vec<bool> =
+                        (0..cases).map(|k| in_fit[k] || unselected[k]).collect();
+                    let pooled = command.residuals.as_ref().is_some_and(|r| r.pooled);
+                    let groups: Vec<(&str, &Vec<bool>)> = if command.select.is_none() {
+                        vec![("", &in_fit)]
+                    } else if pooled {
+                        vec![(" (all cases)", &everyone)]
+                    } else {
+                        vec![
+                            (" (selected cases)", &in_fit),
+                            (" (unselected cases)", &unselected),
+                        ]
                     };
-                    charts.extend(plots.charts(&mut warnings));
+                    for (suffix, group) in groups {
+                        let plots = plots::Plots {
+                            command,
+                            eq: &eq,
+                            fit: last,
+                            x: &x,
+                            rows: &rows,
+                            c: &c,
+                            g: &g,
+                            in_fit: group,
+                            variable: &variable,
+                            partial: &partial,
+                        };
+                        let mut made = plots.charts(&mut warnings);
+                        for chart in &mut made {
+                            chart.title.push_str(suffix);
+                        }
+                        charts.extend(made);
+                    }
                 }
                 let coefficients = coefficient_names(&eq, last);
                 tables.extend(self.residual_tables(
@@ -1060,7 +1146,7 @@ impl Engine {
                     &eq,
                     &rows,
                     &c,
-                    &in_fit,
+                    (&in_fit, &selected),
                     &coefficients,
                 )?);
                 per_case.push(PerCase {
@@ -1791,8 +1877,27 @@ fn case_values(
             } else {
                 (pred - eq.mean[y]) / sd_pred
             };
-            out.lever = h;
-            out.mahal = if origin { eq.c * h } else { (eq.c - 1.0) * h };
+            // a case outside the analysis (unselected) has the leverage it would have as a new
+            // case added to the data, as the Algorithms manual gives it
+            let (lever, mahal) = if in_fit[k] {
+                (h, if origin { eq.c * h } else { (eq.c - 1.0) * h })
+            } else {
+                let added = if origin {
+                    h / (1.0 + h / gk)
+                } else {
+                    gk * ((1.0 / eq.w + h) / (1.0 + 1.0 / eq.w + h) - 1.0 / (eq.w + 1.0))
+                };
+                (
+                    added,
+                    if origin {
+                        (eq.c + 1.0) * added
+                    } else {
+                        eq.c * added
+                    },
+                )
+            };
+            out.lever = lever;
+            out.mahal = mahal;
             out.sepred = s * (ht / gk).sqrt();
             out.mcin = (pred - t * out.sepred, pred + t * out.sepred);
             let half = t * s * ((ht + 1.0) / gk).sqrt();
@@ -1836,6 +1941,15 @@ fn case_values(
                 out.dresid = e;
                 out.sdresid = e / scale;
                 out.adjpred = yv - e;
+                // Cook's distance: the mean square of the equation with the case added
+                let added = if origin {
+                    fit.ss_res + e * e * (1.0 - lever)
+                } else {
+                    fit.ss_res + e * e * (1.0 - lever - 1.0 / (1.0 + eq.w))
+                };
+                let s2_added = added / (eq.c + 1.0 - k_coef);
+                let numerator = if origin { lever } else { lever + 1.0 / eq.w };
+                out.cook = e * e * numerator / (s2_added * k_coef);
             }
             Some(out)
         })
@@ -1904,7 +2018,7 @@ impl Engine {
         eq: &Equation,
         rows: &[Option<CaseValues>],
         c: &[f64],
-        in_fit: &[bool],
+        (in_fit, selected): (&[bool], &[bool]),
         coefficients: &[String],
     ) -> Result<Vec<Table>, Error> {
         use TempVar as T;
@@ -1934,6 +2048,29 @@ impl Engine {
             .filter(|(k, _)| in_fit[*k])
             .filter_map(|(k, r)| r.as_ref().map(|r| (k, r)))
             .collect();
+        // with SELECT the cases outside the analysis, reported with the others (POOLED) or after
+        // them (SEPARATE, the default)
+        let unselected: Vec<(usize, &CaseValues)> = rows
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| command.select.is_some() && !selected[*k] && !in_fit[*k])
+            .filter_map(|(k, r)| r.as_ref().map(|r| (k, r)))
+            .collect();
+        let pooled = command.residuals.as_ref().is_some_and(|r| r.pooled);
+        let mut all_cases: Vec<(usize, &CaseValues)> =
+            fitted.iter().chain(&unselected).copied().collect();
+        all_cases.sort_by_key(|(k, _)| *k);
+        // (title ending, caption note, cases) of each group of statistics
+        let groups: Vec<(&str, &str, &GroupCases)> = if command.select.is_none() {
+            vec![("", "", &fitted)]
+        } else if pooled {
+            vec![("", " All cases, selected and unselected.", &all_cases)]
+        } else {
+            vec![
+                ("", " Selected cases.", &fitted),
+                (": Unselected Cases", " Unselected cases.", &unselected),
+            ]
+        };
         let shown = [
             (T::Pred, true),
             (T::Zpred, true),
@@ -1948,25 +2085,27 @@ impl Engine {
             (T::Cook, referred.contains(&T::Cook)),
             (T::Lever, referred.contains(&T::Lever)),
         ];
-        let mut stats_rows = Vec::new();
-        for (var, _) in shown.iter().filter(|s| s.1) {
-            let values: Vec<(f64, f64)> =
-                fitted.iter().map(|(k, r)| (r.get(*var), c[*k])).collect();
-            let s = summary(&values);
-            if s[4] == Some(0.0) {
-                continue;
+        for (ending, note, group) in &groups {
+            let mut stats_rows = Vec::new();
+            for (var, _) in shown.iter().filter(|s| s.1) {
+                let values: Vec<(f64, f64)> =
+                    group.iter().map(|(k, r)| (r.get(*var), c[*k])).collect();
+                let s = summary(&values);
+                if s[4] == Some(0.0) {
+                    continue;
+                }
+                let mut row = vec![text(short_label(*var))];
+                row.extend(s.iter().map(|v| number(*v)));
+                stats_rows.push(row);
             }
-            let mut row = vec![text(short_label(*var))];
-            row.extend(s.iter().map(|v| number(*v)));
-            stats_rows.push(row);
+            out.push(table(
+                &format!("Residuals Statistics{ending}"),
+                1,
+                plain(&["", "Minimum", "Maximum", "Mean", "Std. Deviation", "N"]),
+                stats_rows,
+                caption.clone().map(|c| format!("{c}{note}")),
+            ));
         }
-        out.push(table(
-            "Residuals Statistics",
-            1,
-            plain(&["", "Minimum", "Maximum", "Mean", "Std. Deviation", "N"]),
-            stats_rows,
-            caption.clone(),
-        ));
         if let Some(cw) = &command.casewise {
             // RESID is shown standardized and DRESID studentized
             let plot = match cw.plot {
@@ -1977,6 +2116,9 @@ impl Engine {
             let mut columns = plain(&["Case Number"]);
             if let Some(id) = id {
                 columns.extend(plain(&[id.as_str()]));
+            }
+            if command.select.is_some() {
+                columns.extend(plain(&["Selected Status"]));
             }
             columns.extend(plain(&[short_label(plot)]));
             if cw.dependent {
@@ -1989,7 +2131,12 @@ impl Engine {
                 .collect();
             columns.extend(listed.iter().map(|(l, _, _)| (String::new(), l.clone())));
             let mut table_rows = Vec::new();
-            for &(k, row) in &fitted {
+            let casewise_cases: &[(usize, &CaseValues)] = if command.select.is_some() {
+                &all_cases
+            } else {
+                &fitted
+            };
+            for &(k, row) in casewise_cases {
                 let value = row.get(plot);
                 if value.is_nan() || !(cw.all || value.abs() >= cw.limit) {
                     continue;
@@ -1997,6 +2144,9 @@ impl Engine {
                 let mut cells = vec![Cell::Number(number_of(k) as f64)];
                 if id.is_some() {
                     cells.push(id_cell(k));
+                }
+                if command.select.is_some() {
+                    cells.push(text(if selected[k] { "S" } else { "U" }));
                 }
                 cells.push(number(Some(value)));
                 if cw.dependent {
@@ -2031,43 +2181,45 @@ impl Engine {
             .as_ref()
             .filter(|r| !r.outliers.is_empty())
         {
-            let mut columns = plain(&["", "", "Case Number"]);
-            if let Some(id) = id {
-                columns.extend(plain(&[id.as_str()]));
-            }
-            columns.extend(plain(&["Statistic"]));
-            let mut table_rows = Vec::new();
-            for &var in &r.outliers {
-                let mut ranked: Vec<(usize, f64)> = fitted
-                    .iter()
-                    .map(|(k, row)| (*k, row.get(var)))
-                    .filter(|(_, v)| !v.is_nan())
-                    .collect();
-                ranked.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()).then(a.0.cmp(&b.0)));
-                for (rank, (k, value)) in ranked.into_iter().take(10).enumerate() {
-                    let mut cells = vec![
-                        if rank == 0 {
-                            text(short_label(var))
-                        } else {
-                            Cell::Empty
-                        },
-                        Cell::Number((rank + 1) as f64),
-                        Cell::Number(number_of(k) as f64),
-                    ];
-                    if id.is_some() {
-                        cells.push(id_cell(k));
-                    }
-                    cells.push(number(Some(value)));
-                    table_rows.push(cells);
+            for (ending, _, group) in &groups {
+                let mut columns = plain(&["", "", "Case Number"]);
+                if let Some(id) = id {
+                    columns.extend(plain(&[id.as_str()]));
                 }
+                columns.extend(plain(&["Statistic"]));
+                let mut table_rows = Vec::new();
+                for &var in &r.outliers {
+                    let mut ranked: Vec<(usize, f64)> = group
+                        .iter()
+                        .map(|(k, row)| (*k, row.get(var)))
+                        .filter(|(_, v)| !v.is_nan())
+                        .collect();
+                    ranked.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()).then(a.0.cmp(&b.0)));
+                    for (rank, (k, value)) in ranked.into_iter().take(10).enumerate() {
+                        let mut cells = vec![
+                            if rank == 0 {
+                                text(short_label(var))
+                            } else {
+                                Cell::Empty
+                            },
+                            Cell::Number((rank + 1) as f64),
+                            Cell::Number(number_of(k) as f64),
+                        ];
+                        if id.is_some() {
+                            cells.push(id_cell(k));
+                        }
+                        cells.push(number(Some(value)));
+                        table_rows.push(cells);
+                    }
+                }
+                out.push(table(
+                    &format!("Outlier Statistics{ending}"),
+                    2,
+                    columns,
+                    table_rows,
+                    caption.clone(),
+                ));
             }
-            out.push(table(
-                "Outlier Statistics",
-                2,
-                columns,
-                table_rows,
-                caption.clone(),
-            ));
         }
         Ok(out)
     }

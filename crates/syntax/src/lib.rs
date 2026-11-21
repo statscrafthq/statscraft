@@ -391,7 +391,7 @@ pub use ratio_statistics::{RatioOrder, RatioRequest, RatioStatistics};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,
     RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionResiduals,
-    RegressionStatistics, TempVar,
+    RegressionSelect, RegressionStatistics, SelectValue, TempVar,
 };
 pub use regression_more::{CURVE_MODELS, CurveModel, Curvefit, NaturalResponse, Probit, Wls};
 pub use reliability::{
