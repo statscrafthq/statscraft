@@ -529,8 +529,8 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
 
 **Scale**
 
-- **Reliability Analysis** (`RELIABILITY`): one scale of all the items, with any model, Omega among them.
-  - The model: Alpha, Split-half, Guttman, Parallel or Strict parallel. A scale label.
+- **Reliability Analysis** (`RELIABILITY`): one scale of all the items.
+  - The model: Alpha, Split-half, Guttman, Parallel, Strict parallel or Omega. A scale label.
   - Descriptives for each item, the scale, and the scale if an item is deleted.
   - Inter-item correlations and covariances, and their summaries.
   - An ANOVA table with the F test, Friedman's or Cochran's chi-square, Hotelling's T-squared and Tukey's test of additivity.
