@@ -1363,5 +1363,22 @@ fn bootstrap_takes_its_subcommands_in_full() {
     assert!(message("BOOTSTRAP /CRITERIA NSAMPLES=10 /CRITERIA CILEVEL=90.").contains("twice"));
     assert!(message("BOOTSTRAP /MISSING.").contains("empty"));
     assert!(message("BOOTSTRAP /CRITERIA CILEVEL=100.").contains("CILEVEL"));
-    assert!(message("BOOTSTRAP /SAMPLING METHOD=WILD(RESIDUALS=r).").contains("not supported"));
+    assert!(message("BOOTSTRAP /SAMPLING METHOD=WILD(RESIDUALS=r).").contains("needs the target"));
+    let Command::Bootstrap(b) =
+        one("BOOTSTRAP /SAMPLING METHOD=RESIDUAL(PREDICTED=p q) /VARIABLES TARGET=y z.")
+    else {
+        panic!("not BOOTSTRAP")
+    };
+    let r = b.residual.expect("residual sampling");
+    assert!(!r.wild && r.predicted && r.variables.len() == 2);
+    let Command::Bootstrap(b) =
+        one("BOOTSTRAP /VARIABLES TARGET=y /SAMPLING METHOD=WILD(RESIDUALS=r).")
+    else {
+        panic!("not BOOTSTRAP")
+    };
+    assert!(b.residual.expect("wild").wild);
+    assert!(
+        message("BOOTSTRAP /SAMPLING METHOD=RESIDUAL(FITTED=r) /VARIABLES TARGET=y.")
+            .contains("FITTED")
+    );
 }

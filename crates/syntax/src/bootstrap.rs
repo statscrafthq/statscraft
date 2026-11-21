@@ -4,8 +4,9 @@
 //! - Every subcommand is optional, each may appear once and none may be empty. A keyword may
 //!   not repeat within its subcommand. Command, subcommand and keyword names are written in
 //!   full: no abbreviations.
-//! - SAMPLING METHOD=SIMPLE (the default) or STRATIFIED(STRATA=varlist). RESIDUAL and WILD
-//!   resampling are recognised but not supported yet.
+//! - SAMPLING METHOD=SIMPLE (the default), STRATIFIED(STRATA=varlist), or RESIDUAL and WILD
+//!   with (RESIDUALS=varlist) or (PREDICTED=varlist), one variable for each TARGET variable,
+//!   which they need.
 //! - VARIABLES TARGET=varlist INPUT=varlist: the variables whose missing values decide which
 //!   cases take part. The older form ANALYSIS(TARGET=... INPUT=...) and SAMPLING(STRATA=...)
 //!   inside VARIABLES is taken too.
@@ -33,6 +34,20 @@ pub struct Bootstrap {
     pub samples: u64,
     /// USERMISSING=INCLUDE
     pub include_user_missing: bool,
+    /// RESIDUAL or WILD resampling: the targets are rebuilt from predicted values and
+    /// residuals instead of drawing cases.
+    pub residual: Option<ResidualSampling>,
+}
+
+/// `RESIDUAL(RESIDUALS=varlist | PREDICTED=varlist)` or the same with WILD, one variable for
+/// each TARGET in the order of TARGET.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResidualSampling {
+    /// WILD: a case's own residual with a random sign, not a residual drawn from all cases.
+    pub wild: bool,
+    /// PREDICTED: the variables hold predicted values, not residuals.
+    pub predicted: bool,
+    pub variables: Vec<VarItem>,
 }
 
 impl Default for Bootstrap {
@@ -45,6 +60,7 @@ impl Default for Bootstrap {
             bca: false,
             samples: 1000,
             include_user_missing: false,
+            residual: None,
         }
     }
 }
@@ -119,10 +135,23 @@ pub(crate) fn bootstrap(p: &mut Parser) -> PResult<Command> {
                     if p.eat_word("STRATIFIED") {
                         b.strata = strata(p)?;
                     } else if p.at_keyword("RESIDUAL") || p.at_keyword("WILD") {
-                        return Err(SyntaxError::new(
-                            p.span(),
-                            "RESIDUAL and WILD resampling are not supported yet; use SIMPLE or STRATIFIED",
-                        ));
+                        let wild = p.at_keyword("WILD");
+                        p.pos += 1;
+                        p.expect(Punct::LParen)?;
+                        let predicted = if p.eat_word("RESIDUALS") {
+                            false
+                        } else if p.eat_word("PREDICTED") {
+                            true
+                        } else {
+                            return Err(p.unexpected(&["RESIDUALS", "PREDICTED"]));
+                        };
+                        let variables = list(p)?;
+                        p.expect(Punct::RParen)?;
+                        b.residual = Some(ResidualSampling {
+                            wild,
+                            predicted,
+                            variables,
+                        });
                     } else if !p.eat_word("SIMPLE") {
                         return Err(p.unexpected(&["SIMPLE", "STRATIFIED", "RESIDUAL", "WILD"]));
                     }
@@ -211,5 +240,16 @@ pub(crate) fn bootstrap(p: &mut Parser) -> PResult<Command> {
         }
     }
     p.finish(&["'/'"])?;
+    if let Some(r) = &b.residual
+        && b.target.is_empty()
+    {
+        return Err(SyntaxError::new(
+            p.span(),
+            format!(
+                "{} resampling needs the target variables: give /VARIABLES TARGET=varlist",
+                if r.wild { "WILD" } else { "RESIDUAL" }
+            ),
+        ));
+    }
     Ok(Command::Bootstrap(Box::new(b)))
 }

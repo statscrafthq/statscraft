@@ -237,7 +237,7 @@ pub use bayes::{
     GroupSelect, GroupVariancePrior, IndependentFactor, LinearPrior, MeanTest, NormalPrior,
     PredictStat, RegressionPlot, Success, TablePrior, VariancePrior,
 };
-pub use bootstrap::Bootstrap;
+pub use bootstrap::{Bootstrap, ResidualSampling};
 pub use catpca::{
     Catpca, CatpcaBootstrap, CatpcaPlot, CatpcaPlots, CatpcaPrint, CatpcaVariable, ScalingLevel,
 };

@@ -527,8 +527,30 @@ impl Engine {
         let full = self.active()?.clone();
         let strata_names = self.expand(&spec.strata)?;
         let mut checked = strata_names.clone();
-        checked.extend(self.expand(&spec.target)?);
+        let target_names = self.expand(&spec.target)?;
+        checked.extend(target_names.clone());
         checked.extend(self.expand(&spec.input)?);
+        // RESIDUAL and WILD: one residual (or predicted) variable for each target
+        let residual_names = match &spec.residual {
+            Some(r) => {
+                let names = self.expand(&r.variables)?;
+                if names.len() != target_names.len() {
+                    return Err(Error(format!(
+                        "BOOTSTRAP: {} names {} variables, one for each of the {} TARGET variables",
+                        if r.predicted {
+                            "PREDICTED"
+                        } else {
+                            "RESIDUALS"
+                        },
+                        names.len(),
+                        target_names.len()
+                    )));
+                }
+                checked.extend(names.clone());
+                names
+            }
+            None => Vec::new(),
+        };
         let weights = crate::descriptives::case_weights(&full)?;
         let mut kept = Vec::new();
         for case in 0..full.case_count() {
@@ -589,18 +611,90 @@ impl Engine {
             let groups = strata(&data, &strata_names)?;
             let case_weights = crate::descriptives::case_weights(&data)?;
             let weight_name = data.weight_variable().map(str::to_string);
+            // RESIDUAL and WILD: per target the predicted values and the residuals of the cases
+            let rebuild: Option<Vec<(Vec<f64>, Vec<f64>)>> = match &spec.residual {
+                None => None,
+                Some(r) => {
+                    let numeric = |name: &str| -> Result<Vec<f64>, Error> {
+                        match data.variable(name)?.values() {
+                            Values::Numeric(v) => Ok((0..data.case_count())
+                                .map(|c| v.get(c).unwrap_or(f64::NAN))
+                                .collect()),
+                            Values::String(_) => Err(Error(format!(
+                                "BOOTSTRAP: {name} is a string variable; RESIDUAL and WILD need numbers"
+                            ))),
+                        }
+                    };
+                    let mut columns = Vec::new();
+                    for (target, other) in target_names.iter().zip(&residual_names) {
+                        let (t, o) = (numeric(target)?, numeric(other)?);
+                        columns.push(if r.predicted {
+                            let residual = t.iter().zip(&o).map(|(t, p)| t - p).collect();
+                            (o, residual)
+                        } else {
+                            let predicted = t.iter().zip(&o).map(|(t, e)| t - e).collect();
+                            (predicted, o)
+                        });
+                    }
+                    Some(columns)
+                }
+            };
             let mut values: Vec<Vec<f64>> = vec![Vec::new(); spots.len()];
             for _ in 0..spec.samples {
-                let picks = draw(
-                    &mut self.random.borrow_mut(),
-                    &groups,
-                    case_weights.as_deref(),
-                );
-                let mut sample = data.clone();
-                sample.take_cases(&picks)?;
-                if let Some(name) = &weight_name {
-                    sample.set_numeric_values(name, vec![Some(1.0); picks.len()])?;
-                }
+                let sample = match (&rebuild, &spec.residual) {
+                    (Some(columns), Some(r)) => {
+                        let mut sample = data.clone();
+                        let n = data.case_count();
+                        // WILD keeps each case's own residual; RESIDUAL draws one for every
+                        // case from all of them, in proportion to the weights under WEIGHT
+                        let picks: Vec<usize> = if r.wild {
+                            (0..n).collect()
+                        } else {
+                            let mut random = self.random.borrow_mut();
+                            let cumulative: Vec<f64> = (0..n)
+                                .scan(0.0, |sum, c| {
+                                    *sum += case_weights.as_ref().map_or(1.0, |w| w[c]);
+                                    Some(*sum)
+                                })
+                                .collect();
+                            let total = cumulative[n - 1];
+                            (0..n)
+                                .map(|_| {
+                                    let u = random.uniform() * total;
+                                    cumulative.partition_point(|&c| c <= u).min(n - 1)
+                                })
+                                .collect()
+                        };
+                        let signs: Vec<f64> = if r.wild {
+                            let mut random = self.random.borrow_mut();
+                            (0..n)
+                                .map(|_| if random.uniform() < 0.5 { -1.0 } else { 1.0 })
+                                .collect()
+                        } else {
+                            vec![1.0; n]
+                        };
+                        for (name, (predicted, residual)) in target_names.iter().zip(columns) {
+                            let values = (0..n)
+                                .map(|c| Some(predicted[c] + signs[c] * residual[picks[c]]))
+                                .collect();
+                            sample.set_numeric_values(name, values)?;
+                        }
+                        sample
+                    }
+                    _ => {
+                        let picks = draw(
+                            &mut self.random.borrow_mut(),
+                            &groups,
+                            case_weights.as_deref(),
+                        );
+                        let mut sample = data.clone();
+                        sample.take_cases(&picks)?;
+                        if let Some(name) = &weight_name {
+                            sample.set_numeric_values(name, vec![Some(1.0); picks.len()])?;
+                        }
+                        sample
+                    }
+                };
                 for (v, x) in values.iter_mut().zip(self.rerun(command, sample, &spots)) {
                     v.push(x);
                 }
@@ -685,14 +779,15 @@ fn annotate(tables: &mut [Table], spots: &[Spot], pooled: &[Option<Pooled>], spe
         true => format!("BCa {level}% Confidence Interval"),
         false => format!("{level}% Confidence Interval"),
     };
+    let kind = match (&spec.residual, spec.strata.is_empty()) {
+        (Some(r), _) if r.wild => "wild ",
+        (Some(_), _) => "residual ",
+        (None, false) => "stratified ",
+        (None, true) => "",
+    };
     let caption = format!(
-        "Bootstrap results are based on {} {}resamples.",
-        spec.samples,
-        if spec.strata.is_empty() {
-            ""
-        } else {
-            "stratified "
-        }
+        "Bootstrap results are based on {} {kind}resamples.",
+        spec.samples
     );
     let cells = |p: Option<&Pooled>| match p {
         Some(p) => [p.bias, p.std_error, p.lower, p.upper].map(Cell::Number),

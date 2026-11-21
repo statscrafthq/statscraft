@@ -855,7 +855,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "BOOTSTRAP",
         summary: "Give the next procedure bootstrap bias, standard errors and confidence intervals.",
-        syntax: "BOOTSTRAP [/SAMPLING METHOD=SIMPLE | STRATIFIED(STRATA=varlist)]\n\
+        syntax: "BOOTSTRAP [/SAMPLING METHOD=SIMPLE | STRATIFIED(STRATA=varlist) | RESIDUAL(RESIDUALS=varlist | PREDICTED=varlist) |\n\
+                 \x20                WILD(RESIDUALS=varlist | PREDICTED=varlist)]\n\
                  \x20 [/VARIABLES [TARGET=varlist] [INPUT=varlist]]\n\
                  \x20 [/CRITERIA [CILEVEL=95 | level] [CITYPE=PERCENTILE | BCA] [NSAMPLES=1000 | n]]\n\
                  \x20 [/MISSING [USERMISSING=EXCLUDE | INCLUDE]].\n\
@@ -866,8 +867,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  with USERMISSING=INCLUDE. DESCRIPTIVES, FREQUENCIES, MEANS, CORRELATIONS, T-TEST,\n\
                  REGRESSION, CROSSTABS, EXAMINE, ONEWAY, NONPAR CORR, PARTIAL CORR, LOGISTIC REGRESSION,\n\
                  NOMREG, PLUM, UNIANOVA and GLM add Bias, Std. Error and the interval (percentile or BCa)\n\
-                 to their main statistics; any other procedure warns and runs without resampling. RESIDUAL\n\
-                 and WILD resampling are not supported yet.",
+                 to their main statistics; any other procedure warns and runs without resampling. RESIDUAL and\n\
+                 WILD keep the cases and rebuild each TARGET variable (one residual or predicted-value variable for\n\
+                 each, in order) as its predicted value plus a residual drawn from all cases (RESIDUAL; one case's\n\
+                 residuals for all targets) or plus its own residual with a random sign (WILD).",
         example: "BOOTSTRAP /VARIABLES INPUT=height weight /CRITERIA CITYPE=BCA NSAMPLES=2000.",
         parse: bootstrap::bootstrap,
     },

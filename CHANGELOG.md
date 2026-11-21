@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- BOOTSTRAP /SAMPLING METHOD=RESIDUAL and WILD: resamples that keep the cases and rebuild the target from its predicted values and residuals.
 - ONEWAY /MATRIX=IN and OUT: the analysis of variance from a matrix data file of group means, standard deviations and counts (or pooled variance), and the group summaries of the run written.
 - RELIABILITY /MATRIX=IN and OUT (NOPRINT): the scale statistics from a matrix data file of counts, means, standard deviations and correlations, and the matrix of the run written.
 - TSMODEL and TSAPPLY /MODELSUMMARY PLOT draws the histograms of the fit measures across the models and the boxplots of the residual ACF and PACF by lag, instead of a warning.

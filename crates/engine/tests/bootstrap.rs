@@ -534,3 +534,102 @@ fn nomreg_and_plum_estimates_get_bootstrap_results() {
         "Estimate / Bootstrap / Std. Error",
     );
 }
+
+// RESIDUAL and WILD resampling rebuild the target from its predicted values and residuals and
+// keep the inputs: the bootstrap error of the slope of y on x is then known in closed form (the
+// residuals are those of the least squares fit, computed in R): the root of the mean squared
+// residual over the sum of squares of x for drawn residuals, and the root of the sum of squares
+// of (x - mean) times the residual over the same sum for the wild sign changes.
+fn slope_error(sampling: &str, samples: u32) -> f64 {
+    let t = run(
+        &mut Engine::default(),
+        &format!(
+            "{DATA}REGRESSION /DEPENDENT=y /METHOD=ENTER x /SAVE=PRED(p) RESID(e).
+SET SEED=19.
+BOOTSTRAP /SAMPLING METHOD={sampling} /VARIABLES TARGET=y /CRITERIA NSAMPLES={samples}.
+REGRESSION /DEPENDENT=y /METHOD=ENTER x."
+        ),
+    );
+    let coefficients = t.iter().rfind(|t| t.title == "Coefficients").unwrap();
+    let c = (0..coefficients.columns.len())
+        .find(|&c| {
+            coefficients.columns[c] == "Std. Error"
+                && coefficients.column_groups[c]
+                    .last()
+                    .is_some_and(|g| g == "Bootstrap")
+        })
+        .expect("bootstrap columns");
+    number(&coefficients.rows[1][c])
+}
+
+#[test]
+fn residual_resampling_gives_the_residual_bootstrap_error_of_a_slope() {
+    let se = slope_error("RESIDUAL(RESIDUALS=e)", 800);
+    assert!((se / 0.0512612941 - 1.0).abs() < 0.12, "{se}");
+}
+
+#[test]
+fn wild_resampling_gives_the_wild_bootstrap_error_of_a_slope() {
+    let se = slope_error("WILD(RESIDUALS=e)", 800);
+    assert!((se / 0.0376651792 - 1.0).abs() < 0.12, "{se}");
+}
+
+#[test]
+fn predicted_values_do_the_same_as_the_residuals_they_leave() {
+    let by_residual = slope_error("RESIDUAL(RESIDUALS=e)", 60);
+    let by_predicted = slope_error("RESIDUAL(PREDICTED=p)", 60);
+    assert!(
+        (by_residual - by_predicted).abs() < 1e-12,
+        "{by_residual} {by_predicted}"
+    );
+}
+
+#[test]
+fn a_target_with_no_residual_does_not_move() {
+    let t = run(
+        &mut Engine::default(),
+        &format!(
+            "{DATA}REGRESSION /DEPENDENT=y /METHOD=ENTER x /SAVE=PRED(p).
+COMPUTE none = 0.
+COMPUTE y2 = p.
+BOOTSTRAP /SAMPLING METHOD=WILD(RESIDUALS=none) /VARIABLES TARGET=y2 /CRITERIA NSAMPLES=20.
+REGRESSION /DEPENDENT=y2 /METHOD=ENTER x."
+        ),
+    );
+    let coefficients = t.iter().rfind(|t| t.title == "Coefficients").unwrap();
+    let c = (0..coefficients.columns.len())
+        .find(|&c| {
+            coefficients.columns[c] == "Std. Error"
+                && coefficients.column_groups[c]
+                    .last()
+                    .is_some_and(|g| g == "Bootstrap")
+        })
+        .unwrap();
+    assert!(number(&coefficients.rows[1][c]) < 1e-9);
+    assert!(number(&coefficients.rows[1][c - 1]).abs() < 1e-9);
+    let caption = coefficients.caption.clone().unwrap();
+    assert!(caption.contains("wild resamples"), "{caption}");
+}
+
+#[test]
+fn residual_resampling_needs_one_variable_for_each_target() {
+    let (_, errors) = parse("BOOTSTRAP /SAMPLING METHOD=RESIDUAL(RESIDUALS=e).");
+    assert!(
+        errors[0].message.contains("needs the target variables"),
+        "{errors:?}"
+    );
+    let mut engine = Engine::default();
+    let _ = run(
+        &mut engine,
+        &format!(
+            "{DATA}COMPUTE e = 0.\nBOOTSTRAP /SAMPLING METHOD=WILD(RESIDUALS=e) /VARIABLES TARGET=x y."
+        ),
+    );
+    let (commands, _) = parse("MEANS x BY g.");
+    let error = engine.execute(&commands[0].command).unwrap_err();
+    assert!(
+        error.0.contains("one for each of the 2 TARGET variables"),
+        "{}",
+        error.0
+    );
+}
