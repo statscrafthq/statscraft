@@ -134,7 +134,7 @@ fn nomreg_errors_name_what_is_not_supported() {
     assert!(err("NOMREG pick BY zone /STEPWISE=MAXEFFECT(1.5).").contains("whole number"));
     assert!(err("NOMREG pick BY zone /TEST=ALL 1 0.").contains("not supported yet"));
     assert!(err("NOMREG pick BY zone /OUTFILE=MODEL('m.xml').").contains("not supported yet"));
-    assert!(err("NOMREG pick BY zone /PRINT=HISTORY(2).").contains("HISTORY"));
+    assert!(err("NOMREG pick BY zone /PRINT=HISTORY(0).").contains("positive whole number"));
     assert!(err("NOMREG pick BY zone /PRINT=CELLPROB.").contains("not supported yet"));
     assert!(err("NOMREG pick zone.").contains("one dependent"));
     assert!(err("NOMREG pick BY zone /FULLFACTORIAL /MODEL=zone.").contains("FULLFACTORIAL"));
@@ -142,4 +142,15 @@ fn nomreg_errors_name_what_is_not_supported() {
     assert!(err("NOMREG pick BY zone /CRITERIA=DELTA(1).").contains("below 1"));
     assert!(err("NOMREG pick BY zone /SCALE=0.").contains("positive"));
     assert!(err("NOMREG pick BY zone /SAVE=PCPROB PCPROB.").contains("only once"));
+}
+
+#[test]
+fn nomreg_history_takes_every_iteration_or_every_nth() {
+    let history = |text: &str| nomreg(text).print.history;
+    assert_eq!(history("NOMREG pick BY zone /PRINT=HISTORY."), Some(1));
+    assert_eq!(
+        history("NOMREG pick BY zone /PRINT=HISTORY(5) CPS."),
+        Some(5)
+    );
+    assert_eq!(history("NOMREG pick BY zone /PRINT=CPS."), None);
 }

@@ -83,6 +83,9 @@ struct Fit {
     ll: f64,
     converged: bool,
     iterations: usize,
+    /// The kernel log likelihood and the parameters at iteration 0 and after every accepted
+    /// iteration.
+    history: Vec<(f64, Vec<f64>)>,
 }
 
 impl Fit {
@@ -231,6 +234,7 @@ impl Model {
                 info: Vec::new(),
                 converged: true,
                 iterations: 0,
+                history: Vec::new(),
             };
         }
         let q = cols.len();
@@ -247,6 +251,7 @@ impl Model {
             }
         }
         let mut ll = self.log_likelihood(&cols, &b);
+        let mut history = vec![(ll, b.clone())];
         let gradient_tolerance = [c.lconverge, c.pconverge]
             .into_iter()
             .filter(|&v| v > 0.0)
@@ -305,6 +310,7 @@ impl Model {
             let ll_change = (lc - ll).abs();
             b = candidate;
             ll = lc;
+            history.push((ll, b.clone()));
             if (c.lconverge > 0.0 && ll_change < c.lconverge)
                 || (c.pconverge > 0.0 && change < c.pconverge)
             {
@@ -329,6 +335,7 @@ impl Model {
             ll,
             converged,
             iterations,
+            history,
         }
     }
 }
@@ -1331,6 +1338,42 @@ impl Engine {
             out.push(number(Some(m2ll)));
             out
         };
+        if let Some(every) = print.history {
+            // iteration 0, every n-th one and always the last, for the final model
+            let q = fit.cols.len();
+            let mut columns = plain(&["Iteration", "-2 Log Likelihood"]);
+            for &j in &others {
+                for &col in &fit.cols {
+                    columns.push((cat_label(j), col_name(col)));
+                }
+            }
+            let last = fit.history.len().saturating_sub(1);
+            let rows: Vec<Vec<Cell>> = fit
+                .history
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i % every as usize == 0 || i == last)
+                .map(|(i, (ll, b))| {
+                    let mut row = vec![Cell::Number(i as f64), number(Some(shown_m2ll(*ll)))];
+                    row.extend((0..others.len() * q).map(|at| number(b.get(at).copied())));
+                    row
+                })
+                .collect();
+            let note = if fit.converged {
+                "The iterations stopped because a convergence criterion was met."
+            } else {
+                "The iterations stopped before a convergence criterion was met."
+            };
+            tables.push(table(
+                "Iteration History",
+                1,
+                columns,
+                rows,
+                Some(format!(
+                    "The parameters are those of the final model. {note}{kernel_note}"
+                )),
+            ));
+        }
         if print.mfi {
             let mut columns = plain(&["Model"]);
             columns.extend(ic_columns(false));

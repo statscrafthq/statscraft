@@ -82,6 +82,8 @@ pub struct NomregPrint {
     pub corb: bool,
     /// The step summary of a stepwise method.
     pub step: bool,
+    /// `HISTORY(n)`: the iteration history, every n-th iteration (and the last).
+    pub history: Option<u32>,
 }
 
 impl Default for NomregPrint {
@@ -99,6 +101,7 @@ impl Default for NomregPrint {
             covb: false,
             corb: false,
             step: true,
+            history: None,
         }
     }
 }
@@ -352,7 +355,23 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
             out.corb = true;
         } else if p.eat_keyword("STEP") {
             out.step = true;
-        } else if let Some(word) = ["CELLPROB", "HISTORY", "ASSOCIATION"]
+        } else if p.eat_keyword("HISTORY") {
+            let mut every = 1;
+            if p.eat(Punct::LParen) {
+                let at = p.pos;
+                match p.number() {
+                    Some(v) if v >= 1.0 && v.fract() == 0.0 => every = v as u32,
+                    _ => {
+                        return Err(SyntaxError::new(
+                            p.span_from(at),
+                            "HISTORY takes a positive whole number of iterations",
+                        ));
+                    }
+                }
+                p.expect(Punct::RParen)?;
+            }
+            out.history = Some(every);
+        } else if let Some(word) = ["CELLPROB", "ASSOCIATION"]
             .into_iter()
             .find(|k| p.at_keyword(k))
         {
@@ -375,6 +394,7 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
                 "COVB",
                 "CORB",
                 "STEP",
+                "HISTORY",
                 "NONE",
             ]));
         }

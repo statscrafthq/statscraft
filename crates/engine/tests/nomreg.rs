@@ -631,3 +631,75 @@ fn nomreg_stepwise_rules_and_errors() {
         .contains("repeats")
     );
 }
+
+#[test]
+fn nomreg_history_lists_the_iterations_from_the_intercept_only_start_to_the_final_fit() {
+    let mut engine = Engine::default();
+    let all = run(
+        &mut engine,
+        &format!("{DATA}NOMREG mode BY district WITH km /PRINT=MFI PARAMETER HISTORY."),
+    );
+    let history = all.iter().find(|t| t.title == "Iteration History").unwrap();
+    // it comes before the model fitting information
+    let at = |title: &str| all.iter().position(|t| t.title == title).unwrap();
+    assert!(at("Iteration History") < at(MFI));
+    let number = |cell: &Cell| match cell {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    // iteration 0 is the intercept-only model, the last row the final one, -2LL falls throughout
+    let first = &history.rows[0];
+    assert_eq!(number(&first[0]), 0.0);
+    assert!((number(&first[1]) - 167.235_103_832).abs() < 1e-6);
+    let last = history.rows.last().unwrap();
+    assert!((number(&last[1]) - 142.367_209_019).abs() < 1e-6);
+    let falling: Vec<f64> = history.rows.iter().map(|r| number(&r[1])).collect();
+    assert!(
+        falling.windows(2).all(|w| w[1] <= w[0] + 1e-9),
+        "{falling:?}"
+    );
+    // the last row holds the estimates of the Parameter Estimates table
+    let estimates = all.iter().find(|t| t.title == PE).unwrap();
+    let df = estimates
+        .column_titles()
+        .iter()
+        .position(|t| t == "df")
+        .unwrap();
+    let b = estimates
+        .column_titles()
+        .iter()
+        .position(|t| t == "B")
+        .unwrap();
+    let mut from_table: Vec<f64> = estimates
+        .rows
+        .iter()
+        .filter(|r| r[df] == Cell::Number(1.0))
+        .map(|r| number(&r[b]))
+        .collect();
+    let mut from_history: Vec<f64> = last[2..].iter().map(number).collect();
+    from_table.sort_by(f64::total_cmp);
+    from_history.sort_by(f64::total_cmp);
+    assert_eq!(from_table.len(), from_history.len());
+    for (a, b) in from_table.iter().zip(&from_history) {
+        assert!((a - b).abs() < 1e-8, "{a} vs {b}");
+    }
+    // HISTORY(3) keeps iterations 0, 3, 6, ... and the last one
+    let every_third = run(
+        &mut engine,
+        &format!("{DATA}NOMREG mode BY district WITH km /PRINT=HISTORY(3)."),
+    );
+    let rows = &every_third
+        .iter()
+        .find(|t| t.title == "Iteration History")
+        .unwrap()
+        .rows;
+    let numbers: Vec<f64> = rows.iter().map(|r| number(&r[0])).collect();
+    let total = history.rows.len() as f64 - 1.0;
+    assert!(
+        numbers.iter().all(|n| n % 3.0 == 0.0 || *n == total),
+        "{numbers:?}"
+    );
+    assert_eq!(*numbers.last().unwrap(), total);
+    let (_, errors) = parse("NOMREG mode BY district /PRINT=HISTORY(0).");
+    assert!(errors[0].message.contains("positive whole number"));
+}

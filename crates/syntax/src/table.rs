@@ -3154,8 +3154,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  MINEFFECT dropping under BACKWARD and BSTEP, counting effects without the intercept. The Step\n\
                  Summary (STEP, shown by default) lists each step with the -2 log likelihood after it and the\n\
                  test that decided it; the other tables describe the final model, which without the intercept\n\
-                 can be the null model of equal probabilities. Not supported yet: TEST, OUTFILE and PRINT\n\
-                 CELLPROB, HISTORY and ASSOCIATION.",
+                 can be the null model of equal probabilities. HISTORY(n) adds an Iteration History table of the final\n\
+                 model: -2 log likelihood and the parameters at iteration 0 (the intercept-only start), every n-th\n\
+                 iteration and the last. Not supported yet: TEST, OUTFILE and PRINT CELLPROB and ASSOCIATION.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
     },

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- NOMREG /PRINT=HISTORY(n) adds an Iteration History table of the final model: -2 log likelihood and parameter estimates at iteration 0, every n-th iteration and the last.
 ## 0.22.0 (2026-11-21)
 
 - GLM and UNIANOVA /CONTRAST(factor)=SPECIAL(matrix): the matrix is read column by column, the first column the constant and each other column one contrast, as the manual's example shows.
