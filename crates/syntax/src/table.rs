@@ -3049,6 +3049,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/ORIGIN | NOORIGIN] [/ID=var] [/PRINT=[DEFAULT] [SUMMARY] [CORR] [ITER[(n)]] [GOODFIT] [CI(95)] [ALL]]\n\
                  \x20  [/CRITERIA=[BCON(0.001)] [ITERATE(20)] [LCON(0)] [PIN(0.05)] [POUT(0.10)] [EPS(1E-8)] [CUT(0.5)]]\n\
                  \x20  [/MISSING=EXCLUDE | INCLUDE] [/CASEWISE=[tempvars] [OUTLIER(2)]]\n\
+                 \x20  [/SELECT=ALL | var EQ | NE | LT | LE | GT | GE value]\n\
                  \x20  [/SAVE=tempvar[(name)] ...] [/CLASSPLOT] [/EXTERNAL].\n\
                  tempvar: PRED PGROUP RESID DEV LRESID SRESID ZRESID LEVER COOK DFBETA. The dependent variable has\n\
                  exactly two values among the cases used: the lower is coded 0 and the higher 1 (strings in\n\
@@ -3070,7 +3071,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  DFB1_1, ... (one per coefficient), or the names given (DFBETA(name) gives name0, name1, ...).\n\
                  Weighted when a weight variable is set. CLASSPLOT gives, for every step shown, chart data of the\n\
                  cases counted by their predicted probability of the second category in 40 bins of 0.025, stacked\n\
-                 by the observed category. EXTERNAL changes nothing. Not supported yet: SELECT, OUTFILE.",
+                 by the observed category. EXTERNAL changes nothing. SELECT fits only the cases where its condition\n\
+                 holds (the variable is numeric and none of those on VARIABLES, CATEGORICAL or METHOD; a missing\n\
+                 value leaves the case unselected); the Case Processing Summary counts the unselected cases, the\n\
+                 Classification Table has a part for each group, and SAVE and CASEWISE (with S or U in Selected\n\
+                 Status) cover the unselected cases that have a prediction and an observed value.\n\
+                 Not supported yet: OUTFILE.",
         example: "LOGISTIC REGRESSION VARIABLES=bought WITH age income region /CATEGORICAL=region /METHOD=FSTEP(LR) /PRINT=GOODFIT CI(95) /SAVE=PRED.",
         parse: logistic::logistic,
     },

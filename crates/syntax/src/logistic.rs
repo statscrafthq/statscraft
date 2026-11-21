@@ -133,6 +133,70 @@ pub struct Logistic {
     pub save: Vec<(LogisticTemp, Option<String>)>,
     /// `/CLASSPLOT`: the classification plot of every step shown.
     pub classplot: bool,
+    /// `/SELECT=var relation value`: only the cases where it holds are fitted; None is ALL.
+    pub select: Option<LogisticSelect>,
+}
+
+/// The condition of `/SELECT=var relation value`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LogisticSelect {
+    pub variable: String,
+    pub relation: SelectRelation,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectRelation {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+impl SelectRelation {
+    pub fn holds(self, left: f64, right: f64) -> bool {
+        match self {
+            Self::Eq => left == right,
+            Self::Ne => left != right,
+            Self::Lt => left < right,
+            Self::Le => left <= right,
+            Self::Gt => left > right,
+            Self::Ge => left >= right,
+        }
+    }
+}
+
+/// `ALL`, or `varname relation value` with the relation EQ, NE, LT, LE, GT or GE.
+fn select(p: &mut Parser) -> PResult<Option<LogisticSelect>> {
+    if p.eat_word("ALL") {
+        return Ok(None);
+    }
+    let variable = p.name("a variable name")?;
+    const RELATIONS: [(&str, SelectRelation); 6] = [
+        ("EQ", SelectRelation::Eq),
+        ("NE", SelectRelation::Ne),
+        ("LT", SelectRelation::Lt),
+        ("LE", SelectRelation::Le),
+        ("GT", SelectRelation::Gt),
+        ("GE", SelectRelation::Ge),
+    ];
+    let found = RELATIONS.iter().find(
+        |(name, _)| matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(name)),
+    );
+    let Some(&(_, relation)) = found else {
+        return Err(p.unexpected(&["EQ", "NE", "LT", "LE", "GT", "GE"]));
+    };
+    p.pos += 1;
+    let Some(value) = p.number() else {
+        return Err(p.unexpected(&["a number"]));
+    };
+    Ok(Some(LogisticSelect {
+        variable,
+        relation,
+        value,
+    }))
 }
 
 /// Terms separated by commas or blanks, each `a` or `a BY b ...`, up to a slash or the end.
@@ -462,6 +526,7 @@ pub(crate) fn logistic(p: &mut Parser) -> PResult<Command> {
         casewise: None,
         save: Vec::new(),
         classplot: false,
+        select: None,
     };
     while p.eat(Punct::Slash) {
         if p.at_keyword("ENTER") || p.at_keyword("FSTEP") || p.at_keyword("BSTEP") {
@@ -523,10 +588,13 @@ pub(crate) fn logistic(p: &mut Parser) -> PResult<Command> {
             command.casewise = Some(casewise(p)?);
         } else if p.eat_keyword("SAVE") {
             command.save = save(p)?;
+        } else if p.eat_keyword("SELECT") {
+            p.eat(Punct::Eq);
+            command.select = select(p)?;
         } else if p.eat_keyword("EXTERNAL") {
             // only a memory hint: every case is held in memory anyway
         } else {
-            return Err(p.subcommand_error("LOGISTIC REGRESSION", &["SELECT", "OUTFILE"]));
+            return Err(p.subcommand_error("LOGISTIC REGRESSION", &["OUTFILE"]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

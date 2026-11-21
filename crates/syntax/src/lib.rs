@@ -312,7 +312,7 @@ pub use legacy_scaling::{LegacyChart, LegacyCoding, LegacyLevel, Overals};
 pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
     Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,
-    LogisticPrint, LogisticTemp, Removal,
+    LogisticPrint, LogisticSelect, LogisticTemp, Removal, SelectRelation,
 };
 pub use loglinear::{
     CellWeights, Genlog, GenlogCriteria, GenlogPart, GenlogPlot, GenlogPrint, GenlogResiduals,

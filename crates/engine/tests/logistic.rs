@@ -870,3 +870,181 @@ LOGISTIC REGRESSION y WITH g x /CATEGORICAL=g /SAVE=PRED PGROUP.",
     assert_eq!(pred[8], None);
     assert_eq!(values(&engine, "PGR_1")[8], None);
 }
+
+// Thirty cases; g = 1 selects 19 of them (one g is missing, so that case is unselected too). The
+// expected values come from glm() on the selected cases, with the classification of both groups
+// and, for the unselected cases, the leverage of the Algorithms manual, h - v h^2 / (1 + v h),
+// and the Cook's distance built on it.
+const SELECT_DATA: &str = "DATA LIST FREE / g x y.
+BEGIN DATA
+1 3.32 0
+2 7.77 1
+1 2.49 0
+1 5.14 0
+2 8.42 0
+1 3.79 1
+. 4.06 1
+2 3.73 0
+1 4.43 1
+1 5.28 0
+2 7.46 1
+1 3.4 0
+1 2.84 0
+2 4.68 1
+1 2.86 0
+1 4.72 1
+2 3.81 0
+1 0.63 0
+1 5.48 1
+2 4.48 0
+1 6.8 0
+1 6.88 0
+2 7.94 1
+1 6.41 1
+1 6.64 1
+2 4.41 0
+1 7.84 0
+1 8 1
+2 3.69 0
+1 3.29 0
+END DATA.
+";
+
+#[test]
+fn select_fits_the_selected_cases_and_reports_both_groups() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{SELECT_DATA}LOGISTIC REGRESSION y WITH x /SELECT g EQ 1 /SAVE=PRED LEVER COOK RESID."
+        ),
+    );
+    let summary = "Case Processing Summary";
+    let n = |row: &str| number(cell(&tables, summary, row, "N"));
+    assert_eq!(n("Selected Cases / Included in Analysis"), 19.0);
+    assert_eq!(n("Selected Cases / Missing Cases"), 0.0);
+    assert_eq!(n("Selected Cases / Total"), 19.0);
+    assert_eq!(n("Unselected Cases"), 11.0);
+    let b = |row: &str| number(cell(&tables, "Variables in the Equation", row, "B"));
+    assert!(close(b("Step 1 / x"), 0.410_146_559_112_183));
+    assert!(close(b("Step 1 / Constant"), -2.567_621_336_824_496));
+    let classification = tables
+        .iter()
+        .rev()
+        .find(|t| t.title == "Classification Table")
+        .unwrap();
+    assert_eq!(classification.row_headers, 3);
+    let counts: Vec<Vec<f64>> = classification
+        .rows
+        .iter()
+        .map(|r| {
+            r[3..6]
+                .iter()
+                .filter_map(|c| match c {
+                    Cell::Number(n) => Some(*n),
+                    _ => None,
+                })
+                .collect()
+        })
+        .collect();
+    // selected: observed 0 -> 9 and 3, observed 1 -> 4 and 3; unselected: 5 and 1, 2 and 3
+    assert_eq!(counts[0][..2], [9.0, 3.0]);
+    assert_eq!(counts[1][..2], [4.0, 3.0]);
+    assert!(close(counts[2][0], 100.0 * 12.0 / 19.0));
+    assert_eq!(counts[3][..2], [5.0, 1.0]);
+    assert_eq!(counts[4][..2], [2.0, 3.0]);
+    assert!(close(counts[5][0], 100.0 * 8.0 / 11.0));
+    // saved statistics of the unselected cases (case 2 is the first one; case 7 has no g)
+    let pred = values(&engine, "PRE_1");
+    let lever = values(&engine, "LEV_1");
+    let cook = values(&engine, "COO_1");
+    let resid = values(&engine, "RES_1");
+    for (case, p, h, c, e) in [
+        (
+            2,
+            0.650_040_543_8,
+            0.179_133_184_8,
+            0.117_484_517_2,
+            0.349_959_456_2,
+        ),
+        (
+            5,
+            0.708_025_303_7,
+            0.223_038_983_9,
+            0.696_121_604_9,
+            -0.708_025_303_7,
+        ),
+        (
+            7,
+            0.288_552_145_9,
+            0.070_459_227_5,
+            0.186_890_918_7,
+            0.711_447_854_1,
+        ),
+        (
+            29,
+            0.258_423_132_0,
+            0.079_681_025_9,
+            0.030_171_142_2,
+            -0.258_423_132_0,
+        ),
+    ] {
+        let k = case - 1;
+        assert!(
+            (pred[k].unwrap() - p).abs() < 1e-7,
+            "pred of case {case}: {:?} vs {p}",
+            pred[k]
+        );
+        assert!((lever[k].unwrap() - h).abs() < 1e-7, "lever of case {case}");
+        assert!((cook[k].unwrap() - c).abs() < 1e-7, "cook of case {case}");
+        assert!((resid[k].unwrap() - e).abs() < 1e-7, "resid of case {case}");
+    }
+}
+
+#[test]
+fn select_marks_unselected_cases_in_the_casewise_list_and_checks_its_variable() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{SELECT_DATA}LOGISTIC REGRESSION y WITH x /SELECT=g EQ 1 /CASEWISE=PRED."),
+    );
+    let list = tables.iter().find(|t| t.title == "Casewise List").unwrap();
+    let status = list
+        .columns
+        .iter()
+        .position(|c| c == "Selected Status")
+        .unwrap_or(1);
+    let marks: Vec<&str> = list
+        .rows
+        .iter()
+        .map(|r| match &r[status] {
+            Cell::Text(t) => t.as_str(),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(marks.iter().filter(|m| **m == "S").count(), 19);
+    assert_eq!(marks.iter().filter(|m| **m == "U").count(), 11);
+    // ALL is the same as no SELECT
+    let all = run(&mut engine, "LOGISTIC REGRESSION y WITH x /SELECT=ALL.");
+    assert_eq!(
+        number(cell(
+            &all,
+            "Case Processing Summary",
+            "Selected Cases / Included in Analysis",
+            "N"
+        )),
+        30.0
+    );
+    assert!(
+        run_error(&format!(
+            "{SELECT_DATA}LOGISTIC REGRESSION y WITH x /SELECT x GT 3."
+        ))
+        .contains("cannot be on SELECT")
+    );
+    assert!(
+        run_error(&format!(
+            "{SELECT_DATA}LOGISTIC REGRESSION y WITH x /SELECT y EQ 1."
+        ))
+        .contains("cannot be on SELECT")
+    );
+}

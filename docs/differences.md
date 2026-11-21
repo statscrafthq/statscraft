@@ -572,6 +572,7 @@ Where the documentation is silent or reads two ways:
 
 ### LOGISTIC REGRESSION
 
+- SELECT fits the cases where the condition holds; the relation is written EQ, NE, LT, LE, GT or GE. A missing (or user-missing) value on the variable leaves the case unselected, and the variable may not be the dependent or on VARIABLES, CATEGORICAL or METHOD. Cases left out by SELECT IF are not in the data and appear nowhere. The categories of a categorical variable are those of the selected cases; an unselected case with another category has no prediction. The Classification Table gets a Selected Cases and an Unselected Cases part. For an unselected case with an observed value of one of the two the fit uses, SAVE and CASEWISE report the prediction and every residual statistic; its leverage is the one the Algorithms manual gives for such cases, h - v h^2 / (1 + v h), and its Cook's distance and DFBETA are built on that leverage. The classification plot, the Hosmer and Lemeshow test and the other fit tables use the selected cases only.
 - METHOD takes FSTEP and BSTEP with COND, LR and WALD. Interactions, every contrast type, CASEWISE and SAVE are supported (GNU PSPP differs).
 - The terms keep the order of the VARIABLES list (GNU PSPP puts the covariates that are not categorical first).
 - CLASSPLOT counts the cases in 40 bins of 0.025 of the predicted probability, each bin holding its lower bound, with one plot per step shown.
@@ -1847,7 +1848,7 @@ Where the documentation is silent:
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
   - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.
   - RELIABILITY has no MATRIX.
-  - LOGISTIC REGRESSION has no SELECT or OUTFILE.
+  - LOGISTIC REGRESSION has no OUTFILE.
   - COXREG has no OUTFILE.
   - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - LOGLINEAR, the older loglinear command with contrasts, is not supported; GENLOG and HILOGLINEAR cover its models.

@@ -141,8 +141,12 @@ fn logistic_regression_errors() {
             "CI takes a whole number from 1 to 99, got 99.5",
         ),
         (
-            "LOGISTIC REGRESSION y WITH a /SELECT=s EQ 1.",
-            "subcommand SELECT of LOGISTIC REGRESSION is not supported yet",
+            "LOGISTIC REGRESSION y WITH a /SELECT=s IS 1.",
+            "unexpected word IS",
+        ),
+        (
+            "LOGISTIC REGRESSION y WITH a /SELECT=s EQ.",
+            "unexpected end of command",
         ),
         (
             "LOGISTIC REGRESSION y WITH a /SAVE=PRED PRED.",
@@ -511,4 +515,30 @@ fn plum_errors() {
     ] {
         assert_eq!(err(source).message, message, "{source}");
     }
+}
+
+#[test]
+fn logistic_select_reads_all_or_a_condition() {
+    use crate::{LogisticSelect, SelectRelation};
+    assert_eq!(logistic("LOGISTIC REGRESSION y WITH a.").select, None);
+    assert_eq!(
+        logistic("LOGISTIC REGRESSION y WITH a /SELECT=ALL.").select,
+        None
+    );
+    let select =
+        |text: &str| logistic(&format!("LOGISTIC REGRESSION y WITH a /SELECT{text}.")).select;
+    let expected = |relation, value| {
+        Some(LogisticSelect {
+            variable: "s".into(),
+            relation,
+            value,
+        })
+    };
+    assert_eq!(select("=s EQ 1"), expected(SelectRelation::Eq, 1.0));
+    assert_eq!(select(" s ne 0"), expected(SelectRelation::Ne, 0.0));
+    assert_eq!(select(" s LT -2.5"), expected(SelectRelation::Lt, -2.5));
+    assert_eq!(select(" s LE 3"), expected(SelectRelation::Le, 3.0));
+    assert_eq!(select(" s GT 3"), expected(SelectRelation::Gt, 3.0));
+    assert_eq!(select(" s GE 3"), expected(SelectRelation::Ge, 3.0));
+    assert!(SelectRelation::Le.holds(2.0, 2.0) && !SelectRelation::Lt.holds(2.0, 2.0));
 }

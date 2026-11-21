@@ -48,14 +48,18 @@ use statscraft_syntax::{
 struct Design {
     case: Vec<usize>,
     x: Vec<Vec<f64>>,
+    /// 0 or 1; NaN where the dependent is missing. An unselected case keeps its observed value,
+    /// for the statistics reported on it, but is not in the fit.
     y: Vec<f64>,
     c: Vec<f64>,
+    /// Whether the case is selected: `/SELECT` holds for it.
+    sel: Vec<bool>,
     names: Vec<String>,
 }
 
 impl Design {
     fn fitted(&self, i: usize) -> bool {
-        !self.y[i].is_nan() && self.c[i] > 0.0
+        self.sel[i] && !self.y[i].is_nan() && self.c[i] > 0.0
     }
 
     fn row(&self, i: usize, cols: &[usize], constant: bool) -> Vec<f64> {
@@ -385,7 +389,9 @@ fn case_stats(design: &Design, fit: &Fit, i: usize, cut: f64) -> CaseStats {
         f64::from(u8::from(pi >= cut))
     };
     let nan = f64::NAN;
-    if !design.fitted(i) {
+    // an unselected case with an observed value and a prediction gets every statistic too
+    let unselected = !design.sel[i] && !design.y[i].is_nan() && !pi.is_nan();
+    if !design.fitted(i) && !unselected {
         return CaseStats {
             pred: pi,
             pgroup,
@@ -407,6 +413,12 @@ fn case_stats(design: &Design, fit: &Fit, i: usize, cut: f64) -> CaseStats {
         .map(|r| (0..p).map(|s| fit.cov[r][s] * x[s]).sum())
         .collect();
     let h = v * x.iter().zip(&gx).map(|(a, b)| a * b).sum::<f64>();
+    // the leverage of an unselected case, which the fit did not use, as the Algorithms manual has it
+    let h = if unselected {
+        h - v * h * h / (1.0 + v * h)
+    } else {
+        h
+    };
     let e = y - pi;
     let ll = if y > 0.5 { pi.ln() } else { (1.0 - pi).ln() };
     let dev = (-2.0 * ll).sqrt() * if y > pi { 1.0 } else { -1.0 };
@@ -499,9 +511,47 @@ impl Engine {
                 other => clone_key(other),
             })
         };
+        // /SELECT: only the cases where the condition holds are fitted; a missing value on the
+        // variable leaves the case unselected
+        let selected: Vec<bool> = match &command.select {
+            None => vec![true; cases],
+            Some(select) => {
+                let variable = data.variable(&select.variable)?;
+                let named = term_vars
+                    .iter()
+                    .flatten()
+                    .any(|n| n.eq_ignore_ascii_case(variable.name()))
+                    || variable.name().eq_ignore_ascii_case(dependent.name())
+                    || command
+                        .categorical
+                        .iter()
+                        .any(|n| n.eq_ignore_ascii_case(variable.name()));
+                if named {
+                    return Err(Error(format!(
+                        "{} is named on VARIABLES, CATEGORICAL or METHOD and cannot be on SELECT",
+                        variable.name()
+                    )));
+                }
+                if variable.is_string() {
+                    return Err(Error(format!(
+                        "SELECT needs a numeric variable, but {} is a string variable",
+                        variable.name()
+                    )));
+                }
+                let column = variable.numeric()?;
+                (0..cases)
+                    .map(|k| {
+                        column
+                            .get(k)
+                            .filter(|v| !variable.is_user_missing(*v))
+                            .is_some_and(|v| select.relation.holds(v, select.value))
+                    })
+                    .collect()
+            }
+        };
         let predictors_valid: Vec<bool> = (0..cases).map(|k| covariates.valid(k)).collect();
         let in_fit: Vec<bool> = (0..cases)
-            .map(|k| predictors_valid[k] && dep_keys[k].is_some() && weight(k) > 0.0)
+            .map(|k| selected[k] && predictors_valid[k] && dep_keys[k].is_some() && weight(k) > 0.0)
             .collect();
         // the two values of the dependent
         let mut values: Vec<Key> = Vec::new();
@@ -533,19 +583,22 @@ impl Engine {
             x: Vec::new(),
             y: Vec::new(),
             c: Vec::new(),
+            sel: Vec::new(),
             names: names.clone(),
         };
         for k in (0..cases).filter(|&k| predictors_valid[k] && weight(k) > 0.0) {
             let row = covariates.row(k);
             design.case.push(k);
             design.x.push(row);
-            design.y.push(if in_fit[k] {
-                let key = dep_key(k).expect("valid");
-                f64::from(u8::from(values[1].compare(&key).is_eq()))
-            } else {
-                f64::NAN
+            design.y.push(match dep_key(k) {
+                // an unselected case keeps its value when it is one of the two of the fit
+                Some(key) if in_fit[k] || values.iter().any(|v| v.compare(&key).is_eq()) => {
+                    f64::from(u8::from(values[1].compare(&key).is_eq()))
+                }
+                _ => f64::NAN,
             });
             design.c.push(weight(k));
+            design.sel.push(selected[k]);
         }
         let w_total = design.total();
         let constant = !command.origin;
@@ -561,6 +614,8 @@ impl Engine {
         // Case Processing Summary, unweighted
         let included = in_fit.iter().filter(|&&b| b).count() as f64;
         let total = cases as f64;
+        let selected_total = selected.iter().filter(|&&b| b).count() as f64;
+        let unselected_total = total - selected_total;
         let percent = |n: f64| number(Some(if total > 0.0 { 100.0 * n / total } else { 0.0 }));
         tables.push(table(
             "Case Processing Summary",
@@ -576,20 +631,20 @@ impl Engine {
                 vec![
                     Cell::Empty,
                     text("Missing Cases"),
-                    Cell::Number(total - included),
-                    percent(total - included),
+                    Cell::Number(selected_total - included),
+                    percent(selected_total - included),
                 ],
                 vec![
                     Cell::Empty,
                     text("Total"),
-                    Cell::Number(total),
-                    percent(total),
+                    Cell::Number(selected_total),
+                    percent(selected_total),
                 ],
                 vec![
                     text("Unselected Cases"),
                     Cell::Empty,
-                    Cell::Number(0.0),
-                    percent(0.0),
+                    Cell::Number(unselected_total),
+                    percent(unselected_total),
                 ],
                 vec![text("Total"), Cell::Empty, Cell::Number(total), percent(total)],
             ],
@@ -993,7 +1048,8 @@ impl Engine {
         }
         let mut rows = Vec::new();
         for (i, s) in stats.iter().enumerate() {
-            if !design.fitted(i) {
+            // selected cases that were fitted, and unselected ones with an observed value
+            if !design.fitted(i) && (design.sel[i] || design.y[i].is_nan() || s.pred.is_nan()) {
                 continue;
             }
             if let Some(limit) = cw.outlier
@@ -1009,7 +1065,7 @@ impl Engine {
                     Values::String(values) => text(values.get(k).trim_end().to_string()),
                 });
             }
-            row.push(text("S"));
+            row.push(text(if design.sel[i] { "S" } else { "U" }));
             let observed = usize::from(design.y[i] > 0.5);
             let mut shown = dep_label(observed);
             if s.pgroup as usize != observed {
@@ -1027,9 +1083,9 @@ impl Engine {
         }
         let caption = match cw.outlier {
             Some(limit) => format!(
-                "Cases whose studentized residual is at least {limit} in absolute value. S = selected, ** = misclassified case."
+                "Cases whose studentized residual is at least {limit} in absolute value. S = selected, U = unselected, ** = misclassified case."
             ),
-            None => "S = selected, ** = misclassified case.".into(),
+            None => "S = selected, U = unselected, ** = misclassified case.".into(),
         };
         Ok(table("Casewise List", 1, columns, rows, Some(caption)))
     }
@@ -1404,40 +1460,73 @@ impl Context<'_> {
     fn classification(&self, steps: &[(usize, &Step)], caption: &str) -> Table {
         let d = self.design;
         let cut = self.command.criteria.cut;
+        let selecting = self.command.select.is_some();
         let mut columns = plain(&["", "Observed"]);
+        if selecting {
+            columns.insert(0, (String::new(), String::new()));
+        }
         columns.push(("Predicted".into(), (self.dep_label)(0)));
         columns.push(("Predicted".into(), (self.dep_label)(1)));
         columns.push(("Predicted".into(), "Percentage Correct".into()));
         let mut rows = Vec::new();
         for &(n, s) in steps {
-            let mut counts = [[0.0; 2]; 2];
-            for i in (0..d.x.len()).filter(|&i| d.fitted(i)) {
-                let observed = usize::from(d.y[i] > 0.5);
-                let predicted = usize::from(s.fit.pi(d, i) >= cut);
-                counts[observed][predicted] += d.c[i];
-            }
-            for (observed, count) in counts.iter().enumerate() {
-                let row_total = count[0] + count[1];
-                rows.push(vec![
-                    step_cell(observed == 0, n),
-                    text((self.dep_label)(observed)),
-                    Cell::Number(count[0]),
-                    Cell::Number(count[1]),
-                    number((row_total > 0.0).then(|| 100.0 * count[observed] / row_total)),
+            // with /SELECT the selected cases, then the unselected ones that have a prediction
+            let blocks: Vec<(&str, Vec<usize>)> = if selecting {
+                vec![
+                    (
+                        "Selected Cases",
+                        (0..d.x.len()).filter(|&i| d.fitted(i)).collect(),
+                    ),
+                    (
+                        "Unselected Cases",
+                        (0..d.x.len())
+                            .filter(|&i| !d.sel[i] && !d.y[i].is_nan() && !s.fit.pi(d, i).is_nan())
+                            .collect(),
+                    ),
+                ]
+            } else {
+                vec![("", (0..d.x.len()).filter(|&i| d.fitted(i)).collect())]
+            };
+            for (b, (label, members)) in blocks.iter().enumerate() {
+                let mut counts = [[0.0; 2]; 2];
+                for &i in members {
+                    let observed = usize::from(d.y[i] > 0.5);
+                    let predicted = usize::from(s.fit.pi(d, i) >= cut);
+                    counts[observed][predicted] += d.c[i];
+                }
+                let lead = |first: bool, observed: usize| -> Vec<Cell> {
+                    let mut cells = Vec::new();
+                    if selecting {
+                        cells.push(if first { text(*label) } else { Cell::Empty });
+                    }
+                    cells.push(step_cell(b == 0 && observed == 0 && first, n));
+                    cells
+                };
+                for (observed, count) in counts.iter().enumerate() {
+                    let row_total = count[0] + count[1];
+                    let mut row = lead(observed == 0, observed);
+                    row.extend([
+                        text((self.dep_label)(observed)),
+                        Cell::Number(count[0]),
+                        Cell::Number(count[1]),
+                        number((row_total > 0.0).then(|| 100.0 * count[observed] / row_total)),
+                    ]);
+                    rows.push(row);
+                }
+                let total = counts[0][0] + counts[0][1] + counts[1][0] + counts[1][1];
+                let mut row = lead(false, 1);
+                row.extend([
+                    text("Overall Percentage"),
+                    Cell::Empty,
+                    Cell::Empty,
+                    number((total > 0.0).then(|| 100.0 * (counts[0][0] + counts[1][1]) / total)),
                 ]);
+                rows.push(row);
             }
-            let total = counts[0][0] + counts[0][1] + counts[1][0] + counts[1][1];
-            rows.push(vec![
-                Cell::Empty,
-                text("Overall Percentage"),
-                Cell::Empty,
-                Cell::Empty,
-                number((total > 0.0).then(|| 100.0 * (counts[0][0] + counts[1][1]) / total)),
-            ]);
         }
         table(
             "Classification Table",
-            2,
+            if selecting { 3 } else { 2 },
             columns,
             rows,
             Some(format!("{caption} The cut value is {cut}.")),

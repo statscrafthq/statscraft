@@ -2,14 +2,11 @@
 
 ## Unreleased
 
+- LOGISTIC REGRESSION /SELECT=var relation value (EQ, NE, LT, LE, GT, GE) fits the selected cases and reports the unselected ones: the Case Processing Summary counts them, the Classification Table has a part for each group, and CASEWISE and SAVE cover them.
 - ONEWAY /STATISTICS=HOMOGENEITY gives the Levene test on the mean, on the median (with the adjusted df too) and on the trimmed mean, as the manual lists. The table changed shape: a new second column says what each test is based on and each dependent has four rows, the first being the old one. Scripts or agents that read the old table by column position find the statistic one column to the right.
-
 - ONEWAY /STATISTICS=EFFECTS adds the Fixed Effects and Random Effects rows (with the between-groups component of variance) to the Descriptives table; STATISTICS=ALL now includes them.
-
 - ONEWAY /RANGES=LSD, DUNCAN, SNK, TUKEYB, TUKEY, MODLSD or SCHEFFE (with an optional alpha) runs the same post hoc tests as /POSTHOC.
-
 - RELIABILITY /MODEL=OMEGA gives McDonald's omega for a scale (3 or more items), and with /SUMMARY=TOTAL the omega if each item is deleted (4 or more items).
-
 - ONEWAY /POLYNOMIAL=degree (1 to 5) splits the between-groups sum of squares into linear, quadratic and higher trend terms in the ANOVA table, weighted and, for unequal group sizes with equally spaced groups, unweighted, each with the deviation from that degree.
 - DESCRIPTIVES /SORT=key (A or D) lists the variables by mean, standard deviation, range, name or any other statistic.
 
