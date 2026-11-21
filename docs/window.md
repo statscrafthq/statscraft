@@ -420,7 +420,7 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
 
 **Regression**
 
-- **Linear** (`REGRESSION`): one dependent variable on blocks of independent variables.
+- **Linear** (`REGRESSION`): one dependent variable on blocks of independent variables, optionally fitted on the cases a selection rule keeps (numeric or string).
   - Each block with its method: Enter, Stepwise, Remove, Backward or Forward.
   - Estimates, confidence intervals at any level, model fit, R squared change, descriptives, part and partial correlations, and collinearity diagnostics.
   - Saving predicted values, residuals, distances and influence statistics.

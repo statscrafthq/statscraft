@@ -2,6 +2,7 @@
 //! Correlations dialogs.
 
 use crate::app::{checkboxes, choice, field, target_list, target_one};
+use crate::model_dialogs::SELECT_RELATIONS;
 use crate::stats_dialogs::{
     Block, ICC_MODELS, NparKind, NparTests, PartialCorr, REGRESSION_METHODS, REGRESSION_MISSING,
     REGRESSION_SAVE, REGRESSION_SAVE_GROUPS, REGRESSION_STATISTICS, RELIABILITY_ANOVA,
@@ -50,6 +51,14 @@ pub fn regression(ui: &mut Ui, d: &mut Regression, picked: &mut Vec<String>) {
     let block = blocks(ui, &mut d.blocks, &mut d.block);
     target_list(ui, "Independent variables", &mut block.variables, picked);
     choice(ui, "Method", &REGRESSION_METHODS, &mut block.method);
+    ui.add_space(6.0);
+    target_one(ui, "Selection variable", &mut d.select, picked);
+    ui.add_enabled_ui(!d.select.is_empty(), |ui| {
+        ui.horizontal(|ui| {
+            choice(ui, "Rule: value", &SELECT_RELATIONS, &mut d.select_relation);
+            small_field(ui, true, &mut d.select_value);
+        });
+    });
     ui.add_space(6.0);
     ui.strong("Statistics");
     checkboxes(ui, &REGRESSION_STATISTICS, &mut d.statistics);

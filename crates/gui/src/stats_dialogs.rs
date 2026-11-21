@@ -4,6 +4,7 @@
 
 use crate::analyze_dialogs::keywords;
 use crate::bootstrap_dialog::Bootstrap;
+use crate::model_dialogs::SELECT_RELATIONS;
 use crate::syntax_text::{names, number, quote, value};
 use statscraft_data::Dataset;
 
@@ -109,6 +110,11 @@ pub struct Regression {
     pub blocks: Vec<Block>,
     /// The block the dialog shows.
     pub block: usize,
+    /// Selection variable: only the cases where its rule holds are fitted.
+    pub select: String,
+    /// Index into `SELECT_RELATIONS`.
+    pub select_relation: usize,
+    pub select_value: String,
     /// One flag per entry of `REGRESSION_STATISTICS`.
     pub statistics: [bool; 5],
     pub ci: bool,
@@ -133,6 +139,9 @@ impl Default for Regression {
             dependent: String::new(),
             blocks: vec![Block::default()],
             block: 0,
+            select: String::new(),
+            select_relation: 0,
+            select_value: String::new(),
             statistics: REGRESSION_DEFAULT_STATISTICS,
             ci: false,
             ci_level: "95".into(),
@@ -166,7 +175,8 @@ impl Regression {
         std::iter::once(&self.dependent).chain(blocks).collect()
     }
 
-    pub fn syntax(&self) -> Result<String, String> {
+    /// `select_string`: the selection variable is a string, so its value is quoted.
+    pub fn syntax(&self, select_string: bool) -> Result<String, String> {
         let dependent = self.dependent.trim();
         if dependent.is_empty() {
             return Err("choose the dependent variable".into());
@@ -191,6 +201,12 @@ impl Regression {
         let mut text = String::from("REGRESSION");
         if self.descriptives {
             text.push_str("\n  /DESCRIPTIVES=MEAN STDDEV CORR SIG N");
+        }
+        let select = self.select.trim();
+        if !select.is_empty() {
+            let value = value(&self.select_value, select_string)?;
+            let relation = SELECT_RELATIONS[self.select_relation].0;
+            text.push_str(&format!("\n  /SELECT={select} {relation} {value}"));
         }
         if self.missing > 0 {
             text.push_str(&format!(
@@ -762,19 +778,40 @@ mod tests {
     #[test]
     fn regression() {
         let mut d = Regression::default();
-        assert_eq!(d.syntax().unwrap_err(), "choose the dependent variable");
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "choose the dependent variable"
+        );
         d.dependent = "monthly_spend".into();
         assert_eq!(
-            d.syntax().unwrap_err(),
+            d.syntax(false).unwrap_err(),
             "add at least one variable to Independent variables"
         );
         d.blocks[0].variables = v(&["age", "q2_recommend"]);
-        let syntax = d.syntax().unwrap();
+        let syntax = d.syntax(false).unwrap();
         assert_eq!(
             syntax,
             "REGRESSION\n  /DEPENDENT=monthly_spend\n  /METHOD=ENTER age q2_recommend."
         );
         assert!(runs(&syntax) >= 3);
+        // a selection rule, on a numeric and on a string variable
+        d.select = "region".into();
+        d.select_relation = 1;
+        d.select_value = "2".into();
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(
+            syntax,
+            "REGRESSION\n  /SELECT=region NE 2\n  /DEPENDENT=monthly_spend\n  \
+             /METHOD=ENTER age q2_recommend."
+        );
+        assert!(runs(&syntax) >= 3);
+        d.select = "plan".into();
+        d.select_relation = 0;
+        d.select_value = "BASIC".into();
+        let syntax = d.syntax(true).unwrap();
+        assert!(syntax.contains("\n  /SELECT=plan EQ 'BASIC'\n"));
+        assert!(runs(&syntax) >= 3);
+        d.select.clear();
 
         // a second block, stepwise, an empty third block left out, every statistic
         d.blocks.push(Block {
@@ -789,7 +826,7 @@ mod tests {
         d.entry = "0.1".into();
         d.removal = "0.2".into();
         d.missing = 1;
-        let syntax = d.syntax().unwrap();
+        let syntax = d.syntax(false).unwrap();
         assert_eq!(
             syntax,
             "REGRESSION\n  /DESCRIPTIVES=MEAN STDDEV CORR SIG N\n  /MISSING=PAIRWISE\n  \
@@ -811,7 +848,7 @@ mod tests {
             method: 2,
         };
         d.save = [true; 17];
-        let syntax = d.syntax().unwrap();
+        let syntax = d.syntax(false).unwrap();
         assert_eq!(
             syntax,
             "REGRESSION\n  /CRITERIA=FIN(3.84) FOUT(2.71)\n  /ORIGIN\n  /DEPENDENT=monthly_spend\n  \
@@ -843,23 +880,26 @@ mod tests {
             d.use_f = use_f;
             d.entry = entry.into();
             d.removal = removal.into();
-            assert!(d.syntax().unwrap_err().starts_with(error));
+            assert!(d.syntax(false).unwrap_err().starts_with(error));
         }
         d.set_use_f(false);
         d.blocks[0].method = 2;
         assert_eq!(
-            d.syntax().unwrap_err(),
+            d.syntax(false).unwrap_err(),
             "Remove takes out variables entered in an earlier block"
         );
         d.blocks[0].method = 0;
         d.blocks[1].variables.push("monthly_spend".into());
         assert_eq!(
-            d.syntax().unwrap_err(),
+            d.syntax(false).unwrap_err(),
             "monthly_spend is the dependent variable"
         );
         d.blocks[1].variables.pop();
         d.statistics = [false; 5];
-        assert_eq!(d.syntax().unwrap_err(), "choose at least one statistic");
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "choose at least one statistic"
+        );
     }
 
     #[test]

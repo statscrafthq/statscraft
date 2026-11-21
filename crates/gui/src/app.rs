@@ -515,7 +515,7 @@ impl Dialog {
                 d.syntax(is_string(data, &d.dependent))
             }
             Dialog::Regression(d) => numeric(data, d.variables())
-                .and_then(|()| d.syntax())
+                .and_then(|()| d.syntax(is_string(data, &d.select)))
                 .and_then(|t| d.bootstrap.before(t)),
             Dialog::Reliability(d) => numeric(data, &d.items).and_then(|()| d.syntax()),
             Dialog::NparTests(d) => numeric(data, d.variables()).and_then(|()| d.syntax()),

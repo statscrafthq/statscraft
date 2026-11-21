@@ -1211,6 +1211,10 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         }),
         Dialog::Regression(Regression {
             dependent: s("monthly_spend"),
+            // a string selection variable, its value quoted
+            select: s("plan"),
+            select_relation: 1,
+            select_value: s("NONE"),
             blocks: vec![
                 Block {
                     variables: v(&["age"]),

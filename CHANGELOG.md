@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Linear Regression has a selection variable with a rule (equal to, not equal to, less than and so on), numeric or string.
 - REGRESSION /SELECT=var relation value (EQ, NE, LT, LE, GT, GE; text for a string variable) builds the equation from the selected cases and reports the others too: predictions, residuals, leverage, Mahalanobis and Cook's distance, residual statistics, outlier lists and plots apart or pooled (SEPARATE or POOLED), a Selected Status in the casewise list, and SAVE for every case.
 - Window: Multinomial Logistic Regression has Cell probabilities, Monotonicity measures and Iteration history (every n-th iteration) under Statistics. The error term of GLM post hoc tests (VS) stays syntax only, as the reference dialog has no such choice.
 - GLM and UNIANOVA /POSTHOC=factor(tests) VS effect uses the mean square and df of that effect as the error term of the post hoc tests, instead of refusing VS.
