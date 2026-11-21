@@ -31,10 +31,12 @@ use crate::dist::{
     dunnett_cdf, dunnett_quantile, f_p, f_quantile, maximum_modulus_cdf, maximum_modulus_quantile,
     studentized_range_cdf, studentized_range_quantile, t_p, t_quantile,
 };
+use crate::examine::Distribution;
+use crate::glm::levene_of;
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
-use statscraft_syntax::{DunnettSide, Oneway, Posthoc};
+use statscraft_syntax::{DunnettSide, Oneway, PercentileMethod, Posthoc};
 use std::f64::consts::SQRT_2;
 
 /// The statistics of one group.
@@ -755,13 +757,44 @@ impl Engine {
                     .map(|(d, g)| d.iter().map(|(x, w)| w * (x - g.mean).powi(2)).sum::<f64>())
                     .sum();
                 let statistic = (w - k) * spread / ((k - 1.0) * inside);
-                levene.push(vec![
-                    name(),
-                    number(Some(statistic)),
-                    number(Some(k - 1.0)),
-                    number(Some(df_within)),
-                    number(Some(f_p(statistic, k - 1.0, df_within))),
-                ]);
+                let mut levene_row = |label: &str, statistic: f64, df1: f64, df2: f64| {
+                    levene.push(vec![
+                        if levene.len() % 4 == 0 {
+                            name()
+                        } else {
+                            Cell::Empty
+                        },
+                        Cell::Text(label.into()),
+                        number(Some(statistic)),
+                        number(Some(df1)),
+                        number(Some(df2)),
+                        number(Some(f_p(statistic, df1, df2))),
+                    ]);
+                };
+                levene_row("Based on Mean", statistic, k - 1.0, df_within);
+                // the same test on the distances from the median and from the 5% trimmed mean
+                let around =
+                    |centre: &dyn Fn(&Distribution) -> Option<f64>| -> Vec<Vec<(f64, f64)>> {
+                        present
+                            .iter()
+                            .map(|(l, _)| {
+                                let pairs = pairs_of(*l);
+                                let c = centre(&Distribution::new(&pairs)).unwrap_or(f64::NAN);
+                                pairs.into_iter().map(|(x, w)| ((x - c).abs(), w)).collect()
+                            })
+                            .collect()
+                    };
+                let median =
+                    levene_of(&around(&|d| d.percentile(50.0, PercentileMethod::Haverage)));
+                levene_row("Based on Median", median.0, median.1, median.2);
+                levene_row(
+                    "Based on Median and with adjusted df",
+                    median.0,
+                    median.1,
+                    median.3,
+                );
+                let trimmed = levene_of(&around(&|d| d.trimmed_mean()));
+                levene_row("Based on trimmed mean", trimmed.0, trimmed.1, trimmed.2);
             }
             let combined = if command.polynomial.is_some() {
                 "Between Groups (Combined)"
@@ -944,7 +977,7 @@ impl Engine {
         if command.homogeneity {
             out.push(simple(
                 "Test of Homogeneity of Variances".into(),
-                &["", "Levene Statistic", "df1", "df2", "Sig."],
+                &["", "", "Levene Statistic", "df1", "df2", "Sig."],
                 levene,
             ));
         }

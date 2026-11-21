@@ -906,6 +906,23 @@ fn positional(pspp: &[Vec<String>], ours: &Table, layout: &Layout) -> Vec<String
     problems
 }
 
+/// PSPP gives the Levene test on the mean alone, in a table without our "Based on" column; this
+/// cuts ONEWAY's table down to that row and column.
+fn mean_levene_only(mut table: Table) -> Table {
+    if table.title == "Test of Homogeneity of Variances" {
+        table
+            .rows
+            .retain(|r| matches!(&r[1], Cell::Text(t) if t == "Based on Mean"));
+        for row in &mut table.rows {
+            row.remove(1);
+        }
+        table.columns.remove(1);
+        table.column_groups.remove(1);
+        table.row_headers = 1;
+    }
+    table
+}
+
 /// Runs `syntax` after GET of the fixture in both programs and compares every table PSPP
 /// makes with ours, in order.
 fn compare_statistics(case: &str, fixture: &str, syntax: &str) {
@@ -917,6 +934,7 @@ fn compare_statistics(case: &str, fixture: &str, syntax: &str) {
     let theirs = pspp_tables(&output);
     let mine: Vec<(Table, Layout)> = ours(case, &dir, &syntax)
         .into_iter()
+        .map(mean_levene_only)
         .filter_map(|t| layout(&t.title.clone(), &t).map(|l| (t, l)))
         .collect();
     assert_eq!(

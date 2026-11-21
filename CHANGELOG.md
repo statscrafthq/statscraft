@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- ONEWAY /STATISTICS=HOMOGENEITY gives the Levene test on the mean, on the median (with the adjusted df too) and on the trimmed mean, as the manual lists. The table changed shape: a new second column says what each test is based on and each dependent has four rows, the first being the old one. Scripts or agents that read the old table by column position find the statistic one column to the right.
+
 - ONEWAY /STATISTICS=EFFECTS adds the Fixed Effects and Random Effects rows (with the between-groups component of variance) to the Descriptives table; STATISTICS=ALL now includes them.
 
 - ONEWAY /RANGES=LSD, DUNCAN, SNK, TUKEYB, TUKEY, MODLSD or SCHEFFE (with an optional alpha) runs the same post hoc tests as /POSTHOC.

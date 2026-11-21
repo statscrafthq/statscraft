@@ -419,7 +419,7 @@ fn oneway_tables_weighted() {
     );
     let descriptives = &tables[0];
     near(number(&descriptives.rows[0][6]), 38.520_011_872_7, 10);
-    near(number(&tables[1].rows[0][1]), 0.728_510_347_5, 10);
+    near(number(&tables[1].rows[0][2]), 0.728_510_347_5, 10);
     let anova = &tables[2];
     near(number(&anova.rows[0][2]), 4_569.257_708_853_7, 10);
     near(number(&anova.rows[0][5]), 3.238_716_003_1, 10);
@@ -1234,4 +1234,62 @@ fn oneway_effects_with_a_single_group_leave_out_the_empty_table() {
     run(&mut engine, "SELECT IF g = 2.");
     let tables = run(&mut engine, "ONEWAY y BY g /STATISTICS=EFFECTS.");
     assert!(tables.iter().all(|t| t.title != "Descriptives"));
+}
+
+// Three groups of 20 (so the 5% trimmed mean drops exactly one value at each end). Expected values:
+// the one-way F of the distances from the group mean, median and trimmed mean written out in R,
+// with the adjusted df (sum u)^2 / sum(u^2 / (n - 1)) of the median version.
+#[test]
+fn oneway_homogeneity_gives_the_levene_tests_on_mean_median_and_trimmed_mean() {
+    let cases = [
+        "1 9.41", "1 10.03", "1 8.48", "1 8.64", "1 11.18", "1 9.07", "1 11.32", "1 10.62",
+        "1 9.95", "1 9", "1 9.17", "1 9.65", "1 8.46", "1 9.74", "1 8.85", "1 10.01", "1 9.78",
+        "1 10.89", "1 9.41", "1 9.34", "2 8.29", "2 9.96", "2 8.89", "2 10.88", "2 10.18",
+        "2 10.02", "2 9.53", "2 8.09", "2 9.45", "2 7.54", "2 7.24", "2 7.65", "2 11.7", "2 6.06",
+        "2 7.83", "2 11.21", "2 9.53", "2 13.86", "2 8.47", "2 9.13", "3 4.45", "3 11.08",
+        "3 14.57", "3 7.51", "3 14.56", "3 9.62", "3 2.25", "3 14.52", "3 13.9", "3 11.88",
+        "3 14.16", "3 10.08", "3 7.73", "3 13", "3 11.64", "3 13.17", "3 10.37", "3 12.76",
+        "3 16.95", "3 11.24",
+    ];
+    let lines: String = cases.iter().map(|c| format!("{c}\n")).collect();
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!("DATA LIST FREE / g y.\nBEGIN DATA\n{lines}END DATA."),
+    );
+    let tables = run(&mut engine, "ONEWAY y BY g /STATISTICS=HOMOGENEITY.");
+    let t = titled(&tables, "Test of Homogeneity of Variances");
+    assert_eq!(
+        t.columns,
+        ["", "", "Levene Statistic", "df1", "df2", "Sig."]
+    );
+    let labels: Vec<&str> = t.rows.iter().map(|r| text(&r[1])).collect();
+    assert_eq!(
+        labels,
+        [
+            "Based on Mean",
+            "Based on Median",
+            "Based on Median and with adjusted df",
+            "Based on trimmed mean"
+        ]
+    );
+    assert_eq!(text(&t.rows[0][0]), "y");
+    assert_eq!(t.rows[1][0], Cell::Empty);
+    // statistic, df2, significance
+    let expected = [
+        (9.478_127_423_113_2, 57.0, 2.794_939_506_005_74e-4),
+        (8.526_016_844_414_13, 57.0, 5.762_741_921_645_67e-4),
+        (
+            8.526_016_844_414_13,
+            28.839_498_741_543_1,
+            1.232_791_953_395_46e-3,
+        ),
+        (9.097_063_868_977_21, 57.0, 3.725_559_473_433e-4),
+    ];
+    for (row, (f, df2, p)) in t.rows.iter().zip(expected) {
+        near(number(&row[2]), f, 9);
+        assert_eq!(number(&row[3]), 2.0);
+        near(number(&row[4]), df2, 9);
+        near(number(&row[5]), p, 9);
+    }
 }

@@ -1391,8 +1391,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  L: smaller, R: larger), SNK BTUKEY DUNCAN FREGW QREGW (homogeneous subsets only); TUKEY SCHEFFE\n\
                  GT2 GABRIEL give both. DUNCAN and the Dunnett keywords are written in full. Every value of the\n\
                  factor is a group. CONTRAST gives one coefficient per group in ascending order (n*c repeats c n\n\
-                 times); it is tested with pooled and separate variances. HOMOGENEITY is Levene's test based on\n\
-                 the mean. Multiple Comparisons show every ordered pair of groups (Dunnett C has no significance).\n\
+                 times); it is tested with pooled and separate variances. HOMOGENEITY gives Levene's test four ways, one row\n\
+                 each under Based on Mean, Median, Median and with adjusted df, and trimmed mean. Multiple Comparisons show every ordered pair of groups (Dunnett C has no significance).\n\
                  Homogeneous subsets use the harmonic mean of the group sizes (the R-E-G-W tests the sizes\n\
                  themselves); Tukey B shows no significance. Weighted when a weight variable is set. PLOT MEANS\n\
                  gives each dependent a line chart through the mean of every group, as chart data.\n\
