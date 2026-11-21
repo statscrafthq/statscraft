@@ -79,7 +79,7 @@ pub const GENLIN_ANALYSES: [(&str, &str); 3] = [
 ];
 
 /// Keyword and label of every table on /PRINT.
-pub const GENLIN_PRINT: [(&str, &str); 8] = [
+pub const GENLIN_PRINT: [(&str, &str); 12] = [
     ("CPS", "Case processing summary"),
     ("DESCRIPTIVES", "Descriptive statistics"),
     ("MODELINFO", "Model information"),
@@ -88,10 +88,17 @@ pub const GENLIN_PRINT: [(&str, &str); 8] = [
     ("SOLUTION", "Parameter estimates"),
     ("COVB", "Covariance of the estimates"),
     ("CORB", "Correlation of the estimates"),
+    ("LMATRIX", "Contrast coefficient (L) matrices"),
+    ("GEF", "General estimable functions"),
+    ("HISTORY", "Iteration history"),
+    ("LAGRANGE", "Lagrange multiplier test of a fixed scale or k"),
 ];
 
+/// The entry HISTORY of `GENLIN_PRINT`.
+pub const PRINT_HISTORY: usize = 10;
+
 /// The tables GENLIN shows without /PRINT, in the order of `GENLIN_PRINT`.
-fn default_print() -> [bool; 8] {
+fn default_print() -> [bool; 12] {
     let p = GenlinPrint::default();
     [
         p.cps,
@@ -102,6 +109,10 @@ fn default_print() -> [bool; 8] {
         p.solution,
         p.covb,
         p.corb,
+        p.lmatrix,
+        p.gef,
+        p.history.is_some(),
+        p.lagrange,
     ]
 }
 
@@ -223,7 +234,9 @@ pub struct GeneralizedLinear {
     /// Likelihood ratio tests of the effects instead of Wald tests.
     pub likelihood_ratio: bool,
     /// One flag per entry of `GENLIN_PRINT`.
-    pub print: [bool; 8],
+    pub print: [bool; 12],
+    /// The iteration history shows every n-th iteration.
+    pub history: String,
     pub exponentiated: bool,
     pub means: Vec<MeansTable>,
     /// The values of covariates for the means, by name; empty is the mean.
@@ -300,6 +313,7 @@ impl Default for GeneralizedLinear {
             analysis: 0,
             likelihood_ratio: false,
             print: default_print(),
+            history: "1".into(),
             exponentiated: false,
             means: Vec::new(),
             means_at: Vec::new(),
@@ -629,15 +643,22 @@ impl GeneralizedLinear {
         // the matrix is a table of the estimating equations only
         let working = self.working_corr && self.repeated;
         if self.print != default_print() || exponentiated || working {
-            let mut print: Vec<&str> = keywords(&GENLIN_PRINT, &self.print)
+            let every = match self.print[PRINT_HISTORY] {
+                true => whole(&self.history, 1, "the step of the iteration history")?,
+                false => None,
+            };
+            let mut print: Vec<String> = keywords(&GENLIN_PRINT, &self.print)
                 .into_iter()
                 .map(|k| match k {
-                    "SOLUTION" if exponentiated => "SOLUTION(EXPONENTIATED)",
-                    k => k,
+                    "SOLUTION" if exponentiated => "SOLUTION(EXPONENTIATED)".into(),
+                    "HISTORY" if every.is_some_and(|n| n != 1) => {
+                        format!("HISTORY({})", every.unwrap_or(1))
+                    }
+                    k => k.into(),
                 })
                 .collect();
             if working {
-                print.push("WORKINGCORR");
+                print.push("WORKINGCORR".into());
             }
             let print = match print.is_empty() {
                 true => "NONE".to_string(),
@@ -990,7 +1011,8 @@ mod tests {
         d.analysis = 2;
         d.likelihood_ratio = true;
         d.scale = 2;
-        d.print = [true; 8];
+        d.print = [true; 12];
+        d.history = "2".into();
         d.exponentiated = true;
         d.means = vec![
             MeansTable::default(),
@@ -1016,7 +1038,8 @@ mod tests {
              /EMMEANS TABLES=gender*region CONTROL=age(40) SCALE=TRANSFORMED COMPARE=gender \
              CONTRAST=SIMPLE PADJUST=SIDAK\n  \
              /MISSING CLASSMISSING=INCLUDE\n  \
-             /PRINT CPS DESCRIPTIVES MODELINFO FIT SUMMARY SOLUTION(EXPONENTIATED) COVB CORB\n  \
+             /PRINT CPS DESCRIPTIVES MODELINFO FIT SUMMARY SOLUTION(EXPONENTIATED) COVB CORB LMATRIX \
+             GEF HISTORY(2) LAGRANGE\n  \
              /SAVE XBPRED XBSTDERROR MEANPRED CIMEANPREDL CIMEANPREDU PREDVAL LEVERAGE RESID \
              PEARSONRESID DEVIANCERESID STDPEARSONRESID STDDEVIANCERESID LIKELIHOODRESID COOK."
         );
@@ -1365,7 +1388,11 @@ mod tests {
         assert_eq!(d.ci_level, "95");
         assert_eq!(d.convergence, "0.000001");
         assert!(!d.syntax(false).unwrap().contains("CRITERIA"));
-        assert_eq!(d.print, [true, true, true, true, true, true, false, false]);
+        assert_eq!(
+            &d.print[..8],
+            [true, true, true, true, true, true, false, false]
+        );
+        assert!(!d.print[8..].contains(&true));
     }
 
     /// The tables of the run, by title.
@@ -1440,7 +1467,7 @@ mod tests {
             working_corr: true,
             ..Default::default()
         };
-        d.print = [false; 8];
+        d.print = [false; 12];
         d.print[5] = true;
         let syntax = d.syntax(false).unwrap();
         assert_eq!(

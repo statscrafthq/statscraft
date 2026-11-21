@@ -8,7 +8,7 @@
 - NOMREG /TEST=effect values (or ALL values) tests linear combinations of the parameters, with Wald chi-squares for each logit and for all logits together.
 - GLM and UNIANOVA /PRINT=GEF (the general form of the estimable functions) and /PRINT=TEST(LMATRIX) (the L' matrix of every effect, and of LMATRIX and CONTRAST) give tables instead of being refused.
 - GLM and UNIANOVA /TEST=effect VS error term tests an effect against a linear combination of the mean squares of others (Satterthwaite's df unless DF is given) or a given mean square with DF.
-- Window: the options of Univariate and Multivariate add the contrast coefficient matrix and the general estimable function.
+- Window: the options of Univariate and Multivariate add the contrast coefficient matrix and the general estimable function. Generalized Linear Models adds them too under Statistics, with the iteration history (every n-th iteration) and the Lagrange multiplier test.
 
 ## 0.23.0 (2026-11-21)
 

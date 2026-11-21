@@ -6,7 +6,7 @@ use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::genlin_dialog::{
     GENLIN_ADJUSTMENTS, GENLIN_ANALYSES, GENLIN_CONTRASTS, GENLIN_CORRELATIONS,
     GENLIN_DISTRIBUTIONS, GENLIN_LINKS, GENLIN_METHODS, GENLIN_MODELS, GENLIN_ORDERS, GENLIN_PRINT,
-    GENLIN_SAVE, GENLIN_SCALES, GeneralizedLinear,
+    GENLIN_SAVE, GENLIN_SCALES, GeneralizedLinear, PRINT_HISTORY,
 };
 use crate::stats_dialogs_view::small_field;
 use eframe::egui::{self, ComboBox, Ui};
@@ -181,6 +181,10 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
         checkboxes(ui, &print, &mut d.print);
         ui.add_enabled_ui(d.print[5], |ui| {
             ui.checkbox(&mut d.exponentiated, "Exponentiated parameter estimates");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Iteration history: every n-th iteration, n =");
+            small_field(ui, d.print[PRINT_HISTORY], &mut d.history);
         });
         if d.repeated {
             ui.checkbox(&mut d.working_corr, "Working correlation matrix");

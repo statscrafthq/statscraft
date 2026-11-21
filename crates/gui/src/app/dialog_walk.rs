@@ -1699,7 +1699,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             kernel: true,
             analysis: 2,
             likelihood_ratio: true,
-            print: [true; 8],
+            print: [true; 12],
             exponentiated: true,
             means: vec![
                 MeansTable::default(),
@@ -1723,7 +1723,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             factors: v(&["gender"]),
             covariates: v(&["age"]),
             analysis: 2,
-            print: [true; 8],
+            print: [true; 12],
             exponentiated: true,
             means: vec![MeansTable::default()],
             save: std::array::from_fn(|i| matches!(i, 0..=4 | 7 | 8)),
