@@ -1,7 +1,7 @@
 //! Runs the published OpenStatSpec conformance manifests, read in place from a local checkout
 //! of the specification. Nothing from it is copied into this repository. The folder is found
 //! through OPENSTATSPEC_DIR or as `openStatSpec/specification` beside an ancestor of this
-//! crate; without it the tests skip with a message (CI has no checkout).
+//! crate; without it the tests skip with a message (CI checks it out and fails instead).
 
 mod common;
 
