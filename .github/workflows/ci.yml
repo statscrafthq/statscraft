@@ -24,7 +24,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      # the compiled dependencies, three quarters of the build; saved from main only, so the
+      # branches do not push its caches out of the 10 GB the repository gets
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
-      - run: cargo run -p statscraft -- --version
