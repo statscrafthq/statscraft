@@ -184,6 +184,11 @@ pub(super) struct GeeFit {
     pub(super) hessian_ok: bool,
     /// How the final estimated matrix was made positive definite.
     pub(super) adjusted: Adjusted,
+    /// b at the start and after every accepted iteration.
+    pub(super) history: Vec<Vec<f64>>,
+    /// The last generalized score and the information the model-based covariance inverts.
+    pub(super) score: Vec<f64>,
+    pub(super) information: Matrix,
 }
 
 fn means(c: &Cases, x: &[Vec<f64>], set: &Settings, beta: &[f64]) -> Option<Vec<f64>> {
@@ -485,6 +490,7 @@ pub(super) fn fit(
         |score: &[f64], inverse: &Matrix| super::dot(score, &mat_vec(inverse, score)).abs();
     let mut converged = set.maxiterations == 0 || q == 0;
     let mut halving_failed = false;
+    let mut history = vec![beta.clone()];
     for iteration in 1..=set.maxiterations {
         if q == 0 {
             break;
@@ -526,6 +532,7 @@ pub(super) fn fit(
         }
         let change = super::largest_change(&beta, &next, set.pconverge.relative);
         beta = next;
+        history.push(beta.clone());
         (score, h, meat) = parts(c, x, s, set, &mu, &r, phi, &mut inverses);
         inverse = ginverse(&h, set.singular).0;
         // a shortened step says nothing about convergence
@@ -553,6 +560,9 @@ pub(super) fn fit(
         halving_failed,
         hessian_ok,
         adjusted,
+        history,
+        score,
+        information: h,
     })
 }
 

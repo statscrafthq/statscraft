@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- GENLIN /PRINT=HISTORY[(n)] lists the iterations of the last fit with the log likelihood, then the last gradient and Hessian, for the generalized linear models, the ordinal model and the estimating equations.
 - GENLIN /PRINT=LAGRANGE gives the Lagrange multiplier test of a fixed scale (normal, gamma, inverse Gaussian) or of a fixed negative binomial k, and for NEGBIN(0) the dispersion z test.
 - NOMREG /TEST=effect values (or ALL values) tests linear combinations of the parameters, with Wald chi-squares for each logit and for all logits together.
 - GLM and UNIANOVA /PRINT=GEF (the general form of the estimable functions) and /PRINT=TEST(LMATRIX) (the L' matrix of every effect, and of LMATRIX and CONTRAST) give tables instead of being refused.

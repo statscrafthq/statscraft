@@ -4446,7 +4446,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20            [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [UPDATECORR=1]]\n\
                  \x20  [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB]\n\
-                 \x20          [LAGRANGE] [WORKINGCORR] | NONE]\n\
+                 \x20          [HISTORY[(n)]] [LAGRANGE] [WORKINGCORR] | NONE]\n\
                  \x20  [/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]\n\
                  \x20         [PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]].\n\
                  Every keyword is written in full and every subcommand but EMMEANS appears at most once. The\n\
@@ -4497,7 +4497,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  LAGRANGE tests a fixed scale (normal, gamma, inverse Gaussian with SCALE a number, DEVIANCE or\n\
                  PEARSON) or a fixed NEGBIN k: the Lagrange multiplier statistic with 1 df, or for k = 0 the z of the\n\
                  dispersion regression with its three p-values.\n\
-                 Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY and\n\
+                 HISTORY(n) lists the iterations of the last fit (every n-th from iteration 0, and the last) with\n\
+                 the log likelihood, then the last gradient and Hessian.\n\
+                 Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF and\n\
                  LMATRIX, and with REPEATED the multinomial distribution and generalized score tests\n\
                  (ANALYSISTYPE with LR).",
         example: "GENLIN visits BY clinic WITH age /MODEL clinic age DISTRIBUTION=NEGBIN(MLE) LINK=LOG OFFSET=logdays /PRINT FIT SUMMARY SOLUTION(EXPONENTIATED) /EMMEANS TABLES=clinic COMPARE=clinic.",

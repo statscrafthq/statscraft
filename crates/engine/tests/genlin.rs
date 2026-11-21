@@ -2586,3 +2586,176 @@ fn lagrange_test_is_ignored_when_there_is_nothing_fixed_to_test() {
     ));
     assert!(t.iter().all(|t| t.title != "Lagrange Multiplier Test"));
 }
+
+// PRINT HISTORY: the last iteration is the fit the other tables show, the likelihood never goes
+// down, the last gradient is zero and the inverse of the last Hessian is the covariance matrix
+// the standard errors come from (the canonical link of the Poisson makes the observed and the
+// expected information the same).
+#[test]
+fn history_ends_at_the_reported_fit_and_hessian_gives_the_standard_errors() {
+    let source = |print: &str| {
+        format!(
+            "{COUNTS}GENLIN repairs WITH temp /MODEL temp DISTRIBUTION=POISSON LINK=LOG OFFSET=lnh /PRINT {print}."
+        )
+    };
+    let t = tables_of(&source("HISTORY SOLUTION FIT"));
+    let history = find(&t, "Iteration History");
+    let keys = row_keys(history);
+    assert_eq!(keys[0], "0");
+    assert!(keys.len() >= 4, "{keys:?}");
+    let last = keys.last().unwrap().clone();
+    for param in ["(Intercept)", "temp"] {
+        close(
+            get(&t, "Iteration History", &last, param),
+            get(&t, PE, param, B),
+            1e-12,
+            param,
+        );
+    }
+    close(
+        get(&t, "Iteration History", &last, "Log Likelihood"),
+        get(&t, FIT, "Log Likelihood", "Value"),
+        1e-9,
+        "log likelihood",
+    );
+    let lls: Vec<f64> = keys
+        .iter()
+        .map(|k| get(&t, "Iteration History", k, "Log Likelihood"))
+        .collect();
+    assert!(lls.windows(2).all(|w| w[1] >= w[0] - 1e-9), "{lls:?}");
+    let g = "Last Evaluation of the Gradient Vector";
+    for param in ["(Intercept)", "temp"] {
+        assert!(get(&t, g, param, "Gradient").abs() < 1e-4, "{param}");
+    }
+    let h = "Last Evaluation of the Hessian Matrix";
+    let (a, b, d) = (
+        get(&t, h, "(Intercept)", "(Intercept)"),
+        get(&t, h, "(Intercept)", "temp"),
+        get(&t, h, "temp", "temp"),
+    );
+    let det = a * d - b * b;
+    close(
+        (-d / det).sqrt(),
+        get(&t, PE, "(Intercept)", SE),
+        1e-6,
+        "se intercept",
+    );
+    close((-a / det).sqrt(), get(&t, PE, "temp", SE), 1e-6, "se temp");
+    // every second iteration, and the last
+    let t2 = tables_of(&source("HISTORY(2)"));
+    let shown = row_keys(find(&t2, "Iteration History"));
+    assert_eq!(shown[0], "0");
+    assert_eq!(shown[1], "2");
+    assert_eq!(shown.last().unwrap(), &last);
+}
+
+// HISTORY of the ordinal model and of the estimating equations: the last row is the fit the
+// Parameter Estimates show, the last gradient is zero, and the inverse of the last Hessian is the
+// covariance of the estimates (the generalized estimating equations: the model-based one).
+#[test]
+fn history_of_the_ordinal_model_and_of_the_estimating_equations() {
+    let hist = "Iteration History";
+    let t = tables_of(&format!(
+        "{TASTES}GENLIN taste WITH sugar /MODEL sugar DISTRIBUTION=MULTINOMIAL LINK=CUMLOGIT /PRINT HISTORY SOLUTION FIT."
+    ));
+    let keys = row_keys(find(&t, hist));
+    let last = keys.last().unwrap().clone();
+    assert_eq!(keys[0], "0");
+    // the scale is not iterated, so the history has no column for it
+    let rows: Vec<String> = row_keys(find(&t, PE))
+        .into_iter()
+        .filter(|r| r != "(Scale)")
+        .collect();
+    // the history names a threshold by its category only
+    let short = |r: &str| r.strip_prefix("Threshold ").unwrap_or(r).to_string();
+    for r in &rows {
+        let name = short(r);
+        close(get(&t, hist, &last, &name), get(&t, PE, r, B), 1e-12, r);
+        assert!(
+            get(
+                &t,
+                "Last Evaluation of the Gradient Vector",
+                &name,
+                "Gradient"
+            )
+            .abs()
+                < 1e-4,
+            "{r}"
+        );
+    }
+    close(
+        get(&t, hist, &last, "Log Likelihood"),
+        get(&t, FIT, "Log Likelihood", "Value"),
+        1e-9,
+        "log likelihood",
+    );
+    let lls: Vec<f64> = keys
+        .iter()
+        .map(|k| get(&t, hist, k, "Log Likelihood"))
+        .collect();
+    assert!(lls.windows(2).all(|w| w[1] >= w[0] - 1e-9), "{lls:?}");
+    // the Hessian is minus a positive definite matrix whose diagonal exceeds 1 / SE^2
+    let h = "Last Evaluation of the Hessian Matrix";
+    for r in rows.iter().filter(|r| !r.starts_with("Threshold")) {
+        assert!(get(&t, h, r, r) < 0.0);
+        assert!(
+            -get(&t, h, r, r) >= 1.0 / get(&t, PE, r, SE).powi(2) - 1e-8,
+            "{r}"
+        );
+    }
+
+    let t = panel(
+        "GENLIN visits BY arm WITH time stress
+  /MODEL arm time stress DISTRIBUTION=POISSON LINK=LOG
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=EXCHANGEABLE PCONVERGE=1E-12 COVB=MODEL
+  /PRINT HISTORY SOLUTION.
+",
+    );
+    let table = find(&t, hist);
+    assert!(!table.column_titles().iter().any(|c| c == "Log Likelihood"));
+    let keys = row_keys(table);
+    let last = keys.last().unwrap().clone();
+    // a redundant parameter and the scale have no column
+    let columns = table.column_titles();
+    for r in row_keys(find(&t, PE))
+        .into_iter()
+        .filter(|r| columns.contains(r))
+    {
+        close(get(&t, hist, &last, &r), get(&t, PE, &r, B), 1e-12, &r);
+        assert!(
+            get(&t, "Last Evaluation of the Gradient Vector", &r, "Gradient").abs() < 1e-6,
+            "{r}"
+        );
+    }
+}
+
+// The estimated scale and the estimated k are not iterated with b: the history is the last fit of
+// b at their final values, so its last row is still the reported fit and likelihood.
+#[test]
+fn history_with_an_estimated_scale_or_k_ends_at_the_reported_fit() {
+    for source in [
+        format!(
+            "{COSTS}GENLIN cost BY crew WITH size /MODEL crew size DISTRIBUTION=GAMMA LINK=LOG /PRINT HISTORY SOLUTION FIT."
+        ),
+        format!(
+            "{COUNTS}GENLIN repairs BY shop WITH temp /MODEL shop temp DISTRIBUTION=NEGBIN(MLE) OFFSET=lnh /PRINT HISTORY SOLUTION FIT."
+        ),
+    ] {
+        let t = tables_of(&source);
+        let hist = "Iteration History";
+        let last = row_keys(find(&t, hist)).pop().unwrap();
+        let columns = find(&t, hist).column_titles();
+        for r in row_keys(find(&t, PE))
+            .iter()
+            .filter(|r| columns.contains(r))
+        {
+            close(get(&t, hist, &last, r), get(&t, PE, r, B), 1e-12, r);
+        }
+        close(
+            get(&t, hist, &last, "Log Likelihood"),
+            get(&t, FIT, "Log Likelihood", "Value"),
+            1e-9,
+            "log likelihood",
+        );
+    }
+}

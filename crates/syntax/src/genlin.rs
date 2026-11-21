@@ -287,6 +287,8 @@ pub struct GenlinPrint {
     pub cps: bool,
     pub descriptives: bool,
     pub fit: bool,
+    /// `HISTORY(n)`: the iteration history, every n-th iteration and the last.
+    pub history: Option<u32>,
     pub lagrange: bool,
     pub modelinfo: bool,
     pub solution: bool,
@@ -303,6 +305,7 @@ impl Default for GenlinPrint {
             cps: true,
             descriptives: true,
             fit: true,
+            history: None,
             lagrange: false,
             modelinfo: true,
             solution: true,
@@ -865,6 +868,23 @@ fn print(p: &mut Parser) -> PResult<GenlinPrint> {
             "DESCRIPTIVES" => out.descriptives = true,
             "FIT" => out.fit = true,
             "LAGRANGE" => out.lagrange = true,
+            "HISTORY" => {
+                let mut every = 1;
+                if p.eat(Punct::LParen) {
+                    let at = p.pos;
+                    match p.number() {
+                        Some(v) if v >= 1.0 && v.fract() == 0.0 => every = v as u32,
+                        _ => {
+                            return Err(SyntaxError::new(
+                                p.span_from(at),
+                                "HISTORY takes a positive whole number of iterations",
+                            ));
+                        }
+                    }
+                    p.expect(Punct::RParen)?;
+                }
+                out.history = Some(every);
+            }
             "MODELINFO" => out.modelinfo = true,
             "SUMMARY" => out.summary = true,
             "SOLUTION" => {

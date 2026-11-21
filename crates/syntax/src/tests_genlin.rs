@@ -331,3 +331,25 @@ fn print_lagrange_is_a_keyword_and_off_by_default() {
     assert!(g.print.lagrange && g.print.solution);
     assert!(!genlin("GENLIN y WITH x /MODEL x.").print.lagrange);
 }
+
+#[test]
+fn print_history_takes_an_optional_positive_step() {
+    assert_eq!(
+        genlin("GENLIN y WITH x /MODEL x /PRINT HISTORY.")
+            .print
+            .history,
+        Some(1)
+    );
+    assert_eq!(
+        genlin("GENLIN y WITH x /MODEL x /PRINT HISTORY(5) SOLUTION.")
+            .print
+            .history,
+        Some(5)
+    );
+    assert_eq!(genlin("GENLIN y WITH x /MODEL x.").print.history, None);
+    let (_, errors) = crate::parse("GENLIN y WITH x /MODEL x /PRINT HISTORY(0).");
+    assert!(
+        errors[0].message.contains("positive whole number"),
+        "{errors:?}"
+    );
+}

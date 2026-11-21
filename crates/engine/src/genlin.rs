@@ -376,6 +376,10 @@ struct GlmFit {
     /// estimated scale or k.
     cov: Matrix,
     log_variance: Option<f64>,
+    /// b at the start and after every accepted iteration of the final fit.
+    history: Vec<Vec<f64>>,
+    /// Whether the last information is the expected one (Fisher scoring) or the observed one.
+    fisher: bool,
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
@@ -525,6 +529,8 @@ struct BetaFit {
     halving_failed: bool,
     expected: Matrix,
     observed: Matrix,
+    /// b at the start and after every accepted iteration (for PRINT HISTORY).
+    history: Vec<Vec<f64>>,
 }
 
 /// The estimates of b for a fixed scale and k.
@@ -564,6 +570,7 @@ fn fit_beta(
     };
     let (mut eta, mut mu, mut ll) = evaluate(c, x, spec, k, phi, &beta)?;
     let (mut s, mut expected, mut observed) = derivatives(c, x, spec, k, &mu);
+    let mut history = vec![beta.clone()];
     let criteria_used = crit.lconverge.value > 0.0 || crit.hconverge.value > 0.0;
     let mut ll_model = if criteria_used {
         criteria_scale(c, spec, k, &mu, ll).1
@@ -633,6 +640,7 @@ fn fit_beta(
         };
         ll_model = l_model;
         beta = next;
+        history.push(beta.clone());
         eta = e;
         mu = m;
         ll = l;
@@ -675,6 +683,7 @@ fn fit_beta(
         halving_failed,
         expected,
         observed,
+        history,
     })
 }
 
@@ -1047,6 +1056,8 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
         halving_failed: bf.halving_failed,
         cov,
         log_variance,
+        history: bf.history,
+        fisher,
     })
 }
 
@@ -1114,6 +1125,11 @@ struct OrdinalFit {
     halving_failed: bool,
     /// The inverse of the observed information.
     cov: Matrix,
+    /// b at the start and after every accepted iteration.
+    history: Vec<Vec<f64>>,
+    /// The last score and the information the covariance comes from.
+    gradient: Vec<f64>,
+    information: Matrix,
 }
 
 /// The cumulative probabilities of one case.
@@ -1246,6 +1262,7 @@ fn fit_ordinal(
         }
     }
     let (mut ll, mut s, mut info) = ordinal_eval(o, x, link, &b, true)?;
+    let mut history = vec![b.clone()];
     let mut converged = crit.maxiterations == 0;
     let mut halving_failed = false;
     let mut newton_forced = false;
@@ -1299,6 +1316,7 @@ fn fit_ordinal(
             (l - ll).abs() / phi
         };
         b = next;
+        history.push(b.clone());
         ll = l;
         s = s2;
         info = ordinal_eval(o, x, link, &b, true)?.2;
@@ -1343,6 +1361,9 @@ fn fit_ordinal(
         hessian_ok,
         halving_failed,
         cov,
+        history,
+        gradient: s,
+        information,
     })
 }
 
@@ -2149,6 +2170,7 @@ impl Engine {
             )
         };
         let mut glm_fit;
+        let mut ordinal_fit = None;
         let result = if multinomial {
             glm_fit = None;
             let f = fit_ordinal(&ordinal, &x, ord_link, crit, fixed_phi).ok_or_else(failed)?;
@@ -2157,14 +2179,16 @@ impl Engine {
             } else if !f.hessian_ok {
                 warnings.push(HESSIAN_WARNING.into());
             }
-            Result_ {
+            let r = Result_ {
                 ll: f.ll / fixed_phi,
-                b: f.b,
-                cov: f.cov,
+                b: f.b.clone(),
+                cov: f.cov.clone(),
                 phi: fixed_phi,
                 k: 0.0,
                 log_variance: None,
-            }
+            };
+            ordinal_fit = Some(f);
+            r
         } else {
             let f = fit_glm(&c, &x, &spec, None).ok_or_else(failed)?;
             if !f.converged {
@@ -2986,6 +3010,148 @@ impl Engine {
             .iter()
             .map(|r| r[offset_b..].to_vec())
             .collect();
+        // PRINT HISTORY: the iterations of the final fit, then its last gradient and Hessian
+        if let Some(every) = print.history {
+            // the estimates of every iteration, their log likelihoods (none for the estimating
+            // equations), the last gradient, minus the information of the last step, and its kind
+            type Run = (
+                Vec<Vec<f64>>,
+                Option<Vec<Option<f64>>>,
+                Vec<f64>,
+                Matrix,
+                &'static str,
+            );
+            let run: Option<Run> = match (&glm_fit, &ordinal_fit, &gee_fit) {
+                (_, _, Some((g, _, _))) => Some((
+                    g.history.clone(),
+                    None,
+                    g.score.clone(),
+                    g.information.clone(),
+                    "expected",
+                )),
+                (Some(f), _, None) => {
+                    let (s_one, expected, observed) = derivatives(&c, &x, &spec, f.k, &f.mu);
+                    let lls = f
+                        .history
+                        .iter()
+                        .map(|b| {
+                            evaluate(&c, &x, &spec, f.k, f.phi, b)
+                                .map(|e| e.2 + constant / fixed_phi)
+                        })
+                        .collect();
+                    let (info, kind) = if f.fisher {
+                        (expected, "expected")
+                    } else {
+                        (observed, "observed")
+                    };
+                    let gradient = s_one.iter().map(|v| v / f.phi).collect();
+                    let hessian = info
+                        .iter()
+                        .map(|r| r.iter().map(|v| v / f.phi).collect())
+                        .collect();
+                    Some((f.history.clone(), Some(lls), gradient, hessian, kind))
+                }
+                (_, Some(f), None) => {
+                    let lls = f
+                        .history
+                        .iter()
+                        .map(|b| {
+                            ordinal_eval(&ordinal, &x, ord_link, b, false)
+                                .map(|e| e.0 / fixed_phi + constant / fixed_phi)
+                        })
+                        .collect();
+                    let gradient = f.gradient.iter().map(|v| v / fixed_phi).collect();
+                    let hessian = f
+                        .information
+                        .iter()
+                        .map(|r| r.iter().map(|v| v / fixed_phi).collect())
+                        .collect();
+                    Some((f.history.clone(), Some(lls), gradient, hessian, "observed"))
+                }
+                _ => None,
+            };
+            if let Some((history, lls, gradient, information, kind)) = run {
+                let shown: Vec<(&str, usize)> = parameters
+                    .iter()
+                    .filter_map(|p| p.at.map(|a| (p.name.as_str(), a)))
+                    .collect();
+                let names = |mut columns: Vec<(String, String)>| {
+                    columns.extend(
+                        shown
+                            .iter()
+                            .map(|(name, _)| (String::new(), name.to_string())),
+                    );
+                    columns
+                };
+                let mut head = vec!["Iteration"];
+                if lls.is_some() {
+                    head.push("Log Likelihood");
+                }
+                let last = history.len() - 1;
+                let rows: Vec<Vec<Cell>> = history
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| i % every as usize == 0 || *i == last)
+                    .map(|(i, b)| {
+                        let mut row = vec![text(i.to_string())];
+                        if let Some(lls) = &lls {
+                            row.push(number(lls[i]));
+                        }
+                        row.extend(shown.iter().map(|(_, a)| Cell::Number(b[*a])));
+                        row
+                    })
+                    .collect();
+                tables.push(table(
+                    "Iteration History",
+                    1,
+                    names(plain(&head)),
+                    rows,
+                    Some(format!(
+                        "{caption} Iteration 0 is the start and the last iteration is always shown. {}",
+                        if gee {
+                            "The estimating equations have no likelihood, so none is shown."
+                        } else if multinomial {
+                            "The log likelihood is the one of the Goodness of Fit table."
+                        } else {
+                            "The log likelihood is the one of the Goodness of Fit table, at the final scale and k, which the iterations keep fixed."
+                        }
+                    )),
+                ));
+                let gradient_rows = shown
+                    .iter()
+                    .map(|(name, a)| vec![text(*name), Cell::Number(gradient[*a])])
+                    .collect();
+                tables.push(table(
+                    "Last Evaluation of the Gradient Vector",
+                    1,
+                    plain(&["", "Gradient"]),
+                    gradient_rows,
+                    Some(caption.clone()),
+                ));
+                let hessian_rows = shown
+                    .iter()
+                    .map(|(name, a)| {
+                        let mut row = vec![text(*name)];
+                        row.extend(
+                            shown
+                                .iter()
+                                .map(|(_, b)| Cell::Number(-information[*a][*b])),
+                        );
+                        row
+                    })
+                    .collect();
+                tables.push(table(
+                    "Last Evaluation of the Hessian Matrix",
+                    1,
+                    names(plain(&[""])),
+                    hessian_rows,
+                    Some(format!(
+                        "{caption} The {kind} second derivatives of the {} in the parameters, at the final scale.",
+                        if gee { "generalized estimating equations" } else { "log likelihood" }
+                    )),
+                ));
+            }
+        }
         // the hypothesis rows of each effect over the kept columns
         let restrict = |row: &[f64]| -> Vec<f64> { kept.iter().map(|&j| row[j]).collect() };
         let tested: Vec<usize> = (0..design.effects.len())

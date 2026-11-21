@@ -29,7 +29,7 @@ GENLIN dependent [(REFERENCE=LAST | FIRST | value)] [(ORDER=ASCENDING | DESCENDI
              [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [UPDATECORR=1]]
    [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]
    [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB]
-           [LAGRANGE] [WORKINGCORR] | NONE]
+           [HISTORY[(n)]] [LAGRANGE] [WORKINGCORR] | NONE]
    [/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]
           [PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]].
 ```
@@ -44,7 +44,9 @@ REPEATED fits generalized estimating equations for measurements that are correla
 
 LAGRANGE tests a fixed scale (normal, gamma, inverse Gaussian with SCALE a number, DEVIANCE or PEARSON) or a fixed NEGBIN k: the Lagrange multiplier statistic with 1 df, or for k = 0 the z of the dispersion regression with its three p-values.
 
-Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
+HISTORY(n) lists the iterations of the last fit (every n-th from iteration 0, and the last) with the log likelihood, then the last gradient and Hessian.
+
+Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
 
 ## Example
 
