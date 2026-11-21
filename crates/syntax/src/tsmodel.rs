@@ -173,8 +173,11 @@ pub struct TsOutput {
     pub summary_fit: bool,
     pub summary_acf: bool,
     pub summary_pacf: bool,
-    /// MODELSUMMARY PLOT was given (histograms and boxplots).
-    pub summary_plots: bool,
+    /// MODELSUMMARY PLOT: a histogram per fit measure asked for, in the order of
+    /// `FIT_MEASURES`, and the boxplots of the residual ACF and PACF by lag.
+    pub summary_plot_fit: Vec<FitMeasure>,
+    pub summary_plot_acf: bool,
+    pub summary_plot_pacf: bool,
     pub statistics: bool,
     pub statistics_fit: Vec<FitMeasure>,
     pub parameters: bool,
@@ -203,7 +206,9 @@ impl Default for TsOutput {
             summary_fit: true,
             summary_acf: false,
             summary_pacf: false,
-            summary_plots: false,
+            summary_plot_fit: Vec::new(),
+            summary_plot_acf: false,
+            summary_plot_pacf: false,
             statistics: true,
             statistics_fit: vec![FitMeasure::Srsquare],
             parameters: false,
@@ -366,11 +371,22 @@ fn global(p: &mut Parser, sub: &str, out: &mut TsOutput, apply: bool) -> PResult
                     out.summary_acf = items.contains(&1);
                     out.summary_pacf = items.contains(&2);
                 } else {
-                    let mut table: Vec<(&str, ())> =
-                        FIT_MEASURES.iter().map(|(n, _)| (*n, ())).collect();
-                    table.extend([("RESIDACF", ()), ("RESIDPACF", ())]);
-                    bracketed(p, |p| one_of(p, &table))?;
-                    out.summary_plots = true;
+                    // 0 to 7 are the fit measures, 8 and 9 the residual ACF and PACF
+                    let mut table: Vec<(&str, usize)> = FIT_MEASURES
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (n, _))| (*n, i))
+                        .collect();
+                    table.extend([("RESIDACF", 8), ("RESIDPACF", 9)]);
+                    let items = bracketed(p, |p| one_of(p, &table))?;
+                    out.summary_plot_acf = items.contains(&8);
+                    out.summary_plot_pacf = items.contains(&9);
+                    out.summary_plot_fit = FIT_MEASURES
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| items.contains(i))
+                        .map(|(_, (_, m))| *m)
+                        .collect();
                 }
             }
         }

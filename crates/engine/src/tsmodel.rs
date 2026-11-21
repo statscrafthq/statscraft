@@ -53,12 +53,15 @@ use crate::arima::{
     Controls, Estimates, Structure, Transfer, differenced, effects, estimate, exact_prediction,
     hessian, initial_values, least_squares, noise_polynomials, product, ratio_filter, solve,
 };
-use crate::chart::{Axis, Category, Series, Statistic};
+use crate::chart::{Axis, Category, ChartKind, Series, Statistic};
 use crate::descriptives::number;
 use crate::dist::{chi_square_p, normal_quantile, t_p};
 use crate::exsmooth::{Model as EsModel, Params, Start, ahead, forecast, smooth};
+use crate::frequencies::Histogram;
 use crate::matrix::inverse;
+use crate::neural::box_of;
 use crate::npar_tests::text;
+use crate::plot::{BoxSummary, Plot};
 use crate::regression::{plain, table};
 use crate::timeseries::{Values, autocorrelations, partial_autocorrelations, read_series};
 use crate::{Cell, Chart, Engine, Error, Table};
@@ -2145,6 +2148,8 @@ impl Engine {
         if !estimated
             && (out.summary_acf
                 || out.summary_pacf
+                || out.summary_plot_acf
+                || out.summary_plot_pacf
                 || out.residual_acf
                 || out.residual_pacf
                 || out.plot_acf
@@ -2157,11 +2162,6 @@ impl Engine {
             self.warn(format!(
                 "{who}: residual autocorrelations, observed and fitted values and residuals need \
                  REESTIMATE=YES; they are left out"
-            ));
-        }
-        if out.summary_plots {
-            self.warn(format!(
-                "{who}: the charts of MODELSUMMARY are not supported yet"
             ));
         }
         let data = self.active()?;
@@ -2244,6 +2244,69 @@ impl Engine {
                 })
                 .collect();
             tables.push(table(title, 1, plain(&SUMMARY_COLUMNS), rows, None));
+        }
+
+        let mut notes: Vec<String> = Vec::new();
+        // MODELSUMMARY PLOT: a histogram per fit measure over the models, and the boxplots of
+        // the residual autocorrelations of the models, lag by lag
+        for measure in &out.summary_plot_fit {
+            let i = slot(*measure);
+            let pairs = {
+                let mut v: Vec<(f64, f64)> = runs
+                    .iter()
+                    .filter_map(|r| r.model.stats[i])
+                    .map(|x| (x, 1.0))
+                    .collect();
+                v.sort_by(|a, b| a.0.total_cmp(&b.0));
+                v
+            };
+            let name = MEASURE_NAMES[i];
+            let histogram = Histogram {
+                title: &format!("Histogram of {name}"),
+                heading: name,
+                format: "F8.3",
+                name,
+                normal: false,
+                scale: None,
+            };
+            match histogram.chart(&pairs, &pairs, pairs.len() as f64) {
+                Ok(chart) => charts.push(chart),
+                Err(_) => notes.push(format!(
+                    "{who}: no model has a value of {name}; no histogram"
+                )),
+            }
+        }
+        for (wanted, partial, title) in [
+            (out.summary_plot_acf, false, "Residual ACF"),
+            (out.summary_plot_pacf, true, "Residual PACF"),
+        ] {
+            if !wanted || !estimated {
+                continue;
+            }
+            let all: Vec<Vec<f64>> = runs.iter().map(|r| acf_of(&r.model, partial)).collect();
+            let top = all.iter().map(Vec::len).max().unwrap_or(0);
+            let boxes: Vec<BoxSummary> = (0..top)
+                .filter_map(|l| {
+                    let values: Vec<(f64, usize)> = all
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(m, a)| a.get(l).map(|v| (*v, m)))
+                        .collect();
+                    box_of(format!("{}", l + 1), String::new(), &values)
+                })
+                .map(|b| BoxSummary { group: None, ..b })
+                .collect();
+            if boxes.is_empty() {
+                notes.push(format!("{who}: no residual autocorrelations to chart"));
+                continue;
+            }
+            charts.push(Chart::plot(
+                ChartKind::Boxplot,
+                format!("{title} by Lag"),
+                Axis::titled("Lag"),
+                Axis::titled(title),
+                Plot::Boxes { boxes },
+            ));
         }
 
         // the sets of models the per-model output covers
@@ -2571,6 +2634,9 @@ impl Engine {
         }
 
         self.charts.extend(charts);
+        for note in notes {
+            self.warn(note);
+        }
         // saved variables
         if !out.save.is_empty() {
             if self.in_temporary() {

@@ -4,6 +4,8 @@
 //! against our EXSMOOTH recursions, and the fit measures are recomputed here from the saved
 //! fitted values with the documented formulas.
 
+use statscraft_engine::chart::ChartKind;
+use statscraft_engine::plot::Plot;
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
 
@@ -688,4 +690,115 @@ fn transfer_and_outlier_errors() {
         let message = error(&format!("{base}{syntax}\n"));
         assert!(message.contains(wanted), "{syntax}: {message}");
     }
+}
+
+/// MODELSUMMARY PLOT over two models: the histogram of a measure holds each model's value once
+/// (checked against the Model Statistics table), and the boxplot of the residual ACF at a lag is
+/// the box of the two models' coefficients in the Residual ACF table; with two values the hinges
+/// are the two values and the median their mean.
+#[test]
+fn model_summary_charts_show_the_models_together() {
+    let source = format!(
+        "{}TSMODEL /MODELSUMMARY PLOT=[SRSQUARE RMSE RESIDACF RESIDPACF] \
+         /MODELSTATISTICS MODELFIT=[SRSQUARE RMSE] /MODELDETAILS PRINT=[RESIDACF] \
+         /MODEL DEPENDENT=x /ARIMA AR=1 MA=0 /MODEL DEPENDENT=y /ARIMA AR=1 MA=0.\n",
+        two_columns(TF_X, TF_Y)
+    );
+    let mut engine = Engine::default();
+    let tables = run_in(&mut engine, &source);
+    let charts = engine.take_charts();
+    let titles: Vec<&str> = charts.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        [
+            "Histogram of Stationary R-squared",
+            "Histogram of RMSE",
+            "Residual ACF by Lag",
+            "Residual PACF by Lag"
+        ]
+    );
+    let stats = find(&tables, "Model Statistics");
+    // the value of a measure in each model's row
+    let values = |name: &str| -> Vec<f64> {
+        let at = stats.columns.iter().position(|c| c == name).expect(name);
+        stats.rows.iter().map(|r| num(&r[at])).collect()
+    };
+    for (chart, name) in [(&charts[0], "Stationary R-squared"), (&charts[1], "RMSE")] {
+        assert_eq!(chart.kind, ChartKind::Histogram);
+        let v = values(name);
+        assert_eq!(v.len(), 2);
+        assert_eq!(chart.series[0].values.iter().sum::<f64>(), 2.0, "{name}");
+        // each value lies in a bin that holds a count, a bin keeping its lower bound
+        for x in v {
+            let counted = chart
+                .categories
+                .iter()
+                .zip(&chart.series[0].values)
+                .any(|(c, n)| {
+                    let [lo, hi] = c.bin.expect("bounds");
+                    *n > 0.0 && lo <= x && x < hi + 1e-9
+                });
+            assert!(counted, "{name} {x}");
+        }
+    }
+    let acf = find(&tables, "Residual ACF");
+    let lag_one: Vec<f64> = acf
+        .rows
+        .iter()
+        .filter(|r| num(&r[1]) == 1.0)
+        .map(|r| num(&r[2]))
+        .collect();
+    assert_eq!(lag_one.len(), 2);
+    let Some(Plot::Boxes { boxes }) = &charts[2].plot else {
+        panic!("no boxes");
+    };
+    let b = &boxes[0];
+    assert_eq!((b.label.as_str(), b.n), ("1", 2.0));
+    let (lo, hi) = (lag_one[0].min(lag_one[1]), lag_one[0].max(lag_one[1]));
+    assert!(close(b.lower_hinge, lo, 1e-12) && close(b.upper_hinge, hi, 1e-12));
+    assert!(close(b.median, (lo + hi) / 2.0, 1e-12));
+    // one box per lag of the table
+    let lags = acf.rows.iter().map(|r| num(&r[1]) as usize).max().unwrap();
+    assert_eq!(boxes.len(), lags);
+}
+
+/// Without reestimation there are no residuals: the boxplots are left out with a warning and
+/// the histograms of the models' fit measures stay.
+#[test]
+fn model_summary_residual_plots_need_reestimation() {
+    let dir = std::env::temp_dir().join(format!("statscraft-tsplots-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("models.json");
+    let file = file.display();
+    let first: String = series(AR1)[..70]
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut engine = Engine::default();
+    run_in(
+        &mut engine,
+        &format!(
+            "{}PREDICT THRU 76.\nTSMODEL /MODEL DEPENDENT=y OUTFILE='{file}' /ARIMA AR=1 MA=0.\n",
+            data("y", &first)
+        ),
+    );
+    engine.take_charts();
+    run_in(
+        &mut engine,
+        &format!(
+            "{}PREDICT THRU 76.\nTSAPPLY /MODELSUMMARY PLOT=[RMSE RESIDACF] /MODEL FILE='{file}'.\n",
+            data("y", AR1)
+        ),
+    );
+    let charts = engine.take_charts();
+    let titles: Vec<&str> = charts.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(titles, ["Histogram of RMSE"]);
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("REESTIMATE=YES"))
+    );
+    std::fs::remove_dir_all(&dir).ok();
 }

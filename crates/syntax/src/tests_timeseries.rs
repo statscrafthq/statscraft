@@ -399,6 +399,22 @@ fn tsmodel_blocks_and_globals() {
     );
     assert_eq!(m.outliers[1].location, CasePoint::Case(7));
     assert_eq!(m.outliers[0].kind, OutlierType::LevelShift);
+    // the charts of MODELSUMMARY: the measures in the order of the table, then the two boxplots
+    let Command::Tsmodel(t) =
+        command("TSMODEL /MODELSUMMARY PLOT=[NORMBIC RMSE RESIDPACF SRSQUARE] /MODEL DEPENDENT=a.")
+    else {
+        panic!("not TSMODEL");
+    };
+    assert_eq!(
+        t.output.summary_plot_fit,
+        [FitMeasure::Srsquare, FitMeasure::Rmse, FitMeasure::Normbic]
+    );
+    assert!(t.output.summary_plot_pacf && !t.output.summary_plot_acf);
+    let Command::Tsmodel(t) = command("TSMODEL /MODELSUMMARY PLOT=RESIDACF /MODEL DEPENDENT=a.")
+    else {
+        panic!("not TSMODEL");
+    };
+    assert!(t.output.summary_plot_fit.is_empty() && t.output.summary_plot_acf);
     let Command::Tsapply(a) = command(
         "TSAPPLY /AUXILIARY REESTIMATE=YES /MODEL FILE='m.json' KEEP=['Model_1' 'Model_2'].",
     ) else {

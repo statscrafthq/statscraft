@@ -3877,7 +3877,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "TSMODEL",
         summary: "Exponential smoothing and ARIMA models of series, picked by hand or by the expert modeler, with forecasts.",
-        syntax: "TSMODEL [/MODELSUMMARY [PRINT=[MODELFIT RESIDACF RESIDPACF | NONE]] [PLOT=[...]]]\n\
+        syntax: "TSMODEL [/MODELSUMMARY [PRINT=[MODELFIT RESIDACF RESIDPACF | NONE]] [PLOT=[measures | RESIDACF | RESIDPACF]]]\n\
                  \x20       [/MODELSTATISTICS [DISPLAY=YES | NO] [MODELFIT=[SRSQUARE RSQUARE RMSE MAPE MAE MAXAPE MAXAE NORMBIC]]]\n\
                  \x20       [/MODELDETAILS [PRINT=[PARAMETERS RESIDACF RESIDPACF FORECASTS]] [PLOT=[RESIDACF RESIDPACF]]]\n\
                  \x20       [/SERIESPLOT OBSERVED FORECAST FIT FORECASTCI FITCI]\n\
@@ -3916,9 +3916,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  normalized BIC. Output: the model description, a summary of the fit measures across\n\
                  models, a table of the fit measures, the Ljung-Box Q(18) and the number of outliers by\n\
                  model, and on request parameters (with an Outliers table), residual autocorrelations,\n\
-                 forecasts and charts. OUTFILE writes the models to a JSON file for TSAPPLY. SAVE adds\n\
-                 root_series_model variables (Predicted, LCL, UCL, NResidual). Not supported yet:\n\
-                 OUTPMML, the MODELSUMMARY charts and transfer functions chosen by the expert modeler.",
+                 forecasts and charts. MODELSUMMARY PLOT draws a histogram of each fit measure named (the names of MODELFIT),\n\
+                 one value per model, and for RESIDACF and RESIDPACF a boxplot per lag of the models'\n\
+                 residual autocorrelations (they need reestimation). OUTFILE writes the models to a JSON\n\
+                 file for TSAPPLY. SAVE adds root_series_model variables (Predicted, LCL, UCL, NResidual).\n\
+                 Not supported yet: OUTPMML and transfer functions chosen by the expert modeler.",
         example: "TSMODEL /MODELDETAILS PRINT=[PARAMETERS FORECASTS] /MODEL DEPENDENT=bookings /EXSMOOTH TYPE=HOLT.",
         parse: tsmodel::tsmodel,
     },

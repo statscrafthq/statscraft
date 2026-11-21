@@ -272,7 +272,7 @@ fn sum_squares(fit: &Fitted, rows: &[Row], set: &[usize]) -> f64 {
 }
 
 /// Tukey's box of the values.
-fn box_of(label: String, group: String, values: &[(f64, usize)]) -> Option<BoxSummary> {
+pub(crate) fn box_of(label: String, group: String, values: &[(f64, usize)]) -> Option<BoxSummary> {
     let pairs: Vec<(f64, f64)> = values.iter().map(|v| (v.0, 1.0)).collect();
     let [q1, median, q3] = Distribution::new(&pairs).hinges()?;
     let step = 1.5 * (q3 - q1);
