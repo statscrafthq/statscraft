@@ -20,6 +20,8 @@
 use crate::correlations::pair;
 use crate::descriptives::{case_weights, number};
 use crate::dist::t_p;
+use crate::matrix::Matrix;
+use crate::matrix_file::{Materials, MatrixRows};
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
@@ -75,9 +77,93 @@ fn partial(
     value
 }
 
+/// The correlations (empty where they cannot be used), the counts behind them and the
+/// (mean, standard deviation, N) of each variable.
+type MatrixInput = (Vec<Vec<Option<f64>>>, Matrix, Vec<(f64, Option<f64>, f64)>);
+
+/// The correlations, the counts behind them and the (mean, standard deviation, N) of each
+/// variable of `names` from matrix materials. The records are CORR, or PCORR (a matrix this
+/// command wrote, read as it is, with a note); N is required, MEAN and STDDEV are not.
+fn matrix_input(
+    mat: &Materials,
+    names: &[String],
+    notes: &mut Vec<String>,
+) -> Result<MatrixInput, Error> {
+    let found: Vec<String> = names
+        .iter()
+        .map(|n| {
+            mat.all
+                .iter()
+                .find(|a| a.eq_ignore_ascii_case(n))
+                .cloned()
+                .ok_or_else(|| {
+                    Error(format!(
+                        "PARTIAL CORR /MATRIX=IN: the matrix file has no variable {n}"
+                    ))
+                })
+        })
+        .collect::<Result<_, _>>()?;
+    let fail = |e: String| Error(format!("PARTIAL CORR /MATRIX=IN: {e}"));
+    let corr = match mat.matrix("CORR", &found).map_err(fail)? {
+        Some(r) => r,
+        None => {
+            let r = mat.matrix("PCORR", &found).map_err(fail)?.ok_or_else(|| {
+                Error("PARTIAL CORR /MATRIX=IN: the matrix file has no CORR records".into())
+            })?;
+            notes.push(
+                "PARTIAL CORR /MATRIX=IN: the file has PCORR records and no CORR; they are used as the zero-order correlations"
+                    .into(),
+            );
+            r
+        }
+    };
+    let n = mat
+        .counts(&found)
+        .map_err(|e| Error(format!("PARTIAL CORR /MATRIX=IN: {e}")))?
+        .ok_or_else(|| Error("PARTIAL CORR /MATRIX=IN: the matrix file has no N record".into()))?;
+    let mean = mat.vector("MEAN", &found);
+    let sd = mat
+        .vector("STDDEV", &found)
+        .or_else(|| mat.vector("SD", &found));
+    let stats = (0..found.len())
+        .map(|i| {
+            (
+                mean.as_ref().map_or(f64::NAN, |m| m[i]),
+                sd.as_ref().map(|s| s[i]).filter(|v| v.is_finite()),
+                n[i][i],
+            )
+        })
+        .collect();
+    let r = corr
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(j, v)| {
+                    if i == j {
+                        Some(1.0)
+                    } else {
+                        Some(*v).filter(|v| v.is_finite() && v.abs() <= 1.0)
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    Ok((r, n, stats))
+}
+
 impl Engine {
     pub(crate) fn partial_corr(&mut self, command: &PartialCorr) -> Result<Vec<Table>, Error> {
+        let from_matrix = match &command.matrix.input {
+            Some(source) => Some(self.matrix_materials("PARTIAL CORR", source.as_ref())?),
+            None => None,
+        };
         let data = self.active()?;
+        // the labels and variables come from the matrix file when it is read
+        let source_data = from_matrix.as_ref().map_or(data, |m| &m.data);
+        let mut matrix_out: Option<MatrixRows> = None;
+        let mut notes: Vec<String> = Vec::new();
         let shown = self.shown();
         let weights = case_weights(data)?;
         let weight = |c: usize| weights.as_ref().map_or(1.0, |w| w[c]);
@@ -107,7 +193,7 @@ impl Engine {
             }
             let variables: Vec<Variable> = all
                 .iter()
-                .map(|n| data.variable(n))
+                .map(|n| source_data.variable(n))
                 .collect::<Result<_, _>>()?;
             if let Some(v) = variables.iter().find(|v| v.is_string()) {
                 return Err(Error(format!(
@@ -128,35 +214,51 @@ impl Engine {
             }
             let index = |name: &String| all.iter().position(|a| a == name).expect("listed");
             let valid = |v: &Variable, c: usize| is_valid(v, c, command.include);
-            let cases: Vec<usize> = (0..data.case_count())
-                .filter(|&c| weight(c) > 0.0)
-                .filter(|&c| command.pairwise || variables.iter().all(|v| valid(v, c)))
-                .collect();
+            // a matrix read has no cases
+            let cases: Vec<usize> = if from_matrix.is_some() {
+                Vec::new()
+            } else {
+                (0..data.case_count())
+                    .filter(|&c| weight(c) > 0.0)
+                    .filter(|&c| command.pairwise || variables.iter().all(|v| valid(v, c)))
+                    .collect()
+            };
             let m = all.len();
-            let mut r = vec![vec![None; m]; m];
-            let mut w = vec![vec![0.0; m]; m];
-            for a in 0..m {
-                for b in a..m {
-                    let (x, y) = (&variables[a], &variables[b]);
-                    let used: Vec<(f64, f64, f64)> = cases
-                        .iter()
-                        .filter(|&&c| valid(x, c) && valid(y, c))
-                        .map(|&c| (value(x, c), value(y, c), weight(c)))
-                        .collect();
-                    let sum: f64 = used.iter().map(|u| u.2).sum();
-                    let coefficient = if a == b {
-                        Some(1.0)
-                    } else {
-                        Some(pair(&used).r).filter(|r| r.is_finite() && r.abs() <= 1.0)
-                    };
-                    r[a][b] = coefficient;
-                    r[b][a] = coefficient;
-                    w[a][b] = sum;
-                    w[b][a] = sum;
+            let (r, w, matrix_stats) = match &from_matrix {
+                Some(mat) => {
+                    let (r, w, stats) = matrix_input(mat, &all, &mut notes)?;
+                    (r, w, Some(stats))
                 }
-            }
-            if command.descriptives {
-                let rows = variables
+                None => {
+                    let mut r = vec![vec![None; m]; m];
+                    let mut w = vec![vec![0.0; m]; m];
+                    for a in 0..m {
+                        for b in a..m {
+                            let (x, y) = (&variables[a], &variables[b]);
+                            let used: Vec<(f64, f64, f64)> = cases
+                                .iter()
+                                .filter(|&&c| valid(x, c) && valid(y, c))
+                                .map(|&c| (value(x, c), value(y, c), weight(c)))
+                                .collect();
+                            let sum: f64 = used.iter().map(|u| u.2).sum();
+                            let coefficient = if a == b {
+                                Some(1.0)
+                            } else {
+                                Some(pair(&used).r).filter(|r| r.is_finite() && r.abs() <= 1.0)
+                            };
+                            r[a][b] = coefficient;
+                            r[b][a] = coefficient;
+                            w[a][b] = sum;
+                            w[b][a] = sum;
+                        }
+                    }
+                    (r, w, None)
+                }
+            };
+            // the mean, standard deviation and count of each variable
+            let stats: Vec<(f64, Option<f64>, f64)> = match matrix_stats {
+                Some(stats) => stats,
+                None => variables
                     .iter()
                     .map(|v| {
                         let used: Vec<(f64, f64)> = cases
@@ -167,12 +269,20 @@ impl Engine {
                         let n: f64 = used.iter().map(|u| u.1).sum();
                         let mean = used.iter().map(|(x, w)| x * w).sum::<f64>() / n;
                         let squares: f64 = used.iter().map(|(x, w)| w * (x - mean).powi(2)).sum();
-                        let sd = (n > 1.0).then(|| (squares / (n - 1.0)).sqrt());
+                        (mean, (n > 1.0).then(|| (squares / (n - 1.0)).sqrt()), n)
+                    })
+                    .collect(),
+            };
+            if command.descriptives {
+                let rows = variables
+                    .iter()
+                    .zip(&stats)
+                    .map(|(v, (mean, sd, n))| {
                         vec![
                             Cell::Text(shown.variable(v)),
-                            number(Some(mean)),
-                            number(sd),
-                            Cell::Number(n),
+                            number(Some(*mean)),
+                            number(*sd),
+                            Cell::Number(*n),
                         ]
                     })
                     .collect();
@@ -186,6 +296,66 @@ impl Engine {
                     rows,
                     ..Table::default()
                 });
+            }
+            // MATRIX=OUT: the first list only, a square matrix over its VARIABLES
+            if command.matrix.output.is_some() && matrix_out.is_none() {
+                let wanted: Vec<usize> =
+                    rows.iter()
+                        .chain(&columns)
+                        .map(index)
+                        .fold(Vec::new(), |mut acc, i| {
+                            if !acc.contains(&i) {
+                                acc.push(i);
+                            }
+                            acc
+                        });
+                let set: Vec<usize> = match list.orders.first() {
+                    None => controls.iter().map(index).collect(),
+                    Some(&o) => choices(controls.len(), o as usize)
+                        .first()
+                        .map(|c| c.iter().map(|&k| index(&controls[k])).collect())
+                        .unwrap_or_default(),
+                };
+                let names: Vec<String> = wanted.iter().map(|&i| all[i].clone()).collect();
+                let labels = wanted
+                    .iter()
+                    .map(|&i| variables[i].label().map(str::to_string))
+                    .collect();
+                let mut file = MatrixRows::new(names, labels);
+                if from_matrix.is_none() {
+                    file.push("MEAN", "", wanted.iter().map(|&i| stats[i].0).collect());
+                    file.push(
+                        "STDDEV",
+                        "",
+                        wanted
+                            .iter()
+                            .map(|&i| stats[i].1.unwrap_or(f64::NAN))
+                            .collect(),
+                    );
+                }
+                let counts: Matrix = wanted
+                    .iter()
+                    .map(|&i| wanted.iter().map(|&j| w[i][j]).collect())
+                    .collect();
+                file.counts(&counts);
+                let mut memo = HashMap::new();
+                let partials: Matrix = wanted
+                    .iter()
+                    .map(|&i| {
+                        wanted
+                            .iter()
+                            .map(|&j| {
+                                if i == j {
+                                    1.0
+                                } else {
+                                    partial(&r, i, j, &set, &mut memo).unwrap_or(f64::NAN)
+                                }
+                            })
+                            .collect()
+                    })
+                    .collect();
+                file.matrix("PCORR", &partials);
+                matrix_out = Some(file);
             }
             let zero_missing = (0..m).any(|a| (0..m).any(|b| r[a][b].is_none()));
             let zero_order = command.zero_order || (command.bad_corr && zero_missing);
@@ -210,7 +380,7 @@ impl Engine {
                 for chosen in choices(controls.len(), order) {
                     let label = chosen
                         .iter()
-                        .map(|&k| shown.named(data, &controls[k]))
+                        .map(|&k| shown.named(source_data, &controls[k]))
                         .collect::<Vec<_>>()
                         .join(" & ");
                     let set = chosen.iter().map(|&k| index(&controls[k])).collect();
@@ -288,7 +458,7 @@ impl Engine {
                         };
                         let mut row = vec![
                             first(label, ri == 0 && k == 0),
-                            first(&shown.named(data, row_name), k == 0),
+                            first(&shown.named(source_data, row_name), k == 0),
                             Cell::Text(statistic.to_string()),
                         ];
                         row.extend(values);
@@ -301,7 +471,7 @@ impl Engine {
                 String::new(),
                 String::new(),
             ];
-            header.extend(column_names.iter().map(|n| shown.named(data, n)));
+            header.extend(column_names.iter().map(|n| shown.named(source_data, n)));
             let mut captions = Vec::new();
             if flagged {
                 let side = if command.one_tailed {
@@ -322,6 +492,13 @@ impl Engine {
                 caption: (!captions.is_empty()).then(|| captions.join(" ")),
                 ..Table::default()
             });
+        }
+        for note in notes {
+            self.warn(note);
+        }
+        if let Some(file) = matrix_out {
+            let part = self.matrix_part("PARTIAL CORR", &file)?;
+            self.matrix_parts.1.push(part);
         }
         Ok(out)
     }

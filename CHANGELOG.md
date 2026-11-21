@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- PARTIAL CORR MATRIX=IN and OUT: partial correlations from a matrix data file of correlations and counts, and the matrix of the first list written to a file, a dataset or the active dataset.
 - REGRESSION MATRIX=IN and OUT: the equation from a matrix data file of means, standard deviations, counts and correlations, and the matrix of the run written to a file, a dataset or the active dataset.
 
 ## 0.24.0 (2026-11-21)

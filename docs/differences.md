@@ -470,6 +470,7 @@ This page lists, by topic and command:
 - CONDENSED marks coefficients at 0.05 or less with * and at 0.01 or less with **, and shows them with three decimals.
 - SERIAL leaves the lower half of a square matrix empty.
 - With CORR, the zero-order block also shows the control variables.
+- MATRIX=OUT writes the first variable list only: the records MEAN, STDDEV, N and PCORR over its variables (rows and columns together, not the controls), the partial correlations controlling for all controls, or for the first set of the first order given. N is one record when all pairs rest on the same count and a record per variable when pairwise counts differ. A command that reads a matrix and writes one leaves out MEAN and STDDEV, as the manual says. MATRIX=IN reads CORR records (the zero-order correlations, as REGRESSION or a matrix of correlations has them), with N required; MEAN and STDDEV are only needed for DESCRIPTIVES, which shows blanks without them. A file that has PCORR and no CORR records is read with a note, taking the partials as the zero-order matrix: a partial of such a matrix is the higher-order partial, but its degrees of freedom do not count the controls that made it. A file read from another file gives, with a split, the rows of the running group.
 
 ### ONEWAY
 

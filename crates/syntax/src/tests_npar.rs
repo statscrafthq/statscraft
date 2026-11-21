@@ -247,12 +247,23 @@ fn partial_corr_errors() {
         err("PARTIAL CORR VARIABLES=a b BY c (0).").message,
         "an order is a whole number from 1 to 100, got 0"
     );
-    assert_eq!(
-        err("PARTIAL CORR VARIABLES=a b BY c /MATRIX=OUT(*).").message,
-        "subcommand MATRIX of PARTIAL CORR is not supported yet"
+    assert!(
+        err("PARTIAL CORR VARIABLES=a b BY c /MATRIX=OUT(*) OUT(x).")
+            .message
+            .contains("only once")
     );
     assert_eq!(
         err("PARTIAL CORR /SIGNIFICANCE=ONETAIL.").expected,
         ["VARIABLES=varlist BY controls"]
     );
+}
+
+#[test]
+fn partial_corr_matrix_on_one_or_two_subcommands() {
+    let c = partial("PARTIAL CORR VARIABLES=a b BY c(1) /MATRIX=IN('m.sav') OUT(*).");
+    assert_eq!(c.matrix.input, Some(Some("m.sav".to_string())));
+    assert_eq!(c.matrix.output, Some(None));
+    let c = partial("PARTIAL CORR VARIABLES=a b BY c(1) /MATRIX=IN(*) /MATRIX=OUT(d).");
+    assert_eq!(c.matrix.input, Some(None));
+    assert_eq!(c.matrix.output, Some(Some("d".to_string())));
 }

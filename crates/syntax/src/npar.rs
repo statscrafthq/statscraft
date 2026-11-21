@@ -3,6 +3,7 @@
 use crate::ast::{Command, TTestPairs, VarItem};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
+use crate::matrix_io::{MatrixIo, matrix_io};
 use crate::parser::{PResult, Parser};
 use crate::procedures::{at_end, keywords, names};
 use crate::stats::{pair_list, variables};
@@ -137,6 +138,8 @@ pub struct PartialCorr {
     pub pairwise: bool,
     /// `/MISSING=INCLUDE`
     pub include: bool,
+    /// `/MATRIX`: the matrix data file the correlations come from, and the one written.
+    pub matrix: MatrixIo,
 }
 
 /// One variable list: `varlist [WITH varlist] BY controls [(orders)]`.
@@ -658,6 +661,7 @@ pub(crate) fn partial_corr(p: &mut Parser) -> PResult<Command> {
         format: PartialFormat::Matrix,
         pairwise: false,
         include: false,
+        matrix: MatrixIo::default(),
     };
     p.eat(Punct::Slash);
     loop {
@@ -704,6 +708,8 @@ pub(crate) fn partial_corr(p: &mut Parser) -> PResult<Command> {
             } else {
                 PartialFormat::Matrix
             };
+        } else if p.eat_keyword("MATRIX") {
+            matrix_io(p, &mut command.matrix, "PARTIAL CORR", false, false)?;
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
             const CHOICES: [(&str, &[u8]); 4] = [
@@ -726,7 +732,7 @@ pub(crate) fn partial_corr(p: &mut Parser) -> PResult<Command> {
             // a variable list without the VARIABLES keyword
             command.lists.push(partial_list(p)?);
         } else {
-            return Err(p.subcommand_error("PARTIAL CORR", &["MATRIX"]));
+            return Err(p.subcommand_error("PARTIAL CORR", &[]));
         }
         if !p.eat(Punct::Slash) {
             break;

@@ -1473,7 +1473,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Partial correlations of variables controlling for others, with significance.",
         syntax: "PARTIAL CORR [VARIABLES=]varlist [WITH varlist] BY controls [(order ...)] [/...]\n\
                  \x20            [/SIGNIFICANCE=TWOTAIL | ONETAIL] [/STATISTICS=NONE CORR DESCRIPTIVES BADCORR ALL]\n\
-                 \x20            [/FORMAT=MATRIX | CONDENSED | SERIAL] [/MISSING=LISTWISE | ANALYSIS  EXCLUDE | INCLUDE].\n\
+                 \x20            [/FORMAT=MATRIX | CONDENSED | SERIAL] [/MISSING=LISTWISE | ANALYSIS  EXCLUDE | INCLUDE]\n\
+                 \x20            [/MATRIX=[IN(file | dataset | *)] [OUT(file | dataset | *)]].\n\
                  A list alone gives a square matrix, WITH a rectangular one. Without orders the partials control\n\
                  for every control variable at once; an order k gives one block per set of k controls (up to five\n\
                  orders, 25 lists). Coefficients come from the zero-order Pearson correlations step by step, and are\n\
@@ -1482,7 +1483,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  of them is empty; DESCRIPTIVES the mean, standard deviation and N. CONDENSED shows the coefficients\n\
                  alone, marked * at 0.05 and ** at 0.01; SERIAL shows each pair once. LISTWISE (default) uses the cases\n\
                  valid on every variable of the list, controls included; ANALYSIS each pair's valid cases. Weighted\n\
-                 when a weight variable is set. Not supported yet: MATRIX.",
+                 when a weight variable is set. MATRIX=OUT writes, for the first list, the records MEAN, STDDEV, N\n\
+                 (one record, or a record per variable when pairwise counts differ) and PCORR of its variables,\n\
+                 controlling for all controls (or the first order's first set of controls), per split group; IN\n\
+                 reads the CORR records of a file (REGRESSION and CORRELATIONS-type matrices) and needs N.",
         example: "PARTIAL CORR /VARIABLES=satisfaction recommend BY age /STATISTICS=CORR /SIGNIFICANCE=ONETAIL.",
         parse: npar::partial_corr,
     },

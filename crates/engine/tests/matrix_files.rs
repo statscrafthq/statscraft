@@ -61,6 +61,14 @@ pub fn same(a: &[Table], b: &[Table], title: &str) {
     }
 }
 
+pub fn value(engine: &Engine, name: &str, case: usize) -> Option<f64> {
+    let data = engine.dataset().expect("data");
+    match data.variable(name).expect("variable").values() {
+        Values::Numeric(v) => v.get(case),
+        Values::String(_) => None,
+    }
+}
+
 pub fn texts(engine: &Engine, name: &str) -> Vec<String> {
     let data = engine.dataset().expect("data");
     match data.variable(name).expect("variable").values() {
@@ -263,4 +271,146 @@ fn regression_matrix_in_refuses_what_needs_cases() {
             "{error}"
         );
     }
+}
+
+// PARTIAL CORR: the same round trips, a matrix written by REGRESSION read by it, and the
+// first-order partial of invented correlations (computed in R).
+const PARTIAL: &str = "/VARIABLES=x1 x2 BY y(1) /STATISTICS=DESCRIPTIVES CORR";
+
+#[test]
+fn partial_corr_matrix_out_holds_the_means_counts_and_partials_of_the_run() {
+    for (data, missing, pairs) in [(PAY, "", 1), (PAY_GAPS, "/MISSING=ANALYSIS", 2)] {
+        let mut engine = Engine::default();
+        let direct = run(
+            &mut engine,
+            &format!("{data}PARTIAL CORR {PARTIAL} {missing}."),
+        );
+        let _ = run(
+            &mut engine,
+            &format!("PARTIAL CORR MATRIX=OUT(*) {PARTIAL} {missing}."),
+        );
+        let kinds = texts(&engine, "ROWTYPE_");
+        let order: Vec<&str> = kinds.iter().map(String::as_str).collect();
+        // the variables are the VARIABLES list, not the control; N is a record when all pairs
+        // agree and a matrix of records when pairwise counts differ
+        assert_eq!(order[..2], ["MEAN", "STDDEV"], "{kinds:?}");
+        assert_eq!(
+            order.iter().filter(|k| **k == "N").count(),
+            if pairs == 1 { 1 } else { 2 }
+        );
+        assert_eq!(order.iter().filter(|k| **k == "PCORR").count(), 2);
+        let coefficient = |t: &[Table], row: usize, column: usize| {
+            let table = t.iter().find(|t| t.title == "Correlations").unwrap();
+            match &table.rows[row][table.row_headers + column] {
+                Cell::Number(n) => *n,
+                other => panic!("{other:?}"),
+            }
+        };
+        // the zero-order block has 9 rows (3 variables, 3 statistics each); the first row after it is x1 given y
+        let pcorr = kinds.iter().position(|k| k == "PCORR").unwrap();
+        let from_file = value(&engine, "x2", pcorr).unwrap();
+        assert!((from_file - coefficient(&direct, 9, 1)).abs() < 1e-12);
+        let mean = number(&direct, "Descriptive Statistics", 0, "Mean");
+        assert!((value(&engine, "x1", 0).unwrap() - mean).abs() < 1e-12);
+    }
+}
+
+#[test]
+fn partial_corr_matrix_out_under_split_file_has_a_set_per_group() {
+    let mut engine = Engine::default();
+    let _ = run(
+        &mut engine,
+        &format!(
+            "{PAY}SORT CASES BY g.\nSPLIT FILE LAYERED BY g.\nPARTIAL CORR MATRIX=OUT(*) {PARTIAL}."
+        ),
+    );
+    assert_eq!(
+        texts(&engine, "ROWTYPE_")
+            .iter()
+            .filter(|k| *k == "MEAN")
+            .count(),
+        2
+    );
+    assert_eq!(
+        engine.dataset().unwrap().variable_names().next().unwrap(),
+        "g"
+    );
+}
+
+// A matrix of partials read again: the partial of a partial is the higher-order partial, so
+// the coefficient equals the second-order partial of the data (the degrees of freedom cannot,
+// the file does not say what was held fixed before).
+#[test]
+fn partial_corr_reads_its_own_matrix_as_correlations() {
+    let data = "DATA LIST FREE /a b c d.
+BEGIN DATA
+1 2 3 4  2 1 4 3  3 5 3 6  4 3 6 5  5 6 5 8  6 4 8 7  7 8 6 9  8 7 9 8
+9 9 7 12 10 8 11 10 11 12 9 13 12 10 13 12
+END DATA.
+";
+    let mut engine = Engine::default();
+    let direct = run(
+        &mut engine,
+        &format!("{data}PARTIAL CORR /VARIABLES=a b BY c d(2)."),
+    );
+    let _ = run(
+        &mut engine,
+        "PARTIAL CORR MATRIX=OUT(*) /VARIABLES=a b c BY d(1).",
+    );
+    let again = run(
+        &mut engine,
+        "PARTIAL CORR MATRIX=IN(*) /VARIABLES=a b BY c(1).",
+    );
+    let at = |t: &[Table]| {
+        let table = t.iter().find(|t| t.title == "Correlations").unwrap();
+        match &table.rows[0][table.row_headers + 1] {
+            Cell::Number(n) => *n,
+            other => panic!("{other:?}"),
+        }
+    };
+    assert!(
+        (at(&direct) - at(&again)).abs() < 1e-10,
+        "{} {}",
+        at(&direct),
+        at(&again)
+    );
+}
+
+#[test]
+fn partial_corr_reads_the_matrix_regression_wrote() {
+    let mut engine = Engine::default();
+    let direct = run(
+        &mut engine,
+        &format!("{PAY}PARTIAL CORR /VARIABLES=x1 x2 BY y(1)."),
+    );
+    let _ = run(&mut engine, &format!("REGRESSION MATRIX=OUT(*) {EQUATION}"));
+    let again = run(
+        &mut engine,
+        "PARTIAL CORR MATRIX=IN(*) /VARIABLES=x1 x2 BY y(1).",
+    );
+    same(&direct, &again, "Correlations");
+}
+
+#[test]
+fn partial_corr_from_matrix_data_gives_the_textbook_partial() {
+    let t = run(
+        &mut Engine::default(),
+        "MATRIX DATA VARIABLES=ROWTYPE_ x y z /FORMAT=FULL.
+BEGIN DATA
+N 30 30 30
+CORR 1 .5 .4
+CORR .5 1 .3
+CORR .4 .3 1
+END DATA.
+PARTIAL CORR MATRIX=IN(*) /VARIABLES=x y BY z(1).",
+    );
+    let table = t.iter().find(|t| t.title == "Correlations").unwrap();
+    // rows: x Correlation, Significance, df; the column of y is the third value column
+    let at = |row: usize| match &table.rows[row][table.row_headers + 1] {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    assert!((at(0) - 0.434633560328).abs() < 1e-10);
+    assert!((at(1) - 0.018468425951).abs() < 1e-9);
+    assert_eq!(at(2), 27.0);
 }
