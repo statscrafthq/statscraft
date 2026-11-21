@@ -806,15 +806,25 @@ fn minimal(out: &Path) -> Vec<Dialog> {
     list
 }
 
-/// A bootstrap section with every option set, few samples to keep the walk quick.
+/// A bootstrap section with every option set but BCa, few samples to keep the walk quick. BCa
+/// reruns the procedure once per case, which made the walk of One-Way ANOVA alone take fifteen
+/// minutes; Descriptives walks it instead, see `boot_bca`.
 fn boot() -> Bootstrap {
     Bootstrap {
         on: true,
         samples: s("20"),
         level: s("90"),
-        bca: true,
+        bca: false,
         stratified: true,
         strata: v(&["gender"]),
+    }
+}
+
+/// The bootstrap with BCa intervals; every dialog writes it with the same code.
+fn boot_bca() -> Bootstrap {
+    Bootstrap {
+        bca: true,
+        ..boot()
     }
 }
 
@@ -852,7 +862,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             order: 3,
             save_z_scores: true,
             listwise: true,
-            bootstrap: boot(),
+            bootstrap: boot_bca(),
         }),
         Dialog::Explore(Explore {
             bootstrap: boot(),
