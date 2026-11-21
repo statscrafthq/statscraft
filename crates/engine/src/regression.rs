@@ -766,7 +766,9 @@ impl Engine {
                         "REGRESSION /MATRIX=IN reads a matrix, not cases, so {name} is not available"
                     )));
                 }
-                Some(self.matrix_materials("REGRESSION", source.as_ref())?)
+                let m = self.matrix_materials("REGRESSION", source.as_ref())?;
+                m.no_grouping("REGRESSION")?;
+                Some(m)
             }
             None => None,
         };
