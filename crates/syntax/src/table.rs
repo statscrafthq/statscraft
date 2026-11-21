@@ -3132,7 +3132,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/PRINT=[CPS] [MFI] [PARAMETER] [LRT] [FIT] [SUMMARY] [CLASSTABLE] [IC] [KERNEL] [COVB] [CORB]\n\
                  \x20         [STEP] [NONE]]\n\
                  \x20  [/SAVE=[ESTPROB[(root[:n])]] [PREDCAT[(name)]] [PCPROB[(name)]] [ACPROB[(name)]]]\n\
-                 \x20  [/SCALE=1 | n | DEVIANCE | PEARSON] [/SUBPOP=varlist] [/MISSING=EXCLUDE | INCLUDE].\n\
+                 \x20  [/SCALE=1 | n | DEVIANCE | PEARSON] [/SUBPOP=varlist] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/TEST[(constants)]=['label'] effect values ... | ALL values [; ...]].\n\
                  effects: a factor or covariate, a*b or a BY b, a(b) or a WITHIN b, x*x. The dependent and the\n\
                  factors may be numeric or string; covariates are numeric. The categories of the dependent are\n\
                  sorted by ORDER (DATA keeps the order in which they first occur); one of them, the last unless\n\
@@ -3181,7 +3182,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Kendall's tau-a and the concordance index C. CELLPROB gives, for every subpopulation and response\n\
                  category, the observed and predicted count and proportion and the raw and standardized residual\n\
                  (observed minus n times the predicted probability, over the square root of n p (1 - p)).\n\
-                 Not supported yet: TEST and OUTFILE.",
+                 TEST=[(constants)] ['label'] effect values ; ... (or ALL values) tests linear combinations of the\n\
+                 parameters, the values one per parameter of the effect (redundant ones included, INTERCEPT one), by\n\
+                 Wald chi-squares for each logit (df the rank of the rows) and for all logits together; constants\n\
+                 default to 0 and a number may be a fraction. Not supported yet: OUTFILE.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
     },

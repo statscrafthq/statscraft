@@ -907,3 +907,88 @@ fn nomreg_cellprob_of_a_factor_alone_fits_every_cell_exactly() {
     }
     assert!(table.rows.len() >= 6);
 }
+
+// A single coefficient tested alone: the Wald of its logit is the Wald of the Parameter Estimates
+// (with a constant, ((b - c) / se)^2), and for all logits together it is b' V^-1 b of the two
+// coefficients with the covariance matrix PRINT COVB shows; the numbers of those two tables
+// agree with the independent fit in the tests above.
+#[test]
+fn nomreg_test_gives_wald_for_each_logit_and_for_all_logits() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}NOMREG mode BY district WITH km /PRINT=PARAMETER COVB\n\
+             /TEST=km 1 /TEST (1.5)='shifted' km 1."
+        ),
+    );
+    let b1 = value(&t, PE, "1 / km", "B");
+    let b2 = value(&t, PE, "2 / km", "B");
+    let se1 = value(&t, PE, "1 / km", "Std. Error");
+    let se2 = value(&t, PE, "2 / km", "Std. Error");
+    let near = |a: f64, b: f64| assert!((a - b).abs() < 1e-8 * b.abs().max(1.0), "{a} vs {b}");
+    let first = "Custom Hypothesis Test 1";
+    near(
+        value(&t, first, "1", "Wald"),
+        value(&t, PE, "1 / km", "Wald"),
+    );
+    near(
+        value(&t, first, "2", "Wald"),
+        value(&t, PE, "2 / km", "Wald"),
+    );
+    assert_eq!(value(&t, first, "1", "df"), 1.0);
+    assert_eq!(value(&t, first, "All logits", "df"), 2.0);
+    // the covariance of the two km coefficients, from PRINT COVB
+    let cov = t
+        .iter()
+        .find(|t| t.title == "Asymptotic Covariance Matrix")
+        .unwrap();
+    let names: Vec<String> = row_keys(cov);
+    let at = |logit: &str| {
+        names
+            .iter()
+            .position(|n| n == &format!("{logit}: km"))
+            .unwrap()
+    };
+    let (i, j) = (at("1"), at("2"));
+    let v = |a: usize, b: usize| match &cov.rows[a][b + 1] {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    near(v(i, i).sqrt(), se1);
+    near(v(j, j).sqrt(), se2);
+    let det = v(i, i) * v(j, j) - v(i, j) * v(i, j);
+    let joint = (b1 * b1 * v(j, j) - 2.0 * b1 * b2 * v(i, j) + b2 * b2 * v(i, i)) / det;
+    near(value(&t, first, "All logits", "Wald"), joint);
+    // a constant moves the test value
+    let second = "shifted";
+    near(value(&t, second, "1", "Wald"), ((b1 - 1.5) / se1).powi(2));
+    let joint = ((b1 - 1.5).powi(2) * v(j, j) - 2.0 * (b1 - 1.5) * (b2 - 1.5) * v(i, j)
+        + (b2 - 1.5).powi(2) * v(i, i))
+        / det;
+    near(value(&t, second, "All logits", "Wald"), joint);
+    // the manual's ALL form: as many values as parameters, redundant ones included
+    let all = run(
+        &mut engine,
+        &format!("{DATA}NOMREG mode BY district WITH km /TEST=ALL 0 1 0 0 0."),
+    );
+    near(
+        value(&all, "Custom Hypothesis Test 1", "1", "Wald"),
+        value(&t, PE, "1 / km", "Wald"),
+    );
+}
+
+#[test]
+fn nomreg_test_names_what_it_cannot_use() {
+    let error = run_error(&format!(
+        "{DATA}NOMREG mode BY district WITH km /TEST=km 1 2."
+    ));
+    assert!(error.contains("coefficients where 1 parameters"), "{error}");
+    let error = run_error(&format!(
+        "{DATA}NOMREG mode BY district WITH km /TEST=shift 1."
+    ));
+    assert!(
+        error.contains("not an effect of the model") || error.contains("shift"),
+        "{error}"
+    );
+}

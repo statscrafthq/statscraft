@@ -622,7 +622,7 @@ Where the documentation is silent or reads two ways:
 - A string BASE value for a numeric dependent is read as a number, or matched against the formatted value.
 - Stepwise methods: an effect whose parameters are all redundant given the rest of the model has a test on 0 df with p = 1, so it is the first to leave. The Wald test of an effect with very large estimates (near separation) depends on where the fit stopped, as for any Wald test. SCALE does not change the stepwise tests. The step tests were checked against R: nnet's multinom fits of each model on the path for the likelihood ratios, and the score and Wald statistics written out from the gradient and information of the multinomial log likelihood.
 - Under RULE(SINGLE), SFACTOR and CONTAINMENT only effects on MODEL count: an interaction listed without its main effects may enter on its own.
-- HISTORY(n) shows the iterations of the final model only (iteration 0 is the intercept-only start the fit begins from), not those of the intercept-only model. ASSOCIATION is for a response with two categories (others get a warning), as the Algorithms manual says. CELLPROB is one table, Observed and Predicted Frequencies, with the counts, the proportions and the raw and standardized residuals of the Algorithms manual (the syntax manual names only the observed proportion, the expected probability and the residual); its layout is Statscraft's. Not supported yet: TEST and OUTFILE.
+- HISTORY(n) shows the iterations of the final model only (iteration 0 is the intercept-only start the fit begins from), not those of the intercept-only model. ASSOCIATION is for a response with two categories (others get a warning), as the Algorithms manual says. CELLPROB is one table, Observed and Predicted Frequencies, with the counts, the proportions and the raw and standardized residuals of the Algorithms manual (the syntax manual names only the observed proportion, the expected probability and the residual); its layout is Statscraft's. TEST gives a table of Wald chi-squares per logit and for all logits (the Algorithms manual's formulas), with the layout Statscraft's; a row that falls only on redundant parameters is tested as 0 = its value, with a warning. Not supported yet: OUTFILE.
 
 ### PLUM
 
@@ -1862,7 +1862,7 @@ Where the documentation is silent:
   - RELIABILITY has no MATRIX.
   - LOGISTIC REGRESSION has no OUTFILE.
   - COXREG has no OUTFILE.
-  - NOMREG has no TEST or OUTFILE.
+  - NOMREG has no OUTFILE.
   - LOGLINEAR, the older loglinear command with contrasts, is not supported; GENLOG and HILOGLINEAR cover its models.
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
   - CSCOXREG gives no test of the covariate form (the manual names it without defining it).

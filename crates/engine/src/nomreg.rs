@@ -1556,6 +1556,161 @@ impl Engine {
             }
             tables.push(table("Parameter Estimates", 2, columns, out, Some(caption)));
         }
+        // TEST: linear combinations of the parameters, tested for each logit and for all together
+        for (n, test) in command.tests.iter().enumerate() {
+            let title = test
+                .label
+                .clone()
+                .unwrap_or_else(|| format!("Custom Hypothesis Test {}", n + 1));
+            let Some(cov) = &cov else {
+                warnings.push(format!(
+                    "NOMREG: TEST {title} needs the covariance matrix, which is singular, and is not run"
+                ));
+                continue;
+            };
+            // each row over every column of the model, redundant ones included
+            let mut rows: Vec<Vec<f64>> = Vec::new();
+            for row in &test.rows {
+                let mut l = vec![0.0; p];
+                for (effect, values) in row {
+                    let range = match effect {
+                        None => 0..p,
+                        Some(term) if term.variables.is_empty() => {
+                            match effects.iter().find(|e| e.is_intercept()) {
+                                Some(e) => e.range(),
+                                None => {
+                                    return Err(Error(
+                                        "NOMREG: TEST names INTERCEPT, but the model has none"
+                                            .into(),
+                                    ));
+                                }
+                            }
+                        }
+                        Some(term) => {
+                            let wanted = effects_of(
+                                std::slice::from_ref(term),
+                                &factor_names,
+                                &covariate_names,
+                            )?;
+                            let target = &wanted[0];
+                            let mut want = target.factors.clone();
+                            want.sort_unstable();
+                            let found = effects.iter().find(|e| {
+                                let mut have = e.factors.clone();
+                                have.sort_unstable();
+                                have == want && e.covariates == target.covariates
+                            });
+                            match found {
+                                Some(e) => e.range(),
+                                None => {
+                                    return Err(Error(format!(
+                                        "NOMREG: TEST names {}, which is not an effect of the model",
+                                        term.label
+                                    )));
+                                }
+                            }
+                        }
+                    };
+                    if values.len() != range.len() {
+                        return Err(Error(format!(
+                            "NOMREG: TEST gives {} coefficients where {} parameters are expected",
+                            values.len(),
+                            range.len()
+                        )));
+                    }
+                    for (j, v) in range.zip(values) {
+                        l[j] += v;
+                    }
+                }
+                rows.push(l);
+            }
+            let q = fit.cols.len();
+            let logits = others.len();
+            // L restricted to the parameters that are estimated, for one logit
+            let restricted: Vec<Vec<f64>> = rows
+                .iter()
+                .map(|r| fit.cols.iter().map(|&col| r[col]).collect())
+                .collect();
+            if restricted.iter().any(|r| r.iter().all(|v| *v == 0.0)) {
+                warnings.push(format!(
+                    "NOMREG: a row of TEST {title} has no coefficient on an estimated parameter; it is tested as 0 = its value"
+                ));
+            }
+            let constants: Vec<f64> = (0..rows.len())
+                .map(|r| test.constants.get(r).copied().unwrap_or(0.0))
+                .collect();
+            // the Wald chi-square of a stack of rows over the parameters of some logits
+            let wald = |logit_set: &[usize]| -> (f64, usize) {
+                let width = logit_set.len() * q;
+                let l: Vec<Vec<f64>> = (0..rows.len() * logit_set.len())
+                    .map(|i| {
+                        let (slot, r) = (i / rows.len(), i % rows.len());
+                        let mut line = vec![0.0; width];
+                        line[slot * q..slot * q + q].copy_from_slice(&restricted[r]);
+                        line
+                    })
+                    .collect();
+                let index = |i: usize| logit_set[i / q] * q + i % q;
+                let d: Vec<f64> = l
+                    .iter()
+                    .enumerate()
+                    .map(|(i, line)| {
+                        let est: f64 = (0..width).map(|j| line[j] * fit.b[index(j)]).sum();
+                        est - constants[i % rows.len()]
+                    })
+                    .collect();
+                let lc: Matrix = l
+                    .iter()
+                    .map(|line| {
+                        (0..width)
+                            .map(|j| (0..width).map(|a| line[a] * cov[index(a)][index(j)]).sum())
+                            .collect()
+                    })
+                    .collect();
+                let lcl: Matrix = lc
+                    .iter()
+                    .map(|x: &Vec<f64>| {
+                        l.iter()
+                            .map(|y| x.iter().zip(y).map(|(a, b)| a * b).sum())
+                            .collect()
+                    })
+                    .collect();
+                let (inv, rank) = ginverse(&lcl, 1e-10);
+                let statistic: f64 = (0..d.len())
+                    .map(|i| (0..d.len()).map(|j| d[i] * inv[i][j] * d[j]).sum::<f64>())
+                    .sum();
+                (statistic, rank)
+            };
+            let mut body = Vec::new();
+            for (slot, &j) in others.iter().enumerate() {
+                let (statistic, df) = wald(&[slot]);
+                body.push(vec![
+                    text(cat_label(j)),
+                    number(Some(statistic)),
+                    Cell::Number(df as f64),
+                    number((df > 0).then(|| chi_square_p(statistic.max(0.0), df as f64))),
+                ]);
+            }
+            let all: Vec<usize> = (0..logits).collect();
+            let (statistic, df) = wald(&all);
+            body.push(vec![
+                text("All logits"),
+                number(Some(statistic)),
+                Cell::Number(df as f64),
+                number((df > 0).then(|| chi_square_p(statistic.max(0.0), df as f64))),
+            ]);
+            tables.push(table(
+                &title,
+                1,
+                plain(&[&dep_text, "Wald", "df", "Sig."]),
+                body,
+                Some(format!(
+                    "{} linear combination(s) of the parameters tested for each logit and for all logits together; the reference category is {}.",
+                    rows.len(),
+                    cat_label(base)
+                )),
+            ));
+        }
         let names: Vec<String> = others
             .iter()
             .flat_map(|&j| fit.cols.iter().map(move |&col| (j, col)))

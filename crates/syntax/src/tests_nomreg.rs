@@ -132,7 +132,6 @@ fn nomreg_errors_name_what_is_not_supported() {
     assert!(err("NOMREG pick BY zone /MODEL=| STEP=zone.").contains("unexpected word STEP"));
     assert!(err("NOMREG pick BY zone /STEPWISE=PIN(0).").contains("PIN"));
     assert!(err("NOMREG pick BY zone /STEPWISE=MAXEFFECT(1.5).").contains("whole number"));
-    assert!(err("NOMREG pick BY zone /TEST=ALL 1 0.").contains("not supported yet"));
     assert!(err("NOMREG pick BY zone /OUTFILE=MODEL('m.xml').").contains("not supported yet"));
     assert!(err("NOMREG pick BY zone /PRINT=HISTORY(0).").contains("positive whole number"));
     assert!(err("NOMREG pick zone.").contains("one dependent"));
@@ -185,4 +184,17 @@ fn nomreg_cellprob_is_a_print_keyword() {
             .print
             .cellprob
     );
+}
+
+#[test]
+fn nomreg_test_reads_rows_labels_and_constants() {
+    let n = nomreg(
+        "NOMREG pick BY zone WITH km /TEST (0 0) = 'a' km 1; INTERCEPT 1 /TEST=ALL 0 1 0 0 0.",
+    );
+    assert_eq!(n.tests.len(), 2);
+    assert_eq!(n.tests[0].rows.len(), 2);
+    assert_eq!(n.tests[0].constants, [0.0, 0.0]);
+    assert_eq!(n.tests[0].label.as_deref(), Some("a"));
+    assert_eq!(n.tests[1].rows.len(), 1);
+    assert!(nomreg("NOMREG pick BY zone.").tests.is_empty());
 }

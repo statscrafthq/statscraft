@@ -18,7 +18,7 @@
 
 use crate::ast::{Command, Value, VarItem};
 use crate::error::SyntaxError;
-use crate::glm::{Term, list_until, term};
+use crate::glm::{CustomTest, Term, custom_test, list_until, term};
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
@@ -194,6 +194,8 @@ pub struct Nomreg {
     /// `/MISSING=INCLUDE`
     pub include: bool,
     pub print: NomregPrint,
+    /// Each `/TEST`: linear combinations of the parameters tested for every logit and together.
+    pub tests: Vec<CustomTest>,
     pub save: Vec<NomregSave>,
     pub scale: NomregScale,
     pub subpop: Option<Vec<VarItem>>,
@@ -566,6 +568,7 @@ pub(crate) fn nomreg(p: &mut Parser) -> PResult<Command> {
         intercept: true,
         include: false,
         print: NomregPrint::default(),
+        tests: Vec::new(),
         save: Vec::new(),
         scale: NomregScale::Value(1.0),
         subpop: None,
@@ -693,8 +696,10 @@ pub(crate) fn nomreg(p: &mut Parser) -> PResult<Command> {
             if !at_end(p) {
                 command.subpop = Some(p.var_list()?);
             }
+        } else if p.eat_keyword("TEST") {
+            command.tests.push(custom_test(p, false)?);
         } else {
-            return Err(p.subcommand_error("NOMREG", &["TEST", "OUTFILE"]));
+            return Err(p.subcommand_error("NOMREG", &["OUTFILE"]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));
