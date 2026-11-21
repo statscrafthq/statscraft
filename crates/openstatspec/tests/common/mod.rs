@@ -19,12 +19,18 @@ pub fn spec_dir() -> Option<PathBuf> {
         .find(|p| p.join("conformance").is_dir())
 }
 
-/// Runs `test` with the conformance folder, or skips with a message (CI has no checkout).
+/// Runs `test` with the conformance folder. Without one it skips with a message, except in CI
+/// (the env var CI is set) or when OPENSTATSPEC_DIR names a folder without it: then it fails.
 pub fn with_spec(test: impl FnOnce(&Path)) {
-    match spec_dir() {
-        Some(dir) => test(&dir.join("conformance")),
-        None => eprintln!(
+    let dir = spec_dir().map(|d| d.join("conformance"));
+    match &dir {
+        Some(dir) if dir.is_dir() => test(dir),
+        None if std::env::var_os("CI").is_none() => eprintln!(
             "skipped: OpenStatSpec specification not found; set OPENSTATSPEC_DIR to its folder"
+        ),
+        _ => panic!(
+            "OpenStatSpec conformance folder not found ({dir:?}); set OPENSTATSPEC_DIR to a \
+             checkout of the specification at the commit in crates/openstatspec/spec-commit"
         ),
     }
 }

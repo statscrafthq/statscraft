@@ -56,6 +56,16 @@ jobs:
       STATSCRAFT_DOLT2_URL: mysql://root:test@127.0.0.1:3310/statscraft
     steps:
       - uses: actions/checkout@v7
+      - name: Check out the OpenStatSpec specification at the pinned commit
+        shell: bash
+        run: |
+          echo "SPEC_COMMIT=$(cat crates/openstatspec/spec-commit)" >> "$GITHUB_ENV"
+          echo "OPENSTATSPEC_DIR=${{ github.workspace }}/.spec" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          repository: OpenStatSpec/specification
+          ref: ${{ env.SPEC_COMMIT }}
+          path: .spec
       - name: Wait for Dolt
         run: |
           for port in 3309 3310; do

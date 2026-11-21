@@ -114,4 +114,4 @@ The command pages in `docs/commands/` are generated from the command table in `c
 UPDATE_DOCS=1 cargo test -p statscraft-syntax --test command_docs
 ```
 
-The OpenStatSpec conformance tests (`crates/openstatspec/tests/conformance.rs` and the database runners) read the published manifests from a local checkout of the specification: the folder in `OPENSTATSPEC_DIR`, or `openStatSpec/specification` next to any parent folder of the repository. Without it the test is skipped.
+The OpenStatSpec conformance tests (`crates/openstatspec/tests/conformance.rs` and the database runners) read the published manifests from a local checkout of the specification: the folder in `OPENSTATSPEC_DIR`, or `openStatSpec/specification` next to any parent folder of the repository. Without it the test is skipped, except in CI, where it fails. CI checks out the specification at the commit in `crates/openstatspec/spec-commit`; to move to a new spec tag, change that line to the tag's commit in a one-line pull request.

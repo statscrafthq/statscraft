@@ -24,6 +24,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - name: Check out the OpenStatSpec specification at the pinned commit
+        shell: bash
+        run: |
+          echo "SPEC_COMMIT=$(cat crates/openstatspec/spec-commit)" >> "$GITHUB_ENV"
+          echo "OPENSTATSPEC_DIR=${{ github.workspace }}/.spec" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          repository: OpenStatSpec/specification
+          ref: ${{ env.SPEC_COMMIT }}
+          path: .spec
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
