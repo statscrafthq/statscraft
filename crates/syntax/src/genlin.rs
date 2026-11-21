@@ -287,6 +287,8 @@ pub struct GenlinPrint {
     pub cps: bool,
     pub descriptives: bool,
     pub fit: bool,
+    pub gef: bool,
+    pub lmatrix: bool,
     /// `HISTORY(n)`: the iteration history, every n-th iteration and the last.
     pub history: Option<u32>,
     pub lagrange: bool,
@@ -305,6 +307,8 @@ impl Default for GenlinPrint {
             cps: true,
             descriptives: true,
             fit: true,
+            gef: false,
+            lmatrix: false,
             history: None,
             lagrange: false,
             modelinfo: true,
@@ -868,6 +872,8 @@ fn print(p: &mut Parser) -> PResult<GenlinPrint> {
             "DESCRIPTIVES" => out.descriptives = true,
             "FIT" => out.fit = true,
             "LAGRANGE" => out.lagrange = true,
+            "GEF" => out.gef = true,
+            "LMATRIX" => out.lmatrix = true,
             "HISTORY" => {
                 let mut every = 1;
                 if p.eat(Punct::LParen) {

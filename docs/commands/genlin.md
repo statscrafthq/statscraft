@@ -29,7 +29,7 @@ GENLIN dependent [(REFERENCE=LAST | FIRST | value)] [(ORDER=ASCENDING | DESCENDI
              [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [UPDATECORR=1]]
    [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]
    [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB]
-           [HISTORY[(n)]] [LAGRANGE] [WORKINGCORR] | NONE]
+           [GEF] [HISTORY[(n)]] [LAGRANGE] [LMATRIX] [WORKINGCORR] | NONE]
    [/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]
           [PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]].
 ```
@@ -46,7 +46,9 @@ LAGRANGE tests a fixed scale (normal, gamma, inverse Gaussian with SCALE a numbe
 
 HISTORY(n) lists the iterations of the last fit (every n-th from iteration 0, and the last) with the log likelihood, then the last gradient and Hessian.
 
-Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
+GEF gives the general estimable function and LMATRIX the L' matrix of each effect's test (and of each estimated marginal mean), not for the ordinal model.
+
+Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
 
 ## Example
 

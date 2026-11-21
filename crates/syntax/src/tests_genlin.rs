@@ -254,7 +254,6 @@ fn genlin_print_save_missing_and_unsupported_parts() {
     let g = genlin("GENLIN y /PRINT NONE.");
     assert!(!g.print.solution && !g.print.fit && !g.print.modelinfo);
     assert!(err("GENLIN y /PRINT NONE FIT.").contains("NONE"));
-    assert!(err("GENLIN y /PRINT LMATRIX.").contains("not supported yet"));
     assert!(err("GENLIN y /SAVE RESID RESID.").contains("only once"));
     assert!(err("GENLIN y /OUTFILE COVB='b.sav'.").contains("not supported yet"));
 }
@@ -352,4 +351,11 @@ fn print_history_takes_an_optional_positive_step() {
         errors[0].message.contains("positive whole number"),
         "{errors:?}"
     );
+}
+
+#[test]
+fn print_gef_and_lmatrix_are_keywords() {
+    let g = genlin("GENLIN y WITH x /MODEL x /PRINT GEF LMATRIX.");
+    assert!(g.print.gef && g.print.lmatrix);
+    assert!(!genlin("GENLIN y WITH x /MODEL x.").print.gef);
 }

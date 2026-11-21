@@ -2759,3 +2759,140 @@ fn history_with_an_estimated_scale_or_k_ends_at_the_reported_fit() {
         );
     }
 }
+
+// PRINT LMATRIX and GEF: the L' matrix of each effect is the hypothesis its test tests, so the
+// Wald statistic of the printed rows (with b and its covariance matrix) is the chi-square of
+// Tests of Model Effects; in this additive model the Type III rows are the unit contrasts of
+// the parameters of the effect, and the Type I rows of the last effect equal them. The general
+// estimable function of the factor with three levels makes the intercept free and the last
+// level the intercept less the other two.
+#[test]
+fn lmatrix_rows_are_the_tested_hypotheses_and_gef_is_the_general_form() {
+    let t = tables_of(&format!(
+        "{COUNTS}GENLIN repairs BY shop WITH temp /MODEL shop temp DISTRIBUTION=POISSON LINK=LOG OFFSET=lnh /CRITERIA ANALYSISTYPE=ALL /PRINT LMATRIX GEF SUMMARY COVB SOLUTION."
+    ));
+    let l3 = "Contrast Coefficients (L' Matrix): Type III shop";
+    let rows = [
+        "Intercept",
+        "[shop=1]",
+        "[shop=2]",
+        "[shop=3] (redundant)",
+        "temp",
+    ];
+    for (r, (a, b)) in
+        rows.iter()
+            .zip([(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (-1.0, -1.0), (0.0, 0.0)])
+    {
+        close(get(&t, l3, r, "L1"), a, 1e-12, r);
+        close(get(&t, l3, r, "L2"), b, 1e-12, r);
+    }
+    // the Wald chi-square of those two rows is the Type III chi-square of shop
+    let covariance = t
+        .iter()
+        .find(|t| t.title.contains("Covariance"))
+        .expect("covariance");
+    let keys = row_keys(covariance);
+    let at = |name: &str| keys.iter().position(|k| k.ends_with(name)).unwrap();
+    let v = |a: usize, b: usize| match &covariance.rows[a][covariance.row_headers + b] {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    let (i, j) = (at("[shop=1]"), at("[shop=2]"));
+    let (b1, b2) = (get(&t, PE, "[shop=1]", B), get(&t, PE, "[shop=2]", B));
+    let det = v(i, i) * v(j, j) - v(i, j) * v(i, j);
+    let wald = (b1 * b1 * v(j, j) - 2.0 * b1 * b2 * v(i, j) + b2 * b2 * v(i, i)) / det;
+    close(
+        get(
+            &t,
+            "Tests of Model Effects",
+            "shop",
+            "Type III / Wald Chi-Square",
+        ),
+        wald,
+        1e-9,
+        "wald",
+    );
+    // the last effect: Type I and Type III test the same thing
+    let temp = [
+        "Intercept",
+        "[shop=1]",
+        "[shop=2]",
+        "[shop=3] (redundant)",
+        "temp",
+    ];
+    for r in temp {
+        close(
+            get(
+                &t,
+                "Contrast Coefficients (L' Matrix): Type I temp",
+                r,
+                "L1",
+            ),
+            get(
+                &t,
+                "Contrast Coefficients (L' Matrix): Type III temp",
+                r,
+                "L1",
+            ),
+            1e-9,
+            r,
+        );
+    }
+    // Type I of the factor uses the weights of the cases, not the unit contrasts
+    assert!(
+        get(
+            &t,
+            "Contrast Coefficients (L' Matrix): Type I shop",
+            "temp",
+            "L1"
+        )
+        .abs()
+            > 0.1
+    );
+    let gef = "General Estimable Function";
+    let expected = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [1.0, -1.0, -1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ];
+    for (r, row) in rows.iter().zip(expected) {
+        for (c, v) in row.iter().enumerate() {
+            close(get(&t, gef, r, &format!("L{}", c + 1)), *v, 1e-12, r);
+        }
+    }
+    // the ordinal model has thresholds in place of the intercept: ignored for now
+    let t = tables_of(&format!(
+        "{TASTES}GENLIN taste WITH sugar /MODEL sugar DISTRIBUTION=MULTINOMIAL LINK=CUMLOGIT /PRINT LMATRIX GEF SOLUTION."
+    ));
+    assert!(
+        t.iter()
+            .all(|t| !t.title.contains("L'") && t.title != "General Estimable Function")
+    );
+}
+
+// With EMMEANS the L' of each estimated marginal mean is printed too: for the factor with three
+// levels and a covariate at its mean, a cell's row has the intercept 1, the cell's own parameter
+// 1 and each other factor level 0 (one factor: nothing to average), and the covariate its mean.
+#[test]
+fn lmatrix_gives_the_coefficients_of_each_estimated_marginal_mean() {
+    let t = tables_of(&format!(
+        "{COUNTS}GENLIN repairs BY shop WITH temp /MODEL shop temp DISTRIBUTION=POISSON LINK=LOG OFFSET=lnh /EMMEANS TABLES=shop /PRINT LMATRIX."
+    ));
+    let title = "Contrast Coefficients (L' Matrix): Estimated Marginal Means shop";
+    let columns = find(&t, title).column_titles();
+    assert_eq!(columns.len(), 4, "{columns:?}");
+    // the second mean: intercept 1, [shop=2] 1, the others 0, temp at its mean
+    let col = &columns[2];
+    close(get(&t, title, "Intercept", col), 1.0, 1e-12, "intercept");
+    close(get(&t, title, "[shop=1]", col), 0.0, 1e-12, "shop 1");
+    close(get(&t, title, "[shop=2]", col), 1.0, 1e-12, "shop 2");
+    close(
+        get(&t, title, "[shop=3] (redundant)", col),
+        0.0,
+        1e-12,
+        "shop 3",
+    );
+    close(get(&t, title, "temp", col), 15.9, 1e-9, "temp mean");
+}

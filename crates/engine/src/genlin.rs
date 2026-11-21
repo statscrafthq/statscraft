@@ -37,8 +37,8 @@ use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, f_p, ln_gamma, normal_cdf, normal_quantile};
 use crate::glm::{
-    Data, Fit, combinations, effects_of, emmeans_l, ginverse, intercept_term, key_value_text,
-    parameter_name, percent_title,
+    Data, Fit, combinations, effects_of, emmeans_l, gef_basis, ginverse, intercept_term,
+    key_value_text, l_prime_table, parameter_name, percent_title,
 };
 use crate::matrix::{Matrix, symmetric_eigen};
 use crate::npar_tests::text;
@@ -3202,6 +3202,45 @@ impl Engine {
                 )),
             ));
         }
+        // the analysis types of the effect tests (and of their L matrices)
+        let mut types: Vec<i32> = Vec::new();
+        if crit.type1 {
+            types.push(1);
+        }
+        if crit.type3 {
+            types.push(3);
+        }
+        // the Type I rows come from X'WX, W the frequency times the scale weight times the trials
+        let type1_of = || {
+            let p = design.p;
+            let mut xwx = vec![vec![0.0; p]; p];
+            for (i, row) in design.x.iter().enumerate() {
+                let w = c.f[i] * c.a(i);
+                for (a, out) in xwx.iter_mut().enumerate() {
+                    if row[a] != 0.0 {
+                        for (v, xb) in out.iter_mut().zip(row) {
+                            *v += w * row[a] * xb;
+                        }
+                    }
+                }
+            }
+            type1_rows(&xwx, crit.singular)
+        };
+        // the rows of L over every parameter that test effect `e` by the Type I or III rule,
+        // keeping those that touch an estimated parameter
+        let l_rows = |t: i32, e: usize, type1: &Option<Vec<Option<Vec<f64>>>>| -> Matrix {
+            let all: Matrix = match type1 {
+                Some(rows) => design.effects[e]
+                    .range()
+                    .filter_map(|c| rows[c].clone())
+                    .collect(),
+                None => design.type34(e, false),
+            };
+            let _ = t;
+            all.into_iter()
+                .filter(|r| restrict(r).iter().any(|v| v.abs() > 1e-12))
+                .collect()
+        };
         if print.summary {
             let mut columns: Vec<(String, String)> = plain(&["Source"]);
             let mut values: Vec<Vec<Cell>> = tested
@@ -3216,13 +3255,6 @@ impl Engine {
                 .collect();
             let f_too = crit.lr && matches!(scale, ScaleMode::Deviance | ScaleMode::Pearson);
             let mut blank_lr = false;
-            let mut types = Vec::new();
-            if crit.type1 {
-                types.push(1);
-            }
-            if crit.type3 {
-                types.push(3);
-            }
             for &t in &types {
                 let group = format!("Type {}", if t == 1 { "I" } else { "III" });
                 let first = if crit.lr {
@@ -3238,43 +3270,13 @@ impl Engine {
                         columns.push((group.clone(), name.into()));
                     }
                 }
-                let type1 = (t == 1).then(|| {
-                    // X'WX with W the frequency times the scale weight times the trials
-                    let p = design.p;
-                    let mut xwx = vec![vec![0.0; p]; p];
-                    for (i, row) in design.x.iter().enumerate() {
-                        let w = c.f[i] * c.a(i);
-                        for (a, out) in xwx.iter_mut().enumerate() {
-                            if row[a] != 0.0 {
-                                for (v, xb) in out.iter_mut().zip(row) {
-                                    *v += w * row[a] * xb;
-                                }
-                            }
-                        }
-                    }
-                    type1_rows(&xwx, crit.singular)
-                });
+                let type1 = (t == 1).then(type1_of);
                 // the log likelihood of the model of the first effects, by their number
                 let mut prefix_ll: std::collections::HashMap<usize, Option<f64>> =
                     std::collections::HashMap::new();
                 for (slot, &e) in tested.iter().enumerate() {
                     let effect = &design.effects[e];
-                    let l: Matrix = match &type1 {
-                        Some(rows) => effect
-                            .range()
-                            .filter_map(|c| rows[c].as_ref())
-                            .map(|r| restrict(r))
-                            .collect(),
-                        None => design
-                            .type34(e, false)
-                            .iter()
-                            .map(|r| restrict(r))
-                            .collect(),
-                    };
-                    let l: Matrix = l
-                        .into_iter()
-                        .filter(|r| r.iter().any(|v| v.abs() > 1e-12))
-                        .collect();
+                    let l: Matrix = l_rows(t, e, &type1).iter().map(|r| restrict(r)).collect();
                     let (chi, df) = if crit.lr {
                         let (pair, df) = if t == 1 {
                             // the model of the effects up to this one, with and without it
@@ -3338,6 +3340,50 @@ impl Engine {
                     if blank_lr { NO_SMALLER_FIT } else { "" }
                 )),
             ));
+        }
+        if print.lmatrix || print.gef {
+            if multinomial {
+                warnings.push(
+                    "GENLIN: PRINT LMATRIX and GEF are not supported yet for the ordinal multinomial model; they are ignored".into(),
+                );
+            } else {
+                if print.lmatrix {
+                    for &t in &types {
+                        let roman = if t == 1 { "I" } else { "III" };
+                        let type1 = (t == 1).then(type1_of);
+                        for &e in &tested {
+                            let rows = l_rows(t, e, &type1);
+                            if rows.is_empty() {
+                                continue;
+                            }
+                            let label = if design.effects[e].is_intercept() {
+                                "(Intercept)".to_string()
+                            } else {
+                                design.effects[e].label.clone()
+                            };
+                            tables.push(l_prime_table(
+                                &d,
+                                &design,
+                                &format!("Contrast Coefficients (L' Matrix): Type {roman} {label}"),
+                                format!("{caption} Each column is a row of L, the hypothesis the Type {roman} test of {label} tests."),
+                                (1..=rows.len()).map(|i| format!("L{i}")).collect(),
+                                &rows,
+                            ));
+                        }
+                    }
+                }
+                if print.gef {
+                    let basis = gef_basis(&design.h(), &design.redundant);
+                    tables.push(l_prime_table(
+                        &d,
+                        &design,
+                        "General Estimable Function",
+                        format!("{caption} Each column is a free coefficient; a parameter's coefficient in any estimable function is the combination of them in its row."),
+                        (1..=basis.len()).map(|i| format!("L{i}")).collect(),
+                        &basis,
+                    ));
+                }
+            }
         }
         // parameter estimates
         let z = normal_quantile(0.5 + crit.cilevel / 200.0);
@@ -3588,6 +3634,7 @@ impl Engine {
                             factor_vars: &factor_vars,
                             levels: &levels,
                             shown: &shown,
+                            lmatrix: print.lmatrix,
                         },
                         &mut warnings,
                     )?);
@@ -3783,6 +3830,8 @@ struct EmmContext<'a> {
     factor_vars: &'a [Variable<'a>],
     levels: &'a [Vec<Key>],
     shown: &'a Shown,
+    /// PRINT LMATRIX: also the coefficients of each mean.
+    lmatrix: bool,
 }
 
 fn emmeans_tables(cx: EmmContext, warnings: &mut Vec<String>) -> Result<Vec<Table>, Error> {
@@ -3822,14 +3871,19 @@ fn emmeans_tables(cx: EmmContext, warnings: &mut Vec<String>) -> Result<Vec<Tabl
             .collect::<Vec<_>>(),
     );
     // the linear predictor of each cell and its covariance
-    let ls: Vec<Option<Vec<f64>>> = combos
+    let full: Vec<Vec<f64>> = combos
         .iter()
         .map(|combo| {
             let fixed: Vec<(usize, usize)> =
                 factors.iter().copied().zip(combo.iter().copied()).collect();
-            let l = emmeans_l(d, cx.design, &fixed, &with);
+            emmeans_l(d, cx.design, &fixed, &with)
+        })
+        .collect();
+    let ls: Vec<Option<Vec<f64>>> = full
+        .iter()
+        .map(|l| {
             cx.design
-                .estimable(&l, cx.h)
+                .estimable(l, cx.h)
                 .then(|| cx.kept.iter().map(|&j| l[j]).collect())
         })
         .collect();
@@ -3942,6 +3996,33 @@ fn emmeans_tables(cx: EmmContext, warnings: &mut Vec<String>) -> Result<Vec<Tabl
             caption.clone()
         }),
     )];
+    if cx.lmatrix {
+        let cells: Vec<String> = combos
+            .iter()
+            .map(|combo| {
+                if factors.is_empty() {
+                    return "Overall".to_string();
+                }
+                factors
+                    .iter()
+                    .zip(combo)
+                    .map(|(&f, &lv)| format!("{}={}", d.factor_texts[f], label_of(f, lv)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .collect();
+        out.push(l_prime_table(
+            d,
+            cx.design,
+            &format!("Contrast Coefficients (L' Matrix): Estimated Marginal Means {name}"),
+            format!(
+                "{} Each column is the row of L of one mean: the cell's parameters, the other factors averaged and the covariates held as in the means.",
+                cx.caption
+            ),
+            cells,
+            &full,
+        ));
+    }
     let Some(compare) = &e.compare else {
         return Ok(out);
     };

@@ -1833,7 +1833,7 @@ fn parameter_labels(d: &Data, fit: &Fit) -> Vec<String> {
 
 /// A matrix of coefficients with a row per parameter and a column per column name: the
 /// transpose of an L matrix whose rows run over the parameters.
-fn l_prime_table(
+pub(crate) fn l_prime_table(
     d: &Data,
     fit: &Fit,
     title: &str,
