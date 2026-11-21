@@ -86,6 +86,8 @@ pub struct NomregPrint {
     pub history: Option<u32>,
     /// `ASSOCIATION`: the measures of monotone association, for two response categories.
     pub association: bool,
+    /// `CELLPROB`: observed and predicted counts and proportions with residuals, per subpopulation.
+    pub cellprob: bool,
 }
 
 impl Default for NomregPrint {
@@ -105,6 +107,7 @@ impl Default for NomregPrint {
             step: true,
             history: None,
             association: false,
+            cellprob: false,
         }
     }
 }
@@ -331,7 +334,6 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
         return Ok(None);
     }
     while !at_end(p) {
-        let start = p.pos;
         if p.eat_keyword("NONE") {
             none = true;
         } else if p.eat_keyword("CPS") {
@@ -376,12 +378,8 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
             out.history = Some(every);
         } else if p.eat_keyword("ASSOCIATION") {
             out.association = true;
-        } else if let Some(word) = ["CELLPROB"].into_iter().find(|k| p.at_keyword(k)) {
-            p.pos += 1;
-            return Err(SyntaxError::new(
-                p.span_from(start),
-                format!("PRINT {word} of NOMREG is not supported yet"),
-            ));
+        } else if p.eat_keyword("CELLPROB") {
+            out.cellprob = true;
         } else {
             return Err(p.unexpected(&[
                 "CPS",
@@ -398,6 +396,7 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
                 "STEP",
                 "HISTORY",
                 "ASSOCIATION",
+                "CELLPROB",
                 "NONE",
             ]));
         }

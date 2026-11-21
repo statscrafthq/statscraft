@@ -787,3 +787,123 @@ fn nomreg_association_warns_for_more_than_two_categories() {
         engine.warnings()[0].contains("ASSOCIATION needs a dependent variable with two categories")
     );
 }
+
+// A logistic fit on forty cases in R (glm): the cell of x = 12.4 holds one case of category 1,
+// that of x = 11.6 one of category 2; every subpopulation is one value of the covariate.
+#[test]
+fn nomreg_cellprob_gives_counts_proportions_and_residuals_per_subpopulation() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        "DATA LIST FREE / y x.\nBEGIN DATA\n1 12.4
+2 11.6
+1 15.2
+1 6.2
+2 16.6
+1 11.3
+1 5.3
+1 7.2
+2 10.2
+2 10
+1 3.2
+2 12.3
+1 8.4
+1 10.5
+2 11.7
+1 14.5
+2 12
+1 13.4
+2 7.6
+1 8.7
+1 11.2
+2 10.1
+2 6.9
+1 6.2
+1 9.3
+1 12.2
+1 11
+2 6.6
+1 7.9
+2 7.8
+1 4.5
+1 8.8
+1 10.1
+2 12.7
+2 14.9
+1 10.2
+2 15.5
+1 10.2
+2 14.3
+1 14.4\nEND DATA.\nNOMREG y WITH x /PRINT=CELLPROB.",
+    );
+    let table = tables
+        .iter()
+        .find(|t| t.title == "Observed and Predicted Frequencies")
+        .expect("the table");
+    assert_eq!(table.columns[1], "Response");
+    let number = |cell: &Cell| match cell {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    let label = |r: usize| match &table.rows[r][0] {
+        Cell::Text(t) => t.clone(),
+        _ => String::new(),
+    };
+    let near = |a: f64, b: f64| assert!((a - b).abs() < 1e-6, "{a} vs {b}");
+    // the first subpopulation is the first case, x = 12.4; category 1 is the first response row
+    assert_eq!(label(0), "x=12.4");
+    let row = &table.rows[0];
+    near(number(&row[2]), 1.0);
+    near(number(&row[3]), 0.520_689_189_257_153);
+    near(number(&row[4]), 1.0);
+    near(number(&row[5]), 0.520_689_189_257_153);
+    near(number(&row[6]), 0.479_310_810_742_847);
+    near(number(&row[7]), 0.959_443_338_516_696);
+    let second = &table.rows[1];
+    near(number(&second[2]), 0.0);
+    near(number(&second[3]), 0.479_310_810_742_847);
+    // x = 11.6 is the second subpopulation: categories 1 and 2, the single case in category 2
+    let next = table
+        .rows
+        .iter()
+        .position(|r| matches!(&r[0], Cell::Text(t) if t == "x=11.6"))
+        .unwrap();
+    near(number(&table.rows[next][5]), 0.554_436_026_527_294);
+    near(number(&table.rows[next][7]), -1.115_502_857_373_8);
+    // over every subpopulation the predicted counts add up to the observed ones of each category
+    let sum = |c: usize, r0: usize| -> f64 {
+        table
+            .rows
+            .iter()
+            .skip(r0)
+            .step_by(2)
+            .map(|r| number(&r[c]))
+            .sum()
+    };
+    near(sum(2, 0), sum(3, 0));
+    near(sum(2, 1), sum(3, 1));
+}
+
+#[test]
+fn nomreg_cellprob_of_a_factor_alone_fits_every_cell_exactly() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{DATA}NOMREG mode BY district /PRINT=CELLPROB."),
+    );
+    let table = tables
+        .iter()
+        .find(|t| t.title == "Observed and Predicted Frequencies")
+        .expect("the table");
+    // with a factor alone the model is saturated: predicted = observed, residuals 0
+    for row in &table.rows {
+        let (Cell::Number(observed), Cell::Number(predicted)) = (&row[2], &row[3]) else {
+            panic!("{row:?}")
+        };
+        assert!((observed - predicted).abs() < 1e-6, "{row:?}");
+        if let Cell::Number(raw) = &row[6] {
+            assert!(raw.abs() < 1e-6);
+        }
+    }
+    assert!(table.rows.len() >= 6);
+}

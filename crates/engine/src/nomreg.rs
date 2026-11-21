@@ -1625,6 +1625,70 @@ impl Engine {
             out.push(row);
             tables.push(table("Classification", 1, columns, out, None));
         }
+        if print.cellprob {
+            // per subpopulation and response category: the observed and predicted count and
+            // proportion, the raw and the standardized residual of the Algorithms manual
+            let mut columns = plain(&["Subpopulation", "Response"]);
+            for (group, name) in [
+                ("Frequency", "Observed"),
+                ("Frequency", "Predicted"),
+                ("Proportion", "Observed"),
+                ("Proportion", "Predicted"),
+                ("Residual", "Raw"),
+                ("Residual", "Standardized"),
+            ] {
+                columns.push((group.into(), name.into()));
+            }
+            let mut out = Vec::new();
+            for (i, &k) in members.iter().enumerate() {
+                let probs = model.probs(&model.x[i], &fit.cols, &fit.b);
+                let total: f64 = raw[i].iter().sum();
+                let mut label: Vec<String> = Vec::new();
+                for &f in &sub_factors {
+                    let level = subpop_levels[i][f];
+                    label.push(format!(
+                        "{}={}",
+                        factor_vars[f].name(),
+                        key_text(&factor_vars[f], &levels[f][level])
+                    ));
+                }
+                for &v in &sub_covariates {
+                    let value = cov_values[v][k].expect("valid");
+                    label.push(format!(
+                        "{}={}",
+                        cov_vars[v].name(),
+                        category_text(value, cov_vars[v].format())
+                    ));
+                }
+                let label = label.join(", ");
+                for (j, &pi) in probs.iter().enumerate() {
+                    let observed = raw[i][j];
+                    let predicted = total * pi;
+                    let spread = (total * pi * (1.0 - pi)).sqrt();
+                    out.push(vec![
+                        if j == 0 {
+                            text(label.clone())
+                        } else {
+                            Cell::Empty
+                        },
+                        text(cat_label(j)),
+                        Cell::Number(observed),
+                        number(Some(predicted)),
+                        number((total > 0.0).then(|| observed / total)),
+                        number(Some(pi)),
+                        number(Some(observed - predicted)),
+                        number((spread > 0.0).then(|| (observed - predicted) / spread)),
+                    ]);
+                }
+            }
+            tables.push(table(
+                "Observed and Predicted Frequencies",
+                2,
+                columns,
+                out,
+                None,
+            ));
+        }
         if print.association {
             if j_count != 2 {
                 warnings.push(format!(

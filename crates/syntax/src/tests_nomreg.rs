@@ -135,7 +135,6 @@ fn nomreg_errors_name_what_is_not_supported() {
     assert!(err("NOMREG pick BY zone /TEST=ALL 1 0.").contains("not supported yet"));
     assert!(err("NOMREG pick BY zone /OUTFILE=MODEL('m.xml').").contains("not supported yet"));
     assert!(err("NOMREG pick BY zone /PRINT=HISTORY(0).").contains("positive whole number"));
-    assert!(err("NOMREG pick BY zone /PRINT=CELLPROB.").contains("not supported yet"));
     assert!(err("NOMREG pick zone.").contains("one dependent"));
     assert!(err("NOMREG pick BY zone /FULLFACTORIAL /MODEL=zone.").contains("FULLFACTORIAL"));
     assert!(err("NOMREG pick BY zone /CRITERIA=CIN(100).").contains("CIN"));
@@ -171,5 +170,19 @@ fn nomreg_association_is_a_print_keyword() {
         !nomreg("NOMREG pick BY zone /PRINT=PARAMETER.")
             .print
             .association
+    );
+}
+
+#[test]
+fn nomreg_cellprob_is_a_print_keyword() {
+    assert!(
+        nomreg("NOMREG pick BY zone /PRINT=CELLPROB.")
+            .print
+            .cellprob
+    );
+    assert!(
+        !nomreg("NOMREG pick BY zone /PRINT=PARAMETER.")
+            .print
+            .cellprob
     );
 }

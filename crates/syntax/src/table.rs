@@ -3159,7 +3159,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  iteration and the last. ASSOCIATION, for a response with two categories, counts the pairs of cases with\n\
                  different observed categories as concordant, discordant or tied by the predicted probability\n\
                  of the non-base category (cut to 1/500) and gives Somers' D, Goodman and Kruskal's gamma,\n\
-                 Kendall's tau-a and the concordance index C. Not supported yet: TEST, OUTFILE and PRINT CELLPROB.",
+                 Kendall's tau-a and the concordance index C. CELLPROB gives, for every subpopulation and response\n\
+                 category, the observed and predicted count and proportion and the raw and standardized residual\n\
+                 (observed minus n times the predicted probability, over the square root of n p (1 - p)).\n\
+                 Not supported yet: TEST and OUTFILE.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
     },
