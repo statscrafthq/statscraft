@@ -965,24 +965,26 @@ pub const SUM_OF_SQUARES: [(&str, &str); 4] = [
 const DEFAULT_SUM_OF_SQUARES: usize = 2;
 
 /// Keyword and label of every table of the options on /PRINT: Repeated Measures offers the
-/// first three, Univariate the first six, Multivariate all.
-pub const GLM_PRINT: [(&str, &str); 9] = [
+/// first three, Univariate the first eight, Multivariate all.
+pub const GLM_PRINT: [(&str, &str); 11] = [
     ("DESCRIPTIVE", "Descriptive statistics"),
     ("ETASQ", "Estimates of effect size"),
     ("OPOWER", "Observed power"),
     ("PARAMETER", "Parameter estimates"),
     ("HOMOGENEITY", "Homogeneity tests"),
     ("LOF", "Lack of fit test"),
+    ("TEST(LMATRIX)", "Contrast coefficient matrix"),
+    ("GEF", "General estimable function"),
     ("RSSCP", "Residual SSCP, covariance and correlation"),
     ("TEST(SSCP)", "Hypothesis and error SSCP of each effect"),
     ("TEST(MMATRIX)", "Coefficients of the M matrix"),
 ];
 
 /// The number of entries of `GLM_PRINT` the Univariate dialog offers.
-pub const UNIVARIATE_PRINT: usize = 6;
+pub const UNIVARIATE_PRINT: usize = 8;
 
 /// The entry TEST(MMATRIX) of `GLM_PRINT`, offered only with an M matrix.
-pub const PRINT_M_MATRIX: usize = 8;
+pub const PRINT_M_MATRIX: usize = 10;
 
 /// The contrasts of a factor, keyword and label; the first adds no CONTRAST.
 pub const GLM_CONTRASTS: [(&str, &str); 7] = [
@@ -1131,7 +1133,7 @@ pub struct Univariate {
     /// One flag per entry of `GLM_SAVE`.
     pub save: [bool; 8],
     /// One flag per entry of `GLM_PRINT`; Univariate uses the first `UNIVARIATE_PRINT`.
-    pub print: [bool; 9],
+    pub print: [bool; 11],
     pub alpha: String,
     /// The columns of MMATRIX (Multivariate only).
     pub m_matrix: Vec<MColumn>,
@@ -1169,7 +1171,7 @@ impl Default for Univariate {
             profile_mean_line: false,
             profile_errors: 0,
             save: [false; 8],
-            print: [false; 9],
+            print: [false; 11],
             alpha: "0.05".into(),
             m_matrix: Vec::new(),
             bootstrap: Default::default(),
@@ -1377,9 +1379,15 @@ impl Univariate {
         if self.m_matrix.is_empty() {
             print.retain(|k| *k != "TEST(MMATRIX)");
         }
-        if print.contains(&"TEST(SSCP)") && print.contains(&"TEST(MMATRIX)") {
-            print.retain(|k| *k != "TEST(SSCP)" && *k != "TEST(MMATRIX)");
-            print.push("TEST(SSCP MMATRIX)");
+        // TEST names all its matrices at once
+        let tests: Vec<&str> = print
+            .iter()
+            .filter_map(|k| k.strip_prefix("TEST(")?.strip_suffix(')'))
+            .collect();
+        let test = format!("TEST({})", tests.join(" "));
+        if tests.len() > 1 {
+            print.retain(|k| !k.starts_with("TEST("));
+            print.push(&test);
         }
         glm_options(&mut text, self.sstype, print, &self.alpha)?;
         if self.multivariate {
@@ -2117,7 +2125,7 @@ mod tests {
         d.adjustment = 1;
         d.save = [true; 8];
         // the multivariate tables are not offered and not written
-        d.print = [true; 9];
+        d.print = [true; 11];
         d.alpha = "0.01".into();
         d.sstype = 0;
         d.contrasts = vec![
@@ -2168,7 +2176,8 @@ mod tests {
              /PLOT=SPREADLEVEL RESIDUALS PROFILE(region*gender gender) TYPE=BAR ERRORBAR=CI \
              MEANREFERENCE=YES\n  \
              /SAVE=PRED SEPRED RESID ZRESID SRESID DRESID COOK LEVER\n  /METHOD=SSTYPE(1)\n  \
-             /PRINT=DESCRIPTIVE ETASQ OPOWER PARAMETER HOMOGENEITY LOF\n  /CRITERIA=ALPHA(0.01)."
+             /PRINT=DESCRIPTIVE ETASQ OPOWER PARAMETER HOMOGENEITY LOF TEST(LMATRIX) GEF\n  \
+             /CRITERIA=ALPHA(0.01)."
         );
         // the dialog walk with every option on runs this set (app/dialog_walk.rs), and the
         // engine's GLM tests check the saved variables
@@ -2264,7 +2273,7 @@ mod tests {
         // every table, a contrast, a plot, saved variables and an M matrix
         d.factors = v(&["region", "gender"]);
         d.covariates = v(&["age"]);
-        d.print = [true; 9];
+        d.print = [true; 11];
         d.contrasts = vec![FactorContrast {
             name: "region".into(),
             contrast: 1,
@@ -2304,7 +2313,8 @@ mod tests {
             "GLM monthly_spend q1_satisfaction q2_recommend BY region gender WITH age\n  \
              /CONTRAST(region)=DEVIATION\n  /POSTHOC=region(BONFERRONI)\n  \
              /EMMEANS=TABLES(region)\n  /PLOT=PROFILE(region*gender)\n  /SAVE=PRED RESID\n  \
-             /PRINT=DESCRIPTIVE ETASQ OPOWER PARAMETER HOMOGENEITY LOF RSSCP TEST(SSCP MMATRIX)\n  \
+             /PRINT=DESCRIPTIVE ETASQ OPOWER PARAMETER HOMOGENEITY LOF GEF RSSCP \
+             TEST(LMATRIX SSCP MMATRIX)\n  \
              /MMATRIX='spend vs satisfaction' monthly_spend 1 q1_satisfaction -1; \
              q1_satisfaction 1/2 q2_recommend 1/2."
         );
@@ -2317,8 +2327,8 @@ mod tests {
         }
 
         // one table of the SSCP alone
-        d.print = [false; 9];
-        d.print[7] = true;
+        d.print = [false; 11];
+        d.print[9] = true;
         d.m_matrix.clear();
         d.contrasts.clear();
         d.profiles.clear();

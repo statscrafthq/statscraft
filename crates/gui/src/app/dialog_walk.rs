@@ -1526,7 +1526,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             profile_mean_line: true,
             profile_errors: 2,
             save: [true; 8],
-            print: [true; 9],
+            print: [true; 11],
             alpha: s("0.01"),
             ..Default::default()
         }),
@@ -1556,7 +1556,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             profiles: vec![v(&["gender", "region"])],
             profile_errors: 1,
             save: [true; 8],
-            print: [true; 9],
+            print: [true; 11],
             alpha: s("0.1"),
             m_matrix: vec![MColumn {
                 label: s("Spend minus satisfaction"),
