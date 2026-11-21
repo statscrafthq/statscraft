@@ -351,6 +351,10 @@ fn multinomial(ui: &mut Ui, d: &mut Multinomial, picked: &mut Vec<String>) {
     });
     egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
         checkboxes(ui, &NOMREG_PRINT, &mut d.print);
+        ui.horizontal(|ui| {
+            ui.label("Iteration history: every n-th iteration, n =");
+            small_field(ui, d.print[14], &mut d.history);
+        });
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
         checkboxes(ui, &PROBABILITY_SAVE, &mut d.save);

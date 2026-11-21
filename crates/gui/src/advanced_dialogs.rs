@@ -910,7 +910,7 @@ pub const NOMREG_STEP_RULES: [(&str, &str); 4] = [
 ];
 
 /// Keyword and label of every table on /PRINT of NOMREG.
-pub const NOMREG_PRINT: [(&str, &str); 12] = [
+pub const NOMREG_PRINT: [(&str, &str); 15] = [
     ("CPS", "Case processing summary"),
     ("MFI", "Model fitting information"),
     ("IC", "Information criteria"),
@@ -923,11 +923,15 @@ pub const NOMREG_PRINT: [(&str, &str); 12] = [
     ("CORB", "Correlation of the estimates"),
     ("KERNEL", "Kernel of the log-likelihood"),
     ("STEP", "Step summary"),
+    ("CELLPROB", "Cell probabilities"),
+    ("ASSOCIATION", "Monotonicity measures"),
+    ("HISTORY", "Iteration history"),
 ];
 
 /// The tables NOMREG shows without /PRINT.
-const NOMREG_DEFAULT_PRINT: [bool; 12] = [
-    true, true, false, false, false, false, false, false, false, false, false, true,
+const NOMREG_DEFAULT_PRINT: [bool; 15] = [
+    true, true, false, false, false, false, false, false, false, false, false, true, false, false,
+    false,
 ];
 
 /// NOMREG: a nominal dependent variable on factors and covariates.
@@ -961,7 +965,9 @@ pub struct Multinomial {
     pub wald_removal: bool,
     pub intercept: bool,
     /// One flag per entry of `NOMREG_PRINT`.
-    pub print: [bool; 12],
+    pub print: [bool; 15],
+    /// The iteration history shows every n-th iteration.
+    pub history: String,
     /// One flag per entry of `PROBABILITY_SAVE`.
     pub save: [bool; 4],
     pub ci_level: String,
@@ -993,6 +999,7 @@ impl Default for Multinomial {
             wald_removal: false,
             intercept: true,
             print: NOMREG_DEFAULT_PRINT,
+            history: "1".into(),
             save: [false; 4],
             ci_level: "95".into(),
             iterations: "100".into(),
@@ -1082,7 +1089,16 @@ impl Multinomial {
             text.push_str(&format!("\n  /CRITERIA={}", criteria.join(" ")));
         }
         if self.print != NOMREG_DEFAULT_PRINT {
-            let print = keywords(&NOMREG_PRINT, &self.print);
+            let mut print: Vec<String> = keywords(&NOMREG_PRINT, &self.print)
+                .into_iter()
+                .map(String::from)
+                .collect();
+            if let Some(k) = print.iter_mut().find(|k| *k == "HISTORY")
+                && let Some(n) = whole(&self.history, 1, "the step of the iteration history")?
+                && n != 1
+            {
+                *k = format!("HISTORY({n})");
+            }
             let print = if print.is_empty() {
                 "NONE".to_string()
             } else {
@@ -2171,7 +2187,8 @@ mod tests {
         d.base = 1;
         d.descending = true;
         d.model = 1;
-        d.print = [true; 12];
+        d.print = [true; 15];
+        d.history = "3".into();
         d.save = [true; 4];
         d.ci_level = "99".into();
         d.iterations = "50".into();
@@ -2182,7 +2199,8 @@ mod tests {
             syntax,
             "NOMREG region (BASE=FIRST ORDER=DESCENDING) BY gender WITH age\n  \
              /FULLFACTORIAL\n  /CRITERIA=CIN(99) MXITER(50) MXSTEP(10)\n  \
-             /PRINT=CPS MFI IC SUMMARY FIT LRT PARAMETER CLASSTABLE COVB CORB KERNEL STEP\n  \
+             /PRINT=CPS MFI IC SUMMARY FIT LRT PARAMETER CLASSTABLE COVB CORB KERNEL STEP \
+             CELLPROB ASSOCIATION HISTORY(3)\n  \
              /SAVE=ESTPROB PREDCAT PCPROB ACPROB\n  /MISSING=INCLUDE."
         );
         let mut session = open("survey_basic.sav");
@@ -2201,7 +2219,7 @@ mod tests {
             model: 2,
             terms: terms(&[&["gender"], &["age"]]),
             intercept: false,
-            print: [false; 12],
+            print: [false; 15],
             ..Default::default()
         };
         let syntax = d.syntax(true).unwrap();
