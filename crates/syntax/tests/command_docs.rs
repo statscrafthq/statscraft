@@ -184,6 +184,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "OVERALS",
             "ANACOR",
             "LOGISTIC REGRESSION",
+            "DMLOGISTIC",
             "NOMREG",
             "MVA",
             "HILOGLINEAR",
@@ -207,6 +208,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "CLEAR TIME PROGRAM",
             "ANOVA",
             "TREE",
+            "DMTREE",
             "MLP",
             "RBF",
             "GRAPH",
@@ -217,6 +219,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "PPLOT",
             "NPPLOT",
             "ROC",
+            "DMROC",
             "ROC ANALYSIS",
             "SPCHART",
             "KM",
@@ -233,7 +236,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "ARIMA", "AREG", "SPECTRA", "2SLS", "TSMODEL", "TSAPPLY", "TSPLOT", "CASEPLOT",
         ],
     ),
-    ("Custom tables", &["CTABLES", "MRSETS"]),
+    ("Custom tables", &["CTABLES", "DMTABLES", "MRSETS"]),
     (
         "Complex samples",
         &[
