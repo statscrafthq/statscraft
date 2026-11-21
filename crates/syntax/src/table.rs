@@ -1705,7 +1705,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20           [/STATISTICS=DESCRIPTIVE SCALE CORR COV ANOVA [FRIEDMAN | COCHRAN] TUKEY HOTELLING ALL]\n\
                  \x20           [/SUMMARY=MEANS VARIANCE COV CORR TOTAL ALL]\n\
                  \x20           [/ICC=[MODEL(MIXED | RANDOM | ONEWAY)] [TYPE(CONSISTENCY | ABSOLUTE)] [CIN=95] [TESTVAL=0]]\n\
-                 \x20           [/METHOD=COVARIANCE] [/MISSING=EXCLUDE | INCLUDE].\n\
+                 \x20           [/METHOD=COVARIANCE] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20           [/MATRIX=[IN(file | dataset | *)] [OUT(file | dataset | *)] [NOPRINT]].\n\
                  A case missing on any variable of VARIABLES is left out. ALPHA (default) gives Cronbach's alpha\n\
                  and the alpha of the standardized items; OMEGA gives McDonald's omega for one common factor, from the\n\
                  closed form built on the covariances (it needs 3 items; with SUMMARY TOTAL the last column of\n\
@@ -1720,7 +1721,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  equal. ICC gives single and average measure coefficients with confidence intervals and F tests.\n\
                  Items without variance are dropped, with a warning, when the model or a statistic needs the\n\
                  covariance matrix (all but ALPHA and SPLIT with DESCRIPTIVE, SCALE, ANOVA and TOTAL).\n\
-                 Weighted when a weight variable is set. Not supported yet: MATRIX.",
+                 Weighted when a weight variable is set. MATRIX=OUT writes the records N, MEAN, STDDEV and CORR of\n\
+                 the variables of VARIABLES, per split group, and shows the analysis unless NOPRINT is given; IN\n\
+                 gives every statistic that needs no cases from such a file (all four records are required): Tukey's\n\
+                 test is an error then.",
         example: "RELIABILITY /VARIABLES=q1 TO q10 /SCALE('Satisfaction') ALL /MODEL=ALPHA /STATISTICS=DESCRIPTIVE SCALE /SUMMARY=TOTAL.",
         parse: reliability::reliability,
     },

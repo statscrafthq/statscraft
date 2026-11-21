@@ -22,10 +22,11 @@
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, f_p, f_quantile};
 use crate::matrix::{Matrix, inverse};
+use crate::matrix_file::{Materials, MatrixRows};
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Values, Variable};
+use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{AnovaTest, Icc, IccModel, Reliability, ReliabilityModel, VarItem};
 
 fn plain_table(title: &str, row_headers: usize, columns: &[&str], rows: Vec<Vec<Cell>>) -> Table {
@@ -88,6 +89,36 @@ impl Scale {
         }
     }
 
+    /// A scale from its moments alone (matrix input): no cases.
+    fn from_moments(names: Vec<String>, w: f64, mean: Vec<f64>, v: Matrix) -> Self {
+        Scale {
+            names,
+            rows: Vec::new(),
+            w,
+            mean,
+            v,
+        }
+    }
+
+    /// The scale of the items `keep` only.
+    fn keep(&self, keep: &[usize]) -> Scale {
+        let names: Vec<String> = keep.iter().map(|&i| self.names[i].clone()).collect();
+        if self.rows.is_empty() {
+            let mean = keep.iter().map(|&i| self.mean[i]).collect();
+            let v = keep
+                .iter()
+                .map(|&i| keep.iter().map(|&j| self.v[i][j]).collect())
+                .collect();
+            return Scale::from_moments(names, self.w, mean, v);
+        }
+        let rows = self
+            .rows
+            .iter()
+            .map(|(v, w)| (keep.iter().map(|&i| v[i]).collect(), *w))
+            .collect();
+        Scale::new(names, rows)
+    }
+
     fn k(&self) -> usize {
         self.names.len()
     }
@@ -146,15 +177,107 @@ impl Scale {
     }
 }
 
+/// The scale of all the variables from matrix materials: N, MEAN, STDDEV and CORR records, all
+/// four required. N is one count for every variable; when records differ the smallest is used,
+/// with a note.
+fn matrix_scale(
+    m: &Materials,
+    names: &[String],
+    texts: Vec<String>,
+    notes: &mut Vec<String>,
+) -> Result<Scale, Error> {
+    let fail = |e: String| Error(format!("RELIABILITY /MATRIX=IN: {e}"));
+    let found: Vec<String> = names
+        .iter()
+        .map(|n| {
+            m.all
+                .iter()
+                .find(|a| a.eq_ignore_ascii_case(n))
+                .cloned()
+                .ok_or_else(|| fail(format!("the matrix file has no variable {n}")))
+        })
+        .collect::<Result<_, _>>()?;
+    let corr = m
+        .matrix("CORR", &found)
+        .map_err(fail)?
+        .ok_or_else(|| fail("the matrix file has no CORR records".into()))?;
+    let mean = m
+        .vector("MEAN", &found)
+        .ok_or_else(|| fail("the matrix file has no MEAN record".into()))?;
+    let sd = m
+        .vector("STDDEV", &found)
+        .or_else(|| m.vector("SD", &found))
+        .ok_or_else(|| fail("the matrix file has no STDDEV record".into()))?;
+    let counts = m
+        .counts(&found)
+        .map_err(fail)?
+        .ok_or_else(|| fail("the matrix file has no N record".into()))?;
+    let smallest = counts
+        .iter()
+        .flatten()
+        .copied()
+        .fold(f64::INFINITY, f64::min);
+    if counts.iter().flatten().any(|c| *c != smallest) {
+        notes.push(format!(
+            "RELIABILITY /MATRIX=IN: the counts of the matrix differ; the smallest, {smallest}, is used"
+        ));
+    }
+    let p = found.len();
+    let v = (0..p)
+        .map(|i| (0..p).map(|j| corr[i][j] * sd[i] * sd[j]).collect())
+        .collect();
+    Ok(Scale::from_moments(texts, smallest, mean, v))
+}
+
 impl Engine {
     pub(crate) fn reliability(&mut self, command: &Reliability) -> Result<Vec<Table>, Error> {
+        let mut part = None;
+        let result = self.reliability_inner(command, &mut part);
+        if let (Ok(_), Some(part)) = (&result, part) {
+            self.matrix_parts.1.push(part);
+        }
+        result
+    }
+
+    fn reliability_inner(
+        &mut self,
+        command: &Reliability,
+        matrix_part: &mut Option<Dataset>,
+    ) -> Result<Vec<Table>, Error> {
+        let from_matrix = match &command.matrix.input {
+            Some(source) => {
+                let m = self.matrix_materials("RELIABILITY", source.as_ref())?;
+                m.no_grouping("RELIABILITY")?;
+                if command.tukey {
+                    return Err(Error(
+                        "RELIABILITY /MATRIX=IN reads a matrix, not cases, so Tukey's test of additivity is not available".into(),
+                    ));
+                }
+                Some(m)
+            }
+            None => None,
+        };
         let data = self.active()?;
-        let all = self.expand(&command.variables)?;
+        // the variables come from the matrix file when it is read: it has their dictionary
+        let source_data = from_matrix.as_ref().map_or(data, |m| &m.data);
+        let expand = |items: &[VarItem]| -> Result<Vec<String>, Error> {
+            match &from_matrix {
+                Some(m) => {
+                    let mut names = crate::expand_in(&m.data, items)?;
+                    if items.contains(&VarItem::All) {
+                        names.retain(|n| m.all.contains(n));
+                    }
+                    Ok(names)
+                }
+                None => self.expand(items),
+            }
+        };
+        let all = expand(&command.variables)?;
         let (label, items) = match &command.scale {
             None => ("ALL".to_string(), all.clone()),
             Some((label, list)) if list == &[VarItem::All] => (label.clone(), all.clone()),
             Some((label, list)) => {
-                let items = self.expand(list)?;
+                let items = expand(list)?;
                 if let Some(name) = items.iter().find(|n| !all.contains(n)) {
                     return Err(Error(format!(
                         "{name} is on SCALE but not on VARIABLES of RELIABILITY"
@@ -171,7 +294,7 @@ impl Engine {
         }
         let variables: Vec<Variable> = all
             .iter()
-            .map(|n| data.variable(n))
+            .map(|n| source_data.variable(n))
             .collect::<Result<_, _>>()?;
         if let Some(v) = variables.iter().find(|v| v.is_string()) {
             return Err(Error(format!(
@@ -193,19 +316,35 @@ impl Engine {
             .iter()
             .map(|n| all.iter().position(|a| a == n).expect("checked"))
             .collect();
+        // the variables as tables show them (SET TVARS)
+        let shown = self.shown();
+        let all_texts: Vec<String> = variables.iter().map(|v| shown.variable(v)).collect();
+        // the cases of the analysis with the values of every variable on VARIABLES
         let (mut total, mut rows) = (0.0, Vec::new());
-        for k in 0..data.case_count() {
-            let w = weights.as_ref().map_or(1.0, |w| w[k]);
-            if w <= 0.0 {
-                continue;
-            }
-            total += w;
-            if variables.iter().all(|v| is_valid(v, k, command.include)) {
-                let values = positions.iter().map(|&i| value(&variables[i], k)).collect();
-                rows.push((values, w));
+        if from_matrix.is_none() {
+            for k in 0..data.case_count() {
+                let w = weights.as_ref().map_or(1.0, |w| w[k]);
+                if w <= 0.0 {
+                    continue;
+                }
+                total += w;
+                if variables.iter().all(|v| is_valid(v, k, command.include)) {
+                    rows.push((variables.iter().map(|v| value(v, k)).collect(), w));
+                }
             }
         }
-        let valid: f64 = rows.iter().map(|r| r.1).sum();
+        let mut notes: Vec<String> = Vec::new();
+        let (valid, full) = match &from_matrix {
+            Some(m) => {
+                let full = matrix_scale(m, &all, all_texts.clone(), &mut notes)?;
+                total = full.w;
+                (full.w, Some(full))
+            }
+            None => {
+                let valid: f64 = rows.iter().map(|r| r.1).sum();
+                (valid, None)
+            }
+        };
         let percent = |n: f64| number(Some(100.0 * n / total));
         let mut processing = plain_table(
             "Case Processing Summary",
@@ -221,9 +360,11 @@ impl Engine {
                 vec![text("Total"), Cell::Number(total), percent(total)],
             ],
         );
-        processing.caption = Some(format!(
-            "Scale: {label}. Listwise deletion based on all variables in the procedure."
-        ));
+        processing.caption = Some(if from_matrix.is_some() {
+            format!("Scale: {label}. The number of cases is the N of the matrix file.")
+        } else {
+            format!("Scale: {label}. Listwise deletion based on all variables in the procedure.")
+        });
         let mut tables = vec![processing];
         if valid <= 1.0 {
             self.warn(format!(
@@ -231,13 +372,40 @@ impl Engine {
             ));
             return Ok(tables);
         }
-        // the items as tables show them (SET TVARS)
-        let shown = self.shown();
-        let texts = positions
-            .iter()
-            .map(|&i| shown.variable(&variables[i]))
-            .collect();
-        let mut scale = Scale::new(texts, rows);
+        let full = match full {
+            Some(full) => full,
+            None => Scale::new(all_texts.clone(), rows),
+        };
+        if command.matrix.output.is_some() {
+            let labels = variables
+                .iter()
+                .map(|v| v.label().map(str::to_string))
+                .collect();
+            let mut file = MatrixRows::new(all.clone(), labels);
+            file.push("N", "", vec![full.w; all.len()]);
+            file.push("MEAN", "", full.mean.clone());
+            file.push(
+                "STDDEV",
+                "",
+                (0..all.len()).map(|i| full.v[i][i].sqrt()).collect(),
+            );
+            let corr: Matrix = (0..all.len())
+                .map(|i| (0..all.len()).map(|j| full.corr(i, j)).collect())
+                .collect();
+            file.matrix("CORR", &corr);
+            *matrix_part = Some(self.matrix_part("RELIABILITY", &file)?);
+            // NOPRINT: the scale analysis is not displayed while a matrix is written
+            if command.matrix.noprint {
+                for note in notes {
+                    self.warn(note);
+                }
+                return Ok(Vec::new());
+            }
+        }
+        for note in notes {
+            self.warn(note);
+        }
+        let mut scale = full.keep(&positions);
         let s = &command.summary;
         let method2 = !matches!(
             command.model,
@@ -264,13 +432,7 @@ impl Engine {
                     if names.len() == 1 { "is" } else { "are" },
                 ));
                 let keep: Vec<usize> = (0..scale.k()).filter(|i| !constant.contains(i)).collect();
-                let names = keep.iter().map(|&i| scale.names[i].clone()).collect();
-                let rows = scale
-                    .rows
-                    .iter()
-                    .map(|(v, w)| (keep.iter().map(|&i| v[i]).collect(), *w))
-                    .collect();
-                scale = Scale::new(names, rows);
+                scale = scale.keep(&keep);
                 if scale.k() < 2 {
                     self.warn(format!(
                         "RELIABILITY: fewer than two items with variance remain in the scale {label}"

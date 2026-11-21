@@ -414,3 +414,164 @@ PARTIAL CORR MATRIX=IN(*) /VARIABLES=x y BY z(1).",
     assert!((at(1) - 0.018468425951).abs() < 1e-9);
     assert_eq!(at(2), 27.0);
 }
+
+// RELIABILITY: the scale statistics come from N, MEAN, STDDEV and CORR alone, so every table
+// that does not look at cases comes out the same from the matrix of its own run.
+const ITEMS: &str = "DATA LIST FREE /a b c d g.
+BEGIN DATA
+1 2 3 4 1  2 1 4 3 1  3 5 3 6 1  4 3 6 5 1  5 6 5 8 1  6 4 8 7 1
+7 8 6 9 2  8 7 9 8 2  9 9 7 12 2 10 8 11 10 2 11 12 9 13 2 12 10 13 12 2
+END DATA.
+";
+
+const SCALE_REQUEST: &str = "/VARIABLES=a b c d /STATISTICS=DESCRIPTIVES SCALE ANOVA HOTELLING /SUMMARY=TOTAL MEANS VARIANCE CORRELATIONS /ICC=MODEL(MIXED)";
+
+#[test]
+fn reliability_matrix_round_trip() {
+    let mut engine = Engine::default();
+    let direct = run(&mut engine, &format!("{ITEMS}RELIABILITY {SCALE_REQUEST}"));
+    let _ = run(
+        &mut engine,
+        &format!("RELIABILITY {SCALE_REQUEST} /MATRIX=OUT(*) NOPRINT."),
+    );
+    let kinds = texts(&engine, "ROWTYPE_");
+    assert_eq!(&kinds[..3], ["N", "MEAN", "STDDEV"], "{kinds:?}");
+    assert_eq!(kinds.iter().filter(|k| *k == "CORR").count(), 4);
+    let again = run(
+        &mut engine,
+        &format!("RELIABILITY {SCALE_REQUEST} /MATRIX=IN(*)."),
+    );
+    let mut compared = 0;
+    for t in direct
+        .iter()
+        .filter(|t| t.title != "Case Processing Summary")
+    {
+        same(&direct, &again, &t.title);
+        compared += 1;
+    }
+    assert!(compared >= 6, "{compared}");
+}
+
+#[test]
+fn reliability_matrix_out_with_noprint_shows_nothing_and_without_it_the_analysis() {
+    let mut engine = Engine::default();
+    let quiet = run(
+        &mut engine,
+        &format!("{ITEMS}RELIABILITY /VARIABLES=a b c d /MATRIX=OUT(*) NOPRINT."),
+    );
+    assert!(quiet.is_empty());
+    let mut engine = Engine::default();
+    let shown = run(
+        &mut engine,
+        &format!("{ITEMS}RELIABILITY /VARIABLES=a b c d /MATRIX=OUT(*)."),
+    );
+    assert!(shown.iter().any(|t| t.title == "Reliability Statistics"));
+}
+
+#[test]
+fn reliability_matrix_round_trip_under_split_file() {
+    let mut engine = Engine::default();
+    let direct = run(
+        &mut engine,
+        &format!("{ITEMS}SORT CASES BY g.\nSPLIT FILE LAYERED BY g.\nRELIABILITY {SCALE_REQUEST}"),
+    );
+    let _ = run(
+        &mut engine,
+        &format!("RELIABILITY {SCALE_REQUEST} /MATRIX=OUT(*) NOPRINT."),
+    );
+    assert_eq!(
+        texts(&engine, "ROWTYPE_")
+            .iter()
+            .filter(|k| *k == "MEAN")
+            .count(),
+        2
+    );
+    let again = run(
+        &mut engine,
+        &format!("RELIABILITY {SCALE_REQUEST} /MATRIX=IN(*)."),
+    );
+    for t in direct
+        .iter()
+        .filter(|t| t.title == "Reliability Statistics")
+    {
+        same(&direct, &again, &t.title);
+    }
+}
+
+#[test]
+fn reliability_from_matrix_data_gives_the_textbook_alpha() {
+    let t = run(
+        &mut Engine::default(),
+        "MATRIX DATA VARIABLES=ROWTYPE_ a b c d /FORMAT=FULL.
+BEGIN DATA
+N 40 40 40 40
+MEAN 5 6 7 8
+STDDEV 1 2 1.5 2.5
+CORR 1 .5 .4 .3
+CORR .5 1 .6 .2
+CORR .4 .6 1 .5
+CORR .3 .2 .5 1
+END DATA.
+RELIABILITY /VARIABLES=a b c d /MATRIX=IN(*).",
+    );
+    assert!(
+        (number(&t, "Reliability Statistics", 0, "Cronbach's Alpha") - 0.679975801573).abs()
+            < 1e-10
+    );
+    assert!(
+        (number(
+            &t,
+            "Reliability Statistics",
+            0,
+            "Cronbach's Alpha Based on Standardized Items"
+        ) - 0.740740740741)
+            .abs()
+            < 1e-10
+    );
+}
+
+#[test]
+fn reliability_matrix_in_refuses_what_needs_cases_and_what_the_file_lacks() {
+    let error = run_error(&format!(
+        "{ITEMS}RELIABILITY /VARIABLES=a b c d /MATRIX=OUT(*) NOPRINT.\nRELIABILITY /VARIABLES=a b c d /STATISTICS=TUKEY /MATRIX=IN(*)."
+    ));
+    assert!(
+        error.contains("Tukey") && error.contains("not available"),
+        "{error}"
+    );
+    let error = run_error(
+        "MATRIX DATA VARIABLES=ROWTYPE_ a b /FORMAT=FULL.
+BEGIN DATA
+MEAN 5 6
+STDDEV 1 2
+CORR 1 .5
+CORR .5 1
+END DATA.
+RELIABILITY /VARIABLES=a b /MATRIX=IN(*).",
+    );
+    assert!(error.contains("no N record"), "{error}");
+}
+
+#[test]
+fn a_matrix_file_with_grouping_variables_is_refused_by_the_correlation_type_readers() {
+    let file = "MATRIX DATA VARIABLES=ROWTYPE_ f a b /FACTORS=f /FORMAT=FULL.
+BEGIN DATA
+N . 40 40
+MEAN . 5 6
+STDDEV . 1 2
+CORR . 1 .5
+CORR . .5 1
+END DATA.
+";
+    for command in [
+        "RELIABILITY /VARIABLES=a b /MATRIX=IN(*).",
+        "PARTIAL CORR MATRIX=IN(*) /VARIABLES=a BY b(1).",
+        "REGRESSION MATRIX=IN(*) /VARIABLES=a b /DEPENDENT=a /METHOD=ENTER b.",
+    ] {
+        let error = run_error(&format!("{file}{command}"));
+        assert!(
+            error.contains("between ROWTYPE_ and VARNAME_"),
+            "{command}: {error}"
+        );
+    }
+}
