@@ -62,6 +62,39 @@ pub const TS_FIT: [(&str, &str); 8] = [
     ("NORMBIC", "Normalized BIC"),
 ];
 
+/// MODELSUMMARY PRINT keywords, the statistics compared across models; the residual
+/// autocorrelations need estimation.
+pub const TS_SUMMARY: [(&str, &str); 3] = [
+    ("MODELFIT", "Goodness of fit"),
+    ("RESIDACF", "Residual autocorrelations"),
+    ("RESIDPACF", "Residual partial autocorrelations"),
+];
+
+/// The statistics MODELSUMMARY shows without PRINT.
+const DEFAULT_SUMMARY: [bool; 3] = [true, false, false];
+
+/// MODELSUMMARY PLOT keywords: a histogram of each fit measure across models and boxplots of the
+/// residual autocorrelations by lag, which need estimation.
+pub const TS_SUMMARY_PLOTS: [(&str, &str); 10] = [
+    TS_FIT[0],
+    TS_FIT[1],
+    TS_FIT[2],
+    TS_FIT[3],
+    TS_FIT[4],
+    TS_FIT[5],
+    TS_FIT[6],
+    TS_FIT[7],
+    ("RESIDACF", "Residual autocorrelations"),
+    ("RESIDPACF", "Residual partial autocorrelations"),
+];
+
+/// MODELDETAILS PLOT keywords: the residual autocorrelations of each model, which need
+/// estimation.
+pub const TS_DETAIL_PLOTS: [(&str, &str); 2] = [
+    ("RESIDACF", "Residual autocorrelations"),
+    ("RESIDPACF", "Residual partial autocorrelations"),
+];
+
 /// MODELDETAILS PRINT keywords; the last two need estimation, so TSAPPLY without
 /// re-estimating cannot show them.
 pub const TS_DETAILS: [(&str, &str); 4] = [
@@ -92,7 +125,13 @@ pub const TS_SAVES: [(&str, &str); 4] = [
 #[derive(Clone, PartialEq, Debug)]
 pub struct TsOutputs {
     pub fit: [bool; 8],
+    /// One flag per entry of `TS_SUMMARY`.
+    pub summary: [bool; 3],
+    /// One flag per entry of `TS_SUMMARY_PLOTS`.
+    pub summary_plots: [bool; 10],
     pub details: [bool; 4],
+    /// One flag per entry of `TS_DETAIL_PLOTS`.
+    pub detail_plots: [bool; 2],
     pub plots: [bool; 5],
     /// A flag and a root of each of `TS_SAVES`; an empty root is the command's own.
     pub saves: [(bool, String); 4],
@@ -110,7 +149,10 @@ impl Default for TsOutputs {
         fit[0] = true;
         Self {
             fit,
+            summary: DEFAULT_SUMMARY,
+            summary_plots: [false; 10],
             details: [false; 4],
+            detail_plots: [false; 2],
             plots: [false; 5],
             saves: std::array::from_fn(|_| (false, String::new())),
             level: String::new(),
@@ -140,15 +182,38 @@ impl TsOutputs {
             None => String::new(),
         };
         let mut lines = Vec::new();
+        let mut summary = Vec::new();
+        if self.summary != DEFAULT_SUMMARY {
+            let print = chosen(&TS_SUMMARY, &self.summary);
+            summary.push(match print.is_empty() {
+                true => "PRINT=NONE".to_string(),
+                false => format!("PRINT=[{}]", print.join(" ")),
+            });
+        }
+        let summary_plots = chosen(&TS_SUMMARY_PLOTS, &self.summary_plots);
+        if !summary_plots.is_empty() {
+            summary.push(format!("PLOT=[{}]", summary_plots.join(" ")));
+        }
+        if !summary.is_empty() {
+            lines.push(format!("/MODELSUMMARY {}", summary.join(" ")));
+        }
         let fit = chosen(&TS_FIT, &self.fit);
         if fit.is_empty() {
             lines.push("/MODELSTATISTICS DISPLAY=NO".into());
         } else if fit != ["SRSQUARE"] {
             lines.push(format!("/MODELSTATISTICS MODELFIT=[{}]", fit.join(" ")));
         }
-        let details = chosen(&TS_DETAILS, &self.details);
+        let mut details = Vec::new();
+        let print = chosen(&TS_DETAILS, &self.details);
+        if !print.is_empty() {
+            details.push(format!("PRINT=[{}]", print.join(" ")));
+        }
+        let plot = chosen(&TS_DETAIL_PLOTS, &self.detail_plots);
+        if !plot.is_empty() {
+            details.push(format!("PLOT=[{}]", plot.join(" ")));
+        }
         if !details.is_empty() {
-            lines.push(format!("/MODELDETAILS PRINT=[{}]", details.join(" ")));
+            lines.push(format!("/MODELDETAILS {}", details.join(" ")));
         }
         let plots = chosen(&TS_SERIES_PLOTS, &self.plots);
         if !plots.is_empty() {
@@ -498,6 +563,11 @@ impl Tsapply {
             // residuals, fitted values and their limits need the data estimated again
             outputs.details[2] = false;
             outputs.details[3] = false;
+            outputs.summary[1] = false;
+            outputs.summary[2] = false;
+            outputs.summary_plots[8] = false;
+            outputs.summary_plots[9] = false;
+            outputs.detail_plots = [false; 2];
             outputs.plots[2] = false;
             outputs.plots[4] = false;
             outputs.saves[3].0 = false;
@@ -665,6 +735,9 @@ mod tests {
             drop: true,
             outputs: TsOutputs {
                 details: [false, true, true, false],
+                summary: [false, true, false],
+                summary_plots: std::array::from_fn(|i| i == 2 || i == 9),
+                detail_plots: [false, true],
                 level: "90".into(),
                 ..Default::default()
             },
@@ -672,7 +745,8 @@ mod tests {
         };
         assert_eq!(
             d.syntax().unwrap(),
-            "TSAPPLY /MODELDETAILS PRINT=[FORECASTS RESIDACF]\n  \
+            "TSAPPLY /MODELSUMMARY PRINT=[RESIDACF] PLOT=[RMSE RESIDPACF]\n  \
+             /MODELDETAILS PRINT=[FORECASTS RESIDACF] PLOT=[RESIDPACF]\n  \
              /AUXILIARY REESTIMATE=YES CILEVEL=90\n  \
              /MODEL FILE='m.json' DROP=['Model_1' 'Model_2']."
         );
@@ -681,7 +755,13 @@ mod tests {
             reestimate: false,
             ..d
         };
-        assert!(!d.syntax().unwrap().contains("RESIDACF"));
+        let syntax = d.syntax().unwrap();
+        assert!(!syntax.contains("RESIDACF"), "{syntax}");
+        // no statistic left to compare models by hides the table
+        assert!(
+            syntax.starts_with("TSAPPLY /MODELSUMMARY PRINT=NONE PLOT=[RMSE]\n"),
+            "{syntax}"
+        );
         assert!(Tsapply::default().syntax().is_err());
     }
 }

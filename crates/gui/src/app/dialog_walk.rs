@@ -4986,6 +4986,10 @@ fn tsmodel_then_tsapply(program: &str) {
             Default::default(),
             Default::default(),
         ],
+        // every statistic and chart that compares models or shows each one's residuals
+        summary: [true; 3],
+        summary_plots: [true; 10],
+        detail_plots: [true; 2],
         ..Default::default()
     };
     let create = |method, ar: &str, ma: &str| {
@@ -5014,7 +5018,9 @@ fn tsmodel_then_tsapply(program: &str) {
     for (first, expect) in [
         (
             create(0, "", ""),
-            "PREDICT THRU 54.\nTSMODEL /SAVE PREDICTED(fc)",
+            "PREDICT THRU 54.\nTSMODEL /MODELSUMMARY PRINT=[MODELFIT RESIDACF RESIDPACF] PLOT=[SRSQUARE \
+             RSQUARE RMSE MAPE MAE MAXAPE MAXAE NORMBIC RESIDACF RESIDPACF]\n  \
+             /MODELDETAILS PLOT=[RESIDACF RESIDPACF]\n  /SAVE PREDICTED(fc)",
         ),
         (create(1, "", ""), "/EXSMOOTH TYPE=HOLT."),
         (create(2, "1", "1"), "/ARIMA AR=1 MA=1."),

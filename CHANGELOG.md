@@ -6,6 +6,7 @@
 - ONEWAY /MATRIX=IN and OUT: the analysis of variance from a matrix data file of group means, standard deviations and counts (or pooled variance), and the group summaries of the run written.
 - RELIABILITY /MATRIX=IN and OUT (NOPRINT): the scale statistics from a matrix data file of counts, means, standard deviations and correlations, and the matrix of the run written.
 - TSMODEL and TSAPPLY /MODELSUMMARY PLOT draws the histograms of the fit measures across the models and the boxplots of the residual ACF and PACF by lag, instead of a warning.
+- Window: Create Models and Apply Models add the statistics and charts that compare models (goodness of fit, residual autocorrelations, a histogram of each fit measure, boxplots of the residual autocorrelations) and the residual autocorrelation charts of each model; those that need residuals are greyed out when Apply Models does not estimate again.
 - PARTIAL CORR MATRIX=IN and OUT: partial correlations from a matrix data file of correlations and counts, and the matrix of the first list written to a file, a dataset or the active dataset.
 - REGRESSION MATRIX=IN and OUT: the equation from a matrix data file of means, standard deviations, counts and correlations, and the matrix of the run written to a file, a dataset or the active dataset.
 - DMLOGISTIC, DMROC, DMTREE and DMTABLES are other names for LOGISTIC REGRESSION, ROC, TREE and CTABLES, as DMCLUSTER already is for TWOSTEP CLUSTER: the same subcommands, defaults and tables. DMT alone is ambiguous between DMTABLES and DMTREE.

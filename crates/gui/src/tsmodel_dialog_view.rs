@@ -2,9 +2,9 @@
 
 use crate::app::{choice, field, file_dialog, target_list};
 use crate::tsmodel_dialog::{
-    TS_AUTO_OUTLIER_TYPES, TS_DETAILS, TS_FIT, TS_METHODS, TS_OUTLIER_TYPES, TS_SAVES,
-    TS_SERIES_PLOTS, TS_SMOOTHING, TS_TRANSFORMS, TsOutlier, TsOutputs, TsTransfer, Tsapply,
-    Tsmodel,
+    TS_AUTO_OUTLIER_TYPES, TS_DETAIL_PLOTS, TS_DETAILS, TS_FIT, TS_METHODS, TS_OUTLIER_TYPES,
+    TS_SAVES, TS_SERIES_PLOTS, TS_SMOOTHING, TS_SUMMARY, TS_SUMMARY_PLOTS, TS_TRANSFORMS,
+    TsOutlier, TsOutputs, TsTransfer, Tsapply, Tsmodel,
 };
 use eframe::egui::{self, Ui};
 
@@ -43,17 +43,35 @@ fn outputs(ui: &mut Ui, d: &mut TsOutputs, estimated: bool) {
         ui.weak("Fit measures in the table of each model; none ticked hides the table");
         flags(ui, &TS_FIT, &mut d.fit);
         ui.add_space(4.0);
+        ui.strong("Comparing models");
+        for (i, ((_, label), flag)) in TS_SUMMARY.iter().zip(&mut d.summary).enumerate() {
+            ui.add_enabled(estimated || i == 0, egui::Checkbox::new(flag, *label));
+        }
+        ui.add_space(4.0);
         ui.strong("Details of each model");
         for (i, ((_, label), flag)) in TS_DETAILS.iter().zip(&mut d.details).enumerate() {
             ui.add_enabled(estimated || i < 2, egui::Checkbox::new(flag, *label));
         }
     });
     egui::CollapsingHeader::new("Charts").show(ui, |ui| {
+        ui.strong("Comparing models");
+        for (i, ((_, label), flag)) in TS_SUMMARY_PLOTS
+            .iter()
+            .zip(&mut d.summary_plots)
+            .enumerate()
+        {
+            ui.add_enabled(estimated || i < 8, egui::Checkbox::new(flag, *label));
+        }
+        ui.add_space(4.0);
+        ui.strong("Each model");
         for (i, ((_, label), flag)) in TS_SERIES_PLOTS.iter().zip(&mut d.plots).enumerate() {
             ui.add_enabled(
                 estimated || i == 0 || i == 1 || i == 3,
                 egui::Checkbox::new(flag, *label),
             );
+        }
+        for ((_, label), flag) in TS_DETAIL_PLOTS.iter().zip(&mut d.detail_plots) {
+            ui.add_enabled(estimated, egui::Checkbox::new(flag, *label));
         }
     });
     egui::CollapsingHeader::new("New variables").show(ui, |ui| {
