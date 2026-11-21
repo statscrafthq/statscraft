@@ -62,6 +62,7 @@ mod macros;
 mod manova;
 mod matrix;
 mod matrix_data;
+mod matrix_io;
 mod mixed;
 mod mrsets;
 mod mult_response;
@@ -331,6 +332,7 @@ pub use matrix::{
     matrix_function, matrix_function_names,
 };
 pub use matrix_data::{MatrixData, MatrixShape, RowType};
+pub use matrix_io::MatrixIo;
 pub use mixed::{
     Convergence, CovType, DfMethod, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated,
 };

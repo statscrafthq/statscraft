@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- REGRESSION MATRIX=IN and OUT: the equation from a matrix data file of means, standard deviations, counts and correlations, and the matrix of the run written to a file, a dataset or the active dataset.
+
 ## 0.24.0 (2026-11-21)
 
 - GENLIN /PRINT=GEF gives the general estimable function and /PRINT=LMATRIX the L' matrix of each effect's test and of each estimated marginal mean.

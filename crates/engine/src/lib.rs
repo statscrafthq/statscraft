@@ -68,6 +68,7 @@ mod loops;
 mod manova;
 mod matrix;
 mod matrix_data;
+mod matrix_file;
 mod matrix_functions;
 mod matrix_lang;
 mod mds;
@@ -845,7 +846,7 @@ pub struct Engine {
     /// While a procedure runs on a split group: each split variable with the group's value.
     split_group: Option<Vec<(String, Option<crosstabs::Key>)>>,
     /// PROXIMITIES /MATRIX=OUT: the split variables and the matrix of every split group.
-    proximity_out: (Option<statscraft_data::SplitFile>, Vec<Dataset>),
+    matrix_parts: (Option<statscraft_data::SplitFile>, Vec<Dataset>),
     /// MATRIX=OUT(*) of the older optimal scaling commands: the matrix that replaces the
     /// active dataset when the procedure is done.
     replacement: Option<Dataset>,
@@ -1294,6 +1295,10 @@ impl Engine {
             }
             Command::Curvefit(_) | Command::Wls(_) => return self.with_current_names(command),
             Command::Tsmodel(_) | Command::Tsapply(_) => return self.with_current_names(command),
+            Command::Regression(c) if c.matrix.output.is_some() => {
+                let target = c.matrix.output.clone().expect("checked");
+                return self.procedure_with_matrix_out(command, &target);
+            }
             Command::Frequencies(_)
             | Command::Descriptives(_)
             | Command::Crosstabs(_)
@@ -1459,7 +1464,7 @@ impl Engine {
             }
             Command::Proximities(proximities) => {
                 let split = self.active()?.split_file().cloned();
-                self.proximity_out = (split, Vec::new());
+                self.matrix_parts = (split, Vec::new());
                 let tables = self.procedure(command)?;
                 self.proximities_out(proximities)?;
                 return Ok(tables);

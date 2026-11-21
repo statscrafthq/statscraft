@@ -1633,7 +1633,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "REGRESSION",
         summary: "Linear regression with forced entry or removal and stepwise selection, residuals and diagnostics.",
-        syntax: "REGRESSION [/VARIABLES=varlist | (COLLECT)] [/DESCRIPTIVES=[DEFAULTS MEAN STDDEV VARIANCE CORR SIG\n\
+        syntax: "REGRESSION [MATRIX=[IN(file | dataset | *)] [OUT(file | dataset | *)]]\n\
+                 \x20          [/VARIABLES=varlist | (COLLECT)] [/DESCRIPTIVES=[DEFAULTS MEAN STDDEV VARIANCE CORR SIG\n\
                  \x20          BADCORR COV XPROD N ALL NONE]] [/MISSING=LISTWISE | PAIRWISE | MEANSUBSTITUTION [INCLUDE]]\n\
                  \x20          [/SELECT=var EQ | NE | LT | LE | GT | GE value] [/REGWGT=var] [/STATISTICS=[DEFAULTS R ANOVA COEFF OUTS ZPP CHANGE CI[(95)] BCOV COLLIN TOL\n\
                  \x20          F SES XTX SELECTION LABEL ALL]] [/CRITERIA=[DEFAULTS PIN[(0.05)] | FIN[(3.84)] POUT[(0.10)] |\n\
@@ -1675,7 +1676,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  manual for cases outside the fit); the residual statistics, the outlier lists and the plots are of\n\
                  the selected and the unselected cases apart (SEPARATE, the default) or of all of them (POOLED),\n\
                  Casewise Diagnostics list both with a Selected Status, and SAVE fills every case.\n\
-                 Not supported yet: MATRIX, OUTFILE.",
+                 MATRIX must come first. OUT writes the records MEAN, STDDEV, N (one record, or a record per\n\
+                 variable when pairwise counts differ) and CORR (OCORR with ORIGIN) of every variable on VARIABLES,\n\
+                 per split group; * puts them in the active dataset. IN gives the equation from such records, which\n\
+                 have no cases: SAVE, RESIDUALS, CASEWISE, the plots, SELECT and REGWGT are errors then.\n\
+                 Not supported yet: OUTFILE.",
         example: "REGRESSION /STATISTICS=COEFF OUTS R ANOVA CHANGE /DEPENDENT=spend /METHOD=ENTER age /METHOD=STEPWISE q1 TO q5 /SAVE=PRED ZRESID.",
         parse: regression::regression,
     },

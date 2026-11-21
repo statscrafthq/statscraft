@@ -239,7 +239,7 @@ impl Engine {
             };
             // split groups share the columns of a layered table by position, not by case
             let by_place: Vec<String>;
-            let layered = self.proximity_out.0.as_ref().is_some_and(|s| s.layered);
+            let layered = self.matrix_parts.0.as_ref().is_some_and(|s| s.layered);
             let by_case = !command.view_variables && command.matrix_in.is_none();
             let labels = match layered && by_case {
                 true => {
@@ -261,7 +261,7 @@ impl Engine {
         if command.matrix_out.is_some() {
             let out = self.proximity_dataset(command, &items, &measure, &variables)?;
             let out = self.after_split(command, out)?;
-            self.proximity_out.1.push(out);
+            self.matrix_parts.1.push(out);
         }
         Ok(tables)
     }
@@ -345,7 +345,7 @@ impl Engine {
     /// The matrix of one group after the values of the split variables, taken from the
     /// group's first case; the items then carry no case labels.
     fn after_split(&self, command: &Proximities, part: Dataset) -> Result<Dataset, Error> {
-        let Some(split) = &self.proximity_out.0 else {
+        let Some(split) = &self.matrix_parts.0 else {
             return Ok(part);
         };
         let names = &split.variables;
@@ -375,51 +375,13 @@ impl Engine {
         Ok(joined)
     }
 
-    /// Writes the matrices of MATRIX=OUT that the runs of the split groups left, one after
-    /// the other. A group with fewer items has the others blank; strings take the widest.
+    /// Writes the matrices of MATRIX=OUT that the runs of the split groups left.
     pub(crate) fn proximities_out(&mut self, command: &Proximities) -> Result<(), Error> {
-        let (split, parts) = std::mem::take(&mut self.proximity_out);
         let Some(target) = &command.matrix_out else {
+            self.matrix_parts = (None, Vec::new());
             return Ok(());
         };
-        let Some(widest) = parts.iter().max_by_key(|d| d.variable_count()) else {
-            return Ok(());
-        };
-        let mut template = widest.slice(0, 0);
-        // the variables of every group, in case groups have items of different names
-        for part in &parts {
-            for name in part.variable_names() {
-                if template.variable_index(name).is_none() {
-                    template.copy_variable(part, name, &[])?;
-                }
-            }
-        }
-        let strings: Vec<String> = template
-            .variables()
-            .filter(|v| v.is_string())
-            .map(|v| v.name().to_string())
-            .collect();
-        for name in strings {
-            let width = parts
-                .iter()
-                .filter_map(|p| p.variable(&name).ok()?.string_width())
-                .max()
-                .unwrap_or(1);
-            template.set_string_width(&name, width)?;
-        }
-        let mut out = Dataset::from_parts(&template, &parts)?;
-        match target {
-            None => {
-                // the matrix keeps the split, so MATRIX=IN(*) reads it group by group
-                // the split the groups ran under, whatever TEMPORARY restored
-                if split.is_some() {
-                    out.set_split_file(split)?;
-                }
-                self.dataset = Some(out);
-            }
-            Some(file) => self.write_data_file(file, out)?,
-        }
-        Ok(())
+        self.finish_matrix_out(target)
     }
 }
 

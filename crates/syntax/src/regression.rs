@@ -18,6 +18,7 @@
 use crate::ast::{Command, VarItem};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
+use crate::matrix_io::{MatrixIo, matrix_io};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
 use crate::table::matches_keyword;
@@ -57,6 +58,8 @@ pub struct Regression {
     /// `/SELECT=var relation value`: only the cases where it holds go into the correlation
     /// matrix and the tests; the others are still given residuals and predicted values.
     pub select: Option<RegressionSelect>,
+    /// `/MATRIX`: the matrix data file the correlations come from, and the one written.
+    pub matrix: MatrixIo,
 }
 
 /// A variable of a scatterplot: a temporary variable (written with `*`) or one of the data.
@@ -957,6 +960,7 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
         partial: None,
         template: false,
         select: None,
+        matrix: MatrixIo::default(),
     };
     let mut first = true;
     loop {
@@ -967,6 +971,7 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
         if !slash && !first {
             return Err(p.unexpected(&["'/'"]));
         }
+        let was_first = first;
         first = false;
         let start = p.pos;
         if method_at(p).is_some() {
@@ -1064,8 +1069,17 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("SELECT") {
             p.eat(Punct::Eq);
             command.select = Some(select(p)?);
+        } else if p.at_keyword("MATRIX") {
+            if !was_first {
+                return Err(SyntaxError::new(
+                    p.span(),
+                    "MATRIX must be the first subcommand of REGRESSION",
+                ));
+            }
+            p.pos += 1;
+            matrix_io(p, &mut command.matrix, "REGRESSION", false, false)?;
         } else {
-            return Err(p.subcommand_error("REGRESSION", &["OUTFILE", "MATRIX"]));
+            return Err(p.subcommand_error("REGRESSION", &["OUTFILE"]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

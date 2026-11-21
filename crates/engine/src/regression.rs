@@ -24,6 +24,7 @@
 use crate::descriptives::{case_weights, number};
 use crate::dist::{f_p, t_p, t_quantile};
 use crate::matrix::{Matrix, inverse, sweep, symmetric_eigen};
+use crate::matrix_file::{Materials, MatrixRows};
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::pooling::{Kind, PoolItem};
@@ -745,6 +746,30 @@ pub(crate) fn plain(names: &[&str]) -> Vec<(String, String)> {
 
 impl Engine {
     pub(crate) fn regression(&mut self, command: &Regression) -> Result<Vec<Table>, Error> {
+        let from_matrix = match &command.matrix.input {
+            Some(source) => {
+                let cases_needed = [
+                    (!command.save.is_empty(), "SAVE"),
+                    (command.residuals.is_some(), "RESIDUALS"),
+                    (command.casewise.is_some(), "CASEWISE"),
+                    (
+                        !command.histograms.is_empty() || !command.normprobs.is_empty(),
+                        "RESIDUALS plots",
+                    ),
+                    (!command.scatterplots.is_empty(), "SCATTERPLOT"),
+                    (command.partial.is_some(), "PARTIALPLOT"),
+                    (command.select.is_some(), "SELECT"),
+                    (command.regwgt.is_some(), "REGWGT"),
+                ];
+                if let Some((_, name)) = cases_needed.iter().find(|(on, _)| *on) {
+                    return Err(Error(format!(
+                        "REGRESSION /MATRIX=IN reads a matrix, not cases, so {name} is not available"
+                    )));
+                }
+                Some(self.matrix_materials("REGRESSION", source.as_ref())?)
+            }
+            None => None,
+        };
         let data = self.active()?;
         let dependents = self.expand(&command.dependent)?;
         let mut method_lists = Vec::new();
@@ -761,9 +786,11 @@ impl Engine {
                 names.push(name.clone());
             }
         }
+        // the variables come from the matrix file when it is read: it has their dictionary
+        let source_data = from_matrix.as_ref().map_or(data, |m| &m.data);
         let variables: Vec<Variable> = names
             .iter()
-            .map(|n| data.variable(n))
+            .map(|n| source_data.variable(n))
             .collect::<Result<_, _>>()?;
         if let Some(v) = variables.iter().find(|v| v.is_string()) {
             return Err(Error(format!(
@@ -826,7 +853,12 @@ impl Engine {
         }
 
         // the values, NaN where missing; case weights and REGWGT, 0 where the case is unusable
-        let cases = data.case_count();
+        // a matrix read has no cases
+        let cases = if from_matrix.is_some() {
+            0
+        } else {
+            data.case_count()
+        };
         let weights = case_weights(data)?;
         let regwgt = match &command.regwgt {
             Some(name) => {
@@ -972,7 +1004,26 @@ impl Engine {
                 .collect(),
         };
         let fit_columns = mask(&columns);
-        let mo = moments(&fit_columns, &cf, &g, command.origin);
+        let mo = match &from_matrix {
+            Some(m) => matrix_moments(m, &names, command.origin, &mut warnings)?,
+            None => moments(&fit_columns, &cf, &g, command.origin),
+        };
+        let matrix_out = command.matrix.output.is_some().then(|| {
+            let labels = variables
+                .iter()
+                .map(|v| v.label().map(str::to_string))
+                .collect();
+            let mut out = MatrixRows::new(names.clone(), labels);
+            out.push("MEAN", "", mo.mean.clone());
+            out.push(
+                "STDDEV",
+                "",
+                (0..names.len()).map(|i| mo.cov[i][i].sqrt()).collect(),
+            );
+            out.counts(&mo.c);
+            out.matrix(if command.origin { "OCORR" } else { "CORR" }, &mo.corr);
+            out
+        });
         let mut tables = Vec::new();
         if let Some(d) = command.descriptives {
             // the descriptive statistics use the cases valid on each variable unless LISTWISE
@@ -1162,6 +1213,10 @@ impl Engine {
         for warning in warnings {
             self.warn(warning);
         }
+        if let Some(out) = matrix_out {
+            let part = self.matrix_part("REGRESSION", &out)?;
+            self.matrix_parts.1.push(part);
+        }
         self.charts.extend(charts);
         if let Some(items) = self.pool_items.as_mut() {
             items.extend(pool);
@@ -1171,6 +1226,79 @@ impl Engine {
         }
         Ok(tables)
     }
+}
+
+/// The moments of the variables from matrix materials: the means, standard deviations, counts
+/// and the correlations (OCORR when the equation goes through the origin).
+fn matrix_moments(
+    m: &Materials,
+    names: &[String],
+    origin: bool,
+    warnings: &mut Vec<String>,
+) -> Result<Moments, Error> {
+    let found: Vec<String> = names
+        .iter()
+        .map(|n| {
+            m.all
+                .iter()
+                .find(|a| a.eq_ignore_ascii_case(n))
+                .cloned()
+                .ok_or_else(|| {
+                    Error(format!(
+                        "REGRESSION /MATRIX=IN: the matrix file has no variable {n}"
+                    ))
+                })
+        })
+        .collect::<Result<_, _>>()?;
+    let fail = |e: String| Error(format!("REGRESSION /MATRIX=IN: {e}"));
+    let (wanted, other) = if origin {
+        ("OCORR", "CORR")
+    } else {
+        ("CORR", "OCORR")
+    };
+    let corr = match m.matrix(wanted, &found).map_err(fail)? {
+        Some(r) => r,
+        None => {
+            let r = m.matrix(other, &found).map_err(fail)?.ok_or_else(|| {
+                Error(format!(
+                    "REGRESSION /MATRIX=IN: the matrix file has no {wanted} records"
+                ))
+            })?;
+            warnings.push(format!(
+                "REGRESSION /MATRIX=IN: the file has {other} records, not {wanted}; the matrix was written {} ORIGIN",
+                if origin { "without" } else { "with" }
+            ));
+            r
+        }
+    };
+    let need = |kind: &str| {
+        m.vector(kind, &found).ok_or_else(|| {
+            Error(format!(
+                "REGRESSION /MATRIX=IN: the matrix file has no {kind} record"
+            ))
+        })
+    };
+    let mean = need("MEAN")?;
+    let sd = match m.vector("STDDEV", &found) {
+        Some(sd) => sd,
+        None => need("SD")?,
+    };
+    let c = m
+        .counts(&found)
+        .map_err(|e| Error(format!("REGRESSION /MATRIX=IN: {e}")))?
+        .ok_or_else(|| Error("REGRESSION /MATRIX=IN: the matrix file has no N record".into()))?;
+    let p = found.len();
+    let cov = (0..p)
+        .map(|i| (0..p).map(|j| corr[i][j] * sd[i] * sd[j]).collect())
+        .collect();
+    let w = (0..p).map(|i| c[i][i]).collect();
+    Ok(Moments {
+        mean,
+        cov,
+        corr,
+        c,
+        w,
+    })
 }
 
 /// What pooling over imputations needs from each model: every coefficient with its squared

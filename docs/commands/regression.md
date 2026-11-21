@@ -7,7 +7,8 @@ Linear regression with forced entry or removal and stepwise selection, residuals
 ## Syntax
 
 ```text
-REGRESSION [/VARIABLES=varlist | (COLLECT)] [/DESCRIPTIVES=[DEFAULTS MEAN STDDEV VARIANCE CORR SIG
+REGRESSION [MATRIX=[IN(file | dataset | *)] [OUT(file | dataset | *)]]
+           [/VARIABLES=varlist | (COLLECT)] [/DESCRIPTIVES=[DEFAULTS MEAN STDDEV VARIANCE CORR SIG
            BADCORR COV XPROD N ALL NONE]] [/MISSING=LISTWISE | PAIRWISE | MEANSUBSTITUTION [INCLUDE]]
            [/SELECT=var EQ | NE | LT | LE | GT | GE value] [/REGWGT=var] [/STATISTICS=[DEFAULTS R ANOVA COEFF OUTS ZPP CHANGE CI[(95)] BCOV COLLIN TOL
            F SES XTX SELECTION LABEL ALL]] [/CRITERIA=[DEFAULTS PIN[(0.05)] | FIN[(3.84)] POUT[(0.10)] |
@@ -29,7 +30,9 @@ PARTIALPLOT plots, for each independent (or those listed), the dependent's resid
 
 SELECT makes the correlation matrix, the equation and its tests from the cases where the condition holds (a missing value on the variable leaves the case out; the variable is not on VARIABLES, DEPENDENT or METHOD, and its value is quoted for a string variable). The other cases still get predictions, residuals, leverage, Mahalanobis and Cook's distance (formulas of the Algorithms manual for cases outside the fit); the residual statistics, the outlier lists and the plots are of the selected and the unselected cases apart (SEPARATE, the default) or of all of them (POOLED), Casewise Diagnostics list both with a Selected Status, and SAVE fills every case.
 
-Not supported yet: MATRIX, OUTFILE.
+MATRIX must come first. OUT writes the records MEAN, STDDEV, N (one record, or a record per variable when pairwise counts differ) and CORR (OCORR with ORIGIN) of every variable on VARIABLES, per split group; \* puts them in the active dataset. IN gives the equation from such records, which have no cases: SAVE, RESIDUALS, CASEWISE, the plots, SELECT and REGWGT are errors then.
+
+Not supported yet: OUTFILE.
 
 ## Example
 

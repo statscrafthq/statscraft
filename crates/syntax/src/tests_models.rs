@@ -205,10 +205,6 @@ fn regression_errors() {
             .expected
             .contains(&"a variable name".to_string())
     );
-    assert_eq!(
-        err("REGRESSION /MATRIX=IN(*) /DEPENDENT=y /METHOD=ENTER a.").message,
-        "subcommand MATRIX of REGRESSION is not supported yet"
-    );
     assert!(
         err("REGRESSION /METHOD=ENTER a.")
             .expected
@@ -355,4 +351,23 @@ fn regression_select_reads_a_condition_and_residuals_separate_or_pooled() {
             .expected
             .contains(&"EQ".to_string())
     );
+}
+
+#[test]
+fn regression_matrix_reads_in_and_out_with_or_without_the_equals_sign() {
+    let r = regression(
+        "REGRESSION MATRIX IN('a.sav') OUT(*) /VARIABLES=y x /DEPENDENT=y /METHOD=ENTER x.",
+    );
+    assert_eq!(r.matrix.input, Some(Some("a.sav".to_string())));
+    assert_eq!(r.matrix.output, Some(None));
+    let r = regression("REGRESSION /MATRIX=OUT(d) /VARIABLES=y x /DEPENDENT=y /METHOD=ENTER x.");
+    assert_eq!(r.matrix.output, Some(Some("d".to_string())));
+}
+
+#[test]
+fn regression_matrix_must_come_first() {
+    let e = err("REGRESSION /VARIABLES=y x /MATRIX=IN(*) /DEPENDENT=y /METHOD=ENTER x.");
+    assert!(e.message.contains("first subcommand"), "{e:?}");
+    let e = err("REGRESSION MATRIX IN(*) IN(*) /DEPENDENT=y /METHOD=ENTER x.");
+    assert!(e.message.contains("only once"), "{e:?}");
 }
