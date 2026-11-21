@@ -413,7 +413,7 @@ pub(crate) fn t_test(p: &mut Parser) -> PResult<Command> {
     Ok(Command::TTest(command))
 }
 
-const ONEWAY_UNSUPPORTED: [&str; 3] = ["MATRIX", "TEMPLATE", "ES"];
+const ONEWAY_UNSUPPORTED: [&str; 2] = ["TEMPLATE", "ES"];
 
 const POSTHOCS: [(&str, &[Posthoc]); 19] = [
     ("LSD", &[Posthoc::Lsd]),
@@ -518,6 +518,7 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
         ci: 0.95,
         plot_means: false,
         polynomial: None,
+        matrix: crate::MatrixIo::default(),
     };
     // the tests of /RANGES add up, and stay when a later /POSTHOC replaces the post hoc tests
     let mut ranges: Vec<Posthoc> = Vec::new();
@@ -662,6 +663,16 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
                 return Err(p.unexpected(&["MEANS"]));
             }
             command.plot_means = true;
+        } else if p.at_keyword("MATRIX") {
+            let start = p.pos;
+            p.pos += 1;
+            crate::matrix_io::matrix_io(p, &mut command.matrix, "ONEWAY", true, false)?;
+            if command.matrix.input.is_some() && command.matrix.output.is_some() {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "ONEWAY cannot read and write a matrix in one command: give IN or OUT, not both",
+                ));
+            }
         } else {
             return Err(p.subcommand_error("ONEWAY", &ONEWAY_UNSUPPORTED));
         }

@@ -1271,6 +1271,9 @@ pub struct Oneway {
     pub plot_means: bool,
     /// `/POLYNOMIAL=n`: trend components up to this degree (1 to 5), the last one given.
     pub polynomial: Option<u8>,
+    /// `/MATRIX`: IN reads the group means, standard deviations and counts from a matrix data
+    /// file, OUT writes them (never both).
+    pub matrix: crate::MatrixIo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

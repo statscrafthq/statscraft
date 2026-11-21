@@ -575,3 +575,187 @@ END DATA.
         );
     }
 }
+
+// ONEWAY: MATRIX=OUT keeps each group's mean, standard deviation and count, which is all the
+// analysis of variance, the robust tests, the contrasts and the post hoc tests use.
+const GROUPS: &str = "DATA LIST FREE /y1 y2 g.
+BEGIN DATA
+12 5 1  14 7 1  11 6 1  15 9 1  13 5 1
+18 8 2  16 9 2  19 11 2  17 7 2  21 10 2  20 12 2
+25 14 3  22 11 3  24 15 3  27 13 3
+END DATA.
+";
+
+const ONEWAY_REQUEST: &str = "y1 y2 BY g /STATISTICS=DESCRIPTIVES EFFECTS WELCH BROWNFORSYTHE /POLYNOMIAL=2 /CONTRAST=1 0 -1 /POSTHOC=TUKEY GH LSD";
+
+#[test]
+fn oneway_matrix_round_trip() {
+    let mut engine = Engine::default();
+    let direct = run(&mut engine, &format!("{GROUPS}ONEWAY {ONEWAY_REQUEST}."));
+    let _ = run(
+        &mut engine,
+        &format!("ONEWAY {ONEWAY_REQUEST} /MATRIX=OUT(*)."),
+    );
+    let kinds = texts(&engine, "ROWTYPE_");
+    assert_eq!(&kinds[..3], ["MEAN", "STDDEV", "N"], "{kinds:?}");
+    assert_eq!(kinds.len(), 9);
+    let names: Vec<&str> = engine.dataset().unwrap().variable_names().collect();
+    assert_eq!(names, ["ROWTYPE_", "g", "VARNAME_", "y1", "y2"]);
+    let again = run(
+        &mut engine,
+        &format!("ONEWAY {ONEWAY_REQUEST} /MATRIX=IN(*)."),
+    );
+    let mut compared = 0;
+    for t in direct.iter().filter(|t| t.title != "Descriptives") {
+        same(&direct, &again, &t.title);
+        compared += 1;
+    }
+    assert!(compared >= 6, "{compared}");
+    // the descriptives agree except for the minimum and maximum, which a matrix cannot give
+    let (a, b) = (
+        direct.iter().find(|t| t.title == "Descriptives").unwrap(),
+        again.iter().find(|t| t.title == "Descriptives").unwrap(),
+    );
+    assert_eq!(a.rows.len(), b.rows.len());
+    for (ra, rb) in a.rows.iter().zip(&b.rows) {
+        for c in 0..ra.len() {
+            let name = &a.column_titles()[c];
+            if name == "Minimum" || name == "Maximum" {
+                assert!(matches!(rb[c], Cell::Empty), "{name}");
+            } else {
+                match (&ra[c], &rb[c]) {
+                    // the matrix keeps the variance, so a standard deviation may differ in the
+                    // last bit
+                    (Cell::Number(p), Cell::Number(q)) => {
+                        assert!((p - q).abs() <= 1e-12 * p.abs().max(1.0), "{name}: {p} {q}")
+                    }
+                    (p, q) => assert_eq!(format!("{p:?}"), format!("{q:?}"), "{name}"),
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn oneway_matrix_round_trip_under_split_file() {
+    let data = "DATA LIST FREE /y g s.
+BEGIN DATA
+1 1 1  3 1 1  2 1 1  6 2 1  7 2 1  5 2 1  4 1 2  6 1 2  5 1 2  9 2 2  12 2 2  10 2 2
+END DATA.
+";
+    let mut engine = Engine::default();
+    let direct = run(
+        &mut engine,
+        &format!("{data}SORT CASES BY s.\nSPLIT FILE LAYERED BY s.\nONEWAY y BY g."),
+    );
+    let _ = run(&mut engine, "ONEWAY y BY g /MATRIX=OUT(*).");
+    assert_eq!(
+        texts(&engine, "ROWTYPE_")
+            .iter()
+            .filter(|k| *k == "MEAN")
+            .count(),
+        4
+    );
+    let again = run(&mut engine, "ONEWAY y BY g /MATRIX=IN(*).");
+    same(&direct, &again, "ANOVA");
+}
+
+#[test]
+fn oneway_from_matrix_data_with_the_pooled_variance_gives_the_textbook_anova() {
+    let t = run(
+        &mut Engine::default(),
+        "MATRIX DATA VARIABLES=ROWTYPE_ g y /FACTORS=g.
+BEGIN DATA
+MEAN 1 10
+MEAN 2 12
+MEAN 3 15
+N 1 10
+N 2 12
+N 3 8
+MSE . 4
+DFE . 27
+END DATA.
+ONEWAY y BY g /POSTHOC=TUKEY /MATRIX=IN(*).",
+    );
+    let anova = |row: usize, column: &str| number(&t, "ANOVA", row, column);
+    assert!((anova(0, "Sum of Squares") - 111.4666666667).abs() < 1e-8);
+    assert!((anova(0, "F") - 13.9333333333).abs() < 1e-8);
+    assert!((anova(0, "Sig.") - 0.0000696218).abs() < 1e-9);
+    assert!((anova(1, "Sum of Squares") - 108.0).abs() < 1e-9);
+    assert_eq!(anova(1, "df"), 27.0);
+    // Tukey of group 1 against 3: the difference is -5, the p value from the studentized range
+    let table = t
+        .iter()
+        .find(|t| t.title.starts_with("Multiple Comparisons"))
+        .expect("post hoc");
+    let sig = table
+        .column_titles()
+        .iter()
+        .position(|c| c == "Sig.")
+        .unwrap();
+    let found = table.rows.iter().any(|r| match r[sig] {
+        Cell::Number(p) => (p - 0.0000427422).abs() < 1e-9,
+        _ => false,
+    });
+    assert!(found, "{:?}", table.rows);
+}
+
+#[test]
+fn oneway_matrix_in_refuses_homogeneity_and_needs_the_variance() {
+    let file = "MATRIX DATA VARIABLES=ROWTYPE_ g y /FACTORS=g.
+BEGIN DATA
+MEAN 1 10
+MEAN 2 12
+N 1 10
+N 2 12
+END DATA.
+";
+    let error = run_error(&format!(
+        "{file}ONEWAY y BY g /STATISTICS=HOMOGENEITY /MATRIX=IN(*)."
+    ));
+    assert!(
+        error.contains("homogeneity") && error.contains("not available"),
+        "{error}"
+    );
+    let error = run_error(&format!("{file}ONEWAY y BY g /MATRIX=IN(*)."));
+    assert!(
+        error.contains("no STDDEV records") && error.contains("MSE and DFE"),
+        "{error}"
+    );
+    let error = run_error(&format!("{file}ONEWAY y BY nosuch /MATRIX=IN(*)."));
+    assert!(error.contains("nosuch"), "{error}");
+}
+
+#[test]
+fn oneway_matrix_in_refuses_a_second_grouping_variable_and_a_variance_of_nothing() {
+    let error = run_error(
+        "MATRIX DATA VARIABLES=ROWTYPE_ s g y /FACTORS=s g.
+BEGIN DATA
+MEAN 1 1 10
+MEAN 1 2 12
+N 1 1 10
+N 1 2 12
+MSE . . 4
+DFE . . 20
+END DATA.
+ONEWAY y BY g /MATRIX=IN(*).",
+    );
+    assert!(
+        error.contains("more than one variable between ROWTYPE_ and VARNAME_"),
+        "{error}"
+    );
+    // STDDEV records with nothing in them do not count as a variance
+    let error = run_error(
+        "MATRIX DATA VARIABLES=ROWTYPE_ g y /FACTORS=g.
+BEGIN DATA
+MEAN 1 10
+MEAN 2 12
+STDDEV 1 .
+STDDEV 2 .
+N 1 10
+N 2 12
+END DATA.
+ONEWAY y BY g /MATRIX=IN(*).",
+    );
+    assert!(error.contains("no STDDEV records"), "{error}");
+}

@@ -33,9 +33,10 @@ use crate::dist::{
 };
 use crate::examine::Distribution;
 use crate::glm::levene_of;
+use crate::matrix_file::{Materials, MatrixRows};
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Values, Variable};
+use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{DunnettSide, Oneway, PercentileMethod, Posthoc};
 use std::f64::consts::SQRT_2;
 
@@ -541,15 +542,122 @@ pub(crate) fn posthoc_tables(
     (comparison, subset)
 }
 
+/// The groups of a dependent variable, the whole sample as a group and the pooled (MSE, DFE).
+type Summaries = (Vec<(f64, Group)>, Group, Option<(f64, f64)>);
+
+/// The groups of one dependent variable from matrix materials: the MEAN, N and (when there are
+/// any) STDDEV records of each value of the independent variable, and the pooled MSE and DFE.
+struct MatrixGroups {
+    present: Vec<(f64, Group)>,
+    pooled: Option<(f64, f64)>,
+    has_sd: bool,
+}
+
+fn matrix_groups(m: &Materials, factor: &str, name: &str) -> Result<MatrixGroups, Error> {
+    let one = [name.to_string()];
+    let find = |kind: &str| m.leveled(kind, factor, &one);
+    let (means, counts) = (find("MEAN"), find("N"));
+    let mut sds = find("STDDEV");
+    if sds.is_empty() {
+        sds = find("SD");
+    }
+    let mut present = Vec::new();
+    for (level, mean) in &means {
+        let at = |rows: &[(f64, Vec<f64>)]| rows.iter().find(|(l, _)| l == level).map(|r| r.1[0]);
+        let Some(w) = at(&counts).filter(|w| w.is_finite()) else {
+            return Err(Error(format!(
+                "ONEWAY /MATRIX=IN: the matrix file has no N record for {factor} = {level}"
+            )));
+        };
+        let sd = at(&sds).filter(|v| v.is_finite());
+        let variance = sd.map_or(f64::NAN, |s| s * s);
+        if w > 0.0 {
+            present.push((
+                *level,
+                Group {
+                    w,
+                    mean: mean[0],
+                    css: variance * (w - 1.0),
+                    variance,
+                    min: f64::NAN,
+                    max: f64::NAN,
+                },
+            ));
+        }
+    }
+    present.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let pooled_of = |kind: &str| m.vector(kind, &one).map(|v| v[0]).filter(|v| v.is_finite());
+    let pooled = pooled_of("MSE").map(|mse| (mse, pooled_of("DFE")));
+    Ok(MatrixGroups {
+        has_sd: sds.iter().any(|(_, v)| v[0].is_finite()),
+        pooled: pooled.map(|(mse, dfe)| (mse, dfe.unwrap_or(f64::NAN))),
+        present,
+    })
+}
+
 impl Engine {
     pub(crate) fn oneway(&mut self, command: &Oneway) -> Result<Vec<Table>, Error> {
+        let mut part = None;
+        let result = self.oneway_inner(command, &mut part);
+        if let (Ok(_), Some(part)) = (&result, part) {
+            self.matrix_parts.1.push(part);
+        }
+        result
+    }
+
+    fn oneway_inner(
+        &mut self,
+        command: &Oneway,
+        matrix_part: &mut Option<Dataset>,
+    ) -> Result<Vec<Table>, Error> {
+        let from_matrix = match &command.matrix.input {
+            Some(source) => {
+                if command.homogeneity {
+                    return Err(Error(
+                        "ONEWAY /MATRIX=IN reads group summaries, not cases, so the test of homogeneity of variances is not available".into(),
+                    ));
+                }
+                let m = self.matrix_materials("ONEWAY", source.as_ref())?;
+                // between ROWTYPE_ and VARNAME_ stands the independent variable alone: other
+                // grouping variables would mix the records of different groups
+                if m.grouping_count() > 1 {
+                    return Err(Error(
+                        "ONEWAY /MATRIX=IN: the matrix file has more than one variable between ROWTYPE_ and VARNAME_, which is not supported yet".into(),
+                    ));
+                }
+                if !m.is_grouping(&command.factor) {
+                    return Err(Error(format!(
+                        "ONEWAY /MATRIX=IN: the independent variable {} is not between ROWTYPE_ and VARNAME_ in the matrix file",
+                        command.factor
+                    )));
+                }
+                Some(m)
+            }
+            None => None,
+        };
         let data = self.active()?;
-        let names = self.expand(&command.dependents)?;
+        // the variables come from the matrix file when it is read: it has their dictionary
+        let source_data = from_matrix.as_ref().map_or(data, |m| &m.data);
+        let names = match &from_matrix {
+            Some(m) => {
+                let names = crate::expand_in(&m.data, &command.dependents)?;
+                if let Some(n) = names
+                    .iter()
+                    .find(|n| !m.all.iter().any(|a| a.eq_ignore_ascii_case(n)))
+                {
+                    return Err(Error(format!(
+                        "ONEWAY /MATRIX=IN: {n} is not a dependent variable of the matrix file (a variable after VARNAME_)"
+                    )));
+                }
+                names
+            }
+            None => self.expand(&command.dependents)?,
+        };
         let dependents: Vec<Variable> = names
             .iter()
-            .map(|n| data.variable(n))
+            .map(|n| source_data.variable(n))
             .collect::<Result<_, _>>()?;
-        let factor = data.variable(&command.factor)?;
+        let factor = source_data.variable(&command.factor)?;
         let (shown, outline) = (self.shown(), self.outline());
         let label = |factor: &Variable, value: f64| shown.number(factor, value);
         for v in dependents.iter().chain([&factor]) {
@@ -567,12 +675,24 @@ impl Engine {
             Values::Numeric(values) => values.get(c).unwrap_or(f64::NAN),
             Values::String(_) => f64::NAN,
         };
-        let usable: Vec<usize> = (0..data.case_count())
-            .filter(|&c| weight(c) > 0.0 && valid(&factor, c))
-            .filter(|&c| !command.listwise || dependents.iter().all(|d| valid(d, c)))
-            .collect();
-        // the groups of the contrasts: every factor value of a usable case
-        let mut levels: Vec<f64> = usable.iter().map(|&c| value(&factor, c)).collect();
+        // a matrix read has no cases
+        let usable: Vec<usize> = if from_matrix.is_some() {
+            Vec::new()
+        } else {
+            (0..data.case_count())
+                .filter(|&c| weight(c) > 0.0 && valid(&factor, c))
+                .filter(|&c| !command.listwise || dependents.iter().all(|d| valid(d, c)))
+                .collect()
+        };
+        // the groups of the contrasts: every factor value of a usable case (of a MEAN record)
+        let mut levels: Vec<f64> = match &from_matrix {
+            Some(m) => m
+                .leveled("MEAN", &command.factor, &names)
+                .into_iter()
+                .map(|(l, _)| l)
+                .collect(),
+            None => usable.iter().map(|&c| value(&factor, c)).collect(),
+        };
         levels.sort_by(f64::total_cmp);
         levels.dedup();
         let mut warnings = Vec::new();
@@ -597,6 +717,7 @@ impl Engine {
         let (mut descriptives, mut levene, mut anova, mut robust, mut contrast_rows) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let (mut comparisons, mut subset_tables) = (Vec::new(), Vec::new());
+        let mut seen: Vec<Vec<(f64, Group)>> = Vec::new();
         for dependent in &dependents {
             let cases: Vec<usize> = usable
                 .iter()
@@ -610,27 +731,68 @@ impl Engine {
                     .map(|&c| (value(dependent, c), weight(c)))
                     .collect()
             };
-            let present: Vec<(f64, Group)> = levels
-                .iter()
-                .map(|&l| (l, pairs_of(l)))
-                .filter(|(_, p)| !p.is_empty())
-                .map(|(l, p)| (l, group(&p)))
-                .collect();
-            let all: Vec<(f64, f64)> = cases
-                .iter()
-                .map(|&c| (value(dependent, c), weight(c)))
-                .collect();
-            let total = group(&all);
+            let (present, mut total, pooled): Summaries = match &from_matrix {
+                Some(m) => {
+                    let found = matrix_groups(m, &command.factor, dependent.name())?;
+                    if !found.has_sd && found.pooled.is_none() {
+                        return Err(Error(format!(
+                            "ONEWAY /MATRIX=IN: the matrix file has no STDDEV records for {}, nor MSE and DFE to take the within-group variance from",
+                            dependent.name()
+                        )));
+                    }
+                    if !found.has_sd {
+                        warnings.push(format!(
+                                "ONEWAY /MATRIX=IN: no STDDEV records for {}: the standard deviations, the robust tests, the contrasts and post hoc tests that do not assume equal variances are empty",
+                                dependent.name()
+                            ));
+                    }
+                    let w: f64 = found.present.iter().map(|(_, g)| g.w).sum();
+                    let mean = found.present.iter().map(|(_, g)| g.w * g.mean).sum::<f64>() / w;
+                    let total = Group {
+                        w,
+                        mean,
+                        css: f64::NAN,
+                        variance: f64::NAN,
+                        min: f64::NAN,
+                        max: f64::NAN,
+                    };
+                    (found.present, total, found.pooled)
+                }
+                None => {
+                    let present: Vec<(f64, Group)> = levels
+                        .iter()
+                        .map(|&l| (l, pairs_of(l)))
+                        .filter(|(_, p)| !p.is_empty())
+                        .map(|(l, p)| (l, group(&p)))
+                        .collect();
+                    let all: Vec<(f64, f64)> = cases
+                        .iter()
+                        .map(|&c| (value(dependent, c), weight(c)))
+                        .collect();
+                    (present, group(&all), None)
+                }
+            };
             let k = present.len() as f64;
             let w = total.w;
-            let within: f64 = present.iter().map(|(_, g)| g.css).sum();
             let grand = total.mean;
             let between: f64 = present
                 .iter()
                 .map(|(_, g)| g.w * (g.mean - grand).powi(2))
                 .sum();
-            let df_within = w - k;
+            // the pooled variance the matrix gives wins over the one from the group deviations
+            let (within, df_within) = match pooled {
+                Some((mse, dfe)) => {
+                    let dfe = if dfe.is_finite() { dfe } else { w - k };
+                    (mse * dfe, dfe)
+                }
+                None => (present.iter().map(|(_, g)| g.css).sum::<f64>(), w - k),
+            };
             let ms_within = within / df_within;
+            if from_matrix.is_some() {
+                total.css = within + between;
+                total.variance = total.css / (w - 1.0);
+            }
+            seen.push(present.clone());
             let name = || Cell::Text(shown.variable(dependent));
             if command.plot_means && !present.is_empty() {
                 charts.push(means_plot(
@@ -1038,6 +1200,36 @@ impl Engine {
         }
         out.extend(comparisons);
         out.extend(subset_tables);
+        if command.matrix.output.is_some() {
+            // per value of the independent variable: MEAN, STDDEV and N of every dependent
+            let mut all_levels: Vec<f64> = seen.iter().flatten().map(|(l, _)| *l).collect();
+            all_levels.sort_by(f64::total_cmp);
+            all_levels.dedup();
+            let labels = dependents
+                .iter()
+                .map(|v| v.label().map(str::to_string))
+                .collect();
+            let mut file = MatrixRows::new(names.clone(), labels);
+            let mut level_values = Vec::new();
+            for level in &all_levels {
+                let of = |f: &dyn Fn(&Group) -> f64| -> Vec<f64> {
+                    seen.iter()
+                        .map(|groups| {
+                            groups
+                                .iter()
+                                .find(|(l, _)| l == level)
+                                .map_or(f64::NAN, |(_, g)| f(g))
+                        })
+                        .collect()
+                };
+                file.push("MEAN", "", of(&|g| g.mean));
+                file.push("STDDEV", "", of(&|g| g.variance.sqrt()));
+                file.push("N", "", of(&|g| g.w));
+                level_values.extend([Some(*level); 3]);
+            }
+            file.factor = Some((factor.name().to_string(), level_values));
+            *matrix_part = Some(self.matrix_part("ONEWAY", &file)?);
+        }
         self.charts.extend(charts);
         for warning in warnings {
             self.warn(warning);

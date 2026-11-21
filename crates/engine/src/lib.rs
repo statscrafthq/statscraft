@@ -1299,6 +1299,10 @@ impl Engine {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);
             }
+            Command::Oneway(c) if c.matrix.output.is_some() => {
+                let target = c.matrix.output.clone().expect("checked");
+                return self.procedure_with_matrix_out(command, &target);
+            }
             Command::Reliability(c) if c.matrix.output.is_some() => {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);

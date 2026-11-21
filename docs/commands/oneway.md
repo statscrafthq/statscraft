@@ -10,7 +10,8 @@ One-way analysis of variance with contrasts and post hoc comparisons.
 ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES EFFECTS HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]
        [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]
        [/RANGES=LSD | DUNCAN | SNK | TUKEYB | TUKEY | MODLSD | SCHEFFE [(alpha)]] ...
-       [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS].
+       [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS]
+       [/MATRIX=IN(file | dataset | *) | OUT(file | dataset | *) | NONE].
 ```
 
 test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GT2 GABRIEL GH T2 T3 C (pairwise comparisons), DUNNETT DUNNETTL DUNNETTR \[(refcat)\] (each group against the reference group, by default the last; L: smaller, R: larger), SNK BTUKEY DUNCAN FREGW QREGW (homogeneous subsets only); TUKEY SCHEFFE GT2 GABRIEL give both. DUNCAN and the Dunnett keywords are written in full. Every value of the factor is a group. CONTRAST gives one coefficient per group in ascending order (n\*c repeats c n times); it is tested with pooled and separate variances. HOMOGENEITY gives Levene's test four ways, one row each under Based on Mean, Median, Median and with adjusted df, and trimmed mean. Multiple Comparisons show every ordered pair of groups (Dunnett C has no significance).
@@ -22,6 +23,8 @@ POLYNOMIAL (1 to 5, the last one given counts; lowered with a warning to the gro
 RANGES names one of these post hoc tests (MODLSD, also LSDMOD, is Bonferroni), at most 10 times; its tests add to those of POSTHOC and the last alpha given anywhere counts for all of them.
 
 EFFECTS adds the rows Fixed Effects (pooled standard deviation, and the error and interval of the overall mean from the within mean square) and Random Effects (error and interval from the between-groups component, which has its own column) to the Descriptives table; without DESCRIPTIVES it holds only those two rows. A negative component counts as 0 in the error, with a warning.
+
+MATRIX=OUT writes, per split group and value of the factor, the records MEAN, STDDEV and N of every dependent; IN reads such records (and the pooled MSE and DFE records, which then give the within variance) and runs everything that needs no cases: HOMOGENEITY is an error, and the minimum and maximum of the descriptives are empty.
 
 Not supported yet: WALLER.
 

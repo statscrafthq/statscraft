@@ -1421,7 +1421,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES EFFECTS HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]\n\
                  \x20      [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]\n\
                  \x20      [/RANGES=LSD | DUNCAN | SNK | TUKEYB | TUKEY | MODLSD | SCHEFFE [(alpha)]] ...\n\
-                 \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS].\n\
+                 \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS]\n\
+                 \x20      [/MATRIX=IN(file | dataset | *) | OUT(file | dataset | *) | NONE].\n\
                  test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GT2 GABRIEL GH T2 T3 C (pairwise comparisons),\n\
                  DUNNETT DUNNETTL DUNNETTR [(refcat)] (each group against the reference group, by default the last;\n\
                  L: smaller, R: larger), SNK BTUKEY DUNCAN FREGW QREGW (homogeneous subsets only); TUKEY SCHEFFE\n\
@@ -1443,6 +1444,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  overall mean from the within mean square) and Random Effects (error and interval from the\n\
                  between-groups component, which has its own column) to the Descriptives table; without DESCRIPTIVES\n\
                  it holds only those two rows. A negative component counts as 0 in the error, with a warning.\n\
+                 MATRIX=OUT writes, per split group and value of the factor, the records MEAN, STDDEV and N of every\n\
+                 dependent; IN reads such records (and the pooled MSE and DFE records, which then give the within\n\
+                 variance) and runs everything that needs no cases: HOMOGENEITY is an error, and the minimum and\n\
+                 maximum of the descriptives are empty.\n\
                  Not supported yet: WALLER.",
         example: "ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.",
         parse: stats::oneway,

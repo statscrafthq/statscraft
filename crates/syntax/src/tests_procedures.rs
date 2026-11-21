@@ -1525,3 +1525,22 @@ fn codebook() {
     assert!(err("CODEBOOK $a TO $b.").message.contains("TO"));
     assert!(err("CODEBOOK x [Q].").expected.contains(&"N".to_string()));
 }
+
+#[test]
+fn oneway_matrix_in_out_none_and_never_both() {
+    let one = |source: &str| match parse(source).0.remove(0).command {
+        Command::Oneway(o) => o,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(one("ONEWAY y BY g /MATRIX=IN(*).").matrix.input, Some(None));
+    assert_eq!(
+        one("ONEWAY y BY g /MATRIX=OUT('m.sav').").matrix.output,
+        Some(Some("m.sav".to_string()))
+    );
+    assert_eq!(
+        one("ONEWAY y BY g /MATRIX=NONE.").matrix,
+        MatrixIo::default()
+    );
+    let (_, errors) = parse("ONEWAY y BY g /MATRIX=IN(*) OUT(*).");
+    assert!(errors[0].message.contains("not both"), "{errors:?}");
+}

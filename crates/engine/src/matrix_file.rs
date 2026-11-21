@@ -90,7 +90,44 @@ impl Materials {
         }
     }
 
-    /// The first record of `kind` as a vector over `names`; None when there is none.
+    /// The records of `kind` that have a value of the variable `factor`, each with that value
+    /// and its values over `names`, in the order of the file.
+    pub(crate) fn leveled(
+        &self,
+        kind: &str,
+        factor: &str,
+        names: &[String],
+    ) -> Vec<(f64, Vec<f64>)> {
+        self.of_kind(kind)
+            .filter_map(|r| {
+                let level = self.number(factor, r);
+                level
+                    .is_finite()
+                    .then(|| (level, names.iter().map(|n| self.number(n, r)).collect()))
+            })
+            .collect()
+    }
+
+    /// How many variables stand between ROWTYPE_ and VARNAME_.
+    pub(crate) fn grouping_count(&self) -> usize {
+        let names: Vec<&str> = self.data.variable_names().collect();
+        let at = |n: &str| names.iter().position(|x| *x == n);
+        match (at(&self.rowtype), at(&self.varname)) {
+            (Some(r), Some(v)) if v > r => v - r - 1,
+            _ => 0,
+        }
+    }
+
+    /// Whether `name` stands between ROWTYPE_ and VARNAME_ (a grouping variable).
+    pub(crate) fn is_grouping(&self, name: &str) -> bool {
+        let names: Vec<&str> = self.data.variable_names().collect();
+        let at = |n: &str| names.iter().position(|x| x.eq_ignore_ascii_case(n));
+        match (at(&self.rowtype), at(name), at(&self.varname)) {
+            (Some(r), Some(f), Some(v)) => r < f && f < v,
+            _ => false,
+        }
+    }
+
     /// An error when the file has variables between ROWTYPE_ and VARNAME_ (grouping
     /// variables), which this command does not read as split variables yet.
     pub(crate) fn no_grouping(&self, who: &str) -> Result<(), Error> {
@@ -107,6 +144,7 @@ impl Materials {
         }
     }
 
+    /// The first record of `kind` as a vector over `names`; None when there is none.
     pub(crate) fn vector(&self, kind: &str, names: &[String]) -> Option<Vec<f64>> {
         let row = self.of_kind(kind).next()?;
         Some(names.iter().map(|n| self.number(n, row)).collect())
