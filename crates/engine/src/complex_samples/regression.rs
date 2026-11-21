@@ -65,7 +65,7 @@ use crate::dist::{chi_square_p, f_p, t_p, t_quantile};
 use crate::genlin::value_matches;
 use crate::glm::{
     Data, Fit, Part, combinations, covariate_note, covariate_values, effects_of, emmeans_l,
-    ginverse, intercept_term, key_value_text, l_row,
+    gef_basis, ginverse, intercept_term, key_value_text, l_row,
 };
 use crate::matrix::{Matrix, inverse, multiply, transpose};
 use crate::npar_tests::text;
@@ -125,30 +125,6 @@ struct Wald {
     r: usize,
     /// The adjusted F and its d, when the SRS covariance is defined.
     adjusted: Option<(f64, f64)>,
-}
-
-/// The general form of the estimable functions of a model with H = (X'WX)^- X'WX: L b is
-/// estimable when L = L H, so every estimable L is a combination of the rows of H. The rows at
-/// the columns that are not redundant are a basis: row j is 1 at column j, 0 at the other such
-/// columns, and at a redundant column the weight of column j in it. Returns one row over the p
-/// parameters per free coefficient L1, L2, ... in column order.
-fn gef_basis(h: &Matrix, redundant: &[bool]) -> Matrix {
-    // factor columns give whole numbers; rounding residue goes
-    let snap = |v: f64| match v.round() {
-        r if (v - r).abs() <= 1e-9 => r + 0.0,
-        _ => v,
-    };
-    (0..h.len())
-        .filter(|&j| !redundant[j])
-        .map(|j| {
-            (0..h.len())
-                .map(|c| match redundant[c] {
-                    false => f64::from(u8::from(c == j)),
-                    true => snap(h[j][c]),
-                })
-                .collect()
-        })
-        .collect()
 }
 
 /// The General Estimable Function table: a row per parameter (in `order`), a column per free

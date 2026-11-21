@@ -326,7 +326,27 @@ impl Fit {
     /// column is a combination of the rows before it and is left out.
     pub(crate) fn type1(&self, e: usize) -> Matrix {
         let before: Vec<usize> = self.effects[..e].iter().flat_map(Effect::range).collect();
-        let (m, _) = sweep_in_order(&self.zwz, &before, self.eps);
+        self.hypothesis_after(e, &before)
+    }
+
+    /// The hypothesis matrix of Type II for effect `e`: Type I after every effect that neither
+    /// is `e` nor contains it.
+    pub(crate) fn type2(&self, e: usize) -> Matrix {
+        let effect = &self.effects[e];
+        let before: Vec<usize> = self
+            .effects
+            .iter()
+            .enumerate()
+            .filter(|(j, other)| *j != e && !other.contains(effect))
+            .flat_map(|(_, other)| other.range())
+            .collect();
+        self.hypothesis_after(e, &before)
+    }
+
+    /// The rows of X'WX of effect `e` after sweeping the columns `before`, with those columns
+    /// set to 0, leaving out the rows of redundant columns.
+    fn hypothesis_after(&self, e: usize, before: &[usize]) -> Matrix {
+        let (m, _) = sweep_in_order(&self.zwz, before, self.eps);
         self.effects[e]
             .range()
             .filter(|&r| !self.redundant[r])
@@ -1292,6 +1312,7 @@ fn univariate(
     if command.print.lof {
         out.push(lack_of_fit(d, fit, dependent, &flags));
     }
+    out.extend(design_matrix_tables(command, d, fit));
     for (what, given) in [
         ("MMATRIX", command.mmatrix.is_some()),
         ("PRINT RSSCP", command.print.rsscp),
@@ -1566,6 +1587,14 @@ fn custom_hypotheses(
             })
             .collect();
         let kind_name = contrast_name(kind);
+        if command.print.lmatrix {
+            out.push(l_prime_of_rows(
+                d,
+                fit,
+                &format!("{factor} {kind_name} Contrast"),
+                &l,
+            ));
+        }
         out.extend(custom_tests(
             fit,
             &h,
@@ -1613,6 +1642,9 @@ fn custom_hypotheses(
     }
     let columns = m[0].len();
     for (title, l) in matrices {
+        if command.print.lmatrix {
+            out.push(l_prime_of_rows(d, fit, &title, &l));
+        }
         let k: Option<Matrix> = match &command.kmatrix {
             None => None,
             Some(rows) if columns == 1 => {
@@ -1788,8 +1820,133 @@ fn test_keyword(t: Posthoc) -> &'static str {
     }
 }
 
+/// The name of every parameter of the design, in column order.
+fn parameter_labels(d: &Data, fit: &Fit) -> Vec<String> {
+    let mut names = vec![String::new(); fit.p];
+    for e in &fit.effects {
+        for (k, cell) in e.cells.iter().enumerate() {
+            names[e.start + k] = parameter_name(d, e, cell);
+        }
+    }
+    names
+}
+
+/// A matrix of coefficients with a row per parameter and a column per column name: the
+/// transpose of an L matrix whose rows run over the parameters.
+fn l_prime_table(
+    d: &Data,
+    fit: &Fit,
+    title: &str,
+    caption: String,
+    columns: Vec<String>,
+    rows: &[Vec<f64>],
+) -> Table {
+    let names = parameter_labels(d, fit);
+    let mut heads = plain(&["Parameter"]);
+    heads.extend(columns.into_iter().map(|c| (String::new(), c)));
+    // rounding residue of the sweeps goes: 0.49999999999999994 is 0.5
+    let snap = |v: f64| {
+        let r = (v * 1e12).round() / 1e12;
+        if r.abs() < 1e-9 { 0.0 } else { r }
+    };
+    let body = (0..fit.p)
+        .map(|j| {
+            let mut row = vec![text(if fit.redundant[j] {
+                format!("{} (redundant)", names[j])
+            } else {
+                names[j].clone()
+            })];
+            row.extend(rows.iter().map(|l| number(Some(snap(l[j])))));
+            row
+        })
+        .collect();
+    table(title, 1, heads, body, Some(caption))
+}
+
+/// The L' matrix of the named rows of a CONTRAST or an LMATRIX.
+fn l_prime_of_rows(d: &Data, fit: &Fit, title: &str, l: &[(String, Vec<f64>)]) -> Table {
+    let rows: Vec<Vec<f64>> = l.iter().map(|(_, row)| row.clone()).collect();
+    l_prime_table(
+        d,
+        fit,
+        &format!("Contrast Coefficients (L' Matrix): {title}"),
+        format!("{title}; each column is a row of L."),
+        l.iter().map(|(name, _)| name.clone()).collect(),
+        &rows,
+    )
+}
+
+/// PRINT GEF and TEST(LMATRIX): the general estimable function, and the L' matrix of every
+/// effect of the design by the sum of squares type of the analysis.
+fn design_matrix_tables(command: &Glm, d: &Data, fit: &Fit) -> Vec<Table> {
+    let mut out = Vec::new();
+    if command.print.lmatrix {
+        for (e, effect) in fit.effects.iter().enumerate() {
+            let l = match command.sstype {
+                1 => fit.type1(e),
+                2 => fit.type2(e),
+                other => fit.type34(e, other == 4),
+            };
+            if l.is_empty() {
+                continue;
+            }
+            let columns = (1..=l.len()).map(|i| format!("L{i}")).collect();
+            out.push(l_prime_table(
+                d,
+                fit,
+                &format!("Contrast Coefficients (L' Matrix): {}", effect.label),
+                format!(
+                    "Type {} hypothesis matrix of {}; each column is a row of L.",
+                    roman(command.sstype),
+                    effect.label
+                ),
+                columns,
+                &l,
+            ));
+        }
+    }
+    if command.print.gef {
+        let basis = gef_basis(&fit.h(), &fit.redundant);
+        let columns = (1..=basis.len()).map(|i| format!("L{i}")).collect();
+        out.push(l_prime_table(
+            d,
+            fit,
+            "General Estimable Function",
+            "Each column is a free coefficient; a parameter's coefficient in any estimable function is the combination of them in its row."
+                .into(),
+            columns,
+            &basis,
+        ));
+    }
+    out
+}
+
 fn roman(t: u8) -> &'static str {
     ["I", "II", "III", "IV"][usize::from(t.clamp(1, 4)) - 1]
+}
+
+/// The general form of the estimable functions of a model with H = (X'WX)^- X'WX: L b is
+/// estimable when L = L H, so every estimable L is a combination of the rows of H. The rows at
+/// the columns that are not redundant are a basis: row j is 1 at column j, 0 at the other such
+/// columns, and at a redundant column the weight of column j in it. Returns one row over the p
+/// parameters per free coefficient L1, L2, ... in column order.
+pub(crate) fn gef_basis(h: &Matrix, redundant: &[bool]) -> Matrix {
+    // factor columns give whole numbers; rounding residue goes
+    let snap = |v: f64| match v.round() {
+        r if (v - r).abs() <= 1e-9 => r + 0.0,
+        _ => v,
+    };
+    (0..h.len())
+        .filter(|&j| !redundant[j])
+        .map(|j| {
+            (0..h.len())
+                .map(|c| match redundant[c] {
+                    false => f64::from(u8::from(c == j)),
+                    true => snap(h[j][c]),
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// Three decimals, or a period (as for system-missing) when the value cannot be computed.
@@ -3256,6 +3413,8 @@ impl Engine {
             ("PRINT RSSCP", command.print.rsscp),
             ("PRINT TEST(SSCP)", command.print.sscp),
             ("PRINT TEST(MMATRIX)", command.print.mmatrix),
+            ("PRINT TEST(LMATRIX)", command.print.lmatrix),
+            ("PRINT GEF", command.print.gef),
         ] {
             if given {
                 return Err(Error(format!("{what} with WSFACTOR is not supported yet")));
@@ -4286,6 +4445,10 @@ impl Engine {
                 })
                 .collect();
             out.push(merge(tables, texts, false, "Dependent Variable"));
+        }
+        // the design is the same for every dependent: the matrices of the first one
+        if let Some((d0, f0)) = parts.first() {
+            out.extend(design_matrix_tables(command, d0, f0));
         }
         if command.print.lof {
             let tables = parts

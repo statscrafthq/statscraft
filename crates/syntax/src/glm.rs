@@ -62,6 +62,10 @@ pub struct GlmPrint {
     pub sscp: bool,
     /// TEST(MMATRIX) or TEST(TRANSFORM): the M matrix of MMATRIX.
     pub mmatrix: bool,
+    /// TEST(LMATRIX) or TEST(ESTIMABLE): the L' matrix of every effect and of LMATRIX and CONTRAST.
+    pub lmatrix: bool,
+    /// GEF: the general form of the estimable functions.
+    pub gef: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1084,7 +1088,7 @@ fn mmatrix(p: &mut Parser) -> PResult<Vec<MColumn>> {
 fn print(p: &mut Parser) -> PResult<GlmPrint> {
     p.eat(Punct::Eq);
     let mut out = GlmPrint::default();
-    const KEYWORDS: [&str; 8] = [
+    const KEYWORDS: [&str; 9] = [
         "DESCRIPTIVE",
         "HOMOGENEITY",
         "PARAMETER",
@@ -1093,8 +1097,9 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
         "LOF",
         "RSSCP",
         "TEST",
+        "GEF",
     ];
-    const LATER: [&str; 6] = ["GEF", "MBP", "BP", "F", "WHITE", "ERROR"];
+    const LATER: [&str; 5] = ["MBP", "BP", "F", "WHITE", "ERROR"];
     while !at_end(p) {
         let word = match p.peek() {
             Some(TokenKind::Word(w)) => w.to_uppercase(),
@@ -1114,6 +1119,8 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
             out.lof = true;
         } else if p.eat_keyword("RSSCP") {
             out.rsscp = true;
+        } else if p.eat_word("GEF") {
+            out.gef = true;
         } else if p.eat_keyword("TEST") {
             if !p.at(Punct::LParen) || matches!(p.peek_at(1), Some(TokenKind::Punct(Punct::RParen)))
             {
@@ -1128,11 +1135,8 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
                     out.sscp = true;
                 } else if p.eat_keyword("MMATRIX") || p.eat_keyword("TRANSFORM") {
                     out.mmatrix = true;
-                } else if p.at_keyword("LMATRIX") || p.at_keyword("ESTIMABLE") {
-                    return Err(SyntaxError::new(
-                        p.span(),
-                        "TEST(LMATRIX) in PRINT is not supported yet",
-                    ));
+                } else if p.eat_keyword("LMATRIX") || p.eat_keyword("ESTIMABLE") {
+                    out.lmatrix = true;
                 } else {
                     return Err(p.unexpected(&["SSCP", "LMATRIX", "MMATRIX"]));
                 }

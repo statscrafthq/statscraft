@@ -279,10 +279,6 @@ fn glm_errors() {
             "subcommand RANDOM of UNIANOVA is not supported yet",
         ),
         (
-            "UNIANOVA y BY a /PRINT=GEF.",
-            "GEF in PRINT is not supported yet",
-        ),
-        (
             "UNIANOVA y BY a b /EMMEANS=TABLES(a*b) COMPARE.",
             "COMPARE needs the factor to compare when TABLES crosses factors",
         ),
@@ -309,10 +305,6 @@ fn glm_errors() {
         (
             "UNIANOVA y BY a /CONTRAST(a)=SPECIAL.",
             "unexpected end of command",
-        ),
-        (
-            "GLM y1 y2 BY a /PRINT=TEST(LMATRIX).",
-            "TEST(LMATRIX) in PRINT is not supported yet",
         ),
         (
             "GLM y1 y2 BY a /MMATRIX=y1 1 'diff'; y2 1.",
@@ -620,4 +612,18 @@ fn glm_test_reads_the_hypothesis_and_the_error_term() {
             .contains(&"DF(df)".to_string())
     );
     assert!(err("UNIANOVA y BY a /TEST=a VS b DF(0).").contains("positive"));
+}
+
+#[test]
+fn print_gef_and_test_lmatrix_are_keywords() {
+    let print = |text: &str| {
+        let Command::Glm(g) = one(text) else { panic!() };
+        g.print
+    };
+    let p = print("UNIANOVA y BY a /PRINT=GEF.");
+    assert!(p.gef && !p.lmatrix);
+    assert!(print("UNIANOVA y BY a /PRINT=TEST(LMATRIX).").lmatrix);
+    assert!(print("UNIANOVA y BY a /PRINT=TEST(ESTIMABLE).").lmatrix);
+    let p = print("GLM y1 y2 BY a /PRINT=TEST(SSCP LMATRIX MMATRIX) GEF.");
+    assert!(p.sscp && p.lmatrix && p.mmatrix && p.gef);
 }

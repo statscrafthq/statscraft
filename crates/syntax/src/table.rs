@@ -116,8 +116,8 @@ macro_rules! glm_syntax {
                  \x20  [/WSFACTOR=name levels [POLYNOMIAL | contrast] ...] [/WSDESIGN=effects] (GLM)\n\
                  \x20  [/METHOD=SSTYPE(1 | 2 | 3 | 4)] [/INTERCEPT=INCLUDE | EXCLUDE] [/MISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/CRITERIA=[EPS(1E-8)] [ALPHA(0.05)]] [/REGWGT=var]\n\
-                 \x20  [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF] [RSSCP]\n\
-                 \x20         [TEST([SSCP] [MMATRIX | TRANSFORM])]]\n\
+                 \x20  [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF] [RSSCP] [GEF]\n\
+                 \x20         [TEST([SSCP] [LMATRIX | ESTIMABLE] [MMATRIX | TRANSFORM])]]\n\
                  \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
                  \x20            [COMPARE[(factor)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
                  \x20  [/POSTHOC=factor ... (tests) [VS effect]] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
@@ -172,12 +172,16 @@ macro_rules! glm_syntax {
                  side (2 by default); YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
                  cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
                  gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT\n\
-                 is ignored with a warning. TEST tests an effect of the design against an error term, either a\n\
+                 is ignored with a warning. GEF gives the general form of the estimable functions: a row per\n\
+                 parameter, a column per free coefficient L1, L2, ... (a redundant parameter is a combination of them).\n\
+                 TEST(LMATRIX) (or ESTIMABLE) gives the L' matrix of every effect of the design for the sum of\n\
+                 squares type in use (a row per parameter, a column per row of L), and of every LMATRIX and\n\
+                 CONTRAST. TEST tests an effect of the design against an error term, either a\n\
                  linear combination of the mean squares of other effects (coefficients may be fractions;\n\
                  coefficients of one effect add up) with Satterthwaite's degrees of freedom unless DF(df) gives\n\
                  them, or a mean square with its DF(df); one table of Hypothesis and Error rows each. It is for one\n\
                  dependent variable and without WSFACTOR. Not supported yet: RANDOM,\n\
-                 ROBUST, OUTFILE, MEASURE, PRINT GEF, TEST(LMATRIX), MBP, BP, F and\n\
+                 ROBUST, OUTFILE, MEASURE, MBP, BP, F and\n\
                  WHITE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
                  EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE and PRINT\n\
                  PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).")

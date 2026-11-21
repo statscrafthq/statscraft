@@ -1380,3 +1380,148 @@ fn test_adds_duplicate_effects_and_names_what_it_cannot_use() {
     ));
     assert!(error.contains("univariate"), "{error}");
 }
+
+/// A balanced 3 x 2 design with two cases in every cell; the values do not matter for the L
+/// matrices.
+const BALANCED: &str = "DATA LIST FREE / y a b.
+BEGIN DATA
+1 1 1
+2 1 1
+3 1 2
+5 1 2
+4 2 1
+6 2 1
+7 2 2
+8 2 2
+9 3 1
+8 3 1
+11 3 2
+12 3 2
+END DATA.
+";
+
+fn parameter_rows(table: &Table) -> Vec<(String, Vec<f64>)> {
+    table
+        .rows
+        .iter()
+        .map(|r| {
+            let Cell::Text(name) = &r[0] else {
+                panic!("{r:?}")
+            };
+            let values = r[1..]
+                .iter()
+                .map(|c| match c {
+                    Cell::Number(n) => *n,
+                    other => panic!("{other:?}"),
+                })
+                .collect();
+            (name.clone(), values)
+        })
+        .collect()
+}
+
+// With one factor of three levels the free coefficients are the intercept and the first two
+// levels; the third parameter is redundant and its coefficient is intercept - level 1 - level 2.
+#[test]
+fn print_gef_gives_the_general_form_of_the_estimable_functions() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{BALANCED}UNIANOVA y BY a /PRINT=GEF."),
+    );
+    let t = tables
+        .iter()
+        .find(|t| t.title == "General Estimable Function")
+        .unwrap();
+    assert_eq!(t.columns, ["Parameter", "L1", "L2", "L3"]);
+    let rows = parameter_rows(t);
+    let expected: Vec<(&str, [f64; 3])> = vec![
+        ("Intercept", [1.0, 0.0, 0.0]),
+        ("[a=1]", [0.0, 1.0, 0.0]),
+        ("[a=2]", [0.0, 0.0, 1.0]),
+        ("[a=3] (redundant)", [1.0, -1.0, -1.0]),
+    ];
+    assert_eq!(rows.len(), expected.len());
+    for ((name, values), (want_name, want)) in rows.iter().zip(&expected) {
+        assert_eq!(name, want_name);
+        assert_eq!(values, want, "{name}");
+    }
+}
+
+// In a balanced design the Type III L matrix of a is the contrast of its levels with the cells of
+// the interaction at half the weight each, in the columns that are not redundant.
+#[test]
+fn print_test_lmatrix_gives_the_l_matrix_of_every_effect() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{BALANCED}UNIANOVA y BY a b /DESIGN=a b a*b /PRINT=TEST(LMATRIX)."),
+    );
+    let titles: Vec<&str> = tables
+        .iter()
+        .filter(|t| t.title.starts_with("Contrast Coefficients (L' Matrix)"))
+        .map(|t| t.title.as_str())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Contrast Coefficients (L' Matrix): Intercept",
+            "Contrast Coefficients (L' Matrix): a",
+            "Contrast Coefficients (L' Matrix): b",
+            "Contrast Coefficients (L' Matrix): a * b",
+        ]
+    );
+    let a = tables
+        .iter()
+        .find(|t| t.title == "Contrast Coefficients (L' Matrix): a")
+        .unwrap();
+    assert_eq!(a.columns, ["Parameter", "L1", "L2"]);
+    let rows = parameter_rows(a);
+    let row = |name: &str| rows.iter().find(|(n, _)| n == name).unwrap().1.clone();
+    assert_eq!(row("Intercept"), [0.0, 0.0]);
+    assert_eq!(row("[a=1]"), [1.0, 0.0]);
+    assert_eq!(row("[a=2]"), [0.0, 1.0]);
+    assert_eq!(row("[b=1]"), [0.0, 0.0]);
+    assert_eq!(row("[a=1] * [b=1]"), [0.5, 0.0]);
+    assert_eq!(row("[a=2] * [b=1]"), [0.0, 0.5]);
+    assert!(a.caption.clone().unwrap_or_default().contains("Type III"));
+    // ESTIMABLE is another name; a one-factor model has the intercept and a
+    let estimable = run(&mut engine, "UNIANOVA y BY a /PRINT=TEST(ESTIMABLE).");
+    assert_eq!(
+        estimable
+            .iter()
+            .filter(|t| t.title.starts_with("Contrast Coefficients (L' Matrix)"))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn print_test_lmatrix_also_shows_the_matrices_of_contrast_and_lmatrix() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{BALANCED}UNIANOVA y BY a /CONTRAST(a)=REPEATED /LMATRIX=\"c\" a 1 -1 0 /PRINT=TEST(LMATRIX)."
+        ),
+    );
+    let find = |title: &str| {
+        tables
+            .iter()
+            .find(|t| t.title == title)
+            .unwrap_or_else(|| panic!("no {title}"))
+    };
+    let repeated = find("Contrast Coefficients (L' Matrix): a Repeated Contrast");
+    assert_eq!(repeated.columns.len(), 3);
+    let rows = parameter_rows(repeated);
+    let row = |name: &str| rows.iter().find(|(n, _)| n == name).unwrap().1.clone();
+    // level 1 against level 2, level 2 against level 3
+    assert_eq!(row("[a=1]"), [1.0, 0.0]);
+    assert_eq!(row("[a=2]"), [-1.0, 1.0]);
+    assert_eq!(row("Intercept"), [0.0, 0.0]);
+    let custom = find("Contrast Coefficients (L' Matrix): c");
+    let rows = parameter_rows(custom);
+    let row = |name: &str| rows.iter().find(|(n, _)| n == name).unwrap().1.clone();
+    assert_eq!(row("[a=1]"), [1.0]);
+    assert_eq!(row("[a=2]"), [-1.0]);
+}
