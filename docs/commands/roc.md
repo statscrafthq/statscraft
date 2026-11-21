@@ -18,6 +18,8 @@ The test variables are numeric; the state variable may be a string, and the valu
 
 Tables: Case Processing Summary; Area Under the Curve, which counts every positive and negative pair (a tie as half) and with SE adds the nonparametric standard error (or the bi-negative exponential one under NEGEXPO when both groups are equally large), the two-sided test of area 0.5 and the CI interval; COORDINATES lists sensitivity and 1 - specificity at every cutoff. CURVE draws the curves in one chart, REFERENCE adds the diagonal; MODELQUALITY adds a bar chart of the lower bounds of the intervals.
 
+DMROC is another name for the command.
+
 ## Example
 
 ```text

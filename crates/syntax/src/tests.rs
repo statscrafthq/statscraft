@@ -390,6 +390,29 @@ fn ambiguous_abbreviation_lists_the_candidates() {
     assert_eq!(error.expected, ["DISCRIMINANT", "DISPLAY"]);
 }
 
+#[test]
+fn direct_marketing_names_and_their_abbreviations() {
+    // DMT starts both DMTABLES and DMTREE; the other three-letter forms are unique
+    let error = err("DMT x.");
+    assert_eq!(error.message, "ambiguous command abbreviation DMT");
+    assert_eq!(error.expected, ["DMTABLES", "DMTREE"]);
+    for name in [
+        "DML",
+        "DMLOGISTIC",
+        "DMR",
+        "DMROC",
+        "DMC",
+        "DMCLUSTER",
+        "DMTA",
+        "DMTR",
+    ] {
+        assert!(
+            !err(&format!("{name}.")).message.contains("ambiguous"),
+            "{name}"
+        );
+    }
+}
+
 // Errors
 
 #[test]

@@ -183,6 +183,7 @@ One page per supported command, generated from the same table that the parser an
 | [OVERALS](overals.md) | Nonlinear canonical correlation analysis: what two or more sets of variables, each quantified at its own level, have in common. |
 | [ANACOR](anacor.md) | Correspondence analysis in the older syntax: CORRESPONDENCE with its own normalization names and defaults. |
 | [LOGISTIC REGRESSION](logistic-regression.md) | Binary logistic regression with categorical covariates, stepwise selection and case diagnostics. |
+| [DMLOGISTIC](dmlogistic.md) | Another name for LOGISTIC REGRESSION. |
 | [NOMREG](nomreg.md) | Multinomial logistic regression: a nominal dependent variable on factors and covariates. |
 | [MVA](mva.md) | Missing value analysis: where values are missing, how that relates to the other variables, and estimates that allow for it. |
 | [HILOGLINEAR](hiloglinear.md) | Hierarchical loglinear models of a multiway table of counts, with backward elimination. |
@@ -206,6 +207,7 @@ One page per supported command, generated from the same table that the parser an
 | [CLEAR TIME PROGRAM](clear-time-program.md) | Drop the time-dependent covariates of the last TIME PROGRAM. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
+| [DMTREE](dmtree.md) | Another name for TREE. |
 | [MLP](mlp.md) | Multilayer perceptron: a neural network with one or two hidden layers that predicts scale dependents and classifies categorical ones. |
 | [RBF](rbf.md) | Radial basis function network: Gaussian hidden units at two-step clusters and least squares output weights. |
 | [GRAPH](graph.md) | One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram, a scatterplot or a scatterplot matrix. |
@@ -216,6 +218,7 @@ One page per supported command, generated from the same table that the parser an
 | [PPLOT](pplot.md) | Probability plots: Q-Q or P-P plots of variables against a test distribution. |
 | [NPPLOT](npplot.md) | Another name for PPLOT. |
 | [ROC](roc.md) | ROC curve of test variables against a state, with the area under the curve. |
+| [DMROC](dmroc.md) | Another name for ROC. |
 | [ROC ANALYSIS](roc-analysis.md) | ROC curves with paired or two-group comparisons of their areas, precision-recall curves and classifier metrics. |
 | [SPCHART](spchart.md) | Control charts (X-bar with R or s, individuals, p, np, c, u) and the process capability chart. |
 | [KM](km.md) | Kaplan-Meier survival estimates by factor level and stratum, with tests that compare the levels. |
@@ -251,6 +254,7 @@ One page per supported command, generated from the same table that the parser an
 | Command | What it does |
 |---|---|
 | [CTABLES](ctables.md) | Custom tables: counts, percentages and statistics by categories. |
+| [DMTABLES](dmtables.md) | Another name for CTABLES. |
 | [MRSETS](mrsets.md) | Define, delete and list multiple response sets. |
 
 ## Complex samples

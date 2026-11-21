@@ -36,6 +36,7 @@ mod data_commands;
 mod date_formats;
 mod dictionary;
 mod discriminant;
+mod dm_aliases;
 mod engine;
 mod examine;
 mod factor;

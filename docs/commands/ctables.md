@@ -102,6 +102,8 @@ A set may carry the summaries even with categorical variables nested inside it; 
 
 Tests on sets (INCLUDEMRSETS=YES, the default) count each case once in the margins and allow for the cases two categories of a set share; the means test then pools the variance from the two categories compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a category set.
 
+DMTABLES is another name for the command.
+
 ## Example
 
 ```text

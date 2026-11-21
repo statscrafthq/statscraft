@@ -4,6 +4,7 @@
 
 - PARTIAL CORR MATRIX=IN and OUT: partial correlations from a matrix data file of correlations and counts, and the matrix of the first list written to a file, a dataset or the active dataset.
 - REGRESSION MATRIX=IN and OUT: the equation from a matrix data file of means, standard deviations, counts and correlations, and the matrix of the run written to a file, a dataset or the active dataset.
+- DMLOGISTIC, DMROC, DMTREE and DMTABLES are other names for LOGISTIC REGRESSION, ROC, TREE and CTABLES, as DMCLUSTER already is for TWOSTEP CLUSTER: the same subcommands, defaults and tables. DMT alone is ambiguous between DMTABLES and DMTREE.
 
 ## 0.24.0 (2026-11-21)
 

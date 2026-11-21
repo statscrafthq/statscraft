@@ -1173,8 +1173,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Tests on sets (INCLUDEMRSETS=YES, the default) count each case once in the margins and allow for the\n\
                  cases two categories of a set share; the means test then pools the variance from the two categories\n\
                  compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
-                 category set.",
+                 category set.\n\
+                 DMTABLES is another name for the command.",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
+        parse: ctables::ctables,
+    },
+    CommandSpec {
+        name: "DMTABLES",
+        summary: "Another name for CTABLES.",
+        syntax: "DMTABLES [/subcommands of CTABLES].\n\
+                 The same command as CTABLES, with the same subcommands and defaults.",
+        example: "DMTABLES /TABLE region BY bought [COUNT, ROWPCT.COUNT].",
         parse: ctables::ctables,
     },
     CommandSpec {
@@ -3123,8 +3132,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  value leaves the case unselected); the Case Processing Summary counts the unselected cases, the\n\
                  Classification Table has a part for each group, and SAVE and CASEWISE (with S or U in Selected\n\
                  Status) cover the unselected cases that have a prediction and an observed value.\n\
-                 Not supported yet: OUTFILE.",
+                 Not supported yet: OUTFILE.\n\
+                 DMLOGISTIC is another name for the command.",
         example: "LOGISTIC REGRESSION VARIABLES=bought WITH age income region /CATEGORICAL=region /METHOD=FSTEP(LR) /PRINT=GOODFIT CI(95) /SAVE=PRED.",
+        parse: logistic::logistic,
+    },
+    CommandSpec {
+        name: "DMLOGISTIC",
+        summary: "Another name for LOGISTIC REGRESSION.",
+        syntax: "DMLOGISTIC dependent WITH covariates [/subcommands of LOGISTIC REGRESSION].\n\
+                 The same command as LOGISTIC REGRESSION, with the same subcommands and defaults.",
+        example: "DMLOGISTIC bought WITH age tenure /PRINT=SUMMARY.",
         parse: logistic::logistic,
     },
     CommandSpec {
@@ -4776,8 +4794,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  IMPORTANCE, PRIORS, CRT, QUEST, the settings of CRT and QUEST and PRINT IMPORTANCE, SURROGATES and\n\
                  CATEGORYSPECS are accepted and ignored with a warning. Not supported\n\
                  yet: METHOD TYPE=CRT and QUEST, a scale dependent, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
-                 SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.",
+                 SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
+        parse: tree::tree,
+    },
+    CommandSpec {
+        name: "DMTREE",
+        summary: "Another name for TREE.",
+        syntax: "DMTREE dependent BY predictors [/subcommands of TREE].\n\
+                 The same command as TREE, with the same subcommands and defaults.",
+        example: "DMTREE bought [n] BY region [n] age_group [o] /GROWTHLIMIT MAXDEPTH=2.",
         parse: tree::tree,
     },
     CommandSpec {
@@ -5035,8 +5062,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  bi-negative exponential one under NEGEXPO when both groups are equally large), the\n\
                  two-sided test of area 0.5 and the CI interval; COORDINATES lists sensitivity and\n\
                  1 - specificity at every cutoff. CURVE draws the curves in one chart, REFERENCE adds the\n\
-                 diagonal; MODELQUALITY adds a bar chart of the lower bounds of the intervals.",
+                 diagonal; MODELQUALITY adds a bar chart of the lower bounds of the intervals.\n\
+                 DMROC is another name for the command.",
         example: "ROC risk_score lab_index BY relapsed (1) /PLOT=CURVE(REFERENCE) /PRINT=SE COORDINATES.",
+        parse: pplot::roc,
+    },
+    CommandSpec {
+        name: "DMROC",
+        summary: "Another name for ROC.",
+        syntax: "DMROC testvars BY state(value) [/subcommands of ROC].\n\
+                 The same command as ROC, with the same subcommands and defaults.",
+        example: "DMROC propensity BY bought (1) /PLOT=CURVE.",
         parse: pplot::roc,
     },
     CommandSpec {

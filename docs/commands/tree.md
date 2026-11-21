@@ -31,6 +31,8 @@ A weight counts each case as often as its rounded value. SPLIT FILE is ignored.
 
 PLOT GAIN, RESPONSE and INDEX give line charts with one line per TARGET category over cumulative percentile groups INCREMENT percent wide (1, 2, 5, 10, 20 or 25): the terminal nodes in the order of the gain tables, the node that holds a cut counted in proportion. PLOT MEAN, PROFIT, ROI and IMPORTANCE, PRIORS, CRT, QUEST, the settings of CRT and QUEST and PRINT IMPORTANCE, SURROGATES and CATEGORYSPECS are accepted and ignored with a warning. Not supported yet: METHOD TYPE=CRT and QUEST, a scale dependent, VALIDATION SPLITSAMPLE and CROSSVALIDATION, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.
 
+DMTREE is another name for the command.
+
 ## Example
 
 ```text

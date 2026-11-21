@@ -24,6 +24,8 @@ Weighted when a weight variable is set. CLASSPLOT gives, for every step shown, c
 
 Not supported yet: OUTFILE.
 
+DMLOGISTIC is another name for the command.
+
 ## Example
 
 ```text
