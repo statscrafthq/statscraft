@@ -792,6 +792,16 @@ pub(crate) fn categorical_syntax(categorical: &[Categorical], default: usize) ->
     text
 }
 
+/// Keyword and label of each relation of a selection rule.
+pub const SELECT_RELATIONS: [(&str, &str); 6] = [
+    ("EQ", "equal to"),
+    ("NE", "not equal to"),
+    ("LT", "less than"),
+    ("LE", "less than or equal to"),
+    ("GT", "greater than"),
+    ("GE", "greater than or equal to"),
+];
+
 /// LOGISTIC REGRESSION: one dependent variable and blocks of covariates.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Logistic {
@@ -800,6 +810,11 @@ pub struct Logistic {
     pub blocks: Vec<Block>,
     /// The block the dialog shows.
     pub block: usize,
+    /// Selection variable: only the cases where its rule holds are fitted.
+    pub select: String,
+    /// Index into `SELECT_RELATIONS`.
+    pub select_relation: usize,
+    pub select_value: String,
     pub categorical: Vec<Categorical>,
     /// One flag per entry of `LOGISTIC_SAVE`.
     pub save: [bool; 10],
@@ -821,6 +836,9 @@ impl Default for Logistic {
             dependent: String::new(),
             blocks: vec![Block::default()],
             block: 0,
+            select: String::new(),
+            select_relation: 0,
+            select_value: String::new(),
             categorical: Vec::new(),
             save: [false; 10],
             goodfit: false,
@@ -866,6 +884,15 @@ impl Logistic {
         for b in blocks {
             let method = LOGISTIC_METHODS[b.method].0;
             text.push_str(&format!("\n  /METHOD={method} {}", b.variables.join(" ")));
+        }
+        let select = self.select.trim();
+        if !select.is_empty() {
+            let value = parse(&self.select_value, "the value of the selection rule")?;
+            let relation = SELECT_RELATIONS[self.select_relation].0;
+            text.push_str(&format!(
+                "\n  /SELECT={select} {relation} {}",
+                number(value)
+            ));
         }
         text.push_str(&categorical_syntax(&self.categorical, 0));
         let save = keywords(&LOGISTIC_SAVE, &self.save);
@@ -1959,6 +1986,22 @@ mod tests {
             "LOGISTIC REGRESSION VARIABLES=q5_1\n  /METHOD=ENTER age monthly_spend."
         );
         assert!(runs(&syntax) >= 4);
+        // a selection rule: only the cases it holds for are fitted
+        d.select = "region".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the value of the selection rule must be a number"
+        );
+        d.select_relation = 4;
+        d.select_value = "1".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "LOGISTIC REGRESSION VARIABLES=q5_1\n  /METHOD=ENTER age monthly_spend\n  \
+             /SELECT=region GT 1."
+        );
+        assert!(runs(&syntax) >= 4);
+        d.select.clear();
 
         // a stepwise block, categorical covariates, every saved variable and option
         d.blocks.push(Block {

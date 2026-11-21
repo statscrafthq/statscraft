@@ -263,12 +263,13 @@ impl Regression {
 }
 
 /// Keyword and label of every model of a scale.
-pub const RELIABILITY_MODELS: [(&str, &str); 5] = [
+pub const RELIABILITY_MODELS: [(&str, &str); 6] = [
     ("ALPHA", "Alpha"),
     ("SPLIT", "Split-half"),
     ("GUTTMAN", "Guttman"),
     ("PARALLEL", "Parallel"),
     ("STRICTPARALLEL", "Strict parallel"),
+    ("OMEGA", "Omega"),
 ];
 
 /// Keyword and label of the descriptives: the first two on /STATISTICS, the last on /SUMMARY.
@@ -915,6 +916,10 @@ mod tests {
         d.model = 2;
         let syntax = d.syntax().unwrap();
         assert!(syntax.ends_with("/ICC=MODEL(ONEWAY) CIN=90 TESTVAL=0.5."));
+        assert!(runs(&syntax) >= 4);
+        d.model = 5;
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.contains("\n  /MODEL=OMEGA\n"));
         assert!(runs(&syntax) >= 4);
         d.icc_test_value = "1".into();
         assert_eq!(

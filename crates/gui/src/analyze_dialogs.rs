@@ -254,8 +254,9 @@ impl TTest {
 }
 
 /// Keyword and label of every statistic of the One-Way ANOVA options.
-pub const ONEWAY_STATISTICS: [(&str, &str); 4] = [
+pub const ONEWAY_STATISTICS: [(&str, &str); 5] = [
     ("DESCRIPTIVES", "Descriptives"),
+    ("EFFECTS", "Fixed and random effects"),
     ("HOMOGENEITY", "Test of equal variances"),
     ("WELCH", "Welch test"),
     ("BROWNFORSYTHE", "Brown-Forsythe test"),
@@ -284,6 +285,16 @@ pub const POST_HOC_TESTS: [(&str, &str); 16] = [
 
 pub const EQUAL_VARIANCE_TESTS: usize = 12;
 
+/// Label of each degree of the polynomial trend; the index is the degree, 0 for none.
+pub const ONEWAY_POLYNOMIALS: [(&str, &str); 6] = [
+    ("", "None"),
+    ("1", "Linear"),
+    ("2", "Quadratic"),
+    ("3", "Cubic"),
+    ("4", "4th degree"),
+    ("5", "5th degree"),
+];
+
 /// Keyword and label of each side of Dunnett's test against a control group.
 pub const DUNNETT_SIDES: [(&str, &str); 3] = [
     ("DUNNETT", "Two-sided"),
@@ -296,7 +307,9 @@ pub struct Oneway {
     pub dependents: Vec<String>,
     pub factor: String,
     /// One flag per entry of `ONEWAY_STATISTICS`.
-    pub statistics: [bool; 4],
+    pub statistics: [bool; 5],
+    /// Degree of the polynomial trend, an index into `ONEWAY_POLYNOMIALS`.
+    pub polynomial: usize,
     /// One flag per entry of `POST_HOC_TESTS`.
     pub post_hoc: [bool; 16],
     /// Dunnett's test: each group against a control group.
@@ -317,7 +330,8 @@ impl Default for Oneway {
         Self {
             dependents: Vec::new(),
             factor: String::new(),
-            statistics: [false; 4],
+            statistics: [false; 5],
+            polynomial: 0,
             post_hoc: [false; 16],
             dunnett: false,
             dunnett_first: false,
@@ -346,6 +360,9 @@ impl Oneway {
             return Err("choose a factor".into());
         }
         let mut text = format!("ONEWAY {dependents} BY {factor}");
+        if self.polynomial > 0 {
+            text.push_str(&format!("\n  /POLYNOMIAL={}", self.polynomial));
+        }
         let statistics = keywords(&ONEWAY_STATISTICS, &self.statistics);
         if !statistics.is_empty() {
             text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
@@ -1063,19 +1080,21 @@ mod tests {
         // the runs of this test's option sets are in the dialog walk (app/dialog_walk.rs)
         assert!(statscraft_syntax::parse(&syntax).1.is_empty());
         d.dependents = v(&["age", "monthly_spend"]);
-        d.statistics = [true; 4];
+        d.statistics = [true; 5];
+        d.polynomial = 2;
         d.post_hoc = [true; 16];
         d.dunnett = true;
         let syntax = d.syntax().unwrap();
         assert_eq!(
             syntax,
-            "ONEWAY age monthly_spend BY region\n  \
-             /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE\n  \
+            "ONEWAY age monthly_spend BY region\n  /POLYNOMIAL=2\n  \
+             /STATISTICS=DESCRIPTIVES EFFECTS HOMOGENEITY WELCH BROWNFORSYTHE\n  \
              /POSTHOC=LSD BONFERRONI SIDAK SCHEFFE FREGW QREGW SNK TUKEY BTUKEY DUNCAN GT2 \
              GABRIEL T2 T3 GH C DUNNETT."
         );
         assert!(statscraft_syntax::parse(&syntax).1.is_empty());
-        d.statistics = [false; 4];
+        d.statistics = [false; 5];
+        d.polynomial = 0;
         d.post_hoc = [false; 16];
         d.post_hoc[7] = true;
         d.post_hoc[14] = true;

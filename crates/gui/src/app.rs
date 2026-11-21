@@ -5,8 +5,8 @@ use crate::advanced_dialogs::{Advanced, SampleTables};
 use crate::advanced_dialogs_view;
 use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, MEANS_CELLS, MULT_RESPONSE_CELLS, Means, MrGroup,
-    MultResponse, ONEWAY_STATISTICS, Oneway, STANDARDIZERS, TREE_LEVELS, TREE_SAVE, TTest,
-    TTestKind, Tree,
+    MultResponse, ONEWAY_POLYNOMIALS, ONEWAY_STATISTICS, Oneway, STANDARDIZERS, TREE_LEVELS,
+    TREE_SAVE, TTest, TTestKind, Tree,
 };
 use crate::bayes_dialog::{BAYES_MENU, Bayesian};
 use crate::catreg_dialog::CategoricalRegression;
@@ -21,10 +21,10 @@ use crate::data_dialogs::{
 };
 use crate::dialogs::{
     Adjust, Autorecode, CROSSTABS_CELLS, CROSSTABS_CMH, CROSSTABS_STATISTICS, Categories, Compute,
-    Count, Crosstabs, CrosstabsMethod, CustomTables, DESCRIPTIVES_STATISTICS, Descriptives,
-    FREQUENCIES_ORDERS, FREQUENCIES_STATISTICS, Frequencies, Letters, NewValue, OldValue,
-    RANK_FRACTIONS, RANK_FUNCTIONS, RANK_TIES, Rank, Recode, RecodeRule, Subtotal, is_set,
-    label_command,
+    Count, Crosstabs, CrosstabsMethod, CustomTables, DESCRIPTIVES_ORDERS, DESCRIPTIVES_STATISTICS,
+    Descriptives, FREQUENCIES_ORDERS, FREQUENCIES_STATISTICS, Frequencies, Letters, NewValue,
+    OldValue, RANK_FRACTIONS, RANK_FUNCTIONS, RANK_TIES, Rank, Recode, RecodeRule, Subtotal,
+    is_set, label_command,
 };
 use crate::edits::{self, Field};
 use crate::export_dialog::{Choice, Format};
@@ -5876,6 +5876,7 @@ fn dialog_body(
             ui.add_space(6.0);
             ui.strong("Statistics");
             checkboxes(ui, &DESCRIPTIVES_STATISTICS, &mut d.statistics);
+            choice(ui, "Display order", &DESCRIPTIVES_ORDERS, &mut d.order);
             ui.checkbox(
                 &mut d.listwise,
                 "Leave out a case missing on any listed variable",
@@ -6160,6 +6161,14 @@ fn dialog_body(
             target_list(ui, "Dependent variables", &mut d.dependents, picked);
             target_one(ui, "Factor", &mut d.factor, picked);
             ui.add_space(6.0);
+            egui::CollapsingHeader::new("Contrasts").show(ui, |ui| {
+                choice(
+                    ui,
+                    "Polynomial trend",
+                    &ONEWAY_POLYNOMIALS,
+                    &mut d.polynomial,
+                );
+            });
             egui::CollapsingHeader::new("Post hoc comparisons").show(ui, |ui| {
                 model_dialogs_view::post_hoc_tests(
                     ui,

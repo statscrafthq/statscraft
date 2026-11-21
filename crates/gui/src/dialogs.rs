@@ -160,11 +160,21 @@ pub const DESCRIPTIVES_STATISTICS: [(&str, &str); 10] = [
     ("KURTOSIS", "Kurtosis"),
 ];
 
+/// The /SORT of each display order of Descriptives, and its label; the first keeps the list order.
+pub const DESCRIPTIVES_ORDERS: [(&str, &str); 4] = [
+    ("", "Variable list"),
+    ("NAME (A)", "Alphabetic"),
+    ("MEAN (A)", "Ascending means"),
+    ("MEAN (D)", "Descending means"),
+];
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Descriptives {
     pub variables: Vec<String>,
     /// One flag per entry of `DESCRIPTIVES_STATISTICS`.
     pub statistics: [bool; 10],
+    /// Index into `DESCRIPTIVES_ORDERS`.
+    pub order: usize,
     pub save_z_scores: bool,
     pub listwise: bool,
     pub bootstrap: Bootstrap,
@@ -177,6 +187,7 @@ impl Default for Descriptives {
             statistics: [
                 true, true, true, true, false, false, false, false, false, false,
             ],
+            order: 0,
             save_z_scores: false,
             listwise: false,
             bootstrap: Default::default(),
@@ -199,6 +210,9 @@ impl Descriptives {
             return Err("choose at least one statistic".into());
         }
         text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
+        if self.order > 0 {
+            text.push_str(&format!("\n  /SORT={}", DESCRIPTIVES_ORDERS[self.order].0));
+        }
         if self.listwise {
             text.push_str("\n  /MISSING=LISTWISE");
         }
@@ -1436,6 +1450,12 @@ mod tests {
             "DESCRIPTIVES VARIABLES=age monthly_spend\n  /STATISTICS=SUM KURTOSIS\n  /MISSING=LISTWISE\n  /SAVE."
         );
         assert_eq!(runs(&syntax), 1);
+        for (order, sort) in [(1, "NAME (A)"), (2, "MEAN (A)"), (3, "MEAN (D)")] {
+            d.order = order;
+            let syntax = d.syntax().unwrap();
+            assert!(syntax.contains(&format!("KURTOSIS\n  /SORT={sort}\n  /MISSING")));
+            assert_eq!(runs(&syntax), 1);
+        }
     }
 
     #[test]

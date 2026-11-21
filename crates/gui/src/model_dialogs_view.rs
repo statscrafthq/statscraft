@@ -10,8 +10,8 @@ use crate::model_dialogs::{
     FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, FactorContrast,
     GLM_ADJUSTMENTS, GLM_CONTRASTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans,
     LOGISTIC_CONTRASTS, LOGISTIC_METHODS, LOGISTIC_SAVE, LOGISTIC_SAVE_GROUPS, Logistic, MColumn,
-    PRINT_M_MATRIX, PROFILE_ERROR_BARS, RepeatedMeasures, SUM_OF_SQUARES, Solutions,
-    UNIVARIATE_PRINT, Univariate, WithinFactor, glm_has_reference, has_reference,
+    PRINT_M_MATRIX, PROFILE_ERROR_BARS, RepeatedMeasures, SELECT_RELATIONS, SUM_OF_SQUARES,
+    Solutions, UNIVARIATE_PRINT, Univariate, WithinFactor, glm_has_reference, has_reference,
 };
 use crate::stats_dialogs_view::{blocks, small_field};
 use eframe::egui::{self, ComboBox, TextEdit, Ui};
@@ -356,6 +356,14 @@ pub fn logistic(ui: &mut Ui, d: &mut Logistic, picked: &mut Vec<String>) {
     let block = blocks(ui, &mut d.blocks, &mut d.block);
     target_list(ui, "Covariates", &mut block.variables, picked);
     choice(ui, "Method", &LOGISTIC_METHODS, &mut block.method);
+    ui.add_space(6.0);
+    target_one(ui, "Selection variable", &mut d.select, picked);
+    ui.add_enabled_ui(!d.select.is_empty(), |ui| {
+        ui.horizontal(|ui| {
+            choice(ui, "Rule: value", &SELECT_RELATIONS, &mut d.select_relation);
+            small_field(ui, true, &mut d.select_value);
+        });
+    });
     ui.add_space(6.0);
     let mut covariates: Vec<String> = Vec::new();
     for name in d.blocks.iter().flat_map(|b| &b.variables) {

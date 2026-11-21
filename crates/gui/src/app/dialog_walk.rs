@@ -324,6 +324,13 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             items: v(&["q5_1", "q5_2", "q5_3"]),
             ..Default::default()
         }),
+        // omega, and with the item totals omega if an item is deleted
+        Dialog::Reliability(Reliability {
+            items: v(&["q5_1", "q5_2", "q5_3", "q5_4"]),
+            model: 5,
+            descriptives: [false, false, true],
+            ..Default::default()
+        }),
         Dialog::PartialCorr(PartialCorr {
             variables: v(&["age", "monthly_spend"]),
             controls: v(&["q2_recommend"]),
@@ -842,6 +849,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         Dialog::Descriptives(Descriptives {
             variables: v(&["age", "monthly_spend"]),
             statistics: [true; 10],
+            order: 3,
             save_z_scores: true,
             listwise: true,
             bootstrap: boot(),
@@ -1016,7 +1024,8 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             bootstrap: boot(),
             dependents: v(&["age", "monthly_spend"]),
             factor: s("region"),
-            statistics: [true; 4],
+            statistics: [true; 5],
+            polynomial: 3,
             post_hoc: [true; 16],
             dunnett: true,
             dunnett_first: true,
@@ -1463,6 +1472,9 @@ fn maximal(out: &Path) -> Vec<Dialog> {
                 },
             ],
             block: 1,
+            select: s("gender"),
+            select_relation: 1,
+            select_value: s("9"),
             categorical: vec![Categorical {
                 name: s("region"),
                 contrast: 6,

@@ -326,7 +326,7 @@ These take typed numbers and no variables, so they open with no data too. Each f
 **Descriptive Statistics**
 
 - **Frequencies**: statistics, the order of the rows, a limit on the values of a table, quartiles, cut points for equal groups and any percentiles.
-- **Descriptives**.
+- **Descriptives**: statistics, and the display order (as listed, alphabetic, or by ascending or descending means).
 - **Explore**: descriptives, M-estimators, extreme values, percentiles and tests of normality, by factor.
 - **Crosstabs**.
 - **Ratio** (`RATIO STATISTICS`): a numerator and a denominator, both numeric and different, and an optional group variable with its order (ascending, descending or as the groups first appear). The statistics of the ratio, confidence intervals at any level, the percent of ratios inside intervals you type (`0.9 1.1; 0.8 1.2`) and the percent within given percents of the median (`10 20`). The statistics show in a table, go to a data file or a new dataset, or both. OK stays off until at least one statistic is chosen.
@@ -357,7 +357,7 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
 
 - **Means**: every cell statistic, including the grouped median and percentages within a control variable.
 - **One-Sample T Test**, **Independent-Samples T Test** and **Paired-Samples T Test**.
-- **One-Way ANOVA**: every post hoc test the engine has, and Dunnett's test against the first or last group, on either side.
+- **One-Way ANOVA**: a polynomial trend up to the 5th degree, fixed and random effects, every post hoc test the engine has, and Dunnett's test against the first or last group, on either side.
 
 **General Linear Model**
 
@@ -429,7 +429,7 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
   - Any of the eleven curves, with an upper bound for the logistic one that must lie above every dependent value, and the constant.
   - An analysis of variance table for each curve, the chart of the curves (on by default) and a variable that labels its points.
   - Saving predicted values, residuals and prediction intervals at a level of your choice.
-- **Binary Logistic** (`LOGISTIC REGRESSION`): one dependent variable with two values on blocks of covariates.
+- **Binary Logistic** (`LOGISTIC REGRESSION`): one dependent variable with two values on blocks of covariates, optionally fitted on the cases a selection rule keeps.
   - Each block entered, or stepped forward or backward by the conditional, likelihood-ratio or Wald statistic.
   - Categorical covariates, each with its contrast and the first or last category as reference.
   - Saving predicted probabilities, group membership, residuals and influence statistics.
@@ -529,7 +529,7 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
 
 **Scale**
 
-- **Reliability Analysis** (`RELIABILITY`): one scale of all the items.
+- **Reliability Analysis** (`RELIABILITY`): one scale of all the items, with any model, Omega among them.
   - The model: Alpha, Split-half, Guttman, Parallel or Strict parallel. A scale label.
   - Descriptives for each item, the scale, and the scale if an item is deleted.
   - Inter-item correlations and covariances, and their summaries.
