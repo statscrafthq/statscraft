@@ -579,6 +579,7 @@ mod tests {
                 "COMPRESSED",
                 "DROP",
                 "KEEP",
+                "MAP",
                 "RENAME",
                 "UNCOMPRESSED",
                 "ZCOMPRESSED"
