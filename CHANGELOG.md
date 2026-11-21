@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.24.0 (2026-11-21)
+
 - GENLIN /PRINT=GEF gives the general estimable function and /PRINT=LMATRIX the L' matrix of each effect's test and of each estimated marginal mean.
 - GENLIN /PRINT=HISTORY[(n)] lists the iterations of the last fit with the log likelihood, then the last gradient and Hessian, for the generalized linear models, the ordinal model and the estimating equations.
 - GENLIN /PRINT=LAGRANGE gives the Lagrange multiplier test of a fixed scale (normal, gamma, inverse Gaussian) or of a fixed negative binomial k, and for NEGBIN(0) the dispersion z test.
