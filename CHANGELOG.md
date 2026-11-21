@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Window: Multidimensional Unfolding starts from coordinates in a file and fixes the coordinates of the rows or the columns from a file (Restrictions), each with the variables to read.
+
 ## 0.25.0 (2026-11-22)
 
 - BOOTSTRAP /SAMPLING METHOD=RESIDUAL and WILD: resamples that keep the cases and rebuild the target from its predicted values and residuals.

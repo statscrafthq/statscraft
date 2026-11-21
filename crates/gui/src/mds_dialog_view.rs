@@ -3,9 +3,10 @@
 use crate::app::{checkboxes, choice, field, file_dialog, target_list, target_one};
 use crate::mds_dialog::{
     ALSCAL_LEVELS, ALSCAL_MEASURES, ALSCAL_PLOTS, ALSCAL_STANDARDIZE, Alscal, PREFSCAL_CONDITIONS,
-    PREFSCAL_LAYOUTS, PREFSCAL_MODELS, PREFSCAL_PLOT, PREFSCAL_PRINT, PREFSCAL_STARTS,
-    PREFSCAL_TRANSFORMATIONS, PROXSCAL_FORMATS, PROXSCAL_MODELS, PROXSCAL_OUTFILE, PROXSCAL_PLOT,
-    PROXSCAL_PRINT, PROXSCAL_SHAPES, PROXSCAL_STARTS, PROXSCAL_TRANSFORMATIONS, Prefscal, Proxscal,
+    PREFSCAL_LAYOUTS, PREFSCAL_MODELS, PREFSCAL_PLOT, PREFSCAL_PRINT, PREFSCAL_START_FILE,
+    PREFSCAL_STARTS, PREFSCAL_TRANSFORMATIONS, PROXSCAL_FORMATS, PROXSCAL_MODELS, PROXSCAL_OUTFILE,
+    PROXSCAL_PLOT, PROXSCAL_PRINT, PROXSCAL_SHAPES, PROXSCAL_STARTS, PROXSCAL_TRANSFORMATIONS,
+    Prefscal, Proxscal,
 };
 use crate::model_dialogs_view::name_checkboxes;
 use crate::stats_dialogs_view::small_field;
@@ -257,7 +258,12 @@ pub fn alscal(ui: &mut Ui, d: &mut Alscal, picked: &mut Vec<String>, folder: &mu
     });
 }
 
-pub fn prefscal(ui: &mut Ui, d: &mut Prefscal, picked: &mut Vec<String>) {
+pub fn prefscal(
+    ui: &mut Ui,
+    d: &mut Prefscal,
+    picked: &mut Vec<String>,
+    folder: &mut Option<PathBuf>,
+) {
     target_list(
         ui,
         "Variables (the columns of the preference table)",
@@ -323,9 +329,24 @@ pub fn prefscal(ui: &mut Ui, d: &mut Prefscal, picked: &mut Vec<String>) {
             small_field(ui, true, &mut d.max_dimensions);
         });
         choice(ui, "Start from", &PREFSCAL_STARTS, &mut d.start);
-        if d.start >= 4 {
+        if matches!(d.start, 4 | 5) {
             field(ui, "Number of starts or choices", &mut d.start_count, 50.0);
         }
+        if d.start == PREFSCAL_START_FILE {
+            data_path(ui, "Start file", &mut d.start_file, false, folder);
+            field(ui, "Its variables", &mut d.start_variables, 160.0);
+            ui.weak("One case per row object, then per column; empty: the first numeric variables");
+        }
+    });
+    egui::CollapsingHeader::new("Restrictions").show(ui, |ui| {
+        ui.weak(
+            "Fixed coordinates from a file, one case per object; a missing value leaves one free",
+        );
+        for ((file, variables), label) in d.fixed.iter_mut().zip(["Rows", "Columns"]) {
+            data_path(ui, label, file, false, folder);
+            ui.push_id(label, |ui| field(ui, "Their variables", variables, 160.0));
+        }
+        ui.weak("Empty: free. Fixed coordinates need the identity model");
     });
     egui::CollapsingHeader::new("Penalty and stopping").show(ui, |ui| {
         field(ui, "Strength (lambda, above 0 to 1)", &mut d.lambda, 60.0);

@@ -73,7 +73,7 @@ pub fn body(
         Advanced::Pls(d) => crate::multivar_dialog_view::pls(ui, d, picked),
         Advanced::Knn(d) => crate::multivar_dialog_view::knn(ui, d, picked),
         Advanced::NaiveBayes(d) => crate::naivebayes_dialog_view::naive_bayes(ui, d, picked),
-        Advanced::Prefscal(d) => crate::mds_dialog_view::prefscal(ui, d, picked),
+        Advanced::Prefscal(d) => crate::mds_dialog_view::prefscal(ui, d, picked, folder),
         Advanced::Oms(d) => crate::oms_dialog_view::oms(ui, d),
         Advanced::Omsend(d) => crate::oms_dialog_view::omsend(ui, d),
         Advanced::Power(d) => crate::power_dialog_view::power(ui, d),

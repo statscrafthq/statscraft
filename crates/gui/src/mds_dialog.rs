@@ -723,15 +723,20 @@ pub const PREFSCAL_MODELS: [(&str, &str); 3] = [
     ("GENERALIZED", "Generalized Euclidean"),
 ];
 
-/// The first is the command's own start; the last two take a number.
-pub const PREFSCAL_STARTS: [(&str, &str); 6] = [
+/// The first is the command's own start; centroids and random starts take a number, the last
+/// reads the coordinates from a file.
+pub const PREFSCAL_STARTS: [(&str, &str); 7] = [
     ("CLASSICAL", "Classical, triangle bounds"),
     ("CLASSICAL(SPEARMAN)", "Classical, Spearman"),
     ("CORRESPONDENCE", "Correspondence"),
     ("ROSSCLIFF", "Ross-Cliff"),
     ("CENTROIDS", "Centroids"),
     ("RANDOM", "Random starts"),
+    ("", "Coordinates from a file"),
 ];
+
+/// The entry of `PREFSCAL_STARTS` that reads a file.
+pub const PREFSCAL_START_FILE: usize = 6;
 
 pub const PREFSCAL_PRINT: [(&str, &str); 11] = [
     ("INPUT", "Input data"),
@@ -801,6 +806,13 @@ pub struct Prefscal {
     pub min_stress: String,
     pub print: [bool; 11],
     pub plot: [bool; 10],
+    /// The file of the start from a file and its variables; empty variables: the first numeric
+    /// ones.
+    pub start_file: String,
+    pub start_variables: String,
+    /// The fixed coordinates of the rows, then of the columns: a file (empty: free) and its
+    /// variables.
+    pub fixed: [(String, String); 2],
 }
 
 impl Default for Prefscal {
@@ -828,8 +840,23 @@ impl Default for Prefscal {
             min_stress: "0.0001".into(),
             print: PREFSCAL_PRINT_DEFAULT,
             plot: PREFSCAL_PLOT_DEFAULT,
+            start_file: String::new(),
+            start_variables: String::new(),
+            fixed: Default::default(),
         }
     }
+}
+
+/// A coordinates file and the variables to read from it, as INITIAL and RESTRICTIONS take them.
+fn coordinates(file: &str, variables: &str, what: &str) -> Result<String, String> {
+    let mut text = format!("({})", quote(file.trim()));
+    for name in variables.split([' ', ',']).filter(|w| !w.is_empty()) {
+        if !is_valid_name(name) {
+            return Err(format!("{name} is not a valid variable name for {what}"));
+        }
+        text.push_str(&format!(" {name}"));
+    }
+    Ok(text)
 }
 
 /// A keyword list of PRINT or PLOT, written only when it differs from the command's own.
@@ -883,10 +910,20 @@ impl Prefscal {
         if self.similarities {
             text.push_str("\n  /PROXIMITIES=SIMILARITIES");
         }
-        if self.start > 0 {
+        if self.start == PREFSCAL_START_FILE {
+            if self.start_file.trim().is_empty() {
+                return Err("choose the file of the start coordinates".into());
+            }
+            let file = coordinates(
+                &self.start_file,
+                &self.start_variables,
+                "the start coordinates",
+            )?;
+            text.push_str(&format!("\n  /INITIAL={file}"));
+        } else if self.start > 0 {
             let key = PREFSCAL_STARTS[self.start].0;
             // only centroids and random starts take a number; a leftover entry is ignored
-            match self.start >= 4 && !self.start_count.trim().is_empty() {
+            match matches!(self.start, 4 | 5) && !self.start_count.trim().is_empty() {
                 true => {
                     let n = count(&self.start_count, 1, "the number of starts", 1)?;
                     text.push_str(&format!("\n  /INITIAL={key}({n})"));
@@ -922,6 +959,22 @@ impl Prefscal {
         }
         if self.model > 0 {
             text.push_str(&format!("\n  /MODEL={}", PREFSCAL_MODELS[self.model].0));
+        }
+        let mut fixed = Vec::new();
+        for ((file, variables), (key, what)) in self.fixed.iter().zip([
+            ("ROW", "the fixed row coordinates"),
+            ("COLUMN", "the fixed column coordinates"),
+        ]) {
+            if !file.trim().is_empty() {
+                let file = coordinates(file, variables, what)?;
+                fixed.push(format!("{key}(COORDINATES {file})"));
+            }
+        }
+        if !fixed.is_empty() {
+            if self.model > 0 {
+                return Err("fixed coordinates go with the identity model only".into());
+            }
+            text.push_str(&format!("\n  /RESTRICTIONS={}", fixed.join(" ")));
         }
         let number_or = |text: &str, what: &str, default: f64| match text.trim() {
             "" => Ok(default),
@@ -1240,6 +1293,30 @@ END DATA.",
             d.syntax(&Dataset::new(0)).unwrap(),
             "PREFSCAL a b c\n  /INPUT=SOURCES(person)\n  /TRANSFORMATION=ORDINAL(UNTIE)\n  /PRINT=NONE."
         );
+
+        // coordinates from files: the start, and fixed rows and columns
+        let mut d = prefscal();
+        d.start = PREFSCAL_START_FILE;
+        d.start_file = "it's start.sav".into();
+        d.fixed[1] = ("cols.sav".into(), "x, y".into());
+        d.fixed[0].1 = "left over".into();
+        assert_eq!(
+            d.syntax(&Dataset::new(0)).unwrap(),
+            "PREFSCAL a b c\n  /INITIAL=('it''s start.sav')\n  \
+             /RESTRICTIONS=COLUMN(COORDINATES ('cols.sav') x y)."
+        );
+        d.start_variables = "d1 d2".into();
+        d.fixed[0].0 = "rows.sav".into();
+        d.fixed[0].1 = "r1".into();
+        let syntax = d.syntax(&Dataset::new(0)).unwrap();
+        assert!(
+            syntax.ends_with(
+                "/INITIAL=('it''s start.sav') d1 d2\n  /RESTRICTIONS=ROW(COORDINATES ('rows.sav') r1) \
+                 COLUMN(COORDINATES ('cols.sav') x y)."
+            ),
+            "{syntax}"
+        );
+        assert!(statscraft_syntax::parse(&syntax).1.is_empty(), "{syntax}");
     }
 
     #[test]
@@ -1262,6 +1339,17 @@ END DATA.",
                 d.degree = "4".into();
             })
             .contains("1 to 3")
+        );
+        assert!(err(&|d| d.start = PREFSCAL_START_FILE).contains("start coordinates"));
+        assert!(
+            err(&|d| {
+                d.fixed[0].0 = "rows.sav".into();
+                d.model = 1;
+            })
+            .contains("identity model")
+        );
+        assert!(
+            err(&|d| d.fixed[1] = ("cols.sav".into(), "1x".into())).contains("valid variable name")
         );
     }
 }

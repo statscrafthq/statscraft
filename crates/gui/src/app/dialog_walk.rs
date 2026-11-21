@@ -3045,6 +3045,27 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         start: 3,
         ..Default::default()
     }))));
+    // the four columns fixed from a file of their coordinates: external unfolding
+    let columns = out
+        .join("max_prefscal_columns.sav")
+        .to_string_lossy()
+        .into_owned();
+    statscraft_engine::session::Session::default()
+        .run(
+            &format!(
+                "DATA LIST FREE / x y.\nBEGIN DATA\n1 0\n0 1\n-1 0\n0 -1\nEND DATA.\n\
+                 SAVE OUTFILE={}.",
+                crate::syntax_text::quote(&columns)
+            ),
+            None,
+        )
+        .unwrap();
+    list.push(Dialog::Advanced(Advanced::Prefscal(Box::new(Prefscal {
+        variables: v(&["age", "monthly_spend", "q1_satisfaction", "q2_recommend"]),
+        fixed: [(String::new(), String::new()), (columns, s("x y"))],
+        max_iterations: s("200"),
+        ..Default::default()
+    }))));
     list.push(Dialog::Advanced(Advanced::Oms(Oms {
         kinds: [true; 4],
         commands: s("Frequencies, Descriptives"),
