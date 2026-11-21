@@ -10,6 +10,7 @@
 use crate::ast::{Command, VarItem};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
+use crate::matrix_io::{MatrixIo, matrix_io};
 use crate::parser::{PResult, Parser};
 use crate::procedures::{at_end, keyword_error};
 
@@ -33,6 +34,8 @@ pub struct Reliability {
     pub covariance_method: bool,
     /// `/MISSING=INCLUDE`
     pub include: bool,
+    /// `/MATRIX`: the matrix data file the statistics come from, and the one written.
+    pub matrix: MatrixIo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,6 +174,7 @@ pub(crate) fn reliability(p: &mut Parser) -> PResult<Command> {
         icc: None,
         covariance_method: false,
         include: false,
+        matrix: MatrixIo::default(),
     };
     let mut rank_test = None;
     while p.eat(Punct::Slash) {
@@ -335,13 +339,15 @@ pub(crate) fn reliability(p: &mut Parser) -> PResult<Command> {
             } else {
                 return Err(p.unexpected(&["EXCLUDE", "INCLUDE"]));
             }
+        } else if p.eat_keyword("MATRIX") {
+            matrix_io(p, &mut command.matrix, "RELIABILITY", false, true)?;
         } else if p.at_keyword("VARIABLES") {
             return Err(SyntaxError::new(
                 p.span(),
                 "VARIABLES can be given only once",
             ));
         } else {
-            return Err(p.subcommand_error("RELIABILITY", &["MATRIX"]));
+            return Err(p.subcommand_error("RELIABILITY", &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

@@ -91,6 +91,22 @@ impl Materials {
     }
 
     /// The first record of `kind` as a vector over `names`; None when there is none.
+    /// An error when the file has variables between ROWTYPE_ and VARNAME_ (grouping
+    /// variables), which this command does not read as split variables yet.
+    pub(crate) fn no_grouping(&self, who: &str) -> Result<(), Error> {
+        let names: Vec<&str> = self.data.variable_names().collect();
+        let at = |n: &str| names.iter().position(|x| *x == n);
+        let (Some(r), Some(v)) = (at(&self.rowtype), at(&self.varname)) else {
+            return Ok(());
+        };
+        match names.get(r + 1..v) {
+            Some([first, ..]) => Err(Error(format!(
+                "{who} /MATRIX=IN: the matrix file has the variable {first} between ROWTYPE_ and VARNAME_ (grouping variables), which is not supported yet"
+            ))),
+            _ => Ok(()),
+        }
+    }
+
     pub(crate) fn vector(&self, kind: &str, names: &[String]) -> Option<Vec<f64>> {
         let row = self.of_kind(kind).next()?;
         Some(names.iter().map(|n| self.number(n, row)).collect())

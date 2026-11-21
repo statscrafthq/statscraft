@@ -1905,12 +1905,7 @@ fn a_negative_alpha_says_why() {
 }
 
 #[test]
-fn unsupported_matrices_say_so() {
-    let (_, errors) = parse("RELIABILITY /VARIABLES=a b c /MATRIX=OUT(*).");
-    assert_eq!(
-        errors[0].message,
-        "subcommand MATRIX of RELIABILITY is not supported yet"
-    );
+fn reliability_needs_its_variables_first() {
     let (_, errors) = parse("RELIABILITY /MODEL=ALPHA.");
     assert!(errors[0].hint.as_ref().unwrap().contains("VARIABLES"));
 }

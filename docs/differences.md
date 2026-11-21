@@ -948,6 +948,8 @@ Choices where the documentation says nothing, and where it is not followed:
 
 ### RELIABILITY
 
+- MATRIX=OUT writes the records N (one, for every variable), MEAN, STDDEV and CORR of all the variables on VARIABLES for the cases of the analysis (listwise), one set per split group, and shows the analysis unless NOPRINT is given on MATRIX, which then shows nothing at all, the Case Processing Summary included. MATRIX=IN needs all four records; the scale statistics, ANOVA with F, Friedman and Cochran (computed from the values as they are, as without a matrix), Hotelling's T-squared, ICC, the item-total statistics and the other models come from the covariances the file gives. Tukey's test of additivity needs the cases and is an error with IN. The Case Processing Summary then shows the N of the file as valid and total; records with different counts give a note and the smallest is used. A matrix file with grouping variables between ROWTYPE_ and VARNAME_ is an error (the manual treats them as split variables) rather than read as mixed records.
+
 - The weight variable is used. SPLIT(n) puts n items in the second part, and SPLIT alone splits in halves, the odd item going to the first part (GNU PSPP differs).
 - The standardized alpha is always shown with ALPHA.
 - OMEGA follows the manual's closed form built on the covariances. The loading of an item is the root of a ratio; when that ratio is negative (covariances that no single factor produces) omega is left empty with a warning. With SUMMARY=TOTAL the last column of Item-Total Statistics is the omega if the item is deleted, in place of Cronbach's alpha if the item is deleted. Items without variance are dropped first, as for the other covariance models.

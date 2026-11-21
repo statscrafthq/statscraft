@@ -156,7 +156,11 @@ fn matrix_input(
 impl Engine {
     pub(crate) fn partial_corr(&mut self, command: &PartialCorr) -> Result<Vec<Table>, Error> {
         let from_matrix = match &command.matrix.input {
-            Some(source) => Some(self.matrix_materials("PARTIAL CORR", source.as_ref())?),
+            Some(source) => {
+                let m = self.matrix_materials("PARTIAL CORR", source.as_ref())?;
+                m.no_grouping("PARTIAL CORR")?;
+                Some(m)
+            }
             None => None,
         };
         let data = self.active()?;

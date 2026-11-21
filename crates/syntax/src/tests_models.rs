@@ -298,10 +298,6 @@ fn reliability_errors() {
             .contains(&"OMEGA".to_string())
     );
     assert_eq!(
-        err("RELIABILITY /VARIABLES=a b /MATRIX=OUT(*).").message,
-        "subcommand MATRIX of RELIABILITY is not supported yet"
-    );
-    assert_eq!(
         err("RELIABILITY /VARIABLES=a b /SCALE(x) a /SCALE(y) b.").message,
         "SCALE can be given only once"
     );
@@ -370,4 +366,17 @@ fn regression_matrix_must_come_first() {
     assert!(e.message.contains("first subcommand"), "{e:?}");
     let e = err("REGRESSION MATRIX IN(*) IN(*) /DEPENDENT=y /METHOD=ENTER x.");
     assert!(e.message.contains("only once"), "{e:?}");
+}
+
+#[test]
+fn reliability_matrix_takes_in_out_and_noprint() {
+    let r = match one("RELIABILITY /VARIABLES=a b c /MATRIX=IN('m.sav') OUT(*) NOPRINT.") {
+        Command::Reliability(r) => r,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(r.matrix.input, Some(Some("m.sav".to_string())));
+    assert_eq!(r.matrix.output, Some(None));
+    assert!(r.matrix.noprint);
+    let e = err("RELIABILITY /VARIABLES=a b c /MATRIX=NONE.");
+    assert!(e.expected.contains(&"NOPRINT".to_string()), "{e:?}");
 }
