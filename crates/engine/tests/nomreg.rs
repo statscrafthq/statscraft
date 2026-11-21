@@ -703,3 +703,87 @@ fn nomreg_history_lists_the_iterations_from_the_intercept_only_start_to_the_fina
     let (_, errors) = parse("NOMREG mode BY district /PRINT=HISTORY(0).");
     assert!(errors[0].message.contains("positive whole number"));
 }
+
+// Forty cases of a two-category response and one covariate. Expected values: the pairs counted one
+// by one in R from glm(), with the fitted probability of the first category cut to 1/500.
+#[test]
+fn nomreg_association_counts_the_pairs_of_a_two_category_response() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        "DATA LIST FREE / y x.\nBEGIN DATA\n1 12.4
+2 11.6
+1 15.2
+1 6.2
+2 16.6
+1 11.3
+1 5.3
+1 7.2
+2 10.2
+2 10
+1 3.2
+2 12.3
+1 8.4
+1 10.5
+2 11.7
+1 14.5
+2 12
+1 13.4
+2 7.6
+1 8.7
+1 11.2
+2 10.1
+2 6.9
+1 6.2
+1 9.3
+1 12.2
+1 11
+2 6.6
+1 7.9
+2 7.8
+1 4.5
+1 8.8
+1 10.1
+2 12.7
+2 14.9
+1 10.2
+2 15.5
+1 10.2
+2 14.3
+1 14.4\nEND DATA.\nNOMREG y WITH x /PRINT=ASSOCIATION.",
+    );
+    let name = "Measures of Monotone Association";
+    let near = |row: &str, column: &str, expected: f64| {
+        let got = value(&tables, name, row, column);
+        assert!(
+            (got - expected).abs() < 1e-9 * expected.abs().max(1.0),
+            "{row}: {got} vs {expected}"
+        );
+    };
+    near("Concordant Pairs", "Value", 241.0);
+    near("Discordant Pairs", "Value", 140.0);
+    near("Tied Pairs", "Value", 3.0);
+    near("Total Pairs", "Value", 384.0);
+    near("Concordant Pairs", "Percent", 100.0 * 241.0 / 384.0);
+    near("Somers' D", "Value", 0.263_020_833_333_333);
+    near("Goodman and Kruskal's Gamma", "Value", 0.265_091_863_517_06);
+    near("Kendall's Tau-a", "Value", 0.129_487_179_487_179);
+    near("Concordance Index C", "Value", 0.631_510_416_666_667);
+}
+
+#[test]
+fn nomreg_association_warns_for_more_than_two_categories() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{DATA}NOMREG mode BY district WITH km /PRINT=ASSOCIATION."),
+    );
+    assert!(
+        tables
+            .iter()
+            .all(|t| t.title != "Measures of Monotone Association")
+    );
+    assert!(
+        engine.warnings()[0].contains("ASSOCIATION needs a dependent variable with two categories")
+    );
+}

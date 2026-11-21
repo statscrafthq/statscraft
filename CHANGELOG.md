@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- NOMREG /PRINT=ASSOCIATION, for a two-category response, adds the concordant, discordant and tied pairs and Somers' D, Goodman and Kruskal's gamma, Kendall's tau-a and the concordance index C.
 - NOMREG /PRINT=HISTORY(n) adds an Iteration History table of the final model: -2 log likelihood and parameter estimates at iteration 0, every n-th iteration and the last.
 ## 0.22.0 (2026-11-21)
 

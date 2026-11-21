@@ -84,6 +84,8 @@ pub struct NomregPrint {
     pub step: bool,
     /// `HISTORY(n)`: the iteration history, every n-th iteration (and the last).
     pub history: Option<u32>,
+    /// `ASSOCIATION`: the measures of monotone association, for two response categories.
+    pub association: bool,
 }
 
 impl Default for NomregPrint {
@@ -102,6 +104,7 @@ impl Default for NomregPrint {
             corb: false,
             step: true,
             history: None,
+            association: false,
         }
     }
 }
@@ -371,10 +374,9 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
                 p.expect(Punct::RParen)?;
             }
             out.history = Some(every);
-        } else if let Some(word) = ["CELLPROB", "ASSOCIATION"]
-            .into_iter()
-            .find(|k| p.at_keyword(k))
-        {
+        } else if p.eat_keyword("ASSOCIATION") {
+            out.association = true;
+        } else if let Some(word) = ["CELLPROB"].into_iter().find(|k| p.at_keyword(k)) {
             p.pos += 1;
             return Err(SyntaxError::new(
                 p.span_from(start),
@@ -395,6 +397,7 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
                 "CORB",
                 "STEP",
                 "HISTORY",
+                "ASSOCIATION",
                 "NONE",
             ]));
         }

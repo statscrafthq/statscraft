@@ -154,3 +154,22 @@ fn nomreg_history_takes_every_iteration_or_every_nth() {
     );
     assert_eq!(history("NOMREG pick BY zone /PRINT=CPS."), None);
 }
+
+#[test]
+fn nomreg_association_is_a_print_keyword() {
+    assert!(
+        nomreg("NOMREG pick BY zone /PRINT=ASSOCIATION.")
+            .print
+            .association
+    );
+    assert!(
+        nomreg("NOMREG pick BY zone /PRINT=ASSOC PARAMETER.")
+            .print
+            .association
+    );
+    assert!(
+        !nomreg("NOMREG pick BY zone /PRINT=PARAMETER.")
+            .print
+            .association
+    );
+}

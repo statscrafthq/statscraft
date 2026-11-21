@@ -3156,7 +3156,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  test that decided it; the other tables describe the final model, which without the intercept\n\
                  can be the null model of equal probabilities. HISTORY(n) adds an Iteration History table of the final\n\
                  model: -2 log likelihood and the parameters at iteration 0 (the intercept-only start), every n-th\n\
-                 iteration and the last. Not supported yet: TEST, OUTFILE and PRINT CELLPROB and ASSOCIATION.",
+                 iteration and the last. ASSOCIATION, for a response with two categories, counts the pairs of cases with\n\
+                 different observed categories as concordant, discordant or tied by the predicted probability\n\
+                 of the non-base category (cut to 1/500) and gives Somers' D, Goodman and Kruskal's gamma,\n\
+                 Kendall's tau-a and the concordance index C. Not supported yet: TEST, OUTFILE and PRINT CELLPROB.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
     },

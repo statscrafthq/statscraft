@@ -1625,6 +1625,88 @@ impl Engine {
             out.push(row);
             tables.push(table("Classification", 1, columns, out, None));
         }
+        if print.association {
+            if j_count != 2 {
+                warnings.push(format!(
+                    "NOMREG: ASSOCIATION needs a dependent variable with two categories; {dep_text} has {j_count}"
+                ));
+            } else {
+                // s is the predicted probability of the category that is not the base, cut to
+                // 1/500; a pair is made of one case of each category
+                let other = others[0];
+                let score: Vec<f64> = model
+                    .x
+                    .iter()
+                    .map(|row| (500.0 * model.probs(row, &fit.cols, &fit.b)[other]).floor() / 500.0)
+                    .collect();
+                let (mut concordant, mut discordant, mut tied) = (0.0, 0.0, 0.0);
+                for (a, ra) in raw.iter().enumerate() {
+                    for (b, rb) in raw.iter().enumerate() {
+                        let pairs = ra[base] * rb[other];
+                        match score[a].total_cmp(&score[b]) {
+                            std::cmp::Ordering::Less => concordant += pairs,
+                            std::cmp::Ordering::Greater => discordant += pairs,
+                            std::cmp::Ordering::Equal => tied += pairs,
+                        }
+                    }
+                }
+                let total_pairs = concordant + discordant + tied;
+                let n: f64 = raw.iter().flatten().sum();
+                let share = |v: f64| number((total_pairs > 0.0).then(|| 100.0 * v / total_pairs));
+                let ratio = |top: f64, bottom: f64| number((bottom > 0.0).then(|| top / bottom));
+                let rows = vec![
+                    vec![
+                        text("Concordant Pairs"),
+                        Cell::Number(concordant),
+                        share(concordant),
+                    ],
+                    vec![
+                        text("Discordant Pairs"),
+                        Cell::Number(discordant),
+                        share(discordant),
+                    ],
+                    vec![text("Tied Pairs"), Cell::Number(tied), share(tied)],
+                    vec![
+                        text("Total Pairs"),
+                        Cell::Number(total_pairs),
+                        share(total_pairs),
+                    ],
+                    vec![
+                        text("Somers' D"),
+                        ratio(concordant - discordant, total_pairs),
+                        Cell::Empty,
+                    ],
+                    vec![
+                        text("Goodman and Kruskal's Gamma"),
+                        ratio(concordant - discordant, concordant + discordant),
+                        Cell::Empty,
+                    ],
+                    vec![
+                        text("Kendall's Tau-a"),
+                        ratio(2.0 * (concordant - discordant), n * (n - 1.0)),
+                        Cell::Empty,
+                    ],
+                    vec![
+                        text("Concordance Index C"),
+                        ratio(
+                            concordant + (total_pairs - concordant - discordant) / 2.0,
+                            total_pairs,
+                        ),
+                        Cell::Empty,
+                    ],
+                ];
+                tables.push(table(
+                    "Measures of Monotone Association",
+                    1,
+                    plain(&["", "Value", "Percent"]),
+                    rows,
+                    Some(format!(
+                        "Pairs of cases with different observed categories; a pair is concordant when the case of {} has the higher predicted probability of it. Probabilities are cut to 1/500 first.",
+                        cat_label(other)
+                    )),
+                ));
+            }
+        }
         let save_plan = SavePlan {
             command,
             effects: &effects,
