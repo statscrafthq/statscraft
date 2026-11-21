@@ -552,6 +552,8 @@ Where the documentation is silent or reads two ways:
 
 ### REGRESSION
 
+- METHOD=TEST enters the variables of all its sets at once, as one model, and shows the Subset Tests table: per set the R square change, sum of squares, df, mean square, F and significance (F against the full equation's residual mean square), then the full equation's residual. The tables the manual describes for it are not drawn, so the layout is Statscraft's. The sets keep only variables that entered (a variable refused for tolerance is left out of its set, with the usual warning).
+
 - METHOD takes variable lists and STEPWISE, FORWARD, BACKWARD and REMOVE (GNU PSPP differs).
 - With ORIGIN, the adjusted R square and the confidence intervals use C - p degrees of freedom, as the ANOVA does.
 - Tolerance is 1 - R square of the variable on the other predictors.
@@ -1848,7 +1850,7 @@ Where the documentation is silent:
   - ONEWAY has no WALLER.
   - NONPAR CORR has no MATRIX or CI. PARTIAL CORR has no MATRIX.
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
-  - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.
+  - REGRESSION has no SELECT, MATRIX or OUTFILE.
   - RELIABILITY has no MATRIX.
   - LOGISTIC REGRESSION has no OUTFILE.
   - COXREG has no OUTFILE.

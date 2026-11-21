@@ -44,6 +44,7 @@ fn regression_defaults_and_the_pasted_dialog_syntax() {
         r.methods,
         [RegressionMethod {
             kind: MethodKind::Enter,
+            subsets: Vec::new(),
             variables: vec![var("a"), var("b")]
         }]
     );
@@ -187,9 +188,22 @@ fn regression_statistics_all_and_save_names() {
 
 #[test]
 fn regression_errors() {
-    assert_eq!(
-        err("REGRESSION /DEPENDENT=y /METHOD=TEST(a)(b).").message,
-        "TEST in REGRESSION /METHOD is not supported yet"
+    let r =
+        regression("REGRESSION /DEPENDENT=y /METHOD=ENTER c /METHOD=TEST(a b)(b) /METHOD=ENTER d.");
+    let test = &r.methods[1];
+    assert_eq!(test.kind, MethodKind::Test);
+    assert_eq!(test.variables, [var("a"), var("b"), var("b")]);
+    assert_eq!(test.subsets, [vec![var("a"), var("b")], vec![var("b")]]);
+    assert_eq!(r.methods.len(), 3);
+    assert!(
+        err("REGRESSION /DEPENDENT=y /METHOD=TEST a b.")
+            .expected
+            .contains(&"(varlist)".to_string())
+    );
+    assert!(
+        err("REGRESSION /DEPENDENT=y /METHOD=TEST().")
+            .expected
+            .contains(&"a variable name".to_string())
     );
     assert_eq!(
         err("REGRESSION /MATRIX=IN(*) /DEPENDENT=y /METHOD=ENTER a.").message,

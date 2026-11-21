@@ -161,13 +161,18 @@ pub enum MethodKind {
     Stepwise,
     Forward,
     Backward,
+    /// `TEST(set)(set) ...`: the sets enter together, then each is tested by the change in R
+    /// square when it leaves.
+    Test,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegressionMethod {
     pub kind: MethodKind,
-    /// Empty: the variables of VARIABLES that are not dependents.
+    /// Empty: the variables of VARIABLES that are not dependents. For TEST every set in turn.
     pub variables: Vec<VarItem>,
+    /// The sets of TEST, each a list; empty for the other methods.
+    pub subsets: Vec<Vec<VarItem>>,
 }
 
 /// The temporary variables of the residuals analysis.
@@ -590,14 +595,35 @@ fn method_variables(p: &mut Parser) -> PResult<Vec<VarItem>> {
 fn methods(p: &mut Parser, out: &mut Vec<RegressionMethod>) -> PResult<()> {
     let mut any = false;
     while !at_end(p) || !any {
-        if p.at_keyword("TEST") {
-            return Err(SyntaxError::new(
-                p.span(),
-                "TEST in REGRESSION /METHOD is not supported yet",
-            ));
+        if p.eat_keyword("TEST") {
+            p.eat(Punct::Eq);
+            let mut subsets = Vec::new();
+            while p.eat(Punct::LParen) {
+                let set = method_variables(p)?;
+                if set.is_empty() {
+                    return Err(p.unexpected(&["a variable name"]));
+                }
+                p.expect(Punct::RParen)?;
+                subsets.push(set);
+            }
+            if subsets.is_empty() {
+                return Err(p
+                    .unexpected(&["(varlist)"])
+                    .hint("TEST takes its sets of variables in parentheses: TEST(a b)(c)"));
+            }
+            let variables = subsets.iter().flatten().cloned().collect();
+            out.push(RegressionMethod {
+                kind: MethodKind::Test,
+                variables,
+                subsets,
+            });
+            any = true;
+            continue;
         }
         let Some(kind) = method_at(p) else {
-            return Err(p.unexpected(&["ENTER", "REMOVE", "STEPWISE", "FORWARD", "BACKWARD"]));
+            return Err(
+                p.unexpected(&["ENTER", "REMOVE", "STEPWISE", "FORWARD", "BACKWARD", "TEST"])
+            );
         };
         p.pos += 1;
         p.eat(Punct::Eq);
@@ -607,7 +633,11 @@ fn methods(p: &mut Parser, out: &mut Vec<RegressionMethod>) -> PResult<()> {
                 .unexpected(&["a variable name"])
                 .hint("REMOVE needs a variable list"));
         }
-        out.push(RegressionMethod { kind, variables });
+        out.push(RegressionMethod {
+            kind,
+            variables,
+            subsets: Vec::new(),
+        });
         any = true;
     }
     Ok(())

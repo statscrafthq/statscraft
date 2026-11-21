@@ -259,12 +259,17 @@ impl Equation {
     }
 }
 
+/// A METHOD as indices into the equation: the kind, its variables and, for TEST, its sets.
+type MethodBlock = (MethodKind, Vec<usize>, Vec<Vec<usize>>);
+
 /// The state after one step: the variables in the equation, with what changed.
 struct Model {
     set: Vec<bool>,
     entered: Vec<usize>,
     removed: Vec<usize>,
     method: String,
+    /// The sets of a TEST method, each tested by what R square loses without it.
+    subsets: Vec<Vec<usize>>,
 }
 
 fn passes(criterion: Criterion, (f, p): (f64, f64), entry: bool) -> bool {
@@ -288,7 +293,7 @@ fn criterion_text(criterion: Criterion, entry: bool) -> String {
 /// Runs the methods on one equation and returns its models (one per step that changed it).
 fn select(
     eq: &Equation,
-    blocks: &[(MethodKind, Vec<usize>)],
+    blocks: &[MethodBlock],
     criteria: &RegressionCriteria,
     warnings: &mut Vec<String>,
 ) -> Vec<Model> {
@@ -296,10 +301,10 @@ fn select(
     let mut set = vec![false; n];
     let mut models: Vec<Model> = Vec::new();
     let count = |set: &[bool]| set.iter().filter(|s| **s).count();
-    for (kind, block) in blocks {
+    for (kind, block, subsets) in blocks {
         let block: Vec<usize> = block.iter().copied().filter(|&k| k < n).collect();
         match kind {
-            MethodKind::Enter => {
+            MethodKind::Enter | MethodKind::Test => {
                 let mut entered = Vec::new();
                 loop {
                     let m = eq.swept(&set);
@@ -325,14 +330,35 @@ fn select(
                         criteria.tolerance
                     ));
                 }
+                // the sets of TEST, without the variables that never entered
+                let tested: Vec<Vec<usize>> = subsets
+                    .iter()
+                    .map(|set_of| {
+                        set_of
+                            .iter()
+                            .copied()
+                            .filter(|&k| k < n && set[k])
+                            .collect()
+                    })
+                    .filter(|set_of: &Vec<usize>| !set_of.is_empty())
+                    .collect();
                 if !entered.is_empty() {
                     entered.sort_unstable();
                     models.push(Model {
                         set: set.clone(),
                         entered,
                         removed: Vec::new(),
-                        method: "Enter".into(),
+                        method: if *kind == MethodKind::Test {
+                            "Test"
+                        } else {
+                            "Enter"
+                        }
+                        .into(),
+                        subsets: tested,
                     });
+                } else if let Some(last) = models.last_mut() {
+                    // everything of the test was in the equation already
+                    last.subsets.extend(tested);
                 }
             }
             MethodKind::Remove => {
@@ -347,6 +373,7 @@ fn select(
                         entered: Vec::new(),
                         removed,
                         method: "Remove".into(),
+                        subsets: Vec::new(),
                     });
                 }
             }
@@ -388,6 +415,7 @@ fn select(
                             entered,
                             removed: Vec::new(),
                             method: "Enter".into(),
+                            subsets: Vec::new(),
                         });
                     }
                 }
@@ -423,6 +451,7 @@ fn select(
                             entered: Vec::new(),
                             removed: vec![k],
                             method: method.clone(),
+                            subsets: Vec::new(),
                         });
                         steps += 1;
                         continue;
@@ -444,6 +473,7 @@ fn select(
                                 entered: vec![k],
                                 removed: Vec::new(),
                                 method: method.clone(),
+                                subsets: Vec::new(),
                             });
                             steps += 1;
                         }
@@ -743,11 +773,21 @@ impl Engine {
         let mut warnings = Vec::new();
         // the blocks of each method as matrix indices; an empty list is VARIABLES minus the
         // dependents
-        let blocks: Vec<(MethodKind, Vec<usize>)> = command
+        let mut subset_lists: Vec<Vec<Vec<usize>>> = Vec::new();
+        for method in &command.methods {
+            let mut lists = Vec::new();
+            for items in &method.subsets {
+                let found = self.expand(items)?;
+                lists.push(found.iter().map(|n| index(n)).collect());
+            }
+            subset_lists.push(lists);
+        }
+        let blocks: Vec<MethodBlock> = command
             .methods
             .iter()
             .zip(&method_lists)
-            .map(|(method, list)| {
+            .zip(subset_lists)
+            .map(|((method, list), subsets)| {
                 let list: Vec<String> = if list.is_empty() {
                     given
                         .iter()
@@ -758,7 +798,11 @@ impl Engine {
                 } else {
                     list.clone()
                 };
-                (method.kind, list.iter().map(|n| index(n)).collect())
+                (
+                    method.kind,
+                    list.iter().map(|n| index(n)).collect(),
+                    subsets,
+                )
             })
             .collect();
         let mut criteria = command.criteria;
@@ -901,7 +945,7 @@ impl Engine {
             // candidates: every variable named on a method, in matrix order, but the dependent
             let mut candidates: Vec<usize> = blocks
                 .iter()
-                .flat_map(|(_, list)| list.iter().copied())
+                .flat_map(|(_, list, _)| list.iter().copied())
                 .filter(|&k| k != yi)
                 .collect();
             candidates.sort_unstable();
@@ -946,14 +990,16 @@ impl Engine {
                 continue;
             }
             // the methods as indices into the equation
-            let eq_blocks: Vec<(MethodKind, Vec<usize>)> = blocks
+            let position = |k: &usize| candidates.iter().position(|c| c == k);
+            let eq_blocks: Vec<MethodBlock> = blocks
                 .iter()
-                .map(|(kind, list)| {
-                    let list = list
+                .map(|(kind, list, subsets)| {
+                    let list = list.iter().filter_map(position).collect();
+                    let subsets = subsets
                         .iter()
-                        .filter_map(|k| candidates.iter().position(|c| c == k))
+                        .map(|set_of| set_of.iter().filter_map(position).collect())
                         .collect();
-                    (*kind, list)
+                    (*kind, list, subsets)
                 })
                 .collect();
             let models = select(&eq, &eq_blocks, &criteria, &mut warnings);
@@ -1295,6 +1341,67 @@ fn equation_tables(
             ]),
             rows,
             predictors_caption.clone(),
+        ));
+    }
+
+    // TEST: what each set costs in R square when it leaves the equation it was entered into
+    let mut subset_rows = Vec::new();
+    for (i, (m, full)) in models.iter().zip(fits).enumerate() {
+        if m.subsets.is_empty() {
+            continue;
+        }
+        for (j, subset) in m.subsets.iter().enumerate() {
+            let mut without = m.set.clone();
+            for &k in subset {
+                without[k] = false;
+            }
+            let smaller = fit(eq, &without);
+            let ss = full.ss_reg - smaller.ss_reg;
+            let df = subset.len() as f64;
+            let f = ss / df / full.mse;
+            let label = subset
+                .iter()
+                .map(|&k| eq.texts[k].as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            subset_rows.push(vec![
+                model_cell(i),
+                text(format!("Set {}: {label}", j + 1)),
+                number(Some(full.r2 - smaller.r2)),
+                number(Some(ss)),
+                number(Some(df)),
+                number(Some(ss / df)),
+                number(Some(f)),
+                number(Some(f_p(f, df, full.df_res))),
+            ]);
+        }
+        subset_rows.push(vec![
+            model_cell(i),
+            text("Residual"),
+            Cell::Empty,
+            number(Some(full.ss_res)),
+            number(Some(full.df_res)),
+            number(Some(full.mse)),
+            Cell::Empty,
+            Cell::Empty,
+        ]);
+    }
+    if !subset_rows.is_empty() {
+        out.push(table(
+            "Subset Tests",
+            2,
+            plain(&[
+                "Model",
+                "",
+                "R Square Change",
+                "Sum of Squares",
+                "df",
+                "Mean Square",
+                "F",
+                "Sig.",
+            ]),
+            subset_rows,
+            caption.clone(),
         ));
     }
 

@@ -1625,7 +1625,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20          F SES XTX SELECTION LABEL ALL]] [/CRITERIA=[DEFAULTS PIN[(0.05)] | FIN[(3.84)] POUT[(0.10)] |\n\
                  \x20          FOUT[(2.71)] TOLERANCE[(0.0001)] MAXSTEPS(n) CIN[(95)]]] [/ORIGIN | NOORIGIN]\n\
                  \x20          /DEPENDENT=varlist /[METHOD=]ENTER [varlist] | REMOVE varlist | STEPWISE [varlist] |\n\
-                 \x20          FORWARD [varlist] | BACKWARD [varlist] [/METHOD=...]\n\
+                 \x20          FORWARD [varlist] | BACKWARD [varlist] | TEST(varlist)(varlist)... [/METHOD=...]\n\
                  \x20          [/RESIDUALS=[DEFAULTS DURBIN OUTLIERS(tempvars) ID(var) HISTOGRAM NORMPROB]]\n\
                  \x20          [/CASEWISE=[DEFAULTS OUTLIERS(3) | ALL PLOT(tempvar) DEPENDENT tempvars]]\n\
                  \x20          [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT=(y, x) ...] [/PARTIALPLOT=[ALL | varlist]].\n\
@@ -1650,7 +1650,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  plots each pair, the first on the vertical axis; a temporary variable takes a star (*ZRESID).\n\
                  PARTIALPLOT plots, for each independent (or those listed), the dependent's residuals against the\n\
                  independent's, both regressed on the other independents; it needs two in the equation. TEMPLATE\n\
-                 is ignored with a warning. LABEL changes nothing. Not supported yet: METHOD=TEST, SELECT, MATRIX, OUTFILE.",
+                 is ignored with a warning. LABEL changes nothing. TEST enters every variable named in its sets together (Model Variables\n\
+                 Entered/Removed says Test), then gives a Subset Tests table: for each set the change in R square\n\
+                 when it leaves the equation, the change in the regression sum of squares, df, mean square and F\n\
+                 (against the residual mean square of the full equation) with its significance, and a Residual row.\n\
+                 Not supported yet: SELECT, MATRIX, OUTFILE.",
         example: "REGRESSION /STATISTICS=COEFF OUTS R ANOVA CHANGE /DEPENDENT=spend /METHOD=ENTER age /METHOD=STEPWISE q1 TO q5 /SAVE=PRED ZRESID.",
         parse: regression::regression,
     },

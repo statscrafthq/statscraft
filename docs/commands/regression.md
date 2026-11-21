@@ -13,7 +13,7 @@ REGRESSION [/VARIABLES=varlist | (COLLECT)] [/DESCRIPTIVES=[DEFAULTS MEAN STDDEV
            F SES XTX SELECTION LABEL ALL]] [/CRITERIA=[DEFAULTS PIN[(0.05)] | FIN[(3.84)] POUT[(0.10)] |
            FOUT[(2.71)] TOLERANCE[(0.0001)] MAXSTEPS(n) CIN[(95)]]] [/ORIGIN | NOORIGIN]
            /DEPENDENT=varlist /[METHOD=]ENTER [varlist] | REMOVE varlist | STEPWISE [varlist] |
-           FORWARD [varlist] | BACKWARD [varlist] [/METHOD=...]
+           FORWARD [varlist] | BACKWARD [varlist] | TEST(varlist)(varlist)... [/METHOD=...]
            [/RESIDUALS=[DEFAULTS DURBIN OUTLIERS(tempvars) ID(var) HISTOGRAM NORMPROB]]
            [/CASEWISE=[DEFAULTS OUTLIERS(3) | ALL PLOT(tempvar) DEPENDENT tempvars]]
            [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT=(y, x) ...] [/PARTIALPLOT=[ALL | varlist]].
@@ -25,7 +25,9 @@ The tables: Variables Entered/Removed, Model Summary (CHANGE, DURBIN, SELECTION 
 
 Weighted when a weight variable is set; REGWGT gives weighted least squares. Charts come as data: HISTOGRAM(tempvars) a histogram with a normal curve; NORMPROB(tempvars) a normal P-P plot (PRED, RESID and DRESID are plotted standardized); RESIDUALS alone gives both of ZRESID. SCATTERPLOT plots each pair, the first on the vertical axis; a temporary variable takes a star (\*ZRESID).
 
-PARTIALPLOT plots, for each independent (or those listed), the dependent's residuals against the independent's, both regressed on the other independents; it needs two in the equation. TEMPLATE is ignored with a warning. LABEL changes nothing. Not supported yet: METHOD=TEST, SELECT, MATRIX, OUTFILE.
+PARTIALPLOT plots, for each independent (or those listed), the dependent's residuals against the independent's, both regressed on the other independents; it needs two in the equation. TEMPLATE is ignored with a warning. LABEL changes nothing. TEST enters every variable named in its sets together (Model Variables Entered/Removed says Test), then gives a Subset Tests table: for each set the change in R square when it leaves the equation, the change in the regression sum of squares, df, mean square and F (against the residual mean square of the full equation) with its significance, and a Residual row.
+
+Not supported yet: SELECT, MATRIX, OUTFILE.
 
 ## Example
 

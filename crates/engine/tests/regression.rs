@@ -2394,11 +2394,6 @@ fn errors_and_unsupported_methods() {
         )),
         "REGRESSION needs numeric variables, but s is a string variable"
     );
-    let (_, errors) = parse("REGRESSION /DEPENDENT=y /METHOD=TEST(x1)(x2).");
-    assert_eq!(
-        errors[0].message,
-        "TEST in REGRESSION /METHOD is not supported yet"
-    );
     let (_, errors) = parse("REGRESSION /DEPENDENT=y /METHOD=ENTER x1 /SELECT=x2 EQ 1.");
     assert_eq!(
         errors[0].message,
@@ -2410,4 +2405,78 @@ fn errors_and_unsupported_methods() {
         "{:?}",
         errors[0]
     );
+}
+
+// Thirty cases of y and four predictors. Expected values: the R square of lm() with and without
+// each set, and anova() of the two fits for the change in sum of squares, F and its significance.
+const TEST_DATA: &str = "DATA LIST FREE / y x1 x2 x3 x4.
+BEGIN DATA
+8.19 8.08 4.94 5.57 -0.85
+10.87 9.41 5.56 5.92 -0.99
+10.93 10.52 5.99 5.26 -0.65
+8.88 7.7 4.59 5.35 1.05
+11.77 10.39 4.84 6.17 -0.39
+8.88 10.06 5.74 4.52 -0.07
+10.12 10.17 6.39 4.58 -0.46
+11 12.23 6.15 5.96 0.54
+6.27 7.56 2.8 3.71 0.93
+12.32 12.53 7.06 5.19 -0.21
+10.07 8.51 5.04 4.97 0.62
+9.62 7.74 3.56 5.47 -0.41
+11.74 8.57 5.98 6.02 1.05
+8.79 10.51 4.46 5.27 0.6
+10.43 10.3 5.5 5.23 1.02
+7.95 9.38 2.42 5.75 0.61
+11.66 8.09 3.88 6.22 0.21
+8.91 8.7 5.48 5.38 -1.9
+8.88 12.45 5.77 4.01 -0.68
+9.15 10.4 4.3 4.84 0.48
+9.76 8.84 5.15 6.74 -0.46
+6.99 8.12 3.25 4.65 -0.28
+9.4 9.59 5.06 5.69 -0.41
+9.49 6.67 1.6 6.22 1.62
+11.16 9.03 3.1 5.79 -0.72
+9.81 8.52 3.81 4.99 -0.45
+9.86 12.32 5.12 5.22 0.01
+9.45 12.02 7.37 4.11 0.22
+12.23 9.86 5.85 5.44 0.19
+8.79 7.73 3.08 4.11 -0.05
+END DATA.
+";
+
+#[test]
+fn method_test_enters_the_sets_and_tests_each_by_the_change_in_r_square() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{TEST_DATA}REGRESSION /DEPENDENT=y /METHOD=ENTER x4 /METHOD=TEST(x1 x2)(x3)."),
+    );
+    let entered = tables
+        .iter()
+        .find(|t| t.title == "Variables Entered/Removed")
+        .unwrap();
+    // x4 first, then the sets enter together as the second model
+    assert_eq!(entered.rows.len(), 2);
+    assert_eq!(entered.rows[1][3], Cell::Text("Test".into()));
+    let tests = tables.iter().find(|t| t.title == "Subset Tests").unwrap();
+    assert_eq!(tests.rows.len(), 3);
+    let value = |r: usize, c: usize| match &tests.rows[r][c] {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    let near = |a: f64, b: f64| assert!((a - b).abs() < 1e-8 * b.abs().max(1.0), "{a} vs {b}");
+    // set 1 (x1, x2)
+    near(value(0, 2), 0.278_209_771_671_84);
+    near(value(0, 3), 17.307_894_506_023_9);
+    near(value(0, 4), 2.0);
+    near(value(0, 6), 7.630_293_244_296_07);
+    near(value(0, 7), 0.002_589_696_647_778_05);
+    // set 2 (x3)
+    near(value(1, 2), 0.322_115_921_152_167);
+    near(value(1, 3), 20.039_369_388_464_6);
+    near(value(1, 6), 17.668_961_965_482);
+    near(value(1, 7), 0.000_293_381_793_458_167);
+    // the residual of the full equation: sum of squares and df
+    near(value(2, 3), 28.353_914_377_671_8);
+    near(value(2, 4), 25.0);
 }

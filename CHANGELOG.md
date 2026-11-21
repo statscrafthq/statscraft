@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- REGRESSION /METHOD=TEST(set)(set)... enters the sets together and tests each by the change in R square when it leaves (a Subset Tests table with the change, sum of squares, df, F and significance).
 - GET and SAVE /MAP list the variables, as the KEEP, DROP and RENAME before it leave them, each with its name on the other side (the file for GET, the active dataset for SAVE).
 - CROSSTABS /WRITE=CELLS or ALL writes one record per cell (group, table number, count, values) to the file named by the new PROCEDURE OUTPUT OUTFILE='file' command, after an Output File Summary table; ALL (every cell of the ranges, empty ones too) is for integer mode. CROSSTABS /FORMAT now reads BOX, NOBOX, INDEX, NOINDEX, PIVOT and NOPIVOT, which change nothing, with one warning, instead of refusing the command.
 
