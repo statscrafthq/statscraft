@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- GENLIN /PRINT=LAGRANGE gives the Lagrange multiplier test of a fixed scale (normal, gamma, inverse Gaussian) or of a fixed negative binomial k, and for NEGBIN(0) the dispersion z test.
 - NOMREG /TEST=effect values (or ALL values) tests linear combinations of the parameters, with Wald chi-squares for each logit and for all logits together.
 - GLM and UNIANOVA /PRINT=GEF (the general form of the estimable functions) and /PRINT=TEST(LMATRIX) (the L' matrix of every effect, and of LMATRIX and CONTRAST) give tables instead of being refused.
 - GLM and UNIANOVA /TEST=effect VS error term tests an effect against a linear combination of the mean squares of others (Satterthwaite's df unless DF is given) or a given mean square with DF.

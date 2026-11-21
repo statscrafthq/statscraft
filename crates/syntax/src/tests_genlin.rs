@@ -322,3 +322,12 @@ fn repeated_rules() {
     let g = genlin("GENLIN y /REPEATED SUBJECT=id MAXITERATIONS=0.");
     assert_eq!(g.repeated.expect("repeated").maxiterations, 0);
 }
+
+#[test]
+fn print_lagrange_is_a_keyword_and_off_by_default() {
+    let g = genlin(
+        "GENLIN y WITH x /MODEL x DISTRIBUTION=NORMAL /CRITERIA SCALE=PEARSON /PRINT LAGRANGE SOLUTION.",
+    );
+    assert!(g.print.lagrange && g.print.solution);
+    assert!(!genlin("GENLIN y WITH x /MODEL x.").print.lagrange);
+}

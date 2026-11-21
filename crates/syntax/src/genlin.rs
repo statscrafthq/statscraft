@@ -287,6 +287,7 @@ pub struct GenlinPrint {
     pub cps: bool,
     pub descriptives: bool,
     pub fit: bool,
+    pub lagrange: bool,
     pub modelinfo: bool,
     pub solution: bool,
     pub exponentiated: bool,
@@ -302,6 +303,7 @@ impl Default for GenlinPrint {
             cps: true,
             descriptives: true,
             fit: true,
+            lagrange: false,
             modelinfo: true,
             solution: true,
             exponentiated: false,
@@ -862,6 +864,7 @@ fn print(p: &mut Parser) -> PResult<GenlinPrint> {
             "CPS" => out.cps = true,
             "DESCRIPTIVES" => out.descriptives = true,
             "FIT" => out.fit = true,
+            "LAGRANGE" => out.lagrange = true,
             "MODELINFO" => out.modelinfo = true,
             "SUMMARY" => out.summary = true,
             "SOLUTION" => {

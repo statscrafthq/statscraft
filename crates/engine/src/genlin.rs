@@ -721,6 +721,100 @@ fn exact_fit(c: &Cases, family: Family, mu: &[f64]) -> bool {
     deviance(&|i| mu[i]) <= 1e-20 * deviance(&|_| mean)
 }
 
+/// What the Lagrange multiplier test of a fixed scale or k gives.
+enum Lagrange {
+    /// T = s^2 / A with one degree of freedom.
+    Statistic(f64),
+    /// The auxiliary regression of NEGBIN(0): alpha, its standard error and z.
+    Dispersion(f64, f64, f64),
+}
+
+/// The Lagrange multiplier test of the scale (normal, gamma, inverse Gaussian) or of the
+/// ancillary parameter k of the negative binomial, at the fitted b and the fixed value.
+/// The statistic is s^2 / A with s the score and A the information of tau = ln(scale) or
+/// ln(k) after taking out b; the second derivatives are the observed ones.
+fn lagrange_test(
+    c: &Cases,
+    x: &[Vec<f64>],
+    spec: &Spec,
+    beta: &[f64],
+    mu: &[f64],
+    phi: f64,
+    k: f64,
+) -> Lagrange {
+    let n = c.n();
+    if spec.family == Family::NegBin && k == 0.0 {
+        let z: Vec<f64> = (0..n)
+            .map(|i| ((c.y[i] - mu[i]).powi(2) - c.y[i]) / mu[i])
+            .collect();
+        let sww: f64 = (0..n).map(|i| c.f[i] * mu[i] * mu[i]).sum();
+        let total: f64 = c.f.iter().sum();
+        let alpha = (0..n).map(|i| c.f[i] * mu[i] * z[i]).sum::<f64>() / sww;
+        let see = (0..n)
+            .map(|i| c.f[i] * (z[i] - alpha * mu[i]).powi(2))
+            .sum::<f64>()
+            / (total - 1.0);
+        let se = (see / sww).sqrt();
+        return Lagrange::Dispersion(alpha, se, alpha / se);
+    }
+    if spec.family != Family::NegBin {
+        // the score and second derivative in tau = ln(phi); the b-tau cross term is the score
+        // of b over phi, which is 0 at the estimates
+        let (mut s, mut d2) = (0.0, 0.0);
+        for (i, &m) in mu.iter().enumerate().take(n) {
+            let y = c.y[i];
+            if spec.family == Family::Gamma {
+                let nu = c.a(i) / phi;
+                let g = (nu * y / m).ln() + 1.0 - y / m - digamma(nu);
+                s -= c.f[i] * nu * g;
+                d2 += c.f[i] * nu * (g + 1.0 - nu * trigamma(nu));
+            } else {
+                let v = if spec.family == Family::Normal {
+                    1.0
+                } else {
+                    y * m * m
+                };
+                let q = c.a(i) * (y - m).powi(2) / (phi * v);
+                s += c.f[i] / 2.0 * (q - 1.0);
+                d2 -= c.f[i] * q / 2.0;
+            }
+        }
+        return Lagrange::Statistic(s * s / -d2);
+    }
+    // NEGBIN with k fixed: central differences of the exact first derivatives in tau, with b
+    // fixed
+    // shortcut: the manual lists the second derivatives in closed form; the differences
+    // agree to about 1E-8, check the closed form if more digits are ever compared.
+    let q = x.first().map_or(0, Vec::len);
+    let first = |tau: f64| -> (f64, Vec<f64>) {
+        let kk = tau.exp();
+        let eta: Vec<f64> = (0..n).map(|i| dot(&x[i], beta) + c.offset[i]).collect();
+        let mut sb = vec![0.0; q];
+        for i in 0..n {
+            let m = link_inverse(spec.link, eta[i], kk);
+            let r = c.f[i] * c.a(i) * (c.y[i] - m)
+                / (variance(spec.family, m, kk) * link_d1(spec.link, m, kk));
+            for (j, v) in x[i].iter().enumerate() {
+                sb[j] += r * v;
+            }
+        }
+        (negbin_score(c, spec, &eta, kk), sb)
+    };
+    let tau = k.ln();
+    let h = 1e-4;
+    let (up, down) = (first(tau + h), first(tau - h));
+    let d2 = (up.0 - down.0) / (2.0 * h);
+    let cross: Vec<f64> =
+        up.1.iter()
+            .zip(&down.1)
+            .map(|(a, b)| (a - b) / (2.0 * h))
+            .collect();
+    let (_, _, observed) = derivatives(c, x, spec, k, mu);
+    let g = ginverse(&observed, spec.criteria.singular).0;
+    let s = first(tau).0;
+    Lagrange::Statistic(s * s / (-d2 - dot(&cross, &mat_vec(&g, &cross))))
+}
+
 /// The scale the convergence criteria use: the model's own (the current estimate for MLE, 1 for
 /// an exact fit), not the scale 1 the iterations work at.
 fn criteria_phi(c: &Cases, spec: &Spec, mu: &[f64]) -> f64 {
@@ -2779,6 +2873,81 @@ impl Engine {
                 out,
                 Some(note),
             ));
+        }
+        // the Lagrange multiplier test of a fixed scale or k
+        if print.lagrange && repeated.is_none() {
+            let honored = !multinomial
+                && match family {
+                    Family::Normal | Family::Gamma | Family::InverseGaussian => {
+                        !matches!(scale, ScaleMode::Mle)
+                    }
+                    Family::NegBin => fixed_k.is_some(),
+                    _ => false,
+                };
+            match (&glm_fit, honored) {
+                (Some(f), true) => {
+                    let negbin = family == Family::NegBin;
+                    let result_k = if negbin { f.k } else { 0.0 };
+                    let value = if negbin { result_k } else { phi };
+                    let label = if negbin {
+                        "Ancillary parameter (k)"
+                    } else {
+                        "Scale parameter"
+                    };
+                    let tested = lagrange_test(&c, &x, &spec, &f.beta, &f.mu, phi, result_k);
+                    let (columns, row) = match tested {
+                        Lagrange::Statistic(t) => (
+                            plain(&["", "Fixed Value", "Lagrange Multiplier", "df", "Sig."]),
+                            vec![
+                                text(label),
+                                Cell::Number(value),
+                                Cell::Number(t),
+                                Cell::Number(1.0),
+                                number(Some(chi_square_p(t.max(0.0), 1.0))),
+                            ],
+                        ),
+                        Lagrange::Dispersion(alpha, se, z) => (
+                            plain(&[
+                                "",
+                                "Alpha",
+                                "Std. Error",
+                                "z",
+                                "Sig. (k > 0)",
+                                "Sig. (k < 0)",
+                                "Sig. (k not 0)",
+                            ]),
+                            vec![
+                                text("Over- or under-dispersion"),
+                                Cell::Number(alpha),
+                                Cell::Number(se),
+                                Cell::Number(z),
+                                number(Some(1.0 - normal_cdf(z))),
+                                number(Some(normal_cdf(z))),
+                                number(Some(2.0 * (1.0 - normal_cdf(z.abs())))),
+                            ],
+                        ),
+                    };
+                    tables.push(table(
+                        "Lagrange Multiplier Test",
+                        0,
+                        columns,
+                        vec![row],
+                        Some(format!(
+                            "{caption} Tests the {} fixed on the command.",
+                            if negbin && result_k == 0.0 {
+                                "ancillary parameter k = 0 (equidispersion) by the regression of ((y - mu)^2 - y) / mu on mu"
+                            } else if negbin {
+                                "ancillary parameter k"
+                            } else {
+                                "scale parameter"
+                            }
+                        )),
+                    ));
+                }
+                _ => warnings.push(
+                    "GENLIN: PRINT LAGRANGE needs the normal, gamma or inverse Gaussian distribution with a fixed scale (a number, DEVIANCE or PEARSON) or NEGBIN with a fixed k; it is ignored".into(),
+                ),
+            }
         }
         // the parameters and their names
         let mut parameters: Vec<Parameter> = Vec::new();

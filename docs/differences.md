@@ -697,7 +697,7 @@ Where the documentation is silent:
   - A frequency weight copies the whole subject, so it must be the same for all cases of a subject; otherwise the command stops with an error.
   - The Correlated Data Summary is laid out as levels of each subject and within-subject variable, the number of subjects, the smallest and largest number of measurements and the dimension of the matrix.
 - SAVE gives predictions to every case with valid factors, covariates and offset whose factor levels were fitted; residuals, leverage and Cook's distance only to the cases of the fit. For events/trials, MEANPRED and the intervals are numbers of events. A default name already in use gets a suffix _1, _2 and so on; a name given that exists is an error.
-- Not supported yet: OUTFILE, DISTRIBUTION=TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR). WORKINGCORR without REPEATED is accepted and ignored, as there is no working correlation then.
+- PRINT LAGRANGE gives the Lagrange multiplier test of a fixed scale (normal, gamma, inverse Gaussian with a number, DEVIANCE or PEARSON on SCALE) or of a fixed negative binomial k: T = s^2 / A, the score of ln(scale) or ln(k) squared over its information with b taken out, the second derivatives observed, chi-square with 1 df; with NEGBIN(0) the z test of the regression of ((y - mu)^2 - y) / mu on mu with its three p-values. The table layout is Statscraft's. The negative binomial derivatives in ln(k) are central differences of the exact first derivatives (they agree with a numerical Hessian to about 1E-8). In any other model the keyword is ignored with a warning, and silently with REPEATED. Not supported yet: OUTFILE, DISTRIBUTION=TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR). WORKINGCORR without REPEATED is accepted and ignored, as there is no working correlation then.
 
 ### HILOGLINEAR
 
@@ -1864,7 +1864,7 @@ Where the documentation is silent:
   - COXREG has no OUTFILE.
   - NOMREG has no OUTFILE.
   - LOGLINEAR, the older loglinear command with contrasts, is not supported; GENLOG and HILOGLINEAR cover its models.
-  - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
+  - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
   - CSCOXREG gives no test of the covariate form (the manual names it without defining it).
   - UNIANOVA and GLM have no RANDOM, ROBUST, OUTFILE or MEASURE or the heteroskedasticity tests, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
   - GENLINMIXED has no model with neither RANDOM nor REPEATED_MEASURES, no spatial or Kronecker residual structures, no GROUPING and no Pearson residuals of a multinomial target.

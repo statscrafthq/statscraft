@@ -29,7 +29,7 @@ GENLIN dependent [(REFERENCE=LAST | FIRST | value)] [(ORDER=ASCENDING | DESCENDI
              [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [UPDATECORR=1]]
    [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]
    [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB]
-           [WORKINGCORR] | NONE]
+           [LAGRANGE] [WORKINGCORR] | NONE]
    [/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]
           [PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]].
 ```
@@ -42,7 +42,9 @@ Tables: Model Information, Case Processing Summary, Categorical and Continuous V
 
 REPEATED fits generalized estimating equations for measurements that are correlated within a subject. A subject is a combination of the SUBJECT values; WITHINSUBJECT values put its cases in order, and a value a subject lacks counts as a missing measurement. Without WITHINSUBJECT the file order is kept. SORT=NO takes each run of equal SUBJECT values in the file as one subject and ignores WITHINSUBJECT. The fit starts from the plain model and then updates the estimates and the working correlation matrix in turn: AR(1), EXCHANGEABLE, MDEPENDENT(m) and UNSTRUCTURED are estimated from the Pearson residuals (with ADJUSTCORR=YES each count in a denominator is less the number of parameters), FIXED takes the correlations below the diagonal row by row. UPDATECORR=n re-estimates the matrix every n iterations, 0 never. SCALE=MLE becomes the Pearson moment of the residuals; another scale and an estimated NEGBIN k stay at the plain model's value. COVB=ROBUST (the default) gives sandwich standard errors, MODEL the model-based ones; the CRITERIA COVB is not used. FIT then shows QIC and QICC instead of the likelihood statistics, SUMMARY only the Wald tests of the effects, CPS adds the Correlated Data Summary, WORKINGCORR the Working Correlation Matrix. A frequency weight must be the same for all cases of a subject. SAVE has no leverage, deviance-based or standardized residuals or Cook's distance here.
 
-Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
+LAGRANGE tests a fixed scale (normal, gamma, inverse Gaussian with SCALE a number, DEVIANCE or PEARSON) or a fixed NEGBIN k: the Lagrange multiplier statistic with 1 df, or for k = 0 the z of the dispersion regression with its three p-values.
+
+Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
 
 ## Example
 

@@ -2477,3 +2477,112 @@ GENLIN y /REPEATED SUBJECT=team WITHINSUBJECT=week SORT={sort} /PRINT CPS.
     let unknown = "1 1 3.2 . 2 4.1 1 3 4.4 2 1 2.0 2 2 2.5";
     assert_eq!(summary(unknown, "NO"), [2.0, 2.0, 2.0, 2.0]);
 }
+
+// PRINT LAGRANGE: the expected statistics are s^2 / A from a numerical gradient and Hessian of
+// the full log likelihood in (b, ln scale) or (b, ln k) at the fitted b and the fixed value,
+// the information of the scale taken after b is swept out. The statistic moves with the score at
+// the fitted b, so the iterative fits agree with the package to the 1E-4 the default
+// PCONVERGE leaves, the closed-form normal case to 1E-8. The normal model with the Pearson
+// scale has the closed form p^2 / (2 (n - p)).
+#[test]
+fn lagrange_test_of_a_fixed_scale() {
+    let lagrange = |model: &str, criteria: &str| -> Vec<Table> {
+        tables_of(&format!(
+            "{COSTS}GENLIN cost BY crew WITH size /MODEL crew size {model} {criteria} /PRINT LAGRANGE."
+        ))
+    };
+    let lm = "Lagrange Multiplier Test";
+    let t = lagrange("DISTRIBUTION=NORMAL LINK=IDENTITY", "/CRITERIA SCALE=1");
+    close(
+        get(&t, lm, "Scale parameter", "Lagrange Multiplier"),
+        6515.16189,
+        1e-8,
+        "normal 1",
+    );
+    assert_eq!(get(&t, lm, "Scale parameter", "df"), 1.0);
+    assert!(get(&t, lm, "Scale parameter", "Sig.") < 1e-10);
+    let t = lagrange(
+        "DISTRIBUTION=NORMAL LINK=IDENTITY",
+        "/CRITERIA SCALE=PEARSON",
+    );
+    close(
+        get(&t, lm, "Scale parameter", "Lagrange Multiplier"),
+        9.0 / (2.0 * 27.0),
+        1e-9,
+        "normal pearson",
+    );
+    let t = lagrange("DISTRIBUTION=GAMMA LINK=LOG", "/CRITERIA SCALE=0.3");
+    close(
+        get(&t, lm, "Scale parameter", "Lagrange Multiplier"),
+        1.283634829,
+        1e-4,
+        "gamma 0.3",
+    );
+    close(
+        get(&t, lm, "Scale parameter", "Fixed Value"),
+        0.3,
+        1e-12,
+        "value",
+    );
+    let t = lagrange("DISTRIBUTION=GAMMA LINK=LOG", "/CRITERIA SCALE=PEARSON");
+    close(
+        get(&t, lm, "Scale parameter", "Lagrange Multiplier"),
+        0.9244459609,
+        1e-4,
+        "gamma pearson",
+    );
+    close(
+        get(&t, lm, "Scale parameter", "Fixed Value"),
+        0.2875052,
+        1e-6,
+        "pearson scale",
+    );
+    let t = lagrange("DISTRIBUTION=IGAUSS LINK=LOG", "/CRITERIA SCALE=0.05");
+    close(
+        get(&t, lm, "Scale parameter", "Lagrange Multiplier"),
+        72.76219471,
+        1e-4,
+        "igauss",
+    );
+}
+
+#[test]
+fn lagrange_test_of_the_negative_binomial_k() {
+    let lm = "Lagrange Multiplier Test";
+    for (k, expected) in [
+        ("0.5", 6.493663921),
+        ("0.05", 36.77139157),
+        ("1.2", 30.53209303),
+    ] {
+        let t = tables_of(&format!(
+            "{COUNTS}GENLIN repairs BY shop WITH temp /MODEL shop temp DISTRIBUTION=NEGBIN({k}) OFFSET=lnh /PRINT LAGRANGE."
+        ));
+        close(
+            get(&t, lm, "Ancillary parameter (k)", "Lagrange Multiplier"),
+            expected,
+            1e-4,
+            k,
+        );
+    }
+    // k = 0: the z of the auxiliary regression, with the three p-values
+    let t = tables_of(&format!(
+        "{COUNTS}GENLIN repairs BY shop WITH temp /MODEL shop temp DISTRIBUTION=NEGBIN(0) OFFSET=lnh /PRINT LAGRANGE."
+    ));
+    let row = "Over- or under-dispersion";
+    close(get(&t, lm, row, "Alpha"), 0.3711897, 1e-6, "alpha");
+    close(get(&t, lm, row, "Std. Error"), 0.1097534, 1e-6, "se");
+    let z = get(&t, lm, row, "z");
+    close(z, 3.382035, 1e-6, "z");
+    let over = get(&t, lm, row, "Sig. (k > 0)");
+    close(over, 3.597549e-4, 1e-3, "over");
+    close(get(&t, lm, row, "Sig. (k < 0)"), 1.0 - over, 1e-12, "under");
+    close(get(&t, lm, row, "Sig. (k not 0)"), 2.0 * over, 1e-12, "two");
+}
+
+#[test]
+fn lagrange_test_is_ignored_when_there_is_nothing_fixed_to_test() {
+    let t = tables_of(&format!(
+        "{COSTS}GENLIN cost BY crew WITH size /MODEL crew size DISTRIBUTION=GAMMA LINK=LOG /PRINT LAGRANGE SOLUTION."
+    ));
+    assert!(t.iter().all(|t| t.title != "Lagrange Multiplier Test"));
+}
