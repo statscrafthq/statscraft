@@ -1624,6 +1624,8 @@ impl Engine {
                 }
                 rows.push(l);
             }
+            // shortcut: coefficients on redundant parameters are dropped (they are fixed at 0)
+            // with no estimability check; check estimability if users test those parameters.
             let q = fit.cols.len();
             let logits = others.len();
             // L restricted to the parameters that are estimated, for one logit
@@ -1633,7 +1635,7 @@ impl Engine {
                 .collect();
             if restricted.iter().any(|r| r.iter().all(|v| *v == 0.0)) {
                 warnings.push(format!(
-                    "NOMREG: a row of TEST {title} has no coefficient on an estimated parameter; it is tested as 0 = its value"
+                    "NOMREG: a row of TEST {title} has no coefficient on an estimated parameter and is not tested"
                 ));
             }
             let constants: Vec<f64> = (0..rows.len())
