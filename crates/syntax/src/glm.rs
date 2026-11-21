@@ -186,6 +186,8 @@ pub struct Glm {
     pub posthoc: Vec<(Vec<String>, Vec<Posthoc>, Option<Term>)>,
     pub contrasts: Vec<(String, Contrast)>,
     pub lmatrix: Vec<LMatrix>,
+    /// Each `/TEST=effect VS error term`.
+    pub tests: Vec<GlmTest>,
     /// KMATRIX, row by row (a semicolon ends a row).
     pub kmatrix: Option<Vec<Vec<f64>>>,
     /// The last MMATRIX: the columns of the transformation of the dependent variables.
@@ -383,6 +385,113 @@ pub(crate) fn term(p: &mut Parser) -> PResult<Term> {
     let mut variables = Vec::new();
     let label = joined(p, &mut variables)?;
     Ok(Term { variables, label })
+}
+
+/// One TEST: the hypothesis effect and the error term it is tested against.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlmTest {
+    pub hypothesis: Term,
+    pub error: GlmTestError,
+}
+
+/// The error term of a TEST.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GlmTestError {
+    /// A mean square and its degrees of freedom, both given.
+    Value { mean_square: f64, df: f64 },
+    /// A linear combination of the mean squares of effects; the degrees of freedom come from
+    /// Satterthwaite's approximation unless `DF(df)` gives them.
+    Combination {
+        terms: Vec<(f64, Term)>,
+        df: Option<f64>,
+    },
+}
+
+/// `effect VS error` after TEST: the error a value with DF(df), or a combination of effects
+/// `coefficient*effect +/- coefficient*effect ...` (a coefficient may be a fraction) with an
+/// optional DF(df).
+fn glm_test(p: &mut Parser) -> PResult<GlmTest> {
+    p.eat(Punct::Eq);
+    let hypothesis = if p.eat_keyword("INTERCEPT") {
+        Term {
+            variables: Vec::new(),
+            label: "Intercept".into(),
+        }
+    } else {
+        term(p)?
+    };
+    if !p.eat_word("VS") {
+        return Err(p.unexpected(&["VS"]));
+    }
+    let df = |p: &mut Parser| -> PResult<Option<f64>> {
+        if !p.eat_word("DF") {
+            return Ok(None);
+        }
+        p.expect(Punct::LParen)?;
+        let at = p.pos;
+        let Some(value) = p.number().filter(|v| *v > 0.0) else {
+            return Err(SyntaxError::new(
+                p.span_from(at),
+                "DF takes a positive number of degrees of freedom",
+            ));
+        };
+        p.expect(Punct::RParen)?;
+        Ok(Some(value))
+    };
+    // a value is a number that no `*` joins to an effect
+    if matches!(p.peek(), Some(TokenKind::Number(_)))
+        && !matches!(
+            p.peek_at(1),
+            Some(TokenKind::Punct(Punct::Star | Punct::Slash))
+        )
+    {
+        let mean_square = p.number().expect("a number");
+        let Some(df) = df(p)? else {
+            return Err(p.unexpected(&["DF(df)"]).hint(
+                "an error term given as a value needs its degrees of freedom: VS 4.2 DF(10)",
+            ));
+        };
+        return Ok(GlmTest {
+            hypothesis,
+            error: GlmTestError::Value { mean_square, df },
+        });
+    }
+    let mut terms: Vec<(f64, Term)> = Vec::new();
+    let mut sign = 1.0;
+    loop {
+        if p.eat(Punct::Minus) {
+            sign = -1.0;
+        } else if p.eat(Punct::Plus) {
+            sign = 1.0;
+        }
+        let coefficient = match fraction(p)? {
+            Some(c) => {
+                if !p.eat(Punct::Star) {
+                    return Err(p.unexpected(&["'*' and an effect"]));
+                }
+                c
+            }
+            None => 1.0,
+        };
+        let effect = if p.eat_keyword("INTERCEPT") {
+            Term {
+                variables: Vec::new(),
+                label: "Intercept".into(),
+            }
+        } else {
+            term(p)?
+        };
+        terms.push((sign * coefficient, effect));
+        sign = 1.0;
+        if !(p.at(Punct::Plus) || p.at(Punct::Minus)) {
+            break;
+        }
+    }
+    let df = df(p)?;
+    Ok(GlmTest {
+        hypothesis,
+        error: GlmTestError::Combination { terms, df },
+    })
 }
 
 /// Terms up to the end of the subcommand, INTERCEPT as a term with no variables.
@@ -1116,9 +1225,8 @@ fn wsfactors(p: &mut Parser) -> PResult<Vec<WsFactor>> {
     Ok(out)
 }
 
-const SUBCOMMANDS_LATER: [&str; 11] = [
+const SUBCOMMANDS_LATER: [&str; 10] = [
     "RANDOM",
-    "TEST",
     "ROBUST",
     "OUTFILE",
     "MBPDESIGN",
@@ -1162,6 +1270,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         posthoc: Vec::new(),
         contrasts: Vec::new(),
         lmatrix: Vec::new(),
+        tests: Vec::new(),
         kmatrix: None,
         mmatrix: None,
         save: Vec::new(),
@@ -1292,6 +1401,8 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
                 .contrasts
                 .retain(|(f, _)| !f.eq_ignore_ascii_case(&factor));
             command.contrasts.push((factor, kind));
+        } else if p.eat_keyword("TEST") {
+            command.tests.push(glm_test(p)?);
         } else if p.eat_keyword("LMATRIX") {
             command.lmatrix.push(lmatrix(p)?);
         } else if p.eat_keyword("KMATRIX") {

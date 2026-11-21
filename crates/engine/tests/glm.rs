@@ -1272,3 +1272,111 @@ fn posthoc_vs_uses_the_mean_square_of_each_dependent() {
     }
     assert!(compared > 0);
 }
+
+// A balanced 3 x 2 design, four cases a cell. Expected values from anova(lm(y ~ a * b)) in R: the
+// mean squares are those of a, b, a:b; the error terms are worked out from them with
+// Satterthwaite's approximation (T1), a given mean square and df (T2) and fractions (T3).
+const TEST_DATA: &str = "DATA LIST FREE / y a b.
+BEGIN DATA
+11.52 1 1
+10.76 1 1
+12.19 1 1
+11.9 1 1
+13.44 1 2
+12.49 1 2
+10.52 1 2
+11.59 1 2
+14 2 1
+13.88 2 1
+12.67 2 1
+12.12 2 1
+12.98 2 2
+12.55 2 2
+12.63 2 2
+12.77 2 2
+14.07 3 1
+12.86 3 1
+12.8 3 1
+12.62 3 1
+14.94 3 2
+13.57 3 2
+14.71 3 2
+14.69 3 2
+END DATA.
+";
+
+#[test]
+fn test_tests_an_effect_against_a_combination_a_value_or_fractions() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{TEST_DATA}UNIANOVA y BY a b /TEST=a VS b + a*b /TEST=a VS 4.5 DF(10)\n\
+             /TEST=a VS 1/2*b + 0.5*a*b DF(7) /DESIGN=a b a*b."
+        ),
+    );
+    let tests: Vec<&Table> = tables
+        .iter()
+        .filter(|t| t.title.starts_with("Tests of Hypothesis"))
+        .collect();
+    assert_eq!(tests.len(), 3);
+    let value = |t: &Table, r: usize, c: usize| match &t.rows[r][c] {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    let near = |a: f64, b: f64| assert!((a - b).abs() < 1e-8 * b.abs().max(1.0), "{a} vs {b}");
+    // T1: MS(b) + MS(a*b) = 2.92355 on 2.87999827729518 df, F = 2.70813879244982
+    near(value(tests[0], 0, 3), 7.917_379_166_666_66);
+    near(value(tests[0], 1, 3), 2.923_55);
+    near(value(tests[0], 1, 2), 2.879_998_277_295_18);
+    near(value(tests[0], 0, 4), 2.708_138_792_449_82);
+    near(value(tests[0], 0, 5), 0.217_938_229_491_985);
+    // T2: the value 4.5 on 10 df
+    near(value(tests[1], 1, 3), 4.5);
+    near(value(tests[1], 1, 2), 10.0);
+    near(value(tests[1], 0, 4), 1.759_417_592_592_59);
+    near(value(tests[1], 0, 5), 0.221_464_251_602_36);
+    // T3: half of each, 7 df given
+    near(value(tests[2], 1, 3), 1.461_775);
+    near(value(tests[2], 0, 4), 5.416_277_584_899_89);
+    near(value(tests[2], 0, 5), 0.037_896_196_443_983_7);
+    let caption = tests[0].caption.clone().unwrap_or_default();
+    assert!(
+        caption.contains("Hypothesis: a") && caption.contains("Satterthwaite"),
+        "{caption}"
+    );
+}
+
+#[test]
+fn test_adds_duplicate_effects_and_names_what_it_cannot_use() {
+    // 3*b - b - a*b is 2 b - a*b: 2 * 1.2558375 - 1.6677125 = 0.8439625
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{TEST_DATA}UNIANOVA y BY a b /TEST=a VS 3*b - b - a*b DF(5) /DESIGN=a b a*b."),
+    );
+    let t = tables
+        .iter()
+        .find(|t| t.title == "Tests of Hypothesis 1")
+        .unwrap();
+    let Cell::Number(ms) = t.rows[1][3] else {
+        panic!()
+    };
+    assert!((ms - 0.843_962_5).abs() < 1e-8, "{ms}");
+    // a negative combination, an unknown effect, several dependents
+    let error = run_error(&format!(
+        "{TEST_DATA}UNIANOVA y BY a b /TEST=a VS a*b - 5*b /DESIGN=a b a*b."
+    ));
+    assert!(error.contains("negative"), "{error}");
+    let error = run_error(&format!(
+        "{TEST_DATA}UNIANOVA y BY a b /TEST=a VS a*b*c /DESIGN=a b a*b."
+    ));
+    assert!(
+        error.contains("not an effect of the design") || error.contains("c"),
+        "{error}"
+    );
+    let error = run_error(&format!(
+        "{TEST_DATA}COMPUTE y2 = y + a.\nGLM y y2 BY a b /TEST=a VS b /DESIGN=a b a*b."
+    ));
+    assert!(error.contains("univariate"), "{error}");
+}

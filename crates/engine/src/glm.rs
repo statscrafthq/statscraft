@@ -42,8 +42,8 @@ use crate::shown::{Show, Shown};
 use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Values, Variable};
 use statscraft_syntax::{
-    Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmTemp, LRow, PercentileMethod, Posthoc, Profile,
-    Term,
+    Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmTemp, GlmTestError, LRow, PercentileMethod,
+    Posthoc, Profile, Term,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1313,9 +1313,127 @@ fn univariate(
         &flags,
         warnings,
     )?);
+    out.extend(error_term_tests(command, d, fit)?);
     out.extend(means_and_posthoc(
         command, d, fit, dependent, &flags, label_of, warnings,
     )?);
+    Ok(out)
+}
+
+/// The TEST subcommands: each tests an effect against the mean square of a linear combination
+/// of other effects (or a given mean square), with Satterthwaite's degrees of freedom for a
+/// combination unless DF gives them.
+fn error_term_tests(command: &Glm, d: &Data, fit: &Fit) -> Result<Vec<Table>, Error> {
+    if command.tests.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sscp = effect_sscp(fit, command.sstype);
+    // the mean square and the degrees of freedom of an effect of the design
+    let of = |term: &Term, what: &str| -> Result<(usize, f64, f64), Error> {
+        let found = find_effect(d, &fit.effects, term)?;
+        let at = found.and_then(|e| fit.effects.iter().position(|x| std::ptr::eq(x, e)));
+        let Some(at) = at else {
+            return Err(Error(format!(
+                "{what} names {}, which is not an effect of the design",
+                term.label
+            )));
+        };
+        let (ss, df) = &sscp[at];
+        let df = *df as f64;
+        Ok((at, ss[0][0], df))
+    };
+    let mut out = Vec::new();
+    for (n, test) in command.tests.iter().enumerate() {
+        let what = format!("TEST {}", n + 1);
+        let (_, ss_h, df_h) = of(&test.hypothesis, &what)?;
+        let ms_h = if df_h > 0.0 { ss_h / df_h } else { f64::NAN };
+        let (ms_q, df_q, error_text, approximated) = match &test.error {
+            GlmTestError::Value { mean_square, df } => {
+                (*mean_square, *df, format!("{mean_square}"), false)
+            }
+            GlmTestError::Combination { terms, df } => {
+                // the coefficients of one effect add up
+                let mut combined: Vec<(usize, f64, f64, f64, String)> = Vec::new();
+                for (q, term) in terms {
+                    let (at, ss, e_df) = of(term, &what)?;
+                    match combined.iter_mut().find(|c| c.0 == at) {
+                        Some(c) => c.1 += q,
+                        None => combined.push((at, *q, ss, e_df, term.label.clone())),
+                    }
+                }
+                let ms_q: f64 = combined
+                    .iter()
+                    .map(|(_, q, ss, e_df, _)| q * if *e_df > 0.0 { ss / e_df } else { 0.0 })
+                    .sum();
+                if ms_q < 0.0 {
+                    return Err(Error(format!(
+                        "{what}: the error term is a negative mean square ({ms_q}) and cannot be used"
+                    )));
+                }
+                let text = combined
+                    .iter()
+                    .map(|(_, q, _, _, label)| format!("{q}*MS({label})"))
+                    .collect::<Vec<_>>()
+                    .join(" + ")
+                    .replace("+ -", "- ");
+                match df {
+                    Some(df) => (ms_q, *df, text, false),
+                    None => {
+                        let spread: f64 = combined
+                            .iter()
+                            .filter(|(_, _, _, e_df, _)| *e_df > 0.0)
+                            .map(|(_, q, ss, e_df, _)| (q * ss / e_df).powi(2) / e_df)
+                            .sum();
+                        let df = if spread > 0.0 {
+                            ms_q * ms_q / spread
+                        } else {
+                            f64::NAN
+                        };
+                        (ms_q, df, text, true)
+                    }
+                }
+            }
+        };
+        let f = if ms_q > 0.0 && ms_h >= 0.0 {
+            ms_h / ms_q
+        } else {
+            f64::NAN
+        };
+        let sig = (df_h > 0.0 && df_q > 0.0 && f.is_finite()).then(|| f_p(f, df_h, df_q));
+        let rows = vec![
+            vec![
+                text("Hypothesis"),
+                number(Some(ss_h)),
+                number(Some(df_h)),
+                number(Some(ms_h)),
+                number(Some(f)),
+                number(sig),
+            ],
+            vec![
+                text("Error"),
+                number(Some(ms_q * df_q)),
+                number(Some(df_q)),
+                number(Some(ms_q)),
+                Cell::Empty,
+                Cell::Empty,
+            ],
+        ];
+        let note = if approximated {
+            " The degrees of freedom of the error term are Satterthwaite's approximation."
+        } else {
+            ""
+        };
+        out.push(table(
+            &format!("Tests of Hypothesis {}", n + 1),
+            1,
+            plain(&["Source", "Sum of Squares", "df", "Mean Square", "F", "Sig."]),
+            rows,
+            Some(format!(
+                "Hypothesis: {}. Error term: {error_text}.{note}",
+                test.hypothesis.label
+            )),
+        ));
+    }
     Ok(out)
 }
 
@@ -3129,6 +3247,7 @@ impl Engine {
             ("POSTHOC", !command.posthoc.is_empty()),
             ("CONTRAST", !command.contrasts.is_empty()),
             ("LMATRIX", !command.lmatrix.is_empty()),
+            ("TEST", !command.tests.is_empty()),
             ("PRINT LOF", command.print.lof),
             ("PRINT PARAMETER", command.print.parameter),
             ("PRINT HOMOGENEITY", command.print.homogeneity),
@@ -4050,6 +4169,13 @@ impl Engine {
     ) -> Result<Vec<Table>, Error> {
         let flags = flags_of(command);
         let given_m = m_matrix(command, dependents)?;
+        if !command.tests.is_empty() {
+            return Err(Error(format!(
+                "{}: TEST is valid only for univariate analyses, and {} dependent variables are given",
+                command.command,
+                dependents.len()
+            )));
+        }
         if command.save.iter().any(|(_, name)| name.is_some()) {
             return Err(Error(format!(
                 "{}: SAVE with a variable name is not supported yet with several dependent variables; leave the name out",

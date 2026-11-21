@@ -818,6 +818,8 @@ Choices where the documentation says nothing, and where it is not followed:
 
 ### UNIANOVA and GLM
 
+- TEST=effect VS error term: the hypothesis effect's mean square (of the chosen sum of squares type) is tested against the mean square of the linear combination, with F, Sig. and, without DF, Satterthwaite's degrees of freedom (the Algorithms manual's formulas); a given value needs DF. Coefficients of one effect add up. A negative combination is an error. TEST is for one dependent variable (an error with several) and is not available with WSFACTOR.
+
 - POSTHOC ... VS effect takes the Type III (or the chosen type's) mean square and df of that effect as the error term of the pairwise and homogeneous subset tests; the table captions name it. The effect may be any effect of the design except the intercept and a main effect named on the same POSTHOC, as the manual says. The tests of separate variances (GH, T2, T3, C) use no error term and are unaffected.
 
 - CONTRAST(factor)=SPECIAL(matrix) reads the values column by column, as the manual's example does: for three levels `SPECIAL(1 1 1 1 -1 0 0 1 -1)` is the matrix with the constant first and the contrasts (1 -1 0) and (0 1 -1). The first column is not used, and the k - 1 contrast columns alone also work. COXREG and LOGISTIC REGRESSION read their SPECIAL matrix by rows, as their manual pages say.
@@ -1863,7 +1865,7 @@ Where the documentation is silent:
   - LOGLINEAR, the older loglinear command with contrasts, is not supported; GENLOG and HILOGLINEAR cover its models.
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
   - CSCOXREG gives no test of the covariate form (the manual names it without defining it).
-  - UNIANOVA and GLM have no RANDOM, TEST, ROBUST, OUTFILE, MEASURE, PRINT GEF and TEST(LMATRIX) or the heteroskedasticity tests, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
+  - UNIANOVA and GLM have no RANDOM, ROBUST, OUTFILE, MEASURE, PRINT GEF and TEST(LMATRIX) or the heteroskedasticity tests, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
   - GENLINMIXED has no model with neither RANDOM nor REPEATED_MEASURES, no spatial or Kronecker residual structures, no GROUPING and no Pearson residuals of a multinomial target.
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).

@@ -123,6 +123,7 @@ macro_rules! glm_syntax {
                  \x20  [/POSTHOC=factor ... (tests) [VS effect]] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
                  \x20  DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)] | SPECIAL(matrix)] ...\n\
                  \x20  [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ...\n\
+                 \x20  [/TEST=effect VS coefficient*effect +/- ... [DF(df)] | value DF(df)] ... (one dependent)\n\
                  \x20  [/MMATRIX=['label'] dependent value ... | ALL values [; ...]] (GLM) [/KMATRIX=values [; ...]]\n\
                  \x20  [/SAVE=tempvar[(name)] ...] [/DESIGN=effects]\n\
                  \x20  [/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]\n\
@@ -171,7 +172,11 @@ macro_rules! glm_syntax {
                  side (2 by default); YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
                  cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
                  gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT\n\
-                 is ignored with a warning. Not supported yet: RANDOM, TEST,\n\
+                 is ignored with a warning. TEST tests an effect of the design against an error term, either a\n\
+                 linear combination of the mean squares of other effects (coefficients may be fractions;\n\
+                 coefficients of one effect add up) with Satterthwaite's degrees of freedom unless DF(df) gives\n\
+                 them, or a mean square with its DF(df); one table of Hypothesis and Error rows each. It is for one\n\
+                 dependent variable and without WSFACTOR. Not supported yet: RANDOM,\n\
                  ROBUST, OUTFILE, MEASURE, PRINT GEF, TEST(LMATRIX), MBP, BP, F and\n\
                  WHITE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
                  EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE and PRINT\n\

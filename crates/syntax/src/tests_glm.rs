@@ -569,3 +569,55 @@ fn posthoc_vs_names_the_error_term() {
     assert_eq!(vs.variables, ["a", "b"]);
     assert_eq!(g.posthoc[1].2, None);
 }
+
+#[test]
+fn glm_test_reads_the_hypothesis_and_the_error_term() {
+    use crate::{GlmTestError, Term};
+    let Command::Glm(g) = one(
+        "UNIANOVA y BY a b /TEST=a VS b + 2*a*b - 1/2*b DF(7) /TEST=a VS 4.5 DF(10) /TEST=INTERCEPT VS -a.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(g.tests.len(), 3);
+    let term = |label: &str| Term {
+        variables: label.split('*').map(String::from).collect(),
+        label: label.into(),
+    };
+    assert_eq!(g.tests[0].hypothesis, term("a"));
+    assert_eq!(
+        g.tests[0].error,
+        GlmTestError::Combination {
+            terms: vec![(1.0, term("b")), (2.0, term("a*b")), (-0.5, term("b"))],
+            df: Some(7.0),
+        }
+    );
+    assert_eq!(
+        g.tests[1].error,
+        GlmTestError::Value {
+            mean_square: 4.5,
+            df: 10.0
+        }
+    );
+    assert_eq!(g.tests[2].hypothesis.label, "Intercept");
+    assert_eq!(
+        g.tests[2].error,
+        GlmTestError::Combination {
+            terms: vec![(-1.0, term("a"))],
+            df: None
+        }
+    );
+    let err = |text: &str| match parse(text).1.first() {
+        Some(e) => e.message.clone(),
+        None => String::new(),
+    };
+    assert!(
+        err("UNIANOVA y BY a /TEST=a b.").contains("VS")
+            || err("UNIANOVA y BY a /TEST=a b.").contains("unexpected")
+    );
+    assert!(
+        parse("UNIANOVA y BY a /TEST=a VS 4.5.").1[0]
+            .expected
+            .contains(&"DF(df)".to_string())
+    );
+    assert!(err("UNIANOVA y BY a /TEST=a VS b DF(0).").contains("positive"));
+}
