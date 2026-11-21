@@ -8,11 +8,10 @@ use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 
-const FILE_SUBCOMMANDS: [&str; 7] = [
+const FILE_SUBCOMMANDS: [&str; 6] = [
     "KEEP",
     "DROP",
     "RENAME",
-    "MAP",
     "NAMES",
     "PERMISSIONS",
     "UNSELECTED",
@@ -39,6 +38,8 @@ pub(crate) fn file_option(p: &mut Parser) -> PResult<Option<FileOption>> {
     } else if p.eat_keyword("RENAME") {
         p.eat(Punct::Eq);
         FileOption::Rename(crate::files::renames(p)?)
+    } else if p.eat_keyword("MAP") {
+        FileOption::Map
     } else {
         return Ok(None);
     }))

@@ -510,8 +510,23 @@ fn get_file() {
     let error = err("GET FILE=1.");
     assert_eq!(error.expected, ["a quoted file path or a file handle"]);
     assert_eq!(err("GET.").expected, ["FILE"]);
-    let error = err("GET FILE='a.sav' /MAP.");
-    assert_eq!(error.message, "subcommand MAP of GET is not supported yet");
+    assert_eq!(
+        one("GET FILE='a.sav' /KEEP=a /MAP /RENAME=(a=b) /MAP."),
+        Command::Get {
+            file: "a.sav".into(),
+            options: vec![
+                FileOption::Keep(vec![VarItem::Name("a".into())]),
+                FileOption::Map,
+                FileOption::Rename(vec![(
+                    vec![VarItem::Name("a".into())],
+                    vec![VarItem::Name("b".into())]
+                )]),
+                FileOption::Map,
+            ],
+        }
+    );
+    let error = err("GET FILE='a.sav' /FAST.");
+    assert_eq!(error.message, "unknown subcommand FAST of GET");
     assert_eq!(at(&error), (1, 19));
     assert_eq!(
         err("GET FILE='a.sav' extra.").expected,
@@ -540,10 +555,10 @@ fn save_outfile() {
         expected("o.zsav", Some(Compression::ZCompressed))
     );
 
-    assert_eq!(
-        err("SAVE OUTFILE='a.sav' /MAP.").message,
-        "subcommand MAP of SAVE is not supported yet"
-    );
+    let Command::Save { options, .. } = one("SAVE OUTFILE='a.sav' /MAP /MAP.") else {
+        panic!()
+    };
+    assert_eq!(options, [FileOption::Map, FileOption::Map]);
     assert_eq!(
         err("SAVE OUTFILE='a.sav' /FAST.").message,
         "unknown subcommand FAST of SAVE"

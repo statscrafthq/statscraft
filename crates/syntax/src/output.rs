@@ -692,10 +692,11 @@ pub(crate) fn xsave(p: &mut Parser) -> PResult<Command> {
         if p.eat_keyword("OUTFILE") {
             p.eat(Punct::Eq);
             outfile = Some(p.file("a quoted file path or a file handle")?);
+        } else if p.eat_keyword("MAP") {
+            // XSAVE keeps its own flag, since it writes the file in the data pass
+            xsave.map = true;
         } else if let Some(option) = file_option(p)? {
             xsave.options.push(option);
-        } else if p.eat_keyword("MAP") {
-            xsave.map = true;
         } else if p.eat_keyword("COMPRESSED") {
             xsave.compression = Some(Compression::Compressed);
         } else if p.eat_keyword("UNCOMPRESSED") {

@@ -521,8 +521,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "GET",
         summary: "Read a data file and make it the active dataset.",
-        syntax: "GET FILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...].\n\
-                 KEEP, DROP and RENAME work in the order written, as in ADD FILES.",
+        syntax: "GET FILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...] [/MAP].\n\
+                 KEEP, DROP and RENAME work in the order written, as in ADD FILES. MAP lists the variables as the\n\
+                 options before it leave them, each with its name in the file; it may come as often as you like.",
         example: "GET FILE='survey.sav'.",
         parse: commands::get,
     },
@@ -530,8 +531,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "SAVE",
         summary: "Write the active dataset to a data file.",
         syntax: "SAVE OUTFILE='path' | handle [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/KEEP=varlist] [/DROP=varlist]\n\
-                 \x20    [/RENAME=(old = new) ...].\n\
-                 KEEP, DROP and RENAME shape the saved file only; the active dataset stays as it is.\n\
+                 \x20    [/RENAME=(old = new) ...] [/MAP].\n\
+                 KEEP, DROP and RENAME shape the saved file only; the active dataset stays as it is. MAP lists the\n\
+                 variables of the file as the options before it leave them, each with its name in the active\n\
+                 dataset; it may come as often as you like.\n\
                  COMPRESSED compresses case by case, ZCOMPRESSED in zlib blocks, UNCOMPRESSED not at all;\n\
                  without one a file named .zsav gets zlib blocks and any other the case by case form.",
         example: "SAVE OUTFILE='survey_clean.sav' /COMPRESSED.",

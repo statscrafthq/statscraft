@@ -1148,13 +1148,18 @@ impl Engine {
         match command {
             Command::Get { file, options } => {
                 let path = self.path(file);
-                let mut data = self.file_options(Dataset::read_sav(&path)?, options, false)?;
+                let read = Dataset::read_sav(&path)?;
+                // /MAP: the names in the file next to those the options leave
+                let names: Vec<String> = read.variable_names().map(str::to_string).collect();
+                let maps = self.map_tables(&read, &names, options, false, None)?;
+                let mut data = self.file_options(read, options, false)?;
                 data.set_file(Some(std::path::absolute(&path).unwrap_or(path)));
                 self.park_active();
                 self.dataset = Some(data);
                 self.scratch_assigned.clear();
                 self.temporary = None;
                 self.case_limit = None;
+                return Ok(maps);
             }
             Command::Save {
                 outfile,
@@ -1162,7 +1167,12 @@ impl Engine {
                 options,
             } => {
                 self.begin_pass()?;
-                let data = self.file_options(self.active()?.clone(), options, false)?;
+                let active = self.active()?.clone();
+                // /MAP: the names in the file next to those in the active dataset
+                let names: Vec<String> = active.variable_names().map(str::to_string).collect();
+                let same = |names: Vec<&str>| names.into_iter().map(str::to_string).collect();
+                let maps = self.map_tables(&active, &names, options, false, Some(&same))?;
+                let data = self.file_options(active, options, false)?;
                 if !self.dry_run {
                     let path = self.path(outfile);
                     data.write_sav_as(&path, sav_compression(*compression))?;
@@ -1171,6 +1181,7 @@ impl Engine {
                 }
                 let before = self.dataset.clone();
                 self.end_pass(before.as_ref());
+                return Ok(maps);
             }
             Command::Export(command) => return self.export_portable(command),
             Command::Import(command) => return self.import_portable(command),

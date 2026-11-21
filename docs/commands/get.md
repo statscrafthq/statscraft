@@ -7,10 +7,10 @@ Read a data file and make it the active dataset.
 ## Syntax
 
 ```text
-GET FILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...].
+GET FILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...] [/MAP].
 ```
 
-KEEP, DROP and RENAME work in the order written, as in ADD FILES.
+KEEP, DROP and RENAME work in the order written, as in ADD FILES. MAP lists the variables as the options before it leave them, each with its name in the file; it may come as often as you like.
 
 ## Example
 

@@ -40,6 +40,7 @@ mod engine;
 mod examine;
 mod factor;
 mod file_handle;
+mod file_map;
 mod frequencies;
 mod genlin;
 mod genlinmixed;
