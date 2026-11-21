@@ -1286,12 +1286,6 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
             let factor = p.name("a factor")?;
             p.expect(Punct::RParen)?;
             p.expect(Punct::Eq)?;
-            if p.at_keyword("SPECIAL") {
-                return Err(SyntaxError::new(
-                    p.span(),
-                    "SPECIAL in CONTRAST is not supported yet; LMATRIX tests any contrast",
-                ));
-            }
             let kind = contrast(p, false)?;
             command
                 .contrasts

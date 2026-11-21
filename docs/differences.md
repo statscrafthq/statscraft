@@ -816,6 +816,7 @@ Choices where the documentation says nothing, and where it is not followed:
 
 ### UNIANOVA and GLM
 
+- CONTRAST(factor)=SPECIAL(matrix) reads the values column by column, as the manual's example does: for three levels `SPECIAL(1 1 1 1 -1 0 0 1 -1)` is the matrix with the constant first and the contrasts (1 -1 0) and (0 1 -1). The first column is not used, and the k - 1 contrast columns alone also work. COXREG and LOGISTIC REGRESSION read their SPECIAL matrix by rows, as their manual pages say.
 - A frequency weight is rounded to a whole number, as documented (GNU PSPP uses fractional weights as they are).
 - An interaction with empty cells has as many degrees of freedom as its parameters that are not redundant (GNU PSPP counts every cell, filled or not).
 - The Tests of Between-Subjects Effects show the Intercept.

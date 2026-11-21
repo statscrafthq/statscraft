@@ -306,8 +306,8 @@ fn glm_errors() {
             "a within-subjects factor has a whole number of at least 2 levels, got 1",
         ),
         (
-            "UNIANOVA y BY a /CONTRAST(a)=SPECIAL(1 -1).",
-            "SPECIAL in CONTRAST is not supported yet; LMATRIX tests any contrast",
+            "UNIANOVA y BY a /CONTRAST(a)=SPECIAL.",
+            "unexpected end of command",
         ),
         (
             "GLM y1 y2 BY a /PRINT=TEST(LMATRIX).",
@@ -541,4 +541,18 @@ fn logistic_select_reads_all_or_a_condition() {
     assert_eq!(select(" s GT 3"), expected(SelectRelation::Gt, 3.0));
     assert_eq!(select(" s GE 3"), expected(SelectRelation::Ge, 3.0));
     assert!(SelectRelation::Le.holds(2.0, 2.0) && !SelectRelation::Lt.holds(2.0, 2.0));
+}
+
+#[test]
+fn contrast_special_takes_the_matrix_in_column_major_order() {
+    let Command::Glm(g) = one("UNIANOVA y BY a /CONTRAST(a)=SPECIAL(1 1 1 1 -1 0 0 1 -1).") else {
+        panic!()
+    };
+    assert_eq!(
+        g.contrasts,
+        [(
+            "a".to_string(),
+            Contrast::Special(vec![1.0, 1.0, 1.0, 1.0, -1.0, 0.0, 0.0, 1.0, -1.0])
+        )]
+    );
 }

@@ -1102,3 +1102,59 @@ UNIANOVA y BY a b /DESIGN=a b a*b /EMMEANS=TABLES(a*b) COMPARE(a).",
         2.0
     );
 }
+
+fn contrast_numbers(syntax: &str) -> Vec<f64> {
+    let mut engine = Engine::default();
+    let tables = run(&mut engine, &format!("{DATA}\n{syntax}"));
+    let table = tables
+        .iter()
+        .find(|t| t.title == "Contrast Results (K Matrix)")
+        .expect("a contrast table");
+    table
+        .rows
+        .iter()
+        .flatten()
+        .filter_map(|c| match c {
+            Cell::Number(n) => Some(*n),
+            _ => None,
+        })
+        .collect()
+}
+
+// The manual's example: SPECIAL(1 1 1 1 -1 0 0 1 -1) is the matrix with the constant first and the
+// contrasts (1 -1 0) and (0 1 -1) after it, which are the REPEATED contrasts; 2 -1 -1 is the
+// LMATRIX contrast a 2 -1 -1.
+#[test]
+fn contrast_special_is_the_matrix_read_column_by_column() {
+    let repeated = contrast_numbers("UNIANOVA y BY a /CONTRAST(a)=REPEATED.");
+    let special = contrast_numbers("UNIANOVA y BY a /CONTRAST(a)=SPECIAL(1 1 1 1 -1 0 0 1 -1).");
+    assert!(!repeated.is_empty());
+    assert_eq!(repeated.len(), special.len());
+    for (a, b) in repeated.iter().zip(&special) {
+        assert!((a - b).abs() < 1e-9 * a.abs().max(1.0), "{a} vs {b}");
+    }
+    // a contrast of 2 -1 -1 against the mean as the first row: estimate = 2 m1 - m2 - m3
+    let own = contrast_numbers("UNIANOVA y BY a /CONTRAST(a)=SPECIAL(1 1 1 2 -1 -1 0 1 -1).");
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{DATA}\nUNIANOVA y BY a /LMATRIX=\"c\" a 2 -1 -1."),
+    );
+    let estimate = tables
+        .iter()
+        .flat_map(|t| t.rows.iter().flatten())
+        .find_map(|c| match c {
+            Cell::Number(n) if (*n - own[0]).abs() < 1e-9 => Some(*n),
+            _ => None,
+        });
+    assert!(
+        estimate.is_some(),
+        "the LMATRIX contrast estimate {} is not in its tables",
+        own[0]
+    );
+    // the wrong number of values names what is accepted
+    let error = run_error(&format!(
+        "{DATA}\nUNIANOVA y BY a /CONTRAST(a)=SPECIAL(1 1 1 1)."
+    ));
+    assert!(error.contains("SPECIAL has 4 values"), "{error}");
+}

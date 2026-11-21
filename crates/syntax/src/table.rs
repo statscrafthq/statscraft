@@ -121,7 +121,7 @@ macro_rules! glm_syntax {
                  \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
                  \x20            [COMPARE[(factor)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
                  \x20  [/POSTHOC=factor ... (tests)] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
-                 \x20  DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)]] ...\n\
+                 \x20  DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)] | SPECIAL(matrix)] ...\n\
                  \x20  [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ...\n\
                  \x20  [/MMATRIX=['label'] dependent value ... | ALL values [; ...]] (GLM) [/KMATRIX=values [; ...]]\n\
                  \x20  [/SAVE=tempvar[(name)] ...] [/DESIGN=effects]\n\
@@ -156,7 +156,9 @@ macro_rules! glm_syntax {
                  the error. A custom test L B M = K takes L from LMATRIX (or the intercept's test when only\n\
                  MMATRIX or KMATRIX is given), M from MMATRIX (the identity by default; columns end with ';' and\n\
                  are named by their label or T1, T2, ...) and K from KMATRIX (rows end with ';', zero by default);\n\
-                 CONTRAST always uses the identity. Each test gives Contrast Results (K Matrix), Multivariate\n\
+                 CONTRAST always uses the identity; SPECIAL(matrix) takes the k x k matrix of a factor with k levels\n\
+                 column by column, the first column the constant and the others one contrast each (the contrasts\n\
+                 alone, k - 1 columns, also work), without fractions. Each test gives Contrast Results (K Matrix), Multivariate\n\
                  Test Results and Univariate Test Results; TEST(MMATRIX) shows M. EMMEANS, POSTHOC, PLOT and SAVE\n\
                  work on each dependent in turn (SAVE without names).\n\
                  PLOT gives chart data. PROFILE draws the estimated marginal means as a line chart (bars with\n\
@@ -167,7 +169,7 @@ macro_rules! glm_syntax {
                  cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
                  gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT\n\
                  is ignored with a warning. Not supported yet: RANDOM, TEST,\n\
-                 ROBUST, OUTFILE, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF, TEST(LMATRIX), MBP, BP, F and\n\
+                 ROBUST, OUTFILE, MEASURE, POSTHOC VS, PRINT GEF, TEST(LMATRIX), MBP, BP, F and\n\
                  WHITE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
                  EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE and PRINT\n\
                  PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).")
