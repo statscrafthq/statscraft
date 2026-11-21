@@ -280,6 +280,7 @@ One page per supported command, generated from the same table that the parser an
 | [RESTORE](restore.md) | Bring back the settings and folder the last PRESERVE stored. |
 | [CACHE](cache.md) | Accepted and has nothing to do: the data are always kept in memory. |
 | [CD](cd.md) | Change the folder relative file names start from. |
+| [PROCEDURE OUTPUT](procedure-output.md) | Name the file the next procedures write their results to. |
 | [FILE HANDLE](file-handle.md) | Give a file or a folder a short name to use in place of its path. |
 | [DATASET NAME](dataset-name.md) | Give the active dataset a name, so that it stays open when another one becomes active. |
 | [DATASET ACTIVATE](dataset-activate.md) | Make a named dataset the active one. |

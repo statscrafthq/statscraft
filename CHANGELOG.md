@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- CROSSTABS /WRITE=CELLS or ALL writes one record per cell (group, table number, count, values) to the file named by the new PROCEDURE OUTPUT OUTFILE='file' command, after an Output File Summary table; ALL (every cell of the ranges, empty ones too) is for integer mode. CROSSTABS /FORMAT now reads BOX, NOBOX, INDEX, NOINDEX, PIVOT and NOPIVOT, which change nothing, with one warning, instead of refusing the command.
+
 ## 0.21.0 (2026-11-21)
 
 - Window: the new choices are in the dialogs. One-Way ANOVA has Contrasts with a polynomial trend (linear up to 5th degree) and Fixed and random effects under Options; Reliability Analysis has the Omega model; Descriptives has a display order (variable list, alphabetic, ascending or descending means); Logistic Regression has a selection variable with a rule (equal to, not equal to, less than and so on). The ranges tests of ONEWAY stay syntax only, as Post hoc comparisons already run them.

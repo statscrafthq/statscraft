@@ -13,7 +13,8 @@ use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{
-    Crosstabs, CrosstabsCell as C, CrosstabsMeasure, CrosstabsMethod, VarItem, WeightCount,
+    Crosstabs, CrosstabsCell as C, CrosstabsMeasure, CrosstabsMethod, CrosstabsWrite, VarItem,
+    WeightCount,
 };
 use std::cmp::Ordering;
 
@@ -484,7 +485,14 @@ fn bar_chart(
 }
 
 /// The tables of one crosstabulation, its chart, and its row of the Case Processing Summary.
-type Crosstab = (Vec<Table>, Option<Chart>, Vec<Cell>);
+/// The tables, the chart and the Case Processing Summary row of one table, and what /WRITE puts
+/// in the file for it: a frequency and the fields of the variable values, one per cell.
+type Crosstab = (
+    Vec<Table>,
+    Option<Chart>,
+    Vec<Cell>,
+    Vec<(i64, Vec<String>)>,
+);
 
 /// The tables of one combination of variables (rows, columns, then layers), its chart, and its
 /// row of the Case Processing Summary. `ranges` holds the range of every variable in integer
@@ -792,7 +800,104 @@ fn tables(
     }
     let chart = (command.barchart && !blocks.is_empty())
         .then(|| bar_chart(&blocks, &variables, shown, (title, command.descending)));
-    Ok((out, chart, summary))
+    let records = match command.write {
+        Some(write) => write_records(write, shown_blocks, &variables, ranges),
+        None => Vec::new(),
+    };
+    Ok((out, chart, summary, records))
+}
+
+/// A value as /WRITE puts it in an 8-column field: a whole number in integer mode, else as the
+/// variable prints it, numbers to the right and text to the left.
+fn write_field(variable: &Variable, key: &Key, integer: bool) -> String {
+    let text = match key {
+        Key::Number(x) if integer => format!("{}", *x as i64),
+        Key::Number(x) => crate::format::format_value(*x, variable.format(), false),
+        Key::Text(t) => t.trim_end().to_string(),
+    };
+    let text: String = text.chars().take(8).collect();
+    match key {
+        Key::Text(_) => format!("{text:<8}"),
+        Key::Number(_) => format!("{text:>8}"),
+    }
+}
+
+/// The cell records of a table for /WRITE: layers with the last control variable changing
+/// slowest, and inside a layer one column after the other. CELLS leaves out the empty cells;
+/// ALL (integer mode) writes every cell of every combination of the ranges.
+fn write_records(
+    write: CrosstabsWrite,
+    blocks: &[Block],
+    variables: &[Variable],
+    ranges: &[(String, f64, f64)],
+) -> Vec<(i64, Vec<String>)> {
+    let integer = !ranges.is_empty();
+    let layers = &variables[2..];
+    let mut records = Vec::new();
+    let mut emit = |block: &Block, layer: &[Key]| {
+        for (j, column) in block.columns.iter().enumerate() {
+            for (i, row) in block.rows.iter().enumerate() {
+                let count = block.counts[i][j];
+                if write == CrosstabsWrite::Cells && count <= 0.0 {
+                    continue;
+                }
+                let mut fields = vec![
+                    write_field(&variables[0], row, integer),
+                    write_field(&variables[1], column, integer),
+                ];
+                for (v, key) in layers.iter().zip(layer) {
+                    fields.push(write_field(v, key, integer));
+                }
+                records.push((count.round() as i64, fields));
+            }
+        }
+    };
+    match write {
+        CrosstabsWrite::Cells => {
+            for block in blocks {
+                emit(block, &block.layer);
+            }
+        }
+        CrosstabsWrite::All => {
+            // every combination of the layer ranges, the last variable outermost
+            let mut combinations: Vec<Vec<Key>> = vec![Vec::new()];
+            for v in layers.iter().rev() {
+                let (low, high) = ranges
+                    .iter()
+                    .find(|(name, ..)| name == v.name())
+                    .map_or((0.0, -1.0), |&(_, low, high)| (low, high));
+                combinations = combinations
+                    .into_iter()
+                    .flat_map(|prefix| {
+                        ((low as i64)..=(high as i64)).map(move |x| {
+                            let mut next = prefix.clone();
+                            next.push(Key::Number(x as f64));
+                            next
+                        })
+                    })
+                    .collect();
+            }
+            // the keys were collected outermost first; a layer lists its variables in order
+            for mut layer in combinations {
+                layer.reverse();
+                match blocks.iter().find(|b| b.layer == layer) {
+                    Some(block) => emit(block, &layer),
+                    None => {
+                        // a combination no case has: the cells of the first block, all empty
+                        if let Some(first) = blocks.first() {
+                            let empty = Block::two_way(
+                                first.rows.clone(),
+                                first.columns.clone(),
+                                vec![vec![0.0; first.columns.len()]; first.rows.len()],
+                            );
+                            emit(&empty, &layer);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    records
 }
 
 /// The CMH tables: the layers are the strata, each a 2 x 2 table over the two values the row
@@ -1338,6 +1443,18 @@ impl Engine {
         let mut charts = Vec::new();
         let mut summary = Vec::new();
         let mut warnings = Vec::new();
+        // /WRITE: where the records go, and the records of every table so far
+        let target = match command.write {
+            Some(_) => Some(self.procedure_output.clone().ok_or_else(|| {
+                Error(
+                    "CROSSTABS /WRITE needs the file named on a PROCEDURE OUTPUT command before it"
+                        .into(),
+                )
+            })?),
+            None => None,
+        };
+        let mut written: Vec<String> = Vec::new();
+        let mut table_number = 0;
         // integer mode: every variable of VARIABLES with its range, a later range replacing an
         // earlier one
         let mut ranges: Vec<(String, f64, f64)> = Vec::new();
@@ -1377,7 +1494,26 @@ impl Engine {
                     .collect();
             }
             for names in combinations {
-                let (tables, chart, row) = tables(
+                if command.write.is_some() {
+                    if names.len() > 8 {
+                        return Err(Error(
+                            "CROSSTABS /WRITE does not take a table of more than eight dimensions"
+                                .into(),
+                        ));
+                    }
+                    if let Some(long) = names
+                        .iter()
+                        .filter_map(|n| data.variable(n).ok())
+                        .find(|v| v.string_width().is_some_and(|w| w > 8))
+                    {
+                        return Err(Error(format!(
+                            "CROSSTABS /WRITE does not take a long string variable, and {} is one",
+                            long.name()
+                        )));
+                    }
+                }
+                table_number += 1;
+                let (tables, chart, row, records) = tables(
                     data,
                     &names,
                     command,
@@ -1388,10 +1524,64 @@ impl Engine {
                 out.extend(tables);
                 charts.extend(chart);
                 summary.push(row);
+                for (count, fields) in records {
+                    written.push(format!(
+                        "{:4}{:4}{:8}{}",
+                        self.group_number.max(1),
+                        table_number,
+                        count,
+                        fields.concat()
+                    ));
+                }
             }
+        }
+        let mut file_summary = None;
+        if let Some(path) = target {
+            // a split file writes every group to the same file: the first truncates, later ones add
+            let append = self.group_number > 1;
+            let text: String = written.iter().map(|line| format!("{line}\n")).collect();
+            if !self.dry_run {
+                use std::io::Write;
+                let opened = std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .append(append)
+                    .truncate(!append)
+                    .open(&path)
+                    .and_then(|mut f| f.write_all(text.as_bytes()));
+                opened.map_err(|e| {
+                    Error(format!(
+                        "CROSSTABS /WRITE: cannot write {}: {e}",
+                        path.display()
+                    ))
+                })?;
+            }
+            file_summary = Some(Table {
+                title: "Output File Summary".into(),
+                row_headers: 1,
+                columns: vec![String::new(), "Value".into()],
+                column_groups: vec![Vec::new(); 2],
+                rows: vec![
+                    vec![
+                        Cell::Text("File Name".into()),
+                        Cell::Text(path.display().to_string()),
+                    ],
+                    vec![
+                        Cell::Text("Records".into()),
+                        Cell::Number(written.len() as f64),
+                    ],
+                ],
+                ..Table::default()
+            });
         }
         self.charts.extend(charts);
         self.warnings.extend(warnings);
+        if !command.layout_words.is_empty() {
+            self.warn(format!(
+                "FORMAT {} only shaped the old text listing and changes nothing here",
+                command.layout_words.join(" ")
+            ));
+        }
         let mut columns = vec![String::new()];
         let mut column_groups = vec![Vec::new()];
         for group in ["Valid", "Missing", "Total"] {
@@ -1411,6 +1601,10 @@ impl Engine {
                 ..Table::default()
             },
         );
+        // the Output File Summary comes before all other tables
+        if let Some(table) = file_summary {
+            out.insert(0, table);
+        }
         Ok(out)
     }
 }

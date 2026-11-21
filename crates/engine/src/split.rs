@@ -362,7 +362,8 @@ impl Engine {
         let mut ran: Vec<bool> = Vec::new();
         // the warnings of each group, with the group's name
         let (mut given, mut errors) = (Vec::new(), Vec::new());
-        for group in &groups {
+        for (number, group) in groups.iter().enumerate() {
+            self.group_number = number + 1;
             let mut part = full.clone();
             let cases: Vec<Option<usize>> = group.cases.iter().map(|&c| Some(c)).collect();
             part.take_cases(&cases)?;
@@ -424,6 +425,7 @@ impl Engine {
         }
         self.case_numbers = None;
         self.split_group = None;
+        self.group_number = 0;
         self.warnings = earlier;
         self.warnings.extend(group_warnings(given));
         if results.is_empty() && !errors.is_empty() {

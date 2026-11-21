@@ -1210,6 +1210,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE | REPORT]\n\
                  \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
                  \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART]\n\
+                 \x20         [/WRITE[=NONE | CELLS | ALL]]\n\
                  \x20         [/METHOD=MC [CIN(99)] [SAMPLES(10000)] | EXACT [TIMER(5)]].\n\
                  First a Case Processing Summary: per table the valid, missing and total cases (weighted).\n\
                  One table per pair of row and column variable; layer variables split it into blocks.\n\
@@ -1237,6 +1238,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.\n\
                  BARCHART adds a clustered bar chart per table: a cluster per row category, a bar per column\n\
                  category, the counts of the table summed over its layers.\n\
+                 WRITE puts one record per cell in the file named by the PROCEDURE OUTPUT before the command, after\n\
+                 an Output File Summary table: split-file group (from 1), table number and count as whole numbers\n\
+                 in columns 1-16, then the row, column and control values in 8-column fields (whole numbers in\n\
+                 integer mode, else as the variable prints, text to the left), a column of the table at a time,\n\
+                 the last control variable changing slowest. CELLS (also a bare WRITE) writes the non-empty cells\n\
+                 without a missing value, or with them under MISSING=INCLUDE or REPORT; ALL (integer mode only)\n\
+                 every cell of the ranges. A long string variable or more than eight dimensions is an error.\n\
+                 FORMAT also reads BOX NOBOX INDEX NOINDEX PIVOT NOPIVOT, which shaped the old text listing and\n\
+                 change nothing, with one warning.\n\
                  VARIABLES switches to integer mode: a range follows each list (it covers the whole list) and\n\
                  values are cut to whole numbers. Rows and columns are every value of the range, with or\n\
                  without cases; a value outside it makes the case missing. The statistics use the values\n\
@@ -5094,7 +5104,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  any TABLES variable (a missing status only affects its own time variable); INCLUDE keeps\n\
                  user-missing values. PLOTS draws, per time variable, first order control and second order\n\
                  value, the survival function, its log, the hazard, the density or one minus survival, the\n\
-                 groups as lines. Not supported yet: WRITE=TABLES and BOTH, which need PROCEDURE OUTPUT.",
+                 groups as lines. Not supported yet: WRITE=TABLES and BOTH (only CROSSTABS writes through PROCEDURE OUTPUT so far).",
         example: "SURVIVAL TABLES=weeks BY plan(1,3) /INTERVAL=THRU 30 BY 5 /STATUS=outcome(1) /COMPARE /CALCULATE=PAIRWISE /PLOTS(SURVIVAL,HAZARD).",
         parse: survival::survival,
     },
@@ -5796,6 +5806,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "CACHE.",
         example: "CACHE.",
         parse: session_commands::cache,
+    },
+    CommandSpec {
+        name: "PROCEDURE OUTPUT",
+        summary: "Name the file the next procedures write their results to.",
+        syntax: "PROCEDURE OUTPUT OUTFILE='file' | handle.\n\
+                 CROSSTABS /WRITE puts its cell counts in this file. The file stays in effect, for every\n\
+                 procedure that asks for it, until another PROCEDURE OUTPUT replaces it. A relative name starts\n\
+                 from the current folder (CD).",
+        example: "PROCEDURE OUTPUT OUTFILE='cells.txt'.",
+        parse: session_commands::procedure_output,
     },
     CommandSpec {
         name: "CD",

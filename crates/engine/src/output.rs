@@ -162,6 +162,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Preserve(_)
         | Command::Restore(_)
         | Command::Cd(_)
+        | Command::ProcedureOutput(_)
         | Command::FileHandle { .. }
         | Command::Define(_)
         | Command::Insert { .. }

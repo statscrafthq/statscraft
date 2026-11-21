@@ -13,6 +13,7 @@ CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]
           [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE | REPORT]
           [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]
           [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART]
+          [/WRITE[=NONE | CELLS | ALL]]
           [/METHOD=MC [CIN(99)] [SAMPLES(10000)] | EXACT [TIMER(5)]].
 ```
 
@@ -35,6 +36,10 @@ PHI (phi and Cramer's V), CC (contingency coefficient), BTAU, CTAU (Kendall's ta
 MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.
 
 BARCHART adds a clustered bar chart per table: a cluster per row category, a bar per column category, the counts of the table summed over its layers.
+
+WRITE puts one record per cell in the file named by the PROCEDURE OUTPUT before the command, after an Output File Summary table: split-file group (from 1), table number and count as whole numbers in columns 1-16, then the row, column and control values in 8-column fields (whole numbers in integer mode, else as the variable prints, text to the left), a column of the table at a time, the last control variable changing slowest. CELLS (also a bare WRITE) writes the non-empty cells without a missing value, or with them under MISSING=INCLUDE or REPORT; ALL (integer mode only) every cell of the ranges. A long string variable or more than eight dimensions is an error.
+
+FORMAT also reads BOX NOBOX INDEX NOINDEX PIVOT NOPIVOT, which shaped the old text listing and change nothing, with one warning.
 
 VARIABLES switches to integer mode: a range follows each list (it covers the whole list) and values are cut to whole numbers. Rows and columns are every value of the range, with or without cases; a value outside it makes the case missing. The statistics use the values that occur. TABLES then names only variables of VARIABLES, and TO and ALL follow their order there.
 

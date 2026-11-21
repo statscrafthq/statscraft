@@ -210,6 +210,9 @@ pub enum Command {
     Cache,
     /// `CD 'folder'`
     Cd(String),
+    /// `PROCEDURE OUTPUT OUTFILE='file'`: where the next procedures that write their results
+    /// (CROSSTABS /WRITE) put them.
+    ProcedureOutput(String),
     /// `FILE HANDLE name /NAME='path'`. `ignored` names the subcommands that have no effect.
     FileHandle {
         name: String,
@@ -1006,6 +1009,20 @@ pub struct Crosstabs {
     pub report: bool,
     /// `/METHOD`: exact or Monte Carlo significance next to the asymptotic one.
     pub method: Option<CrosstabsMethod>,
+    /// `/WRITE`: the cell counts go to the file of the PROCEDURE OUTPUT before the command.
+    pub write: Option<CrosstabsWrite>,
+    /// The words of `/FORMAT` that only shaped the text listing (BOX, NOBOX, INDEX, NOINDEX,
+    /// PIVOT, NOPIVOT), kept so the engine can say they change nothing.
+    pub layout_words: Vec<String>,
+}
+
+/// CROSSTABS /WRITE.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrosstabsWrite {
+    /// The non-empty cells without a missing value (a bare `/WRITE` means this).
+    Cells,
+    /// Every cell of the ranges, empty ones too; integer mode only.
+    All,
 }
 
 /// CROSSTABS /METHOD.

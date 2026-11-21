@@ -22,6 +22,7 @@ mod conjoint;
 mod correspondence;
 mod coxreg;
 mod crosstabs_exact;
+mod crosstabs_write;
 mod cs_cox;
 mod cs_pps;
 mod cs_regression;

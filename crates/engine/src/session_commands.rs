@@ -526,6 +526,10 @@ impl Engine {
                 }
             }
             Command::Cd(folder) => self.cd(folder)?,
+            Command::ProcedureOutput(file) => {
+                let path = self.path(file);
+                self.procedure_output = Some(std::path::absolute(&path).unwrap_or(path));
+            }
             Command::FileHandle {
                 name,
                 path,

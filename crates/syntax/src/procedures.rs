@@ -1,7 +1,7 @@
 //! Parsers of the statistical procedures DESCRIPTIVES and CROSSTABS.
 
 use crate::ast::{
-    Command, Crosstabs, CrosstabsCell, CrosstabsMethod, DescriptiveSort,
+    Command, Crosstabs, CrosstabsCell, CrosstabsMethod, CrosstabsWrite, DescriptiveSort,
     DescriptiveStatistic as Stat, Descriptives, VarItem, WeightCount,
 };
 use crate::error::SyntaxError;
@@ -42,7 +42,7 @@ const STATISTICS: [(&str, &[Stat]); 14] = [
     ),
 ];
 
-const CROSSTABS_SUBCOMMANDS: [&str; 2] = ["WRITE", "EXACT"];
+const CROSSTABS_SUBCOMMANDS: [&str; 1] = ["EXACT"];
 
 const CELLS: [(&str, &[CrosstabsCell]); 10] = [
     ("COUNT", &[CrosstabsCell::Count]),
@@ -71,7 +71,8 @@ const CELLS: [(&str, &[CrosstabsCell]); 10] = [
 
 const UNSUPPORTED_CELLS: [&str; 3] = ["BPROP", "PROP", "SUMMARY"];
 
-const UNSUPPORTED_FORMATS: [&str; 6] = ["PIVOT", "NOPIVOT", "BOX", "NOBOX", "INDEX", "NOINDEX"];
+/// The words of /FORMAT that shaped the old text listing; they are read and change nothing.
+const LAYOUT_FORMATS: [&str; 6] = ["PIVOT", "NOPIVOT", "BOX", "NOBOX", "INDEX", "NOINDEX"];
 
 /// Error at a keyword of a subcommand: "not supported yet" for one of `unsupported`, otherwise
 /// "unexpected" with the supported keywords as the expected ones.
@@ -368,6 +369,8 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         ranges: Vec::new(),
         report: false,
         method: None,
+        write: None,
+        layout_words: Vec::new(),
     };
     let mut cells: Option<Vec<CrosstabsCell>> = None;
     let mut no_tables = false;
@@ -553,25 +556,40 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("FORMAT") {
             p.eat(Punct::Eq);
             // the order of the rows, and TABLES (the default) or NOTABLES, the same as CELLS=NONE
-            const CHOICES: [(&str, &[u8]); 4] = [
+            const CHOICES: [(&str, &[u8]); 10] = [
                 ("AVALUE", &[0]),
                 ("DVALUE", &[1]),
                 ("TABLES", &[2]),
                 ("NOTABLES", &[3]),
+                ("PIVOT", &[4]),
+                ("NOPIVOT", &[5]),
+                ("BOX", &[6]),
+                ("NOBOX", &[7]),
+                ("INDEX", &[8]),
+                ("NOINDEX", &[9]),
             ];
-            let chosen = keywords(p, &CHOICES, |p| {
-                keyword_error(
-                    p,
-                    "CROSSTABS /FORMAT",
-                    &UNSUPPORTED_FORMATS,
-                    &names(&CHOICES),
-                )
-            })?;
+            let chosen = keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)[..4]))?;
+            for &choice in chosen.iter().filter(|&&c| c >= 4) {
+                command
+                    .layout_words
+                    .push(LAYOUT_FORMATS[usize::from(choice) - 4].to_string());
+            }
             let last = |pair: [u8; 2]| chosen.iter().rfind(|c| pair.contains(*c)).copied();
             command.descending = last([0, 1]).map_or(command.descending, |c| c == 1);
             no_tables = last([2, 3]).map_or(no_tables, |c| c == 3);
         } else if p.eat_keyword("BARCHART") {
             command.barchart = true;
+        } else if p.eat_keyword("WRITE") {
+            p.eat(Punct::Eq);
+            command.write = if p.eat_keyword("NONE") {
+                None
+            } else if p.eat_keyword("ALL") {
+                Some(CrosstabsWrite::All)
+            } else if at_end(p) || p.eat_keyword("CELLS") {
+                Some(CrosstabsWrite::Cells)
+            } else {
+                return Err(p.unexpected(&["NONE", "CELLS", "ALL"]));
+            };
         } else if p.eat_keyword("METHOD") {
             p.eat(Punct::Eq);
             command.method = Some(crosstabs_method(p)?);
@@ -583,6 +601,10 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
     p.finish(&["'/'"])?;
     if command.tables.is_empty() {
         return Err(p.unexpected(&["TABLES=rows BY columns"]));
+    }
+    if command.write == Some(CrosstabsWrite::All) && command.ranges.is_empty() {
+        let message = "WRITE=ALL works only in integer mode, after VARIABLES with value ranges";
+        return Err(SyntaxError::new(p.span_from(0), message));
     }
     if command.report && command.ranges.is_empty() {
         let message =

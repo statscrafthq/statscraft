@@ -26,7 +26,7 @@
 //!   the same shape as PLOTS. CALCULATE takes EXACT, CONDITIONAL or APPROXIMATE (of several the
 //!   strongest in that reverse order counts), PAIRWISE and COMPARE. MISSING takes GROUPWISE or
 //!   LISTWISE and INCLUDE. WRITE takes NONE, TABLES or BOTH; alone it means TABLES. Only NONE
-//!   is supported: the others write through PROCEDURE OUTPUT, which Statscraft lacks.
+//!   is supported: the others write through PROCEDURE OUTPUT, which only CROSSTABS /WRITE uses so far.
 
 use crate::ast::{Command, MissingValue, VarItem};
 use crate::error::SyntaxError;
@@ -605,11 +605,11 @@ pub(crate) fn survival(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("WRITE") {
             p.eat(Punct::Eq);
             if !p.eat_keyword("NONE") {
-                // shortcut: writing the tables needs PROCEDURE OUTPUT, which does not exist yet
+                // shortcut: only CROSSTABS /WRITE writes through PROCEDURE OUTPUT so far, not these tables
                 return Err(SyntaxError::new(
                     p.span(),
-                    "WRITE=TABLES and WRITE=BOTH of SURVIVAL are not supported yet; they need \
-                     PROCEDURE OUTPUT",
+                    "WRITE=TABLES and WRITE=BOTH of SURVIVAL are not supported yet; of the \
+                     procedures only CROSSTABS writes through PROCEDURE OUTPUT",
                 ));
             }
         } else {

@@ -838,6 +838,10 @@ pub struct Engine {
     oms: oms::State,
     /// See `error_position`.
     error_at: Option<(u32, u32)>,
+    /// The file named by PROCEDURE OUTPUT, for the procedures that write their results.
+    procedure_output: Option<std::path::PathBuf>,
+    /// While a procedure runs on a split group: its number from 1, else 0.
+    group_number: usize,
     /// While a procedure runs on a split group: each split variable with the group's value.
     split_group: Option<Vec<(String, Option<crosstabs::Key>)>>,
     /// PROXIMITIES /MATRIX=OUT: the split variables and the matrix of every split group.

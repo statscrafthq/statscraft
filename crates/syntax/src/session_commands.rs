@@ -287,6 +287,17 @@ pub(crate) fn cache(p: &mut Parser) -> PResult<Command> {
     Ok(Command::Cache)
 }
 
+/// `PROCEDURE OUTPUT OUTFILE='file'` (OUTFILE may lose its equals sign)
+pub(crate) fn procedure_output(p: &mut Parser) -> PResult<Command> {
+    if !p.eat_keyword("OUTFILE") {
+        return Err(p.unexpected(&["OUTFILE='file'"]));
+    }
+    p.eat(Punct::Eq);
+    let file = p.file("a quoted file name or a file handle")?;
+    p.finish(&[])?;
+    Ok(Command::ProcedureOutput(file))
+}
+
 pub(crate) fn cd(p: &mut Parser) -> PResult<Command> {
     let folder = p.file("a quoted folder or a file handle")?;
     p.finish(&[])?;

@@ -128,6 +128,8 @@ fn crosstabs() {
             ranges: Vec::new(),
             report: false,
             method: None,
+            write: None,
+            layout_words: Vec::new(),
         })
     );
     assert_eq!(
@@ -151,6 +153,8 @@ fn crosstabs() {
             ranges: Vec::new(),
             report: false,
             method: None,
+            write: None,
+            layout_words: Vec::new(),
         })
     );
     // integer mode: a range after a list covers the whole list; fractions are cut off
@@ -256,10 +260,35 @@ fn crosstabs() {
             .message
             .contains("unexpected word BOGUS")
     );
+    let write = |text: &str| {
+        let Command::Crosstabs(c) = one(text) else {
+            panic!()
+        };
+        c.write
+    };
+    assert_eq!(write("CROSSTABS a BY b."), None);
+    assert_eq!(
+        write("CROSSTABS a BY b /WRITE."),
+        Some(CrosstabsWrite::Cells)
+    );
+    assert_eq!(
+        write("CROSSTABS a BY b /WRITE=CELLS."),
+        Some(CrosstabsWrite::Cells)
+    );
+    assert_eq!(write("CROSSTABS a BY b /WRITE=NONE."), None);
+    assert_eq!(
+        write("CROSSTABS VARIABLES=a b (1,3) /TABLES=a BY b /WRITE=ALL."),
+        Some(CrosstabsWrite::All)
+    );
     assert!(
-        err("CROSSTABS a BY b /WRITE=CELLS.")
+        err("CROSSTABS a BY b /WRITE=ALL.")
             .message
-            .contains("WRITE of CROSSTABS is not supported yet")
+            .contains("integer mode")
+    );
+    assert!(
+        err("CROSSTABS a BY b /WRITE=ROWS.")
+            .expected
+            .contains(&"CELLS".to_string())
     );
     let Command::Crosstabs(c) = one("CROSSTABS a BY b /BARCHART.") else {
         panic!()
@@ -267,10 +296,28 @@ fn crosstabs() {
     assert!(c.barchart);
     assert_eq!(err("CROSSTABS a b.").expected, ["BY"]);
     assert_eq!(err("CROSSTABS /TABLES=a.").expected, ["BY"]);
+    let Command::Crosstabs(c) = one("CROSSTABS a BY b /FORMAT=DVALUE NOBOX index.") else {
+        panic!()
+    };
+    assert!(c.descending);
+    assert_eq!(c.layout_words, ["NOBOX", "INDEX"]);
     assert!(
-        err("CROSSTABS a BY b /FORMAT=NOBOX.")
-            .message
-            .contains("NOBOX in CROSSTABS /FORMAT is not supported yet")
+        err("CROSSTABS a BY b /FORMAT=LINE.")
+            .expected
+            .contains(&"AVALUE".to_string())
+    );
+    assert_eq!(
+        one("PROCEDURE OUTPUT OUTFILE='cells.txt'."),
+        Command::ProcedureOutput("cells.txt".into())
+    );
+    assert_eq!(
+        one("PROCEDURE OUTPUT OUTFILE=cells."),
+        Command::ProcedureOutput("cells".into())
+    );
+    assert!(
+        err("PROCEDURE OUTPUT 'x'.")
+            .expected
+            .contains(&"OUTFILE='file'".to_string())
     );
 }
 
