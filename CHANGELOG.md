@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- GLM and UNIANOVA /POSTHOC=factor(tests) VS effect uses the mean square and df of that effect as the error term of the post hoc tests, instead of refusing VS.
 - NOMREG /PRINT=CELLPROB adds the table of observed and predicted counts and proportions and the raw and standardized residuals for every subpopulation and response category.
 - NOMREG /PRINT=ASSOCIATION, for a two-category response, adds the concordant, discordant and tied pairs and Somers' D, Goodman and Kruskal's gamma, Kendall's tau-a and the concordance index C.
 - NOMREG /PRINT=HISTORY(n) adds an Iteration History table of the final model: -2 log likelihood and parameter estimates at iteration 0, every n-th iteration and the last.

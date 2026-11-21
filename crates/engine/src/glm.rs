@@ -1551,7 +1551,46 @@ fn means_and_posthoc(
             command, d, fit, &h, e, dependent, flags, label_of,
         )?);
     }
-    for (factors, tests) in &command.posthoc {
+    for (factors, tests, error_term) in &command.posthoc {
+        // VS: the mean square of another effect of the design is the error term of the tests
+        let (mse, dfe, error_note) = match error_term {
+            None => (mse, dfe, None),
+            Some(term) => {
+                let found = find_effect(d, &fit.effects, term)?;
+                let at = found.and_then(|e| fit.effects.iter().position(|x| std::ptr::eq(x, e)));
+                let (Some(found), Some(at)) = (found, at) else {
+                    return Err(Error(format!(
+                        "POSTHOC ... VS names {}, which is not an effect of the design",
+                        term.label
+                    )));
+                };
+                let named: Vec<&String> = factors.iter().collect();
+                let is_named_main = found.covariates.is_empty()
+                    && found.factors.len() == 1
+                    && named
+                        .iter()
+                        .any(|f| d.factors[found.factors[0]].eq_ignore_ascii_case(f));
+                if found.is_intercept() || is_named_main {
+                    return Err(Error(format!(
+                        "POSTHOC ... VS cannot take {} as its error term: it is the intercept or a main effect named on the POSTHOC",
+                        term.label
+                    )));
+                }
+                let (ss, df) = &effect_sscp(fit, command.sstype)[at];
+                if *df == 0 {
+                    return Err(Error(format!(
+                        "POSTHOC ... VS {} has no degrees of freedom in this design",
+                        term.label
+                    )));
+                }
+                let df = *df as f64;
+                let note = format!(
+                    "The error term is the mean square of {} ({} df).",
+                    found.label, df
+                );
+                (ss[0][0] / df, df, Some(note))
+            }
+        };
         for factor in factors {
             let Some(f) = d
                 .factors
@@ -1608,8 +1647,15 @@ fn means_and_posthoc(
                 command.alpha,
                 warnings,
             );
-            out.extend(comparison);
-            out.extend(subsets);
+            for mut table in comparison.into_iter().chain(subsets) {
+                if let Some(note) = &error_note {
+                    table.caption = Some(match table.caption.take() {
+                        Some(old) => format!("{old} {note}"),
+                        None => note.clone(),
+                    });
+                }
+                out.push(table);
+            }
         }
     }
     Ok(out)

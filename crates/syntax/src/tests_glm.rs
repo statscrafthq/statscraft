@@ -193,6 +193,7 @@ fn unianova_defaults_and_the_pasted_dialog_syntax() {
     assert_eq!(g.emmeans[1].with, [("x".to_string(), Some(10.0))]);
     assert_eq!(g.emmeans[1].compare, Some(Some("b".into())));
     assert_eq!(g.posthoc[0].1.len(), 3);
+    assert_eq!(g.posthoc[0].2, None);
     let p = g.print;
     assert!(p.etasq && p.descriptive && p.parameter && p.homogeneity && p.opower && p.lof);
     let labels: Vec<&str> = g
@@ -290,8 +291,8 @@ fn glm_errors() {
             "COMPARE cannot follow TABLES(OVERALL)",
         ),
         (
-            "UNIANOVA y BY a /POSTHOC=a(TUKEY) VS b.",
-            "VS in POSTHOC is not supported yet; the tests use the error of the model",
+            "UNIANOVA y BY a /POSTHOC=a(TUKEY) VS.",
+            "unexpected end of command",
         ),
         (
             "UNIANOVA y BY a /POSTHOC=a(WALLER).",
@@ -555,4 +556,16 @@ fn contrast_special_takes_the_matrix_in_column_major_order() {
             Contrast::Special(vec![1.0, 1.0, 1.0, 1.0, -1.0, 0.0, 0.0, 1.0, -1.0])
         )]
     );
+}
+
+#[test]
+fn posthoc_vs_names_the_error_term() {
+    let Command::Glm(g) = one("UNIANOVA y BY a b /POSTHOC=a(LSD) VS a*b /POSTHOC=b(TUKEY).") else {
+        panic!()
+    };
+    assert_eq!(g.posthoc.len(), 2);
+    let vs = g.posthoc[0].2.as_ref().expect("an error term");
+    assert_eq!(vs.label, "a*b");
+    assert_eq!(vs.variables, ["a", "b"]);
+    assert_eq!(g.posthoc[1].2, None);
 }

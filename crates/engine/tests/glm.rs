@@ -1158,3 +1158,117 @@ fn contrast_special_is_the_matrix_read_column_by_column() {
     ));
     assert!(error.contains("SPECIAL has 4 values"), "{error}");
 }
+
+/// The cell of the row whose first text cell is `row`, in the column called `column`.
+fn named_cell(tables: &[Table], title: &str, row: &str, column: &str) -> f64 {
+    let table = tables.iter().find(|t| t.title.starts_with(title)).unwrap();
+    let c = table
+        .column_titles()
+        .iter()
+        .position(|t| t == column)
+        .unwrap_or_else(|| panic!("{title}: no column {column} in {:?}", table.column_titles()));
+    let r = table
+        .rows
+        .iter()
+        .position(|r| {
+            r.iter()
+                .any(|cell| matches!(cell, Cell::Text(t) if t == row))
+        })
+        .unwrap_or_else(|| panic!("{title}: no row {row}"));
+    match &table.rows[r][c] {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    }
+}
+
+// With VS the pairwise tests take the mean square and df of another effect as the error term, so
+// each standard error is the one of the model's error scaled by sqrt(MS(effect) / MS(error)), and
+// the table says so.
+#[test]
+fn posthoc_vs_takes_the_mean_square_of_another_effect_as_the_error_term() {
+    let mut engine = Engine::default();
+    let base = run(
+        &mut engine,
+        &format!("{DATA}\nUNIANOVA y BY a b /POSTHOC=a(LSD)."),
+    );
+    let vs = run(&mut engine, "UNIANOVA y BY a b /POSTHOC=a(LSD) VS b.");
+    let ms_b = named_cell(&vs, "Tests of Between-Subjects Effects", "b", "Mean Square");
+    let ms_error = named_cell(
+        &vs,
+        "Tests of Between-Subjects Effects",
+        "Error",
+        "Mean Square",
+    );
+    let table = |tables: &[Table]| {
+        tables
+            .iter()
+            .find(|t| t.title.starts_with("Multiple Comparisons"))
+            .unwrap()
+            .clone()
+    };
+    let (a, b) = (table(&base), table(&vs));
+    let se = a
+        .column_titles()
+        .iter()
+        .position(|t| t == "Std. Error")
+        .unwrap();
+    let diff = a
+        .column_titles()
+        .iter()
+        .position(|t| t == "Mean Difference (I-J)")
+        .unwrap();
+    assert_eq!(a.rows.len(), b.rows.len());
+    let scale = (ms_b / ms_error).sqrt();
+    for (x, y) in a.rows.iter().zip(&b.rows) {
+        let (Cell::Number(sx), Cell::Number(sy)) = (&x[se], &y[se]) else {
+            continue;
+        };
+        assert!(
+            (sx * scale - sy).abs() < 1e-9 * sy.abs().max(1.0),
+            "{sx} {sy} {scale}"
+        );
+        // the differences of the means do not depend on the error term
+        assert_eq!(x[diff], y[diff]);
+    }
+    let caption = b.caption.clone().unwrap_or_default();
+    assert!(
+        caption.contains("The error term is the mean square of b"),
+        "{caption}"
+    );
+    // the error term cannot be the intercept or a main effect named on the same POSTHOC
+    let error = run_error(&format!("{DATA}\nUNIANOVA y BY a b /POSTHOC=a(LSD) VS a."));
+    assert!(error.contains("cannot take a"), "{error}");
+    let error = run_error(&format!("{DATA}\nUNIANOVA y BY a b /POSTHOC=a(LSD) VS c."));
+    assert!(error.contains("c"), "{error}");
+}
+
+// The error term of VS is the one of each dependent in turn: for y2 = 3 y every standard error of
+// y2 is three times that of y.
+#[test]
+fn posthoc_vs_uses_the_mean_square_of_each_dependent() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{DATA}\nCOMPUTE y2 = 3 * y.\nGLM y y2 BY a b /POSTHOC=a(LSD) VS b."),
+    );
+    let table = |dependent: &str| {
+        tables
+            .iter()
+            .find(|t| t.title == format!("Multiple Comparisons: {dependent}"))
+            .unwrap_or_else(|| panic!("no table for {dependent}"))
+    };
+    let (one, three) = (table("y"), table("y2"));
+    let se = one
+        .column_titles()
+        .iter()
+        .position(|t| t == "Std. Error")
+        .unwrap();
+    let mut compared = 0;
+    for (x, y) in one.rows.iter().zip(&three.rows) {
+        if let (Cell::Number(a), Cell::Number(b)) = (&x[se], &y[se]) {
+            assert!((3.0 * a - b).abs() < 1e-9 * b.abs().max(1.0), "{a} {b}");
+            compared += 1;
+        }
+    }
+    assert!(compared > 0);
+}

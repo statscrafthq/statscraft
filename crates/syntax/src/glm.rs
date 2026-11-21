@@ -181,7 +181,9 @@ pub struct Glm {
     pub regwgt: Option<String>,
     pub emmeans: Vec<Emmeans>,
     /// POSTHOC: the factors and the tests of each subcommand.
-    pub posthoc: Vec<(Vec<String>, Vec<Posthoc>)>,
+    /// Each `/POSTHOC`: the factors, the tests and, after VS, the effect whose mean square is
+    /// the error term.
+    pub posthoc: Vec<(Vec<String>, Vec<Posthoc>, Option<Term>)>,
     pub contrasts: Vec<(String, Contrast)>,
     pub lmatrix: Vec<LMatrix>,
     /// KMATRIX, row by row (a semicolon ends a row).
@@ -1271,16 +1273,15 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
                 p.eat(Punct::Comma);
             }
             p.expect(Punct::RParen)?;
-            if p.at_keyword("VS") {
-                return Err(SyntaxError::new(
-                    p.span(),
-                    "VS in POSTHOC is not supported yet; the tests use the error of the model",
-                ));
-            }
             if tests.is_empty() {
                 return Err(p.unexpected(&["a post hoc test"]));
             }
-            command.posthoc.push((factors, tests));
+            let error_term = if p.eat_word("VS") {
+                Some(term(p)?)
+            } else {
+                None
+            };
+            command.posthoc.push((factors, tests, error_term));
         } else if p.eat_keyword("CONTRAST") {
             p.expect(Punct::LParen)?;
             let factor = p.name("a factor")?;

@@ -120,7 +120,7 @@ macro_rules! glm_syntax {
                  \x20         [TEST([SSCP] [MMATRIX | TRANSFORM])]]\n\
                  \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
                  \x20            [COMPARE[(factor)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
-                 \x20  [/POSTHOC=factor ... (tests)] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
+                 \x20  [/POSTHOC=factor ... (tests) [VS effect]] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
                  \x20  DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)] | SPECIAL(matrix)] ...\n\
                  \x20  [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ...\n\
                  \x20  [/MMATRIX=['label'] dependent value ... | ALL values [; ...]] (GLM) [/KMATRIX=values [; ...]]\n\
@@ -130,7 +130,10 @@ macro_rules! glm_syntax {
                  effects: INTERCEPT, a factor or covariate, a*b or a BY b, a(b) or a WITHIN b, a(b(c)), x*x, x*a.\n\
                  tempvar: PRED WPRED RESID WRESID DRESID ZRESID SRESID SEPRED COOK LEVER. tests: as in ONEWAY\n\
                  /POSTHOC (LSD BONFERRONI SIDAK TUKEY SCHEFFE GH T2 SNK BTUKEY DUNCAN GT2 GABRIEL FREGW QREGW T3 C\n\
-                 DUNNETT DUNNETTL DUNNETTR). Without DESIGN the model is the intercept, the covariates and the full\n\
+                 DUNNETT DUNNETTL DUNNETTR). VS names another effect of the design (not the intercept, and not a\n\
+                 main effect named on the same POSTHOC) whose mean square and df are the error term of the\n\
+                 pairwise and subset tests, which the tables then say; the tests of separate variances do not use\n\
+                 an error term. Without DESIGN the model is the intercept, the covariates and the full\n\
                  factorial of the factors. A case missing on any variable is left out; the weight is rounded to a\n\
                  whole number. The design matrix has one column per effect level (only combinations that occur);\n\
                  sweeping it gives a generalized inverse, and a column that adds nothing (EPS) is redundant, its\n\
@@ -169,7 +172,7 @@ macro_rules! glm_syntax {
                  cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
                  gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT\n\
                  is ignored with a warning. Not supported yet: RANDOM, TEST,\n\
-                 ROBUST, OUTFILE, MEASURE, POSTHOC VS, PRINT GEF, TEST(LMATRIX), MBP, BP, F and\n\
+                 ROBUST, OUTFILE, MEASURE, PRINT GEF, TEST(LMATRIX), MBP, BP, F and\n\
                  WHITE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
                  EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE and PRINT\n\
                  PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).")
