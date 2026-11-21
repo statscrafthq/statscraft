@@ -11,6 +11,11 @@
 //!   data weights whole rows. A missing proximity is left out. SPLIT FILE is not used.
 //! - At least two rows and two columns. With one source the model is the identity model (a
 //!   warning for WEIGHTED and GENERALIZED).
+//! - A start from a file has one case per object, rows then columns, and no missing value.
+//!   RESTRICTIONS fixes the coordinates of the rows or the columns to those of a file with one
+//!   case per object of the set; a missing value leaves that coordinate free. The file's
+//!   variables are the ones named, else the first MAXDIM numeric ones, and the first p of them
+//!   serve in p dimensions. Restrictions go with the identity model only.
 
 use crate::chart::{Axis, Category, ChartKind, Series, Statistic};
 use crate::descriptives::{case_weights, number};
@@ -24,8 +29,8 @@ use crate::unfolding::{Entry, Fit, Kind, MEASURES, Unfolding};
 use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{
-    InputCount, Prefscal, PrefscalCondition, PrefscalStart, PrefscalTransformation, ScalingModel,
-    ValueList,
+    InputCount, Prefscal, PrefscalCondition, PrefscalFile, PrefscalStart, PrefscalTransformation,
+    ScalingModel, ValueList,
 };
 
 /// The names shown for a value of an identifier: its value label or the number.
@@ -53,6 +58,55 @@ struct Layout {
 }
 
 impl Engine {
+    /// The coordinates a data file or dataset holds, one case per object: the variables named,
+    /// else the first numeric ones, `p` of them. A user-missing value counts as missing.
+    fn file_coordinates(
+        &self,
+        spec: &PrefscalFile,
+        objects: usize,
+        p: usize,
+        what: &str,
+    ) -> Result<Vec<Vec<Option<f64>>>, Error> {
+        let data = self.data_file(&spec.file)?;
+        let names: Vec<String> = match spec.variables.is_empty() {
+            true => data
+                .variable_names()
+                .filter(|n| data.variable(n).is_ok_and(|v| !v.is_string()))
+                .map(str::to_string)
+                .collect(),
+            false => crate::expand_in(&data, &spec.variables)?,
+        };
+        if names.len() < p {
+            return Err(Error(format!(
+                "PREFSCAL: {} holds {} numeric variables for the {what} coordinates, but {p} dimensions \
+                 (the largest of CRITERIA DIMENSIONS) need {p}",
+                spec.file,
+                names.len()
+            )));
+        }
+        if data.case_count() != objects {
+            return Err(Error(format!(
+                "PREFSCAL: {} has {} cases for the {what} coordinates, but there are {objects} objects",
+                spec.file,
+                data.case_count()
+            )));
+        }
+        let mut out = vec![Vec::with_capacity(p); objects];
+        for name in &names[..p] {
+            let variable = data.variable(name)?;
+            let Values::Numeric(values) = variable.values() else {
+                return Err(Error(format!(
+                    "PREFSCAL: {name} in {} is a string variable, not coordinates",
+                    spec.file
+                )));
+            };
+            for (row, v) in out.iter_mut().zip(values.iter()) {
+                row.push(v.filter(|v| !variable.is_user_missing(*v)));
+            }
+        }
+        Ok(out)
+    }
+
     pub(crate) fn prefscal(&mut self, command: &Prefscal) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let mut warnings = Vec::new();
@@ -342,6 +396,44 @@ impl Engine {
             warnings
                 .push("PREFSCAL does not use SPLIT FILE: it analyzes all cases together".into());
         }
+        let restricted: Option<Vec<Vec<Option<f64>>>> =
+            match (&command.restrict_rows, &command.restrict_columns) {
+                (None, None) => None,
+                (rows, columns) => {
+                    if model != Model::Identity {
+                        return Err(Error(
+                            "PREFSCAL: RESTRICTIONS go with MODEL=IDENTITY only".into(),
+                        ));
+                    }
+                    let mut fixed = match rows {
+                        Some(f) => self.file_coordinates(f, n, max_dim, "row")?,
+                        None => vec![vec![None; max_dim]; n],
+                    };
+                    fixed.extend(match columns {
+                        Some(f) => self.file_coordinates(f, m, max_dim, "column")?,
+                        None => vec![vec![None; max_dim]; m],
+                    });
+                    Some(fixed)
+                }
+            };
+        let file_start: Option<Matrix> = match &command.initial {
+            PrefscalStart::File(f) => {
+                let given = self.file_coordinates(f, n + m, max_dim, "initial")?;
+                if given.iter().flatten().any(Option::is_none) {
+                    return Err(Error(format!(
+                        "PREFSCAL: the initial configuration in {} has missing values",
+                        f.file
+                    )));
+                }
+                Some(
+                    given
+                        .into_iter()
+                        .map(|r| r.into_iter().flatten().collect())
+                        .collect(),
+                )
+            }
+            _ => None,
+        };
         let criteria = Criteria {
             max_iterations: command.max_iterations,
             diff_stress: command.diff_stress,
@@ -362,38 +454,65 @@ impl Engine {
         let mut initial: Option<Matrix> = None;
         let mut solutions: Vec<(usize, Fit)> = Vec::new();
         for &p in &dims {
+            // the fixed coordinates of the first p dimensions
+            let pinned: Option<Vec<Vec<Option<f64>>>> = restricted
+                .as_ref()
+                .map(|f| f.iter().map(|r| r[..p].to_vec()).collect());
             let fit = match solutions.last() {
                 Some((_, previous)) => {
-                    let as_solution = mds::Solution {
-                        z: previous.z.clone(),
-                        a: previous.a.clone(),
-                        dhat: Vec::new(),
-                        history: Vec::new(),
+                    let (z, a) = match restricted {
+                        // a restricted space keeps its axes: the last dimension goes
+                        Some(_) => (
+                            previous.z.iter().map(|r| r[..p].to_vec()).collect(),
+                            vec![mds::identity(p); sources],
+                        ),
+                        None => {
+                            let as_solution = mds::Solution {
+                                z: previous.z.clone(),
+                                a: previous.a.clone(),
+                                dhat: Vec::new(),
+                                history: Vec::new(),
+                            };
+                            mds::reduce(model, &as_solution)
+                        }
                     };
-                    let (z, a) = mds::reduce(model, &as_solution);
-                    problem.iterate(model, &criteria, z, a, start_gamma.clone())
+                    problem.iterate(
+                        model,
+                        &criteria,
+                        z,
+                        a,
+                        start_gamma.clone(),
+                        pinned.as_deref(),
+                    )
                 }
                 None => {
                     let a = vec![mds::identity(p); sources];
-                    let mut starts: Vec<Matrix> = match command.initial {
+                    let mut starts: Vec<Matrix> = match &command.initial {
                         PrefscalStart::Classical { spearman } => {
-                            vec![problem.classical(spearman, p)]
+                            vec![problem.classical(*spearman, p)]
                         }
                         PrefscalStart::RossCliff => vec![problem.ross_cliff(p)],
                         PrefscalStart::Correspondence => vec![problem.correspondence(p)],
-                        PrefscalStart::Centroids(c) => vec![problem.centroids(c.min(m), p)],
-                        PrefscalStart::Random(count) => (0..count)
+                        PrefscalStart::Centroids(c) => vec![problem.centroids((*c).min(m), p)],
+                        PrefscalStart::Random(count) => (0..*count)
                             .map(|_| {
                                 (0..n + m)
                                     .map(|_| (0..p).map(|_| self.random()).collect())
                                     .collect()
                             })
                             .collect(),
+                        PrefscalStart::File(_) => file_start.clone().into_iter().collect(),
                     };
                     let mut best: Option<Fit> = None;
                     for z in starts.drain(..) {
-                        let fit =
-                            problem.iterate(model, &criteria, z, a.clone(), start_gamma.clone());
+                        let fit = problem.iterate(
+                            model,
+                            &criteria,
+                            z,
+                            a.clone(),
+                            start_gamma.clone(),
+                            pinned.as_deref(),
+                        );
                         if matches!(command.initial, PrefscalStart::Random(_)) {
                             random.push(fit.last());
                         }
@@ -406,15 +525,17 @@ impl Engine {
                     best
                 }
             };
-            let done = mds::finish(
-                model,
-                mds::Solution {
-                    z: fit.z.clone(),
-                    a: fit.a.clone(),
-                    dhat: Vec::new(),
-                    history: Vec::new(),
-                },
-            );
+            let solution = mds::Solution {
+                z: fit.z.clone(),
+                a: fit.a.clone(),
+                dhat: Vec::new(),
+                history: Vec::new(),
+            };
+            // principal axes would move the fixed coordinates
+            let done = match restricted {
+                Some(_) => solution,
+                None => mds::finish(model, solution),
+            };
             solutions.push((
                 p,
                 Fit {

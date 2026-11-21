@@ -2830,11 +2830,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "PREFSCAL [VARIABLES=]varlist\n\
                  \x20  [/INPUT=[ROWS(n | rowvar)] [SOURCES(n | sourcevar)]] [/PROXIMITIES=DISSIMILARITIES | SIMILARITIES]\n\
                  \x20  [/WEIGHTS=varlist] [/INITIAL=CLASSICAL[(TRIANGLE | SPEARMAN)] | CORRESPONDENCE | ROSSCLIFF\n\
-                 \x20            | CENTROIDS[(n)] | RANDOM[(n)]]\n\
+                 \x20            | CENTROIDS[(n)] | RANDOM[(n)] | ('file' | dataset) [varlist]]\n\
                  \x20  [/CONDITION=ROW | MATRIX | UNCONDITIONAL]\n\
                  \x20  [/TRANSFORMATION=NONE[(INTERCEPT)] | LINEAR[(INTERCEPT)] | ORDINAL[(KEEPTIES | UNTIE)]\n\
                  \x20                   | SPLINE[([INTERCEPT] [ORDER=2] [INKNOT=1])]]\n\
-                 \x20  [/MODEL=IDENTITY | WEIGHTED | GENERALIZED] [/PENALTY=[LAMBDA(0.5)] [OMEGA(1)]]\n\
+                 \x20  [/MODEL=IDENTITY | WEIGHTED | GENERALIZED]\n\
+                 \x20  [/RESTRICTIONS=[ROW(NONE | COORDINATES ('file' | dataset) [varlist])]\n\
+                 \x20                 [COLUMN(NONE | COORDINATES ('file' | dataset) [varlist])]]\n\
+                 \x20  [/PENALTY=[LAMBDA(0.5)] [OMEGA(1)]]\n\
                  \x20  [/CRITERIA=[DIMENSIONS(2[,max])] [MAXITER(5000)] [DIFFSTRESS(.000001)] [MINSTRESS(.0001)]]\n\
                  \x20  [/PRINT=[NONE] [INPUT] [MULTIPLE] [INITIAL] [HISTORY] [MEASURES] [DECOMPOSITION] [COMMON]\n\
                  \x20          [DISTANCES] [WEIGHTS] [INDIVIDUAL] [TRANSFORMATION]]\n\
@@ -2865,7 +2868,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  takes the singular vectors of the double centered squared proximities, CORRESPONDENCE the\n\
                  scores of a correspondence analysis of the mirrored proximities, CENTROIDS(n) the principal\n\
                  components of the rows with every column at the centroid of the rows that rank it among their\n\
-                 first n, RANDOM(n) n random starts from the session's generator, the best kept. DIMENSIONS solves\n\
+                 first n, RANDOM(n) n random starts from the session's generator, the best kept, and a file or\n\
+                 dataset gives the coordinates of the rows, then the columns, one case per object (no missing\n\
+                 values); its variables are the ones named, else the first MAXDIM numeric ones. RESTRICTIONS fixes\n\
+                 the coordinates of the rows or the columns to those of such a file, one case per object of the\n\
+                 set; a missing value leaves that coordinate free. Fixing a whole set is external unfolding. The\n\
+                 space is then not centered, scaled or rotated, so the fixed coordinates come out as given, and\n\
+                 restrictions go with MODEL=IDENTITY only. DIMENSIONS solves\n\
                  from max down to min. Iterations stop after MAXITER, at MINSTRESS, or when the penalized stress\n\
                  falls by no more than DIFFSTRESS times its value.\n\
                  Tables: Case Processing Summary; Measures (penalized stress with its stress and penalty parts;\n\
@@ -2880,7 +2889,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  plots; the values pick rows (CONDITION=ROW) or sources by their number or identifier, ALL for\n\
                  all. OUTFILE writes DIM_1, DIM_2, ... for the common space or the weights and ROW_1, ...,\n\
                  COL_1, ... for the distances and transformed proximities, the sources one below the other.\n\
-                 Not supported yet: RESTRICTIONS, the SMOOTH transformation and a start from a file.",
+                 Not supported yet: the SMOOTH transformation.",
         example: "PREFSCAL brand1 TO brand6 /INPUT=ROWS(person) /TRANSFORMATION=ORDINAL(UNTIE) /PRINT=MEASURES COMMON HISTORY /PLOT=COMMON TRANSFORMATIONS(1 TO 4).",
         parse: prefscal::prefscal,
     },

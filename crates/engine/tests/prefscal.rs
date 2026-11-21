@@ -579,3 +579,252 @@ fn problems_are_reported() {
             .any(|w| w.contains("identity model"))
     );
 }
+
+/// A folder for the coordinate files of one test.
+fn folder(name: &str) -> std::path::PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("statscraft-prefscal-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Runs `parts` in one engine and returns every table; a failure gives the message.
+fn run_parts(parts: &[&str]) -> Result<(Vec<Table>, Engine), String> {
+    let mut engine = Engine::default();
+    let mut tables = Vec::new();
+    for part in parts {
+        let (commands, errors) = parse(part);
+        assert!(errors.is_empty(), "{errors:?}");
+        for command in &commands {
+            tables.extend(
+                engine
+                    .execute(&command.command)
+                    .map_err(|e| e.to_string())?,
+            );
+        }
+    }
+    Ok((tables, engine))
+}
+
+/// A data file of coordinates; `.` is a missing value.
+fn coordinate_file(dir: &std::path::Path, name: &str, rows: &[&str]) -> String {
+    let path = dir.join(name);
+    let source = format!(
+        "DATA LIST FREE /d1 d2.\nBEGIN DATA.\n{}\nEND DATA.\nSAVE OUTFILE='{}'.\n",
+        rows.join("\n"),
+        path.display()
+    );
+    run_parts(&[&source]).unwrap();
+    path.display().to_string()
+}
+
+/// The coordinates of the objects in a "Final Common Space" table: one row per object.
+fn space(tables: &[Table], title: &str) -> Vec<[f64; 2]> {
+    table(tables, title)
+        .rows
+        .iter()
+        .map(|r| [number(&r[1]), number(&r[2])])
+        .collect()
+}
+
+const FIXED_ROWS: [&str; 8] = [
+    "0.2 0.1", "2.1 3.2", "4.3 0.9", "0.8 4.1", "3.2 2.8", "5.1 5.2", "0.1 5.4", "4.2 4.1",
+];
+
+/// With every row fixed (external unfolding) and the proximities untransformed, each column
+/// is a point whose distances to the fixed rows fit the proximities in the least squares
+/// sense: the fixed rows stay exactly as given, and the gradient of the sum of squared
+/// differences at every column is 0 (the sums are those of the one list, UNCONDITIONAL).
+#[test]
+fn fixed_rows_stay_and_the_columns_reach_a_least_squares_point() {
+    let dir = folder("rows");
+    let file = coordinate_file(&dir, "rows.sav", &FIXED_ROWS);
+    let (tables, _) = run_parts(&[
+        TASTE,
+        &format!(
+            "PREFSCAL c1 TO c5 /RESTRICTIONS=ROW(COORDINATES ('{file}')) /TRANSFORMATION=NONE \
+             /CONDITION=UNCONDITIONAL /CRITERIA=DIFFSTRESS(1e-15) MINSTRESS(0) MAXITER(20000) \
+             /PRINT=COMMON HISTORY.\n"
+        ),
+    ])
+    .unwrap();
+    let z = space(&tables, "Final Common Space");
+    assert_eq!(z.len(), 13);
+    for (got, want) in z.iter().zip(FIXED_ROWS) {
+        let want: Vec<f64> = want.split(' ').map(|v| v.parse().unwrap()).collect();
+        close(got[0], want[0], "fixed x");
+        close(got[1], want[1], "fixed y");
+    }
+    // the proximities of the TASTE data, one row per taster
+    let delta: Vec<Vec<f64>> = TASTE
+        .lines()
+        .skip(2)
+        .take(8)
+        .map(|l| l.split_whitespace().map(|v| v.parse().unwrap()).collect())
+        .collect();
+    for j in 0..5 {
+        let y = z[8 + j];
+        let mut gradient = [0.0, 0.0];
+        for i in 0..8 {
+            let x = z[i];
+            let d = ((y[0] - x[0]).powi(2) + (y[1] - x[1]).powi(2)).sqrt();
+            for c in 0..2 {
+                gradient[c] += (d - delta[i][j]) * (y[c] - x[c]) / d;
+            }
+        }
+        assert!(
+            gradient[0].abs() < 1e-4 && gradient[1].abs() < 1e-4,
+            "column {j}: {gradient:?}"
+        );
+    }
+    // the penalized stress never rises
+    let history = table(&tables, "Iteration History");
+    let stress: Vec<f64> = history.rows.iter().map(|r| number(&r[1])).collect();
+    assert!(stress.len() > 10);
+    assert!(stress.windows(2).all(|w| w[1] <= w[0] + 1e-12));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A missing coordinate leaves that coordinate free: the fixed ones stay, the free one moves;
+/// a dimension nothing fixes (all columns free) takes the usual step.
+#[test]
+fn a_missing_coordinate_is_free_and_the_others_stay() {
+    let dir = folder("partial");
+    let mut rows = FIXED_ROWS.to_vec();
+    rows[1] = "2.1 .";
+    rows[4] = ". 2.8";
+    let file = coordinate_file(&dir, "partial.sav", &rows);
+    let (tables, _) = run_parts(&[
+        TASTE,
+        &format!(
+            "PREFSCAL c1 TO c5 /RESTRICTIONS=ROW(COORDINATES ('{file}')) /PRINT=COMMON HISTORY \
+             /CRITERIA=MAXITER(300).\n"
+        ),
+    ])
+    .unwrap();
+    let z = space(&tables, "Final Common Space");
+    for (i, want) in FIXED_ROWS.iter().enumerate() {
+        let want: Vec<f64> = want.split(' ').map(|v| v.parse().unwrap()).collect();
+        if i != 4 {
+            close(z[i][0], want[0], "fixed x");
+        }
+        if i != 1 {
+            close(z[i][1], want[1], "fixed y");
+        }
+    }
+    // the free coordinates are not where the file's neighbors put them
+    assert!((z[1][1] - 3.2).abs() > 1e-6 || (z[4][0] - 3.2).abs() > 1e-6);
+    let stress: Vec<f64> = table(&tables, "Iteration History")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    assert!(stress.windows(2).all(|w| w[1] <= w[0] + 1e-12));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Rows fixed to the file's coordinates also in fewer dimensions: the first columns serve.
+#[test]
+fn restrictions_keep_their_axes_when_the_dimensions_reduce() {
+    let dir = folder("reduce");
+    let file = coordinate_file(&dir, "rows.sav", &FIXED_ROWS);
+    let (tables, _) = run_parts(&[
+        TASTE,
+        &format!(
+            "PREFSCAL c1 TO c5 /RESTRICTIONS=ROW(COORDINATES ('{file}')) /CRITERIA=DIMENSIONS(1,2) \
+             MAXITER(200) /PRINT=COMMON.\n"
+        ),
+    ])
+    .unwrap();
+    let two = table(&tables, "Final Common Space (2 Dimensions)");
+    let one = table(&tables, "Final Common Space (1 Dimensions)");
+    for (i, want) in FIXED_ROWS.iter().enumerate() {
+        let want: Vec<f64> = want.split(' ').map(|v| v.parse().unwrap()).collect();
+        close(number(&two.rows[i][1]), want[0], "2D x");
+        close(number(&two.rows[i][2]), want[1], "2D y");
+        close(number(&one.rows[i][1]), want[0], "1D x");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The start of the default run, handed back as a file, gives the same run.
+#[test]
+fn a_start_from_a_file_repeats_the_run_it_came_from() {
+    let dir = folder("start");
+    let first = run(
+        TASTE,
+        "PREFSCAL c1 TO c5 /CRITERIA=MAXITER(60) /PRINT=INITIAL MEASURES COMMON.",
+    );
+    let start = table(&first, "Initial Common Space");
+    let rows: Vec<String> = start
+        .rows
+        .iter()
+        .map(|r| format!("{:e} {:e}", number(&r[1]), number(&r[2])))
+        .collect();
+    let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+    let file = coordinate_file(&dir, "start.sav", &rows);
+    let second = run(
+        TASTE,
+        &format!(
+            "PREFSCAL c1 TO c5 /INITIAL=('{file}') /CRITERIA=MAXITER(60) /PRINT=MEASURES COMMON."
+        ),
+    );
+    let (a, b) = (
+        space(&first, "Final Common Space"),
+        space(&second, "Final Common Space"),
+    );
+    for (x, y) in a.iter().zip(&b) {
+        close(x[0], y[0], "x");
+        close(x[1], y[1], "y");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn files_of_coordinates_are_checked() {
+    let dir = folder("errors");
+    let eight = coordinate_file(&dir, "eight.sav", &FIXED_ROWS);
+    let short = coordinate_file(&dir, "short.sav", &FIXED_ROWS[..5]);
+    let missing = coordinate_file(
+        &dir,
+        "missing.sav",
+        &[
+            "1 2", ". 3", "2 2", "3 3", "4 4", "5 5", "6 6", "7 7", "8 8", "9 9", "1 1", "2 3",
+            "3 1",
+        ],
+    );
+    let fails = |syntax: &str| run_parts(&[TASTE, syntax]).err().unwrap_or_default();
+    assert!(
+        fails(&format!(
+            "PREFSCAL c1 TO c5 /RESTRICTIONS=ROW(COORDINATES ('{short}'))."
+        ))
+        .contains("5 cases")
+    );
+    assert!(
+        fails(&format!(
+            "PREFSCAL c1 TO c5 /RESTRICTIONS=COLUMN(COORDINATES ('{eight}'))."
+        ))
+        .contains("8 cases")
+    );
+    assert!(
+        fails(&format!(
+            "PREFSCAL c1 TO c5 /RESTRICTIONS=ROW(COORDINATES ('{eight}')) /CRITERIA=DIMENSIONS(3)."
+        ))
+        .contains("2 numeric variables")
+    );
+    assert!(
+        fails(&format!("PREFSCAL c1 TO c5 /INITIAL=('{missing}').")).contains("missing values")
+    );
+    assert!(fails(&format!("PREFSCAL c1 TO c5 /INITIAL=('{eight}').")).contains("13 objects"));
+    let weighted = format!(
+        "PREFSCAL i1 TO i4 /INPUT=ROWS(6) SOURCES(2) /MODEL=WEIGHTED \
+         /RESTRICTIONS=ROW(COORDINATES ('{eight}'))."
+    );
+    assert!(
+        run_parts(&[JUDGES, &weighted])
+            .err()
+            .unwrap_or_default()
+            .contains("IDENTITY")
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}

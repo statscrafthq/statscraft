@@ -7,12 +7,15 @@
 //!   there are, or the variables that number them.
 //! - PROXIMITIES=DISSIMILARITIES (default) or SIMILARITIES. WEIGHTS=varlist, one per variable.
 //! - INITIAL=CLASSICAL[(TRIANGLE | SPEARMAN)] (default TRIANGLE), CORRESPONDENCE, ROSSCLIFF,
-//!   CENTROIDS[(n)] or RANDOM[(n)]; a start from a file is not supported yet.
+//!   CENTROIDS[(n)] or RANDOM[(n)], or a data file or dataset in parentheses with the variables
+//!   that hold the coordinates (rows first, then columns).
 //! - CONDITION=ROW (default), MATRIX or UNCONDITIONAL.
 //! - TRANSFORMATION=NONE[(INTERCEPT)], LINEAR[(INTERCEPT)], ORDINAL[(KEEPTIES | UNTIE)]
 //!   (default ORDINAL with ties kept), SMOOTH (not supported yet) or
 //!   SPLINE[([INTERCEPT] [ORDER | DEGREE=2] [INKNOT=1])].
-//! - MODEL=IDENTITY (default), WEIGHTED or GENERALIZED. RESTRICTIONS is not supported yet.
+//! - MODEL=IDENTITY (default), WEIGHTED or GENERALIZED.
+//! - RESTRICTIONS=ROW(NONE | COORDINATES (file) [varlist]) COLUMN(...): fixed coordinates of the
+//!   row or column objects, from the variables of a data file or dataset.
 //! - PENALTY=LAMBDA(v) (0 < v <= 1) OMEGA(v) (v >= 0).
 //! - CRITERIA=DIMENSIONS(min[,max]) (2) MAXITER(n) (5000) DIFFSTRESS(v) (0.000001)
 //!   MINSTRESS(v) (0.0001).
@@ -36,7 +39,15 @@ pub enum InputCount {
     Variable(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A data file or dataset and the variables of it that hold coordinates (the first MAXDIM
+/// numeric ones when none are named).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrefscalFile {
+    pub file: String,
+    pub variables: Vec<VarItem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum PrefscalStart {
     /// Classical scaling of the completed matrix; `spearman` fills it with rank distances.
     Classical {
@@ -47,6 +58,8 @@ pub enum PrefscalStart {
     /// The columns at the centroid of the rows that name them among their first n choices.
     Centroids(usize),
     Random(usize),
+    /// The row coordinates followed by the column coordinates, from a file.
+    File(PrefscalFile),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +131,9 @@ pub struct Prefscal {
     pub condition: PrefscalCondition,
     pub transformation: PrefscalTransformation,
     pub model: ScalingModel,
+    /// The row and the column objects with fixed coordinates; None leaves a set free.
+    pub restrict_rows: Option<PrefscalFile>,
+    pub restrict_columns: Option<PrefscalFile>,
     pub lambda: f64,
     pub omega: f64,
     pub dimensions: (usize, usize),
@@ -376,6 +392,35 @@ fn plot(p: &mut Parser) -> PResult<PrefscalPlot> {
     Ok(plot)
 }
 
+/// `(file | dataset)` and then the variables, if any follow: the file of INITIAL.
+fn file_in_parens(p: &mut Parser) -> PResult<PrefscalFile> {
+    let file = out_target(p)?;
+    let variables = match at_end(p) {
+        true => Vec::new(),
+        false => p.var_list()?,
+    };
+    Ok(PrefscalFile { file, variables })
+}
+
+/// `(NONE | COORDINATES (file | dataset) [varlist])` of ROW or COLUMN.
+fn restriction(p: &mut Parser) -> PResult<Option<PrefscalFile>> {
+    p.expect(Punct::LParen)?;
+    let out = if p.eat_keyword("NONE") {
+        None
+    } else if p.eat_keyword("COORDINATES") {
+        let file = out_target(p)?;
+        let variables = match p.at(Punct::RParen) {
+            true => Vec::new(),
+            false => p.var_list()?,
+        };
+        Some(PrefscalFile { file, variables })
+    } else {
+        return Err(p.unexpected(&["NONE", "COORDINATES"]));
+    };
+    p.expect(Punct::RParen)?;
+    Ok(out)
+}
+
 /// INITIAL=... after the equals sign.
 fn initial(p: &mut Parser) -> PResult<PrefscalStart> {
     let optional = |p: &mut Parser, what: &str| -> PResult<usize> {
@@ -406,11 +451,9 @@ fn initial(p: &mut Parser) -> PResult<PrefscalStart> {
         )?))
     } else if p.eat_keyword("RANDOM") {
         Ok(PrefscalStart::Random(optional(p, "the number of starts")?))
-    } else if p.at(Punct::LParen) || matches!(p.peek(), Some(TokenKind::Str(_))) {
-        Err(SyntaxError::new(
-            p.span(),
-            "an initial configuration from a file is not supported yet",
-        ))
+    } else if p.at(Punct::LParen) {
+        let file = file_in_parens(p)?;
+        Ok(PrefscalStart::File(file))
     } else {
         Err(p.unexpected(&[
             "CLASSICAL",
@@ -433,6 +476,8 @@ pub(crate) fn prefscal(p: &mut Parser) -> PResult<Command> {
         condition: PrefscalCondition::Row,
         transformation: PrefscalTransformation::Ordinal { untie: false },
         model: ScalingModel::Identity,
+        restrict_rows: None,
+        restrict_columns: None,
         lambda: 0.5,
         omega: 1.0,
         dimensions: (2, 2),
@@ -508,6 +553,18 @@ pub(crate) fn prefscal(p: &mut Parser) -> PResult<Command> {
             } else {
                 return Err(p.unexpected(&["IDENTITY", "WEIGHTED", "GENERALIZED"]));
             };
+        } else if p.eat_keyword("RESTRICTIONS") {
+            p.eat(Punct::Eq);
+            while !at_end(p) {
+                if p.eat_keyword("ROW") {
+                    c.restrict_rows = restriction(p)?;
+                } else if p.eat_keyword("COLUMN") {
+                    c.restrict_columns = restriction(p)?;
+                } else {
+                    return Err(p.unexpected(&["ROW", "COLUMN"]));
+                }
+                p.eat(Punct::Comma);
+            }
         } else if p.eat_keyword("PENALTY") {
             p.eat(Punct::Eq);
             while !at_end(p) {
@@ -606,7 +663,7 @@ pub(crate) fn prefscal(p: &mut Parser) -> PResult<Command> {
                 *slot = Some(out_target(p)?);
             }
         } else {
-            return Err(p.subcommand_error("PREFSCAL", &["RESTRICTIONS"]));
+            return Err(p.subcommand_error("PREFSCAL", &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));
@@ -717,13 +774,45 @@ mod tests {
 
     #[test]
     fn errors() {
-        assert!(err("PREFSCAL a b /RESTRICTIONS=ROW(NONE).").contains("not supported yet"));
+        assert!(err("PREFSCAL a b /RESTRICTIONS=ROW(FREE).").contains("word FREE"));
+        assert!(err("PREFSCAL a b /RESTRICTIONS=BOTH(NONE).").contains("word BOTH"));
         assert!(err("PREFSCAL a b /TRANSFORMATION=SMOOTH.").contains("not supported yet"));
-        assert!(err("PREFSCAL a b /INITIAL=('start.sav').").contains("not supported yet"));
+        assert!(err("PREFSCAL a b /INITIAL=('start.sav'.").contains("end of command"));
         assert!(err("PREFSCAL a b /PENALTY=LAMBDA(0).").contains("LAMBDA"));
         assert!(err("PREFSCAL a b /PENALTY=OMEGA(-1).").contains("OMEGA"));
         assert!(err("PREFSCAL a b /CRITERIA=DIMENSIONS(3,2).").contains("above"));
         assert!(err("PREFSCAL a b /TRANSFORMATION=SPLINE(ORDER=4).").contains("1 to 3"));
         assert!(err("PREFSCAL a b /MODEL=REDUCED.").contains("REDUCED"));
+    }
+
+    #[test]
+    fn files_of_the_start_and_the_restrictions() {
+        let c = one("PREFSCAL a b /INITIAL=('start.sav') x y /RESTRICTIONS=ROW(NONE).");
+        assert_eq!(
+            c.initial,
+            PrefscalStart::File(PrefscalFile {
+                file: "start.sav".into(),
+                variables: vec![VarItem::Name("x".into()), VarItem::Name("y".into())],
+            })
+        );
+        assert_eq!((c.restrict_rows, c.restrict_columns), (None, None));
+        // both sets in one subcommand, the variables optional, a later subcommand replaces
+        let c = one(
+            "PREFSCAL a b /RESTRICTIONS=ROW(COORDINATES ('r.sav') u TO v) COLUMN(COORDINATES (cols))\
+             /RESTRICTIONS=COLUMN(NONE).",
+        );
+        let rows = c.restrict_rows.unwrap();
+        assert_eq!(rows.file, "r.sav");
+        assert_eq!(rows.variables, vec![VarItem::Range("u".into(), "v".into())]);
+        assert_eq!(c.restrict_columns, None);
+        let c = one("PREFSCAL a b /RESTRICTIONS=COLUMN(COORDINATES ('c.sav')) /INITIAL=(set).");
+        assert!(c.restrict_columns.unwrap().variables.is_empty());
+        assert_eq!(
+            c.initial,
+            PrefscalStart::File(PrefscalFile {
+                file: "set".into(),
+                variables: Vec::new()
+            })
+        );
     }
 }

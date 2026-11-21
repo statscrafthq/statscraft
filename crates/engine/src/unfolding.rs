@@ -14,12 +14,17 @@
 //! - With the configuration fixed, one projected gradient step in the metric of the weights
 //!   lowers F: the target g - eta grad / w goes to the nearest admissible transformation of
 //!   every list. eta doubles after a step that lowers F and halves until one does.
+//! - Restricted objects keep given coordinates (a missing one leaves that coordinate free). The
+//!   majorization step then minimizes its quadratic over the free coordinates alone, dimension
+//!   by dimension, with the fixed ones held: V_FF z_F = t_F - V_FX z_X. The step still lowers
+//!   the stress, and the space is neither centered, rescaled nor rotated, so the fixed
+//!   coordinates stay where they were given.
 //! - The admissible transformations are never negative: NONE keeps the proximities (with
 //!   INTERCEPT plus a constant), LINEAR a slope times them (with INTERCEPT plus a constant
 //!   from the smallest one up), ORDINAL a monotone function (tied values kept tied, or free
 //!   with UNTIE), SPLINE nonnegative combinations of a monotone spline basis.
 
-use crate::matrix::{Matrix, multiply, symmetric_eigen, transpose};
+use crate::matrix::{Matrix, inverse, multiply, symmetric_eigen, transpose};
 use crate::mds::{self, Model, Problem, Transform, zeros};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -376,9 +381,16 @@ impl Unfolding {
         mut z: Matrix,
         mut a: Vec<Matrix>,
         mut gamma: Vec<f64>,
+        restricted: Option<&[Vec<Option<f64>>]>,
     ) -> Fit {
         let (problem, dhat) = self.problem(&gamma);
-        mds::dilate(&problem, &dhat, &mut z, &a);
+        match restricted {
+            Some(fixed) => {
+                align_to(&mut z, fixed);
+                pin(&mut z, fixed);
+            }
+            None => mds::dilate(&problem, &dhat, &mut z, &a),
+        }
         let start = z.clone();
         let mut x = mds::spaces(&z, &a);
         let mut d = self.distances(&x);
@@ -400,14 +412,17 @@ impl Unfolding {
             }
             let (problem, dhat) = self.problem(&gamma);
             let laplacians: Vec<Matrix> = problem.w.iter().map(mds::laplacian).collect();
-            let Some((_, vinv)) = mds::mean_laplacian(&problem) else {
+            let Some((v, vinv)) = mds::mean_laplacian(&problem) else {
                 break;
             };
             let same = model == Model::Identity;
             let c: Vec<Matrix> = (0..self.sources)
                 .map(|k| mds::bx(&problem.w[k], &dhat[k], &x[k]))
                 .collect();
-            z = mds::update_z(&laplacians, &vinv, same, &c, &z, &a);
+            z = match restricted {
+                Some(fixed) => pinned_step(&v, &vinv, &c, &z, fixed),
+                None => mds::update_z(&laplacians, &vinv, same, &c, &z, &a),
+            };
             if model != Model::Identity {
                 a = mds::update_a(model, &laplacians, &c, &z, &a);
             }
@@ -640,6 +655,107 @@ impl Unfolding {
             .collect();
         stack(&x, &y)
     }
+}
+
+/// Puts the given coordinates in `z`.
+fn pin(z: &mut Matrix, fixed: &[Vec<Option<f64>>]) {
+    for (row, given) in z.iter_mut().zip(fixed) {
+        for (v, g) in row.iter_mut().zip(given) {
+            if let Some(g) = g {
+                *v = *g;
+            }
+        }
+    }
+}
+
+/// Moves, turns and scales `z` so that the objects with all their coordinates given lie as
+/// near as possible to them (Procrustes), a start the fixed objects can live with. Nothing
+/// moves with fewer than two such objects or when they leave no rotation.
+fn align_to(z: &mut Matrix, fixed: &[Vec<Option<f64>>]) {
+    let p = z.first().map_or(0, Vec::len);
+    let whole: Vec<usize> = (0..z.len())
+        .filter(|&i| fixed[i].iter().all(Option::is_some))
+        .collect();
+    if p == 0 || whole.len() < 2 {
+        return;
+    }
+    let count = whole.len() as f64;
+    let mean = |get: &dyn Fn(usize, usize) -> f64, d: usize| -> f64 {
+        whole.iter().map(|&i| get(i, d)).sum::<f64>() / count
+    };
+    let target = |i: usize, d: usize| fixed[i][d].expect("whole");
+    let from = |i: usize, d: usize| z[i][d];
+    let (cz, cf): (Vec<f64>, Vec<f64>) = (0..p).map(|d| (mean(&from, d), mean(&target, d))).unzip();
+    let x: Matrix = whole
+        .iter()
+        .map(|&i| (0..p).map(|d| z[i][d] - cz[d]).collect())
+        .collect();
+    let y: Matrix = whole
+        .iter()
+        .map(|&i| (0..p).map(|d| target(i, d) - cf[d]).collect())
+        .collect();
+    let (u, s, v) = svd(&multiply(&transpose(&x), &y), p);
+    let spread: f64 = x.iter().flatten().map(|v| v * v).sum();
+    if spread <= 0.0 || s.iter().any(|&v| v <= 1e-12 * s[0]) {
+        return;
+    }
+    let turn = multiply(&u, &transpose(&v));
+    let scale = s.iter().sum::<f64>() / spread;
+    for row in z.iter_mut() {
+        let centered: Vec<f64> = row.iter().zip(&cz).map(|(a, c)| a - c).collect();
+        for d in 0..p {
+            row[d] = scale * (0..p).map(|e| centered[e] * turn[e][d]).sum::<f64>() + cf[d];
+        }
+    }
+}
+
+/// The majorization step of the identity model with fixed coordinates: per dimension the free
+/// coordinates solve V_FF z_F = t_F - V_FX z_X; a dimension without a fixed coordinate takes the
+/// usual step.
+fn pinned_step(
+    v: &Matrix,
+    vinv: &Matrix,
+    c: &[Matrix],
+    z: &Matrix,
+    fixed: &[Vec<Option<f64>>],
+) -> Matrix {
+    let (n, p) = (z.len(), z.first().map_or(0, Vec::len));
+    let m = c.len() as f64;
+    let mut out = z.clone();
+    for d in 0..p {
+        let t: Vec<f64> = (0..n)
+            .map(|i| c.iter().map(|ck| ck[i][d]).sum::<f64>() / m)
+            .collect();
+        let held: Vec<usize> = (0..n).filter(|&i| fixed[i][d].is_some()).collect();
+        let free: Vec<usize> = (0..n).filter(|&i| fixed[i][d].is_none()).collect();
+        if held.is_empty() {
+            for i in 0..n {
+                out[i][d] = (0..n).map(|j| vinv[i][j] * t[j]).sum();
+            }
+            continue;
+        }
+        for &i in &held {
+            out[i][d] = fixed[i][d].expect("held");
+        }
+        if free.is_empty() {
+            continue;
+        }
+        let block: Matrix = free
+            .iter()
+            .map(|&i| free.iter().map(|&j| v[i][j]).collect())
+            .collect();
+        let Some((inv, _)) = inverse(&block) else {
+            continue;
+        };
+        let rhs: Vec<f64> = free
+            .iter()
+            .map(|&i| t[i] - held.iter().map(|&x| v[i][x] * out[x][d]).sum::<f64>())
+            .collect();
+        for (a, &i) in free.iter().enumerate() {
+            out[i][d] = (0..free.len()).map(|b| inv[a][b] * rhs[b]).sum();
+        }
+    }
+    out
 }
 
 fn row_means(m: &Matrix) -> Vec<f64> {
