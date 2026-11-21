@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.21.0 (2026-11-21)
+
 - Window: the new choices are in the dialogs. One-Way ANOVA has Contrasts with a polynomial trend (linear up to 5th degree) and Fixed and random effects under Options; Reliability Analysis has the Omega model; Descriptives has a display order (variable list, alphabetic, ascending or descending means); Logistic Regression has a selection variable with a rule (equal to, not equal to, less than and so on). The ranges tests of ONEWAY stay syntax only, as Post hoc comparisons already run them.
 - LOGISTIC REGRESSION /SELECT=var relation value (EQ, NE, LT, LE, GT, GE) fits the selected cases and reports the unselected ones: the Case Processing Summary counts them, the Classification Table has a part for each group, and CASEWISE and SAVE cover them.
 - ONEWAY /STATISTICS=HOMOGENEITY gives the Levene test on the mean, on the median (with the adjusted df too) and on the trimmed mean, as the manual lists. The table changed shape: a new second column says what each test is based on and each dependent has four rows, the first being the old one. Scripts or agents that read the old table by column position find the statistic one column to the right.
