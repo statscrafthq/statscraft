@@ -1281,6 +1281,7 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 
 ### DISCRIMINANT
 
+- ROTATE=COEFF and STRUCTURE rotate the functions by varimax with Kaiser normalization, as the Algorithms manual describes. Its divisor for the coefficients is printed with a plus where the squared multiple correlation it names needs a minus (1 - 1 / (w_ii w^ii), from the within-groups sums of squares and their inverse), so the correlation is used; the structure rows are divided by the root of their sum of squares. The rotation runs to a tight tolerance (1000 sweeps, 1e-10), since the manual gives none. The manual does not say how the rotated functions are signed or ordered: here each has a positive column sum in the matrix that was rotated, and they come in descending order of between-groups variance, shown as percentages under the transformation matrix. The rotated structure matrix is ordered like the plain one. The scores that SAVE writes and the classification stay unrotated, and a single function gives a warning and no rotation.
 - A group value that is not a whole number counts as out of range.
 - Each function is reflected so that its standardized coefficients sum to a positive number.
 - The Structure Matrix orders the variables by the function of their largest absolute correlation, within it by that correlation, and names the variables not entered.
@@ -1886,7 +1887,7 @@ Where the documentation is silent:
   - CLUSTER has no MATRIX=OUT.
   - TWOSTEP CLUSTER has no INFILE and writes no OUTFILE model or tree; DETECTANOMALY writes no OUTFILE model.
   - MVA has no OUTFILE under SPLIT FILE.
-  - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE.
+  - DISCRIMINANT has no MATRIX or OUTFILE.
   - USE takes case numbers only with /PERMANENT.
   - ADD FILES, MATCH FILES and UPDATE take no PASSWORD.
   - GET DATA reads no ODBC or OLEDB sources.

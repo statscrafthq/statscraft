@@ -251,12 +251,28 @@ fn discriminant_plot_keywords() {
 }
 
 #[test]
+fn discriminant_rotate_keywords() {
+    use crate::discriminant::DiscriminantRotate::{Coeff, None, Structure};
+    for (text, want) in [
+        ("/ROTATE=COEFF", Coeff),
+        ("/ROTATE=STRUCTURE", Structure),
+        ("/ROTATE=NONE", None),
+        ("", None),
+    ] {
+        let d = discriminant(&format!(
+            "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=a b {text}."
+        ));
+        assert_eq!(d.rotate, want, "{text}");
+    }
+}
+
+#[test]
 fn discriminant_errors() {
     assert!(err("DISCRIMINANT /VARIABLES=a b.").contains("GROUPS"));
     assert!(err("DISCRIMINANT GROUPS=g(1,2).").contains("VARIABLES"));
     assert!(err("DISCRIMINANT GROUPS=g(2,1) /VARIABLES=a.").contains("smaller first"));
     assert!(
-        err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /ROTATE=COEFF.").contains("not supported yet")
+        err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /ROTATE=VARIMAX.").contains("word VARIMAX")
     );
     assert!(
         err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /MATRIX=OUT(*).")

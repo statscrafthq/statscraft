@@ -3030,7 +3030,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/ANALYSIS=... another block] [/MISSING=EXCLUDE | INCLUDE] [/HISTORY=STEP | NONE]\n\
                  \x20  [/CLASSIFY=[NONMISSING | UNSELECTED | UNCLASSIFIED] [POOLED | SEPARATE] [MEANSUB]]\n\
                  \x20  [/STATISTICS=[MEAN] [STDDEV] [UNIVF] [COV] [CORR] [FPAIR] [BOXM] [GCOV] [TCOV] [RAW] [COEFF] [TABLE]\n\
-                 \x20               [CROSSVALID] [ALL]] [/ROTATE=NONE] [/PLOT=[COMBINED] [SEPARATE] [MAP] [CASES[(n)]] [ALL]].\n\
+                 \x20               [CROSSVALID] [ALL]] [/ROTATE=NONE | COEFF | STRUCTURE] [/PLOT=[COMBINED] [SEPARATE] [MAP] [CASES[(n)]] [ALL]].\n\
                  The analysis uses the cases with a whole group value in the range, no missing value on VARIABLES and,\n\
                  with SELECT, the selected value; groups without cases are ignored. DIRECT enters the variables that\n\
                  pass the tolerance; the stepwise methods enter the variable with the best criterion (smallest Wilks'\n\
@@ -3054,7 +3054,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  repeats the cases in the analysis for the rule refitted without each). MAP splits the plane of the first two functions into\n\
                  the territory of each group, a convex polygon, under the pooled rule with the priors, drawn as\n\
                  tinted polygons with the centroids named; there is no\n\
-                 map with one function or CLASSIFY=SEPARATE. Not supported yet: ROTATE=COEFF and STRUCTURE, MATRIX,\n\
+                 map with one function or CLASSIFY=SEPARATE. ROTATE=COEFF or STRUCTURE adds a varimax rotation of the\n\
+                 functions: the transformation matrix with the share of the between-groups variance of each rotated\n\
+                 function, the rotated standardized coefficients and the rotated structure matrix; scores and\n\
+                 classification stay as they are. Not supported yet: MATRIX,\n\
                  OUTFILE.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
         parse: discriminant::discriminant,

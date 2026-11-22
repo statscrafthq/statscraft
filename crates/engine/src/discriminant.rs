@@ -30,7 +30,8 @@ use crate::regression::{plain, table};
 use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
 use statscraft_syntax::{
-    ClassifyCases, Discriminant, DiscriminantAnalysis, DiscriminantMethod as M, Priors, VarItem,
+    ClassifyCases, Discriminant, DiscriminantAnalysis, DiscriminantMethod as M, DiscriminantRotate,
+    FactorCriteria, Priors, Rotation, VarItem,
 };
 
 /// The cases of the analysis phase.
@@ -463,6 +464,174 @@ fn function_columns(k: usize) -> Vec<(String, String)> {
     let mut columns = plain(&[""]);
     columns.extend((1..=k).map(|f| ("Function".to_string(), f.to_string())));
     columns
+}
+
+/// ROTATE: the varimax transformation of the standardized coefficients (COEFF) or of the
+/// structure matrix (STRUCTURE), with the rotated coefficients and the rotated structure.
+///
+/// Rows are Kaiser normalized: by the root of the squared multiple correlation of the variable
+/// with the other entered variables for coefficients (1 - 1 / (w_ii w^ii) from the within-groups
+/// sums of squares and their inverse), by the root of the row sum of squares for the structure.
+/// The rotated functions are ordered by their between-groups variance, the diagonal of K' L K
+/// with L the eigenvalues, and shown with that variance as a percentage.
+struct ToRotate<'a> {
+    s: &'a Sums,
+    set: &'a [usize],
+    set_names: &'a [String],
+    /// The functions, one per entry, over the entered variables.
+    v: &'a [Vec<f64>],
+    lambdas: &'a [f64],
+    structure: &'a [Vec<f64>],
+    shown: &'a [usize],
+    block_names: &'a [String],
+    caption: &'a str,
+}
+
+fn rotated_tables(
+    kind: DiscriminantRotate,
+    input: &ToRotate,
+    warnings: &mut Vec<String>,
+) -> Vec<Table> {
+    let ToRotate {
+        s,
+        set,
+        set_names,
+        v,
+        lambdas,
+        structure,
+        shown,
+        block_names,
+        caption,
+    } = *input;
+    let kf = v.len();
+    let q = set.len();
+    let standardized: Matrix = (0..q)
+        .map(|a| {
+            (0..kf)
+                .map(|f| v[f][a] * s.w[set[a]][set[a]].sqrt())
+                .collect()
+        })
+        .collect();
+    let criteria = FactorCriteria {
+        iterate: 1000,
+        rconverge: 1e-10,
+        ..FactorCriteria::default()
+    };
+    let mut notes = Vec::new();
+    let found = match kind {
+        DiscriminantRotate::Structure => crate::factor::orthogonal(
+            &structure.to_vec(),
+            Rotation::Varimax,
+            &criteria,
+            &mut notes,
+        ),
+        _ => {
+            let sub: Matrix = set
+                .iter()
+                .map(|&i| set.iter().map(|&j| s.w[i][j]).collect())
+                .collect();
+            let divisors: Vec<f64> = match inverse(&sub) {
+                Some((inv, _)) => (0..q)
+                    .map(|a| (1.0 - 1.0 / (sub[a][a] * inv[a][a])).max(1e-12).sqrt())
+                    .collect(),
+                None => vec![1.0; q],
+            };
+            crate::factor::orthogonal_weighted(
+                &standardized,
+                Rotation::Varimax,
+                &criteria,
+                Some(&divisors),
+                &mut notes,
+            )
+        }
+    };
+    if !notes.is_empty() {
+        warnings.push(
+            "DISCRIMINANT: the rotation did not converge; the last estimates are shown".into(),
+        );
+    }
+    let mut k = found
+        .transform
+        .expect("an orthogonal rotation has a transformation");
+    // between-groups variance of each rotated function, largest first
+    let variance =
+        |k: &Matrix, j: usize| -> f64 { (0..kf).map(|f| k[f][j] * k[f][j] * lambdas[f]).sum() };
+    let mut order: Vec<usize> = (0..kf).collect();
+    order.sort_by(|&a, &b| variance(&k, b).total_cmp(&variance(&k, a)));
+    k = k
+        .iter()
+        .map(|row| order.iter().map(|&j| row[j]).collect())
+        .collect();
+    let total: f64 = (0..kf).map(|j| variance(&k, j)).sum();
+    let note = "Varimax rotation with Kaiser normalization; classification is not affected.";
+    let heads = |first: &str| {
+        let mut columns = plain(&[first]);
+        columns.extend((1..=kf).map(|f| ("Function".to_string(), f.to_string())));
+        columns
+    };
+    let mut rows: Vec<Vec<Cell>> = (0..kf)
+        .map(|f| {
+            let mut row = vec![text(format!("Function {}", f + 1))];
+            row.extend((0..kf).map(|j| number(Some(k[f][j]))));
+            row
+        })
+        .collect();
+    let mut last = vec![text("% of Variance")];
+    last.extend((0..kf).map(|j| number(Some(100.0 * variance(&k, j) / total))));
+    rows.push(last);
+    let transformation = table(
+        "Rotation Transformation Matrix",
+        1,
+        heads("Unrotated function"),
+        rows,
+        Some(format!("{note} Columns are the rotated functions.")),
+    );
+    let coefficients = table(
+        "Rotated Standardized Canonical Discriminant Function Coefficients",
+        1,
+        function_columns(kf),
+        (0..q)
+            .map(|a| {
+                let mut row = vec![text(set_names[a].clone())];
+                row.extend(
+                    (0..kf)
+                        .map(|j| number(Some((0..kf).map(|f| standardized[a][f] * k[f][j]).sum()))),
+                );
+                row
+            })
+            .collect(),
+        Some(note.to_string()),
+    );
+    let rotated: Vec<Vec<f64>> = structure
+        .iter()
+        .map(|row| {
+            (0..kf)
+                .map(|j| (0..kf).map(|f| row[f] * k[f][j]).sum())
+                .collect()
+        })
+        .collect();
+    let rows = structure_order(&rotated)
+        .into_iter()
+        .map(|a| {
+            let mut row = vec![text(block_names[shown[a]].clone())];
+            row.extend(rotated[a].iter().map(|x| number(Some(*x))));
+            row
+        })
+        .collect();
+    let correlations = table(
+        "Rotated Structure Matrix",
+        1,
+        function_columns(kf),
+        rows,
+        Some(caption.replace(
+            "standardized canonical discriminant functions",
+            "rotated functions",
+        )),
+    );
+    match kind {
+        DiscriminantRotate::Structure => vec![transformation, correlations, coefficients],
+        _ => vec![transformation, coefficients, correlations],
+    }
 }
 
 /// A classified case: its group (None when ungrouped), the predicted group and its weight.
@@ -972,8 +1141,30 @@ impl Engine {
                 1,
                 function_columns(kf),
                 rows,
-                Some(caption),
+                Some(caption.clone()),
             ));
+            if command.rotate != DiscriminantRotate::None {
+                if kf < 2 {
+                    warnings.push(
+                        "DISCRIMINANT: ROTATE needs at least two functions; nothing is rotated"
+                            .into(),
+                    );
+                } else {
+                    let input = ToRotate {
+                        s: &s,
+                        set: &set,
+                        set_names: &set_names,
+                        v,
+                        lambdas: &lambdas[..kf],
+                        structure: &r,
+                        shown: &shown,
+                        block_names: &block_names,
+                        caption: &caption,
+                    };
+                    let rotated = rotated_tables(command.rotate, &input, &mut warnings);
+                    tables.extend(rotated);
+                }
+            }
             // unstandardized coefficients and the centroids
             let scale = n_g.sqrt();
             let b: Vec<Vec<f64>> = v

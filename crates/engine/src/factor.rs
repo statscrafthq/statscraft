@@ -934,9 +934,31 @@ pub(crate) fn orthogonal(
     c: &FactorCriteria,
     warnings: &mut Vec<String>,
 ) -> Rotated {
+    orthogonal_weighted(a, kind, c, None, warnings)
+}
+
+/// `orthogonal` with the Kaiser divisors given (one per row) instead of the roots of the row
+/// sums of squares; DISCRIMINANT divides coefficient rows by the root of the squared multiple
+/// correlation.
+pub(crate) fn orthogonal_weighted(
+    a: &Matrix,
+    kind: Rotation,
+    c: &FactorCriteria,
+    divisors: Option<&[f64]>,
+    warnings: &mut Vec<String>,
+) -> Rotated {
     let m = a[0].len();
     let n = a.len() as f64;
-    let (mut l, h) = normalized(a, c.kaiser);
+    let (mut l, h) = match divisors {
+        Some(d) => (
+            a.iter()
+                .zip(d)
+                .map(|(row, h)| row.iter().map(|v| v / h).collect())
+                .collect(),
+            d.to_vec(),
+        ),
+        None => normalized(a, c.kaiser),
+    };
     let mut t = identity(m);
     let simplicity = |l: &Matrix| -> f64 {
         (0..m)

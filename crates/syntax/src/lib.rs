@@ -279,7 +279,7 @@ pub use datacheck::{
 };
 pub use discriminant::{
     ClassifyCases, Discriminant, DiscriminantAnalysis, DiscriminantMethod, DiscriminantPlots,
-    DiscriminantSave, DiscriminantStatistics, Priors,
+    DiscriminantRotate, DiscriminantSave, DiscriminantStatistics, Priors,
 };
 pub use encoding::{decode_syntax, encoding_for, legacy_encoding};
 pub use error::{Span, SyntaxError};

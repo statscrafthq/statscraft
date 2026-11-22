@@ -772,3 +772,106 @@ fn casewise_listing_adds_the_cross_validated_rows() {
     assert_eq!(t.rows.len(), 6);
     assert_eq!(t.columns.len(), 12);
 }
+
+/// R (check on the 36 analysis cases): the functions with V' W V = I, the standardized
+/// coefficients V sqrt(diag W), the structure W V / sqrt(diag W), and a varimax K from
+/// varimax(normalize = FALSE) on the Kaiser-normalized rows (rows divided by the root of the
+/// squared multiple correlation for the coefficients, by the root of the row sum of squares for
+/// the structure); columns ordered by the variance of the rotated function, each with a positive
+/// column sum.
+#[test]
+fn rotation_of_the_coefficients_matches_varimax_in_r() {
+    let tables = run("DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /ROTATE=COEFF.");
+    let k = find(&tables, "Rotation Transformation Matrix");
+    assert_near(
+        &row(k, "Function 1"),
+        &[0.858990511295, 0.511991505306],
+        1e-6,
+        "K row 1",
+    );
+    assert_near(
+        &row(k, "Function 2"),
+        &[0.511991505306, -0.858990511295],
+        1e-6,
+        "K row 2",
+    );
+    assert_near(
+        &row(k, "% of Variance"),
+        &[63.4411920814, 36.5588079186],
+        1e-6,
+        "variance shares",
+    );
+    let d = find(
+        &tables,
+        "Rotated Standardized Canonical Discriminant Function Coefficients",
+    );
+    for (name, want) in [
+        ("x1", [0.2082591831068, 1.0237785718565]),
+        ("x2", [1.0440792445971, 0.0825991319451]),
+        ("x3", [-0.1092642490142, -0.3245837523825]),
+        ("x4", [-0.0680188523942, -0.7145391557569]),
+    ] {
+        assert_near(&row(d, name), &want, 1e-6, name);
+    }
+    let r = find(&tables, "Rotated Structure Matrix");
+    for (name, want) in [
+        ("x1", [0.00872218443658, 0.658559717966]),
+        ("x2", [0.98077391160875, -0.179836669348]),
+        ("x3", [0.22025384826278, -0.232072866469]),
+        ("x4", [0.02582061257914, -0.371299377055]),
+    ] {
+        assert_near(&row(r, name), &want, 1e-6, name);
+    }
+    // the unrotated tables are still there and unchanged
+    let plain = find(&tables, "Structure Matrix");
+    assert_near(
+        &row(plain, "x1"),
+        &[0.3446692550039, -0.561230864515],
+        1e-6,
+        "structure",
+    );
+}
+
+#[test]
+fn rotation_of_the_structure_matches_varimax_in_r() {
+    let tables = run("DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /ROTATE=STRUCTURE.");
+    let k = find(&tables, "Rotation Transformation Matrix");
+    assert_near(
+        &row(k, "Function 1"),
+        &[0.78322536957, 0.62173790335],
+        1e-6,
+        "K row 1",
+    );
+    assert_near(
+        &row(k, "% of Variance"),
+        &[56.4103477595, 43.5896522405],
+        1e-6,
+        "variance shares",
+    );
+    let d = find(
+        &tables,
+        "Rotated Standardized Canonical Discriminant Function Coefficients",
+    );
+    assert_near(
+        &row(d, "x2"),
+        &[1.0238041396500, 0.220792140331],
+        1e-6,
+        "x2",
+    );
+    let r = find(&tables, "Rotated Structure Matrix");
+    assert_near(
+        &row(r, "x2"),
+        &[0.9959820288329, -0.047733547704],
+        1e-6,
+        "x2 structure",
+    );
+    // the structure table comes before the coefficients for STRUCTURE
+    let at = |title: &str| tables.iter().position(|t| t.title == title).unwrap();
+    assert!(
+        at("Rotated Structure Matrix")
+            < at("Rotated Standardized Canonical Discriminant Function Coefficients")
+    );
+    // ROTATE=NONE gives none of these
+    let none = run("DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /ROTATE=NONE.");
+    assert!(none.iter().all(|t| !t.title.contains("Rotat")));
+}

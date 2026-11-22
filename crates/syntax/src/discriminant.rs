@@ -12,6 +12,7 @@
 //! - FIN 3.84 and FOUT 2.71 by default; PIN and POUT take their place when given. TOLERANCE
 //!   0.001, VIN 0. FUNCTIONS=n1[,n2[,n3]] keeps the earlier n2 and n3 when left out.
 //! - PRIORS=EQUAL (default) | SIZE | values, `n*c` repeating c n times.
+//! - ROTATE=COEFF | STRUCTURE | NONE (default).
 //! - SAVE=CLASS[=name] SCORES[=root] PROBS[=root] (also in parentheses).
 //! - STATISTICS without keywords is MEAN STDDEV UNIVF. HISTORY=STEP (alias END) | NONE (aliases
 //!   NOSTEP, NOEND). CLASSIFY=NONMISSING | UNSELECTED | UNCLASSIFIED, POOLED | SEPARATE, MEANSUB.
@@ -101,6 +102,15 @@ pub struct DiscriminantStatistics {
     pub crossvalid: bool,
 }
 
+/// ROTATE: a varimax rotation of the standardized coefficients or of the structure matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiscriminantRotate {
+    #[default]
+    None,
+    Coeff,
+    Structure,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClassifyCases {
     NonMissing,
@@ -130,6 +140,7 @@ pub struct Discriminant {
     pub include: bool,
     pub history: bool,
     pub classify: ClassifyCases,
+    pub rotate: DiscriminantRotate,
     pub separate: bool,
     pub meansub: bool,
     pub statistics: DiscriminantStatistics,
@@ -478,6 +489,7 @@ pub(crate) fn discriminant(p: &mut Parser) -> PResult<Command> {
         include: false,
         history: true,
         classify: ClassifyCases::NonMissing,
+        rotate: DiscriminantRotate::None,
         separate: false,
         meansub: false,
         statistics: DiscriminantStatistics::default(),
@@ -625,14 +637,20 @@ pub(crate) fn discriminant(p: &mut Parser) -> PResult<Command> {
                 };
             } else if p.eat_keyword("ROTATE") {
                 p.eat(Punct::Eq);
-                if !p.eat_keyword("NONE") {
+                command.rotate = if p.eat_keyword("COEFF") {
+                    DiscriminantRotate::Coeff
+                } else if p.eat_keyword("STRUCTURE") {
+                    DiscriminantRotate::Structure
+                } else if p.eat_keyword("NONE") {
+                    DiscriminantRotate::None
+                } else {
                     return Err(keyword_error(
                         p,
                         "DISCRIMINANT /ROTATE",
-                        &["COEFF", "STRUCTURE"],
-                        &["NONE"],
+                        &[],
+                        &["COEFF", "STRUCTURE", "NONE"],
                     ));
-                }
+                };
             } else if p.eat_keyword("PLOT") {
                 p.eat(Punct::Eq);
                 let plot = &mut command.plot;

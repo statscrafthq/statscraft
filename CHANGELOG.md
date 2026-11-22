@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- DISCRIMINANT /ROTATE=COEFF and STRUCTURE: a varimax rotation of the functions with its transformation matrix (and the share of the between-groups variance of each rotated function), the rotated standardized coefficients and the rotated structure matrix.
 - CORRELATIONS /MATRIX=OUT and NONPAR CORR /MATRIX=OUT write the matrix data file of the last list without WITH (MEAN, STDDEV, N and CORR; N and RHO or TAUB), per split group.
 - GENLIN /CRITERIA CITYPE=PROFILE: profile likelihood confidence intervals for the regression parameters (and Exp(B)) instead of Wald ones, for the models other than the ordinal multinomial and REPEATED.
 - DISCRIMINANT /PLOT=CASES with /STATISTICS=CROSSVALID adds the cross-validated rows to the Casewise Statistics table: the group, posteriors and squared distances of the rule refitted without each case.
