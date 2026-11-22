@@ -475,10 +475,12 @@ impl Correlations {
         } else {
             ""
         };
-        // the level checked even when it stays the default
-        let level = match confidence(&self.ci_level)? {
-            Some(_) if self.ci => self.ci_level.trim().parse::<f64>().ok().map(number),
-            _ => None,
+        // the level checked only while intervals are asked for, also when it stays the default
+        let wants_ci = self.ci && (self.pearson || self.spearman);
+        let level = match wants_ci {
+            true => confidence(&self.ci_level)?
+                .and_then(|_| self.ci_level.trim().parse::<f64>().ok().map(number)),
+            false => None,
         };
         let mut commands = Vec::new();
         if self.pearson {
@@ -1229,6 +1231,9 @@ mod tests {
         assert!(statscraft_syntax::parse(&syntax).1.is_empty());
         c.ci_level = "100".into();
         assert!(c.syntax().unwrap_err().contains("between 0 and 100"));
+        // a level left in the box with the intervals off is not checked
+        c.ci = false;
+        assert!(c.syntax().is_ok());
         d.pearson = false;
         assert_eq!(
             d.syntax().unwrap_err(),
