@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.27.0 (2026-11-22)
+
 - GENLIN /CRITERIA INITIAL=numbers: the starting values of the coefficients (all parameters, redundant ones included).
 - Window: the legacy nonparametric dialogs (NPAR TESTS) add exact significances.
 - Window: Generalized Linear Models takes typed initial values of the parameters.
