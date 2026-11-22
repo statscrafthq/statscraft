@@ -785,10 +785,24 @@ fn correlations() {
         panic!()
     };
     assert_eq!(c.lists.len(), 1);
+    let Command::Correlations(c) = one("CORRELATIONS a b /MATRIX=OUT('m.sav').") else {
+        panic!()
+    };
+    assert_eq!(c.matrix.output, Some(Some("m.sav".to_string())));
+    let Command::NonparCorr(c) = one("NONPAR CORR a b /MATRIX OUT(*).") else {
+        panic!()
+    };
+    assert_eq!(c.matrix.output, Some(None));
+    // the manual's MATRIX of both commands only writes
     assert!(
-        err("CORRELATIONS a b /MATRIX=OUT(*).")
+        err("CORRELATIONS a b /MATRIX=IN(*).")
             .message
-            .contains("MATRIX of CORRELATIONS is not supported yet")
+            .contains("OUT")
+    );
+    assert!(
+        err("NONPAR CORR a b /MATRIX=IN(*).")
+            .message
+            .contains("OUT")
     );
 }
 

@@ -9,12 +9,15 @@ Spearman's rho and Kendall's tau-b rank correlations with significance.
 ```text
 NONPAR CORR [/VARIABLES=]varlist [WITH varlist] [/varlist ...]
             [/PRINT=SPEARMAN | KENDALL | BOTH  TWOTAIL | ONETAIL  SIG | NOSIG
-                    FULL | LOWER | LNODIAG] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]] [/SAMPLE].
+                    FULL | LOWER | LNODIAG] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]] [/SAMPLE]
+            [/MATRIX=OUT(* | 'file' | dataset)].
 ```
+
+MATRIX writes the last list without WITH: the records N (as in CORRELATIONS) and RHO, or TAUB when only KENDALL is asked (BOTH writes rho alone), with VARNAME\_ and one set per SPLIT FILE group.
 
 A list alone gives a square matrix, WITH a rectangular one (left variables in rows). Ties get their average rank; rho is tested with t on N - 2 df, tau-b with the normal approximation and the tie-corrected variance. NOSIG marks coefficients significant at 0.05 with \* and at 0.01 with \*\*. PAIRWISE (default) uses the cases valid on both variables of a pair; LISTWISE the cases valid on every variable of the list, each list on its own. A weight variable repeats each case as often as its weight rounded to a whole number. SAMPLE changes nothing.
 
-Not supported yet: MATRIX, CI.
+Not supported yet: CI.
 
 ## Example
 
