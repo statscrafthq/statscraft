@@ -1252,3 +1252,31 @@ fn a_scale_dependent_saves_the_node_and_its_mean_and_warns_about_what_does_not_a
     let message = error(&mut engine, "TREE r [s] BY x2 [s].");
     assert!(message.contains("needs METHOD TYPE=CRT"), "{message}");
 }
+
+#[test]
+fn a_scale_dependent_far_from_zero_gives_the_same_tree() {
+    // adding a million changes the means and nothing else: sums of squares must not cancel
+    let mut engine = engine();
+    run(&mut engine, "COMPUTE big = r + 1000000.");
+    let tables = run(
+        &mut engine,
+        "TREE big [s] BY x2 [s] o [o] g [n] /METHOD TYPE=CRT /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=20 MINCHILDSIZE=8
+          /PRINT TREETABLE RISK /TREE DISPLAY=NONE.",
+    );
+    let tree = table(&tables, "Tree Table");
+    assert_eq!(tree.rows.len(), SCALE_L1.len());
+    let (mean, sd, gain) = (
+        column(tree, "Mean"),
+        column(tree, "Std. Deviation"),
+        column(tree, "Improvement"),
+    );
+    for (row, want) in tree.rows.iter().zip(SCALE_L1) {
+        close(number(&row[mean]), want.2 + 1_000_000.0, 1e-12);
+        close(number(&row[sd]), want.3, 1e-6);
+        if let Some(g) = want.5 {
+            close(number(&row[gain]), g, 1e-6);
+        }
+    }
+    let risk = table(&tables, "Risk");
+    close(number(&risk.rows[0][0]), 21.4260199367, 1e-6);
+}

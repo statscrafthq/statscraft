@@ -8,7 +8,7 @@ use statscraft_data::Variable;
 
 /// The mean and, with more than one case in the node, the sample standard deviation.
 fn spread(node: &Node) -> (f64, Option<f64>) {
-    let mean = node.counts[1] / node.counts[0];
+    let mean = node.counts[1] / node.counts[0] + node.shift;
     let squares = (node.counts[2] - node.counts[1] * node.counts[1] / node.counts[0]).max(0.0);
     let sd = (node.n > 1.0).then(|| (squares / (node.n - 1.0)).sqrt());
     (mean, sd)
@@ -245,7 +245,7 @@ impl Engine {
 
         if command.gain_table {
             // the terminal nodes by their mean, with the mean over the overall mean as the index
-            let overall = nodes[0].counts[1] / nodes[0].counts[0];
+            let overall = spread(&nodes[0]).0;
             let mut order = terminals.clone();
             order.sort_by(|&a, &b| {
                 let (ma, mb) = (spread(&nodes[a]).0, spread(&nodes[b]).0);

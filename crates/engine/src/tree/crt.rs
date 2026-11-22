@@ -54,6 +54,8 @@ pub(super) struct Growth<'a> {
     pub case_weight: &'a [f64],
     /// A scale dependent's values; the classes are then the one class of all cases.
     pub values: Option<&'a [f64]>,
+    /// What was taken off the values to keep their squares small; nodes report it back.
+    pub shift: f64,
     pub classes: usize,
     pub priors: &'a [f64],
     pub impurity: TreeImpurity,
@@ -420,7 +422,12 @@ impl Growth<'_> {
             })
             .collect();
         let sample = (self.case_class, self.case_weight, self.values);
-        let mut nodes = vec![make_node((0..n).collect(), None, 0, None, sample, &factor)];
+        let make = |cases, parent, depth, definition| {
+            let mut node = make_node(cases, parent, depth, definition, sample, &factor);
+            node.shift = self.shift;
+            node
+        };
+        let mut nodes = vec![make((0..n).collect(), None, 0, None)];
         let mut queue = VecDeque::from([0]);
         while let Some(id) = queue.pop_front() {
             let node = &nodes[id];
@@ -476,8 +483,8 @@ impl Growth<'_> {
             }
             let depth = node.depth + 1;
             let children = [
-                make_node(to_left, Some(id), depth, Some((p, left)), sample, &factor),
-                make_node(to_right, Some(id), depth, Some((p, right)), sample, &factor),
+                make(to_left, Some(id), depth, Some((p, left))),
+                make(to_right, Some(id), depth, Some((p, right))),
             ];
             for child in children {
                 let next = nodes.len();

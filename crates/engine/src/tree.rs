@@ -133,6 +133,8 @@ struct Node {
     /// A scale dependent's node: `counts` are then the weight, the sum of the values and the sum
     /// of their squares, and `assign` is the node's risk.
     scale: bool,
+    /// A scale dependent's values were shifted by this much before adding them up.
+    shift: f64,
     /// The weighted sum of the fourth powers of the deviations from the mean, for the risk's error.
     fourth: f64,
     n: f64,
@@ -206,6 +208,7 @@ fn make_node(
         n,
         assign,
         scale: values.is_some(),
+        shift: 0.0,
         fourth,
         cases,
         counts,
@@ -1005,15 +1008,26 @@ impl Engine {
         let case_weight: Vec<f64> = cases.iter().map(|&(c, _)| weight(c)).collect();
         let case_class: Vec<usize> = cases.iter().map(|&(_, k)| k).collect();
 
-        let dep_values: Option<Vec<f64>> = scale_dep.then(|| {
-            cases
+        // a scale dependent is shifted by its mean, so sums of squares do not cancel
+        let (dep_values, dep_shift): (Option<Vec<f64>>, f64) = if scale_dep {
+            let values: Vec<f64> = cases
                 .iter()
                 .map(|&(c, _)| match raw(&dependent, c) {
                     Raw::Valid(Key::Number(x)) => x,
                     _ => f64::NAN,
                 })
-                .collect()
-        });
+                .collect();
+            let total: f64 = case_weight.iter().sum();
+            let shift = values
+                .iter()
+                .zip(&case_weight)
+                .map(|(y, w)| y * w)
+                .sum::<f64>()
+                / total;
+            (Some(values.iter().map(|y| y - shift).collect()), shift)
+        } else {
+            (None, 0.0)
+        };
         let nodes = if command.crt {
             let priors = if scale_dep {
                 vec![1.0]
@@ -1033,6 +1047,7 @@ impl Engine {
                 case_class: &case_class,
                 case_weight: &case_weight,
                 values: dep_values.as_deref(),
+                shift: dep_shift,
                 classes: classes.len(),
                 priors: &priors,
                 impurity: command.impurity,
@@ -1241,7 +1256,7 @@ impl Engine {
                         let mut values = vec![None; case_count];
                         for (i, &c) in case_numbers.iter().enumerate() {
                             let node = &nodes[terminal_of[i]];
-                            values[c] = Some(node.counts[1] / node.counts[0]);
+                            values[c] = Some(node.counts[1] / node.counts[0] + node.shift);
                         }
                         data.set_numeric_values(&name, values)?;
                         data.set_format(&name, "F8.3")?;
