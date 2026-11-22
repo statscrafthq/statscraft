@@ -1106,14 +1106,27 @@ impl Engine {
                     "{name}: PLOT with WSFACTOR is not supported yet; no chart is made"
                 ));
             }
+            if command.save.iter().any(|(_, name)| name.is_some()) {
+                return Err(Error(format!(
+                    "{name}: SAVE with a variable name is not supported yet with several dependent variables; leave the name out"
+                )));
+            }
             tables.extend(self.repeated_measures(
                 command,
                 &d,
-                effects,
+                effects.clone(),
                 &dependent_texts,
                 &mut warnings,
                 &label_of,
             )?);
+            // each dependent variable is saved on its own, as in the multivariate model
+            if !command.save.is_empty() {
+                for (j, dependent) in dependents.iter().enumerate() {
+                    let dj = d.only(j);
+                    let fj = Fit::new(&dj, effects.clone(), &dj.y, command.eps);
+                    self.save_glm(command, &dj, &fj, dependent, cases)?;
+                }
+            }
         } else if !command.random.is_empty() && dependents.len() > 1 {
             // RANDOM is always a univariate mixed-model analysis: one for each dependent
             tables.push(between_factors(&d));
@@ -4748,13 +4761,8 @@ impl Engine {
             return self
                 .doubly_multivariate(command, d, effects, dependents, m, warnings, label_of);
         }
-        for (what, given) in [
-            ("SAVE", !command.save.is_empty()),
-            ("TEST", !command.tests.is_empty()),
-        ] {
-            if given {
-                return Err(Error(format!("{what} with WSFACTOR is not supported yet")));
-            }
+        if !command.tests.is_empty() {
+            return Err(Error("TEST with WSFACTOR is not supported yet".into()));
         }
         for w in ws {
             let clash = d

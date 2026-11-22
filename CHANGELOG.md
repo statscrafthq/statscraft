@@ -3,6 +3,7 @@
 ## Unreleased
 
 - TREE validation (split sample and cross-validation) also works for a scale dependent under CRT: the risk is the mean squared deviation from the training node means, with its standard error.
+- GLM with WSFACTOR takes SAVE: the predicted values, residuals and the other keywords of each dependent variable.
 - GLM with WSFACTOR takes CONTRAST, LMATRIX, KMATRIX, MMATRIX, TEST(MMATRIX) and POSTHOC: the hypotheses and multiple comparisons of the between-subjects factors on the average of the cells (or on the transformation MMATRIX gives).
 - TREE /VALIDATION TYPE=CROSSVALIDATION(folds): the Risk table gives the cross-validated estimate (the pooled misses of the fold trees) next to the resubstitution one.
 - GLM with WSFACTOR takes EMMEANS: estimated marginal means of between-subjects and within-subjects factors and their crossings, with pairwise comparisons (COMPARE, ADJ) that use the covariance of the dependent variables.

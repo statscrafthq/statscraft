@@ -2674,3 +2674,23 @@ fn hypotheses_with_measures_have_a_transformed_variable_for_each() {
             .any(|t| t.title.starts_with("Multiple Comparisons"))
     );
 }
+
+#[test]
+fn repeated_measures_save_the_fit_of_each_dependent() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 b1 b2 b3 BY g /WSFACTOR=time 3 /MEASURE=A B /SAVE=PRED RESID."
+        ),
+    );
+    // the model is the group: the prediction of a case is its group's mean of that dependent
+    // (R: tapply of a1 and b3 over g)
+    let pred_a1 = values(&engine, "PRE_1");
+    let res_a1 = values(&engine, "RES_1");
+    assert!((pred_a1[0].unwrap() - 9.15857143).abs() < 1e-7);
+    assert!((res_a1[0].unwrap() - (9.23 - 9.15857143)).abs() < 1e-7);
+    for name in ["PRE_6", "RES_6"] {
+        assert!(values(&engine, name).iter().all(Option::is_some), "{name}");
+    }
+}
