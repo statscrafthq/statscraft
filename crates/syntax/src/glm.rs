@@ -204,6 +204,9 @@ pub struct Glm {
     pub save: Vec<(GlmTemp, Option<String>)>,
     /// PLOT, in the order asked.
     pub plots: Vec<GlmPlot>,
+    /// `/RANDOM=factors`: the factors whose effects (and the effects containing them) are random;
+    /// the lists of several RANDOM subcommands add up.
+    pub random: Vec<String>,
     /// MBPDESIGN, BPDESIGN and FDESIGN: the terms of the auxiliary model of each test; Some with
     /// no terms is the DESIGN model, None the default (the fitted and squared fitted values).
     pub mbp_design: Option<Vec<Term>>,
@@ -1254,7 +1257,7 @@ fn wsfactors(p: &mut Parser) -> PResult<Vec<WsFactor>> {
     Ok(out)
 }
 
-const SUBCOMMANDS_LATER: [&str; 6] = ["RANDOM", "OUTFILE", "MEASURE", "SPLIT", "PLOT", "CONTRAST"];
+const SUBCOMMANDS_LATER: [&str; 5] = ["OUTFILE", "MEASURE", "SPLIT", "PLOT", "CONTRAST"];
 
 /// `UNIANOVA ...` and `GLM ...`.
 pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command> {
@@ -1294,6 +1297,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         save: Vec::new(),
         plots: Vec::new(),
         robust: None,
+        random: Vec::new(),
         mbp_design: None,
         bp_design: None,
         f_design: None,
@@ -1435,6 +1439,17 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
             command.save = save(p)?;
         } else if p.eat_keyword("PLOT") {
             command.plots.extend(plot(p)?);
+        } else if p.eat_keyword("RANDOM") {
+            p.eat(Punct::Eq);
+            let mut any = false;
+            while let Some(TokenKind::Word(_)) = p.peek() {
+                command.random.push(p.name("a factor")?);
+                p.eat(Punct::Comma);
+                any = true;
+            }
+            if !any {
+                return Err(p.unexpected(&["a factor"]));
+            }
         } else if p.eat_keyword("MBPDESIGN") {
             p.eat(Punct::Eq);
             command.mbp_design = Some(terms(p)?);

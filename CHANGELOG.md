@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- UNIANOVA and GLM /RANDOM: random effects with the Expected Mean Squares table and each effect tested against its own combination of mean squares (Satterthwaite's degrees of freedom).
 - FACTOR /MATRIX=IN(FAC=...) reads a factor-loading matrix (such as one MATRIX=OUT(FAC=...) wrote) and gives its communalities, the variance it accounts for, the loadings and the rotation asked for.
 - DISCRIMINANT /MATRIX=OUT writes the group counts and means and the pooled deviations and correlations of the first analysis as a matrix data file.
 - CLUSTER /MATRIX=OUT writes the proximity matrix of the run (rows of type PROX, the layout PROXIMITIES writes) to a file, a dataset or the active dataset.

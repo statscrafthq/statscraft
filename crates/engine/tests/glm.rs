@@ -1853,3 +1853,283 @@ fn heteroskedasticity_tests_add_the_constant_to_a_model_without_one() {
     assert!(close(het(&t, "White's Test", "df"), 1.0));
     assert!(close(het(&t, "White's Test", "Statistic"), 4.662785395));
 }
+
+const RANDOM_BALANCED: &str = "DATA LIST FREE /y A B.
+BEGIN DATA
+11.225 1 1
+12.128 1 1
+11.305 1 1
+9.592 1 2
+8.868 1 2
+10.313 1 2
+11.68 1 3
+11.819 1 3
+10.941 1 3
+10.396 1 4
+12.662 1 4
+10.338 1 4
+11.025 2 1
+11.169 2 1
+9.921 2 1
+11.068 2 2
+10.995 2 2
+9.243 2 2
+13.227 2 3
+13.009 2 3
+11.62 2 3
+10.734 2 4
+11.226 2 4
+10.399 2 4
+9.817 3 1
+10.185 3 1
+8.088 3 1
+9.14 3 2
+7.941 3 2
+8.661 3 2
+11.318 3 3
+9.011 3 3
+12.069 3 3
+9.805 3 4
+11.287 3 4
+11.357 3 4
+END DATA.
+";
+const RANDOM_UNBALANCED: &str = "DATA LIST FREE /y A B.
+BEGIN DATA
+11.225 1 1
+11.305 1 1
+9.592 1 2
+8.868 1 2
+10.313 1 2
+11.819 1 3
+10.941 1 3
+10.396 1 4
+10.338 1 4
+11.025 2 1
+11.169 2 1
+11.068 2 2
+10.995 2 2
+9.243 2 2
+13.227 2 3
+13.009 2 3
+10.734 2 4
+10.399 2 4
+9.817 3 1
+10.185 3 1
+8.088 3 1
+9.14 3 2
+7.941 3 2
+11.318 3 3
+9.011 3 3
+12.069 3 3
+9.805 3 4
+11.287 3 4
+11.357 3 4
+END DATA.
+";
+const RANDOM_THREE: &str = "DATA LIST FREE /y A B C.
+BEGIN DATA
+2.488 1 1 1
+3.022 1 1 1
+1.629 1 1 2
+1.113 1 1 2
+0.953 1 2 1
+1.744 1 2 1
+1.392 1 2 2
+0.841 1 2 2
+4.301 1 3 1
+3.453 1 3 1
+3.432 1 3 2
+2.631 1 3 2
+5.876 2 1 1
+7.659 2 1 1
+6.476 2 1 2
+5.162 2 1 2
+3.765 2 2 1
+4.522 2 2 1
+4.403 2 2 2
+4.733 2 2 2
+6.316 2 3 1
+6.532 2 3 1
+6.656 2 3 2
+8.054 2 3 2
+2.577 3 1 1
+2.048 3 1 1
+2.558 3 1 2
+2.445 3 1 2
+2.531 3 2 1
+1.776 3 2 1
+2.866 3 2 2
+1.064 3 2 2
+3.741 3 3 1
+2.48 3 3 1
+4.027 3 3 2
+1.853 3 3 2
+END DATA.
+";
+
+fn mixed(tables: &[Table], source: &str, kind: &str, column: &str) -> f64 {
+    let table = tables
+        .iter()
+        .find(|t| t.title == "Tests of Between-Subjects Effects")
+        .unwrap();
+    let c = table
+        .column_titles()
+        .iter()
+        .position(|t| t == column)
+        .unwrap();
+    let mut current = String::new();
+    for row in &table.rows {
+        if let Cell::Text(s) = &row[0] {
+            current = s.clone();
+        }
+        if current == source && matches!(&row[1], Cell::Text(k) if k == kind) {
+            return number(&row[c]);
+        }
+    }
+    panic!("no {source} {kind}");
+}
+
+fn ems(tables: &[Table], source: &str, column: &str) -> f64 {
+    let table = tables
+        .iter()
+        .find(|t| t.title == "Expected Mean Squares")
+        .unwrap();
+    let c = table
+        .column_titles()
+        .iter()
+        .position(|t| t == column)
+        .unwrap();
+    let row = table
+        .rows
+        .iter()
+        .find(|r| matches!(&r[0], Cell::Text(s) if s == source))
+        .unwrap();
+    number(&row[c])
+}
+
+// A fixed, B random in a balanced design (3 x 4 x 3): the expected mean squares are the
+// textbook ones (A: s2 + 3 s2AB + Q, B: s2 + 3 s2AB + 9 s2B, AB: s2 + 3 s2AB), A and the
+// intercept are tested against what the unrestricted model gives, and the F tests are those of
+// aov()'s mean squares in a general statistics package.
+#[test]
+fn random_balanced_two_way_gives_the_textbook_expected_mean_squares() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!("{RANDOM_BALANCED}UNIANOVA y BY A B /RANDOM=B /DESIGN=A B A*B."),
+    );
+    assert!(close(ems(&t, "B", "Var(B)"), 9.0));
+    assert!(close(ems(&t, "B", "Var(A * B)"), 3.0));
+    assert!(close(ems(&t, "A", "Var(A * B)"), 3.0));
+    assert!(close(ems(&t, "A", "Var(B)"), 0.0));
+    assert!(close(ems(&t, "A * B", "Var(A * B)"), 3.0));
+    // the residual always has the coefficient 1 (the sweep's inverse is a reflexive one)
+    for source in ["Intercept", "A", "B", "A * B", "Error"] {
+        assert!(close(ems(&t, source, "Var(Error)"), 1.0), "{source}");
+    }
+    let quadratic = t
+        .iter()
+        .find(|t| t.title == "Expected Mean Squares")
+        .unwrap();
+    assert!(
+        quadratic
+            .column_titles()
+            .contains(&"Quadratic Term".to_string())
+    );
+    assert!(close(mixed(&t, "A", "Hypothesis", "F"), 4.61420332412));
+    assert!(close(mixed(&t, "A", "Hypothesis", "Sig."), 0.0611632219428));
+    assert!(close(mixed(&t, "A", "Error", "df"), 6.0));
+    assert!(close(mixed(&t, "B", "Hypothesis", "F"), 5.8798165512));
+    assert!(close(mixed(&t, "B", "Hypothesis", "Sig."), 0.0321691976167));
+    assert!(close(mixed(&t, "A * B", "Hypothesis", "F"), 1.38084596984));
+    assert!(close(mixed(&t, "A * B", "Error", "df"), 24.0));
+    assert!(close(
+        mixed(&t, "Intercept", "Hypothesis", "F"),
+        595.514053405
+    ));
+    assert!(close(
+        mixed(&t, "Intercept", "Hypothesis", "Sig."),
+        0.000150838964648
+    ));
+}
+
+// Unbalanced: the expected mean squares, the error terms (a mix of MS(A*B) and MS(Error) for A
+// and B) and their Satterthwaite degrees of freedom from an independent build in a general
+// statistics package of the same formulas (the Type III estimable functions written from the
+// cell means, the trace formula, the matching of the expected mean squares by least squares).
+#[test]
+fn random_unbalanced_two_way_gives_satterthwaite_error_terms() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!("{RANDOM_UNBALANCED}UNIANOVA y BY A B /RANDOM=B /DESIGN=A B A*B."),
+    );
+    assert!(close(ems(&t, "Intercept", "Var(B)"), 6.967741935));
+    assert!(close(ems(&t, "Intercept", "Var(A * B)"), 2.322580645));
+    assert!(close(ems(&t, "A", "Var(A * B)"), 2.332288401));
+    assert!(close(ems(&t, "B", "Var(B)"), 6.982758621));
+    assert!(close(ems(&t, "B", "Var(A * B)"), 2.327586207));
+    assert!(close(ems(&t, "A * B", "Var(A * B)"), 2.355350742));
+    for (source, f, p, df) in [
+        ("Intercept", 520.5605613, 0.0001837074586, 3.00170048),
+        ("A", 4.223309772, 0.07080027694, 6.080821698),
+        ("B", 5.188534793, 0.04094664202, 6.097539984),
+        ("A * B", 1.471332288, 0.2464121838, 17.0),
+    ] {
+        assert!(close(mixed(&t, source, "Hypothesis", "F"), f), "{source} F");
+        assert!(
+            close(mixed(&t, source, "Hypothesis", "Sig."), p),
+            "{source} p"
+        );
+        assert!(close(mixed(&t, source, "Error", "df"), df), "{source} df");
+    }
+}
+
+// Fully random three-way design: the test of A uses MS(AB) + MS(AC) - MS(ABC), a combination
+// with a negative coefficient, with Satterthwaite's degrees of freedom (as aov()'s mean squares
+// combined in a general statistics package).
+#[test]
+fn random_three_way_synthesizes_an_error_term_with_a_negative_coefficient() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{RANDOM_THREE}UNIANOVA y BY A B C /RANDOM=A B C /DESIGN=A B C A*B*C B*C A*C A*B."
+        ),
+    );
+    assert!(close(mixed(&t, "A", "Error", "Mean Square"), 1.3903895));
+    assert!(close(mixed(&t, "A", "Error", "df"), 3.18326666697));
+    assert!(close(mixed(&t, "A", "Hypothesis", "F"), 34.8246985827));
+    assert!(close(mixed(&t, "A", "Hypothesis", "Sig."), 0.0068588138297));
+    assert!(close(
+        mixed(&t, "A * B * C", "Hypothesis", "F"),
+        0.717388568237
+    ));
+    assert!(close(ems(&t, "A", "Var(A)"), 12.0));
+    assert!(close(ems(&t, "A * B * C", "Var(A * B * C)"), 2.0));
+}
+
+#[test]
+fn random_needs_factors_and_no_within_subjects_factor_and_treats_several_dependents_apart() {
+    let message = run_error(&format!(
+        "{RANDOM_BALANCED}UNIANOVA y BY A WITH B /RANDOM=B."
+    ));
+    assert!(message.contains("RANDOM names"), "{message}");
+    let message = run_error(&format!(
+        "{RANDOM_BALANCED}UNIANOVA y BY A B /RANDOM=nosuch."
+    ));
+    assert!(message.contains("nosuch"), "{message}");
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!("{RANDOM_BALANCED}COMPUTE y2 = y * 2."),
+    );
+    let t = run(&mut engine, "GLM y y2 BY A B /RANDOM=B /DESIGN=A B A*B.");
+    let tests = t
+        .iter()
+        .filter(|t| t.title == "Tests of Between-Subjects Effects")
+        .count();
+    assert_eq!(tests, 2, "a univariate mixed model for each dependent");
+    assert!(t.iter().all(|t| !t.title.contains("Multivariate")));
+}

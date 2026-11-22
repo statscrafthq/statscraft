@@ -53,6 +53,7 @@ mod get_data;
 mod get_translate;
 mod ggraph;
 mod glm;
+mod glm_random;
 mod graph;
 mod hiloglinear;
 mod html;

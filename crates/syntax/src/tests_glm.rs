@@ -275,8 +275,8 @@ fn glm_errors() {
             "ALPHA must lie between 0 and 1, got 1",
         ),
         (
-            "UNIANOVA y BY a /RANDOM=a.",
-            "subcommand RANDOM of UNIANOVA is not supported yet",
+            "UNIANOVA y BY a /MEASURE=m.",
+            "subcommand MEASURE of UNIANOVA is not supported yet",
         ),
         (
             "UNIANOVA y BY a b /EMMEANS=TABLES(a*b) COMPARE.",
@@ -658,4 +658,16 @@ fn heteroskedasticity_tests_and_their_auxiliary_models() {
             .map(|t| t.label.as_str()),
         Some("a")
     );
+}
+
+#[test]
+fn random_lists_factors_and_adds_up() {
+    assert!(glm("UNIANOVA y BY a b.").random.is_empty());
+    assert_eq!(glm("UNIANOVA y BY a b /RANDOM=b.").random, ["b"]);
+    assert_eq!(
+        glm("GLM y BY a b c /RANDOM=b, c /RANDOM a.").random,
+        ["b", "c", "a"]
+    );
+    let (_, errors) = parse("UNIANOVA y BY a /RANDOM=.");
+    assert!(!errors.is_empty());
 }

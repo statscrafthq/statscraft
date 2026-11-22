@@ -112,7 +112,7 @@ impl Data {
     }
 
     /// The same cases with dependent variable `j` alone.
-    fn only(&self, j: usize) -> Data {
+    pub(crate) fn only(&self, j: usize) -> Data {
         Data {
             y: self.y.iter().map(|row| vec![row[j]]).collect(),
             ..self.clone()
@@ -1051,6 +1051,25 @@ impl Engine {
             return Err(Error(format!("{name}: the design has no effects")));
         }
         let mut warnings = Vec::new();
+        if !command.random.is_empty() {
+            let uses: Vec<&str> = [
+                ("PRINT PARAMETER", command.print.parameter),
+                ("EMMEANS", !command.emmeans.is_empty()),
+                ("POSTHOC", !command.posthoc.is_empty()),
+                ("CONTRAST", !command.contrasts.is_empty()),
+                ("LMATRIX", !command.lmatrix.is_empty()),
+                ("ROBUST", command.robust.is_some()),
+            ]
+            .into_iter()
+            .filter_map(|(name, given)| given.then_some(name))
+            .collect();
+            if !uses.is_empty() {
+                warnings.push(format!(
+                    "{name}: with RANDOM, {} keep the error mean square of the fixed-effects model, not the error terms of the mixed model",
+                    uses.join(", ")
+                ));
+            }
+        }
         if command.robust.is_some() && (!command.wsfactors.is_empty() || dependents.len() > 1) {
             warnings.push(format!(
                 "{name}: ROBUST applies to a model with one dependent variable and is ignored"
@@ -1073,6 +1092,20 @@ impl Engine {
                 &mut warnings,
                 &label_of,
             )?);
+        } else if !command.random.is_empty() && dependents.len() > 1 {
+            // RANDOM is always a univariate mixed-model analysis: one for each dependent
+            tables.push(between_factors(&d));
+            for (j, text) in dependent_texts.iter().enumerate() {
+                let dj = d.only(j);
+                let fj = Fit::new(&dj, effects.clone(), &dj.y, command.eps);
+                tables.extend(crate::glm_random::random_tables(
+                    command,
+                    &dj,
+                    &fj,
+                    text,
+                    &mut warnings,
+                )?);
+            }
         } else if dependents.len() > 1 {
             tables.extend(self.multivariate_model(
                 command,
@@ -1211,7 +1244,7 @@ impl Engine {
 
 /// The sums of squares of every effect but the intercept (and of the intercept) by the type of
 /// METHOD, each as an r x r matrix with its df.
-fn effect_sscp(fit: &Fit, sstype: u8) -> Vec<(Matrix, usize)> {
+pub(crate) fn effect_sscp(fit: &Fit, sstype: u8) -> Vec<(Matrix, usize)> {
     let n_eff = fit.effects.len();
     match sstype {
         1 => {
@@ -1301,13 +1334,19 @@ fn univariate(
             None => warnings.push("Levene's test needs at least one factor".into()),
         }
     }
-    let (mut table, r2) = between_subjects(command, d, fit, &flags);
-    table.caption = Some(format!(
-        "Dependent Variable: {dependent}. Type {} sums of squares. {r2}.{}",
-        roman(command.sstype),
-        power_note(&flags)
-    ));
-    out.push(table);
+    if command.random.is_empty() {
+        let (mut table, r2) = between_subjects(command, d, fit, &flags);
+        table.caption = Some(format!(
+            "Dependent Variable: {dependent}. Type {} sums of squares. {r2}.{}",
+            roman(command.sstype),
+            power_note(&flags)
+        ));
+        out.push(table);
+    } else {
+        out.extend(crate::glm_random::random_tables(
+            command, d, fit, dependent, warnings,
+        )?);
+    }
     if command.print.parameter {
         let dfe = fit.df_error();
         out.push(parameter_table(
@@ -1956,7 +1995,7 @@ fn design_matrix_tables(command: &Glm, d: &Data, fit: &Fit) -> Vec<Table> {
     out
 }
 
-fn roman(t: u8) -> &'static str {
+pub(crate) fn roman(t: u8) -> &'static str {
     ["I", "II", "III", "IV"][usize::from(t.clamp(1, 4)) - 1]
 }
 

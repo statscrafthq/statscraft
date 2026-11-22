@@ -126,7 +126,7 @@ macro_rules! glm_syntax {
                  \x20  [/TEST=effect VS coefficient*effect +/- ... [DF(df)] | value DF(df)] ... (one dependent)\n\
                  \x20  [/MMATRIX=['label'] dependent value ... | ALL values [; ...]] (GLM) [/KMATRIX=values [; ...]]\n\
                  \x20  [/SAVE=tempvar[(name)] ...] [/DESIGN=effects]\n\
-                 \x20  [/ROBUST[=HC0 | HC1 | HC2 | HC3 | HC4]]\n\
+                 \x20  [/ROBUST[=HC0 | HC1 | HC2 | HC3 | HC4]] [/RANDOM=factors]\n\
                  \x20  [/MBPDESIGN[=effects]] [/BPDESIGN[=effects]] [/FDESIGN[=effects]]\n\
                  \x20  [/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]\n\
                  \x20         [TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...\n\
@@ -187,12 +187,18 @@ macro_rules! glm_syntax {
                  each effect's hypothesis rows, by the sum of squares type, with the error df) with the\n\
                  heteroskedasticity-consistent covariance, and a robust set of Contrast Results and Test Results\n\
                  for CONTRAST and LMATRIX; it is for one dependent variable and is ignored with a warning\n\
-                 otherwise. PRINT=MBP, BP, F and WHITE test for heteroskedasticity: the squared residuals (times\n\
+                 otherwise. RANDOM=factors makes those factors random, and every effect containing one (and no\n\
+                 covariate): the Tests of Between-Subjects Effects then give each effect a Hypothesis and an Error row,\n\
+                 the error term being the combination of the mean squares of the random effects and the residual that\n\
+                 has the effect's expected mean square under its null hypothesis (Satterthwaite's df), and an Expected\n\
+                 Mean Squares table gives the coefficient of each variance and the fixed effects of the quadratic term;\n\
+                 not with WSFACTOR, a univariate analysis for each dependent, and the other tables (parameters, means,\n\
+                 contrasts) keep the fixed-effects error with a warning. PRINT=MBP, BP, F and WHITE test for heteroskedasticity: the squared residuals (times\n\
                  the regression weight) are regressed on an auxiliary model, by default the constant, the\n\
                  fitted values and their squares, or the terms of MBPDESIGN, BPDESIGN and FDESIGN (a bare one names\n\
                  the model of DESIGN; an intercept is always in); White's uses every level, square and cross\n\
                  product of the design columns. One Heteroskedasticity Tests table (for each dependent variable\n\
-                 of GLM) gives the chi-square or F, df and Sig. Not supported yet: RANDOM,\n\
+                 of GLM) gives the chi-square or F, df and Sig. Not supported yet:\n\
                  OUTFILE and MEASURE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
                  EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE and PRINT\n\
                  PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).")
