@@ -225,6 +225,186 @@ pub(crate) fn median_tail(sizes: &[u64], observed: &[u64], budget: f64) -> Optio
     Some((significance.min(1.0), point))
 }
 
+/// All compositions of `t` into the groups with room left, with their multinomial weights
+/// 1 / prod x_j! (the common factor t! is left out).
+fn compositions(
+    t: u64,
+    room: &[u64],
+    group: usize,
+    current: &mut Vec<u64>,
+    weight: f64,
+    out: &mut Vec<(Vec<u64>, f64)>,
+) {
+    if group + 1 == room.len() {
+        if t <= room[group] {
+            current.push(t);
+            out.push((current.clone(), weight / factorial(t)));
+            current.pop();
+        }
+        return;
+    }
+    for x in 0..=t.min(room[group]) {
+        current.push(x);
+        compositions(t - x, room, group + 1, current, weight / factorial(x), out);
+        current.pop();
+    }
+}
+
+fn factorial(n: u64) -> f64 {
+    (1..=n).fold(1.0, |f, i| f * i as f64)
+}
+
+/// The exact tail of the Kruskal-Wallis test. The pooled cases come as tie blocks (how many
+/// cases, their joint rank times two); the groups of sizes `sizes` take them in every way the
+/// cases can be labelled (a block putting x_j of its cases in group j in t! / prod x_j! ways).
+/// H is monotone in the sum over groups of (rank sum)^2 / n, so the tail is the share of
+/// labellings reaching the observed sum (within 1e-9 relative counts as equal), and the share
+/// equal to it. The walk keeps, for all groups but the last, the counts and rank sums so far.
+/// None when it passes `budget` transitions.
+pub(crate) fn kruskal_tail(
+    blocks: &[(u64, i64)],
+    sizes: &[u64],
+    observed: &[i64],
+    budget: f64,
+) -> Option<(f64, f64)> {
+    let k = sizes.len();
+    let total_rank: i64 = blocks.iter().map(|&(t, r)| t as i64 * r).sum();
+    let statistic = |sums: &[i64]| -> f64 {
+        sums.iter()
+            .zip(sizes)
+            .map(|(&s, &n)| (s as f64) * (s as f64) / n as f64)
+            .sum()
+    };
+    let target = statistic(observed);
+    // state: counts then rank sums of groups 0..k-1
+    let mut states: HashMap<Vec<i64>, f64> = HashMap::new();
+    states.insert(vec![0; 2 * (k - 1)], 1.0);
+    let mut seen = 0_u64;
+    let mut work = 0.0;
+    for &(t, doubled) in blocks {
+        let mut next: HashMap<Vec<i64>, f64> = HashMap::with_capacity(states.len() * 2);
+        for (state, weight) in &states {
+            let used: i64 = state[..k - 1].iter().sum();
+            let last_count = seen as i64 - used;
+            let mut room: Vec<u64> = (0..k - 1).map(|g| sizes[g] - state[g] as u64).collect();
+            room.push(sizes[k - 1] - last_count as u64);
+            let mut options = Vec::new();
+            compositions(t, &room, 0, &mut Vec::new(), 1.0, &mut options);
+            work += options.len() as f64;
+            if work > budget {
+                return None;
+            }
+            for (x, ways) in options {
+                let mut moved = state.clone();
+                for g in 0..k - 1 {
+                    moved[g] += x[g] as i64;
+                    moved[k - 1 + g] += x[g] as i64 * doubled;
+                }
+                *next.entry(moved).or_insert(0.0) += weight * ways;
+            }
+        }
+        states = next;
+        seen += t;
+    }
+    let mut all = 0.0;
+    let (mut significance, mut point) = (0.0, 0.0);
+    let slack = 1e-9 * target.abs().max(1e-300);
+    for (state, weight) in &states {
+        let mut sums: Vec<i64> = state[k - 1..].to_vec();
+        sums.push(total_rank - sums.iter().sum::<i64>());
+        let value = statistic(&sums);
+        all += weight;
+        if value >= target - slack {
+            significance += weight;
+        }
+        if (value - target).abs() <= slack {
+            point += weight;
+        }
+    }
+    Some(((significance / all).min(1.0), point / all))
+}
+
+/// The exact tail of the Jonckheere-Terpstra test: the J statistic (pairs of cases with the
+/// earlier group's value below the later group's, a tie counting half) of every labelling of the
+/// pooled cases, `blocks` being how many cases share each distinct value in increasing order.
+/// Returns the two-sided share (a distance from the mean at least the observed one), the share
+/// on the observed side of the mean (at least, or at most, the observed value) and the share
+/// equal to it. Statistics are doubled to whole numbers. None when it passes `budget`.
+pub(crate) fn jonckheere_tail(
+    blocks: &[u64],
+    sizes: &[u64],
+    observed_doubled: i64,
+    budget: f64,
+) -> Option<(f64, f64, f64)> {
+    let k = sizes.len();
+    let total: u64 = sizes.iter().sum();
+    let mean_doubled = ((total * total - sizes.iter().map(|n| n * n).sum::<u64>()) / 2) as i64;
+    // state: counts of groups 0..k-1, then the doubled statistic
+    let mut states: HashMap<Vec<i64>, f64> = HashMap::new();
+    states.insert(vec![0; k], 1.0);
+    let mut seen = 0_u64;
+    let mut work = 0.0;
+    for &t in blocks {
+        let mut next: HashMap<Vec<i64>, f64> = HashMap::with_capacity(states.len() * 2);
+        for (state, weight) in &states {
+            let used: i64 = state[..k - 1].iter().sum();
+            let mut earlier: Vec<i64> = state[..k - 1].to_vec();
+            earlier.push(seen as i64 - used);
+            let room: Vec<u64> = (0..k).map(|g| sizes[g] - earlier[g] as u64).collect();
+            let mut options = Vec::new();
+            compositions(t, &room, 0, &mut Vec::new(), 1.0, &mut options);
+            work += options.len() as f64;
+            if work > budget {
+                return None;
+            }
+            for (x, ways) in options {
+                // pairs with the cases before the block, and the ties inside it
+                let mut gain = 0_i64;
+                for j in 1..k {
+                    let before: i64 = earlier[..j].iter().sum();
+                    gain += 2 * x[j] as i64 * before;
+                    for i in 0..j {
+                        gain += x[i] as i64 * x[j] as i64;
+                    }
+                }
+                let mut moved = state.clone();
+                for g in 0..k - 1 {
+                    moved[g] += x[g] as i64;
+                }
+                moved[k - 1] += gain;
+                *next.entry(moved).or_insert(0.0) += weight * ways;
+            }
+        }
+        states = next;
+        seen += t;
+    }
+    let mut by_value: HashMap<i64, f64> = HashMap::new();
+    let mut all = 0.0;
+    for (state, weight) in &states {
+        *by_value.entry(state[k - 1]).or_insert(0.0) += weight;
+        all += weight;
+    }
+    let distance = (observed_doubled - mean_doubled).abs();
+    let (mut two, mut one, mut point) = (0.0, 0.0, 0.0);
+    for (&value, &weight) in &by_value {
+        if (value - mean_doubled).abs() >= distance {
+            two += weight;
+        }
+        let on_side = if observed_doubled >= mean_doubled {
+            value >= observed_doubled
+        } else {
+            value <= observed_doubled
+        };
+        if on_side {
+            one += weight;
+        }
+        if value == observed_doubled {
+            point += weight;
+        }
+    }
+    Some(((two / all).min(1.0), (one / all).min(1.0), point / all))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,6 +422,27 @@ mod tests {
         // probabilities 1 20 ... of C(6,3) = 20: 1, 9, 9, 1; the extreme two reach the observed
         let (p, point) = median_tail(&[3, 3], &[3, 0], 1e9).unwrap();
         assert!((p - 2.0 / 20.0).abs() < 1e-12 && (point - 2.0 / 20.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn kruskal_tail_of_three_groups_of_two_by_enumeration() {
+        // six distinct cases, ranks 1 to 6 (doubled), groups of 2: 90 labellings; the observed
+        // ranks (1,2 | 3,4 | 5,6) are the most extreme of the 15 up to the order of the
+        // groups' sums, 6 of 90 labellings reach them
+        let blocks: Vec<(u64, i64)> = (1..=6).map(|r| (1, 2 * r)).collect();
+        let (p, point) = kruskal_tail(&blocks, &[2, 2, 2], &[6, 14, 22], 1e9).unwrap();
+        assert!((p - 6.0 / 90.0).abs() < 1e-12, "{p}");
+        assert!((point - 6.0 / 90.0).abs() < 1e-12, "{point}");
+    }
+
+    #[test]
+    fn jonckheere_tail_of_three_ordered_groups_by_enumeration() {
+        // six distinct cases in groups of 2: J is 12 when the groups are in order (1 2 | 3 4 |
+        // 5 6) in 1 of the 90 labellings, whose mean is 6 (doubled 12, observed doubled 24)
+        let (two, one, point) = jonckheere_tail(&[1; 6], &[2, 2, 2], 24, 1e9).unwrap();
+        assert!((one - 1.0 / 90.0).abs() < 1e-12 && (point - 1.0 / 90.0).abs() < 1e-12);
+        // the reversed order is as far from the mean on the other side
+        assert!((two - 2.0 / 90.0).abs() < 1e-12, "{two}");
     }
 
     #[test]

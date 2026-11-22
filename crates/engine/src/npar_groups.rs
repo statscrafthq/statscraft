@@ -134,6 +134,42 @@ impl Grouped {
 
     /// Kruskal-Wallis: the weighted rank sum of every group and H corrected for ties, None
     /// with fewer than two groups or no spread.
+    /// What the exact Kruskal-Wallis tail needs from the groups that have cases: the pooled
+    /// tie blocks (cases, joint rank times two), the group sizes and the observed rank sums
+    /// times two.
+    pub fn kruskal_exact(&self, budget: f64) -> Option<(f64, f64)> {
+        let (ranked, _) = self.ranked();
+        let n = self.sizes();
+        let filled: Vec<usize> = (0..n.len()).filter(|&g| n[g] > 0.0).collect();
+        let at = |g: usize| filled.iter().position(|&f| f == g);
+        let mut observed = vec![0_i64; filled.len()];
+        let mut by_value: Vec<(f64, u64, i64)> = Vec::new();
+        for &(x, w, g, rank) in &ranked {
+            let doubled = (2.0 * rank).round() as i64;
+            if let Some(i) = at(g) {
+                observed[i] += w as i64 * doubled;
+            }
+            match by_value.iter_mut().find(|b| b.0 == x) {
+                Some(b) => b.1 += w as u64,
+                None => by_value.push((x, w as u64, doubled)),
+            }
+        }
+        let blocks: Vec<(u64, i64)> = by_value.iter().map(|b| (b.1, b.2)).collect();
+        let sizes: Vec<u64> = filled.iter().map(|&g| n[g] as u64).collect();
+        crate::npar_exact::kruskal_tail(&blocks, &sizes, &observed, budget)
+    }
+
+    /// The exact Jonckheere-Terpstra tails (two-sided, one-sided, point) of the groups that
+    /// have cases, in the order of the keys.
+    pub fn jonckheere_exact(&self, observed: f64, budget: f64) -> Option<(f64, f64, f64)> {
+        let n = self.sizes();
+        let filled: Vec<usize> = (0..n.len()).filter(|&g| n[g] > 0.0).collect();
+        let sizes: Vec<u64> = filled.iter().map(|&g| n[g] as u64).collect();
+        let counts = tally(&self.pooled().iter().map(|p| (p.0, p.1)).collect::<Vec<_>>());
+        let blocks: Vec<u64> = counts.iter().map(|c| c.1 as u64).collect();
+        crate::npar_exact::jonckheere_tail(&blocks, &sizes, (2.0 * observed).round() as i64, budget)
+    }
+
     pub fn kruskal_wallis(&self) -> (Vec<f64>, Option<f64>) {
         let (ranked, ties) = self.ranked();
         let n = self.sizes();
@@ -662,9 +698,9 @@ pub(crate) fn groups(
             ]
         }
         GroupTest::KruskalWallis => {
-            run.no_exact("Kruskal-Wallis test");
             let mut rank_rows = Vec::new();
             let mut stats: Vec<Vec<Option<f64>>> = vec![Vec::new(); 3];
+            let mut exact_stats: Vec<Vec<Option<f64>>> = vec![Vec::new(); 2];
             for (d, name) in data.iter().zip(&names) {
                 let n = d.sizes();
                 let total: f64 = n.iter().sum();
@@ -700,8 +736,26 @@ pub(crate) fn groups(
                 stats[0].push(h);
                 stats[1].push(h.map(|_| k - 1.0));
                 stats[2].push(h.map(|h| chi_square_p(h, k - 1.0)));
+                let tail = if run.exact && h.is_some() {
+                    let tail = d.kruskal_exact(3e7);
+                    if tail.is_none() {
+                        run.warnings.push(format!(
+                            "/METHOD: the exact significance of the Kruskal-Wallis test of {name} needs too many steps; the asymptotic one is shown"
+                        ));
+                    }
+                    tail
+                } else {
+                    None
+                };
+                exact_stats[0].push(tail.map(|t| t.0));
+                exact_stats[1].push(tail.map(|t| t.1));
             }
-            let rows = ["Chi-Square", "df", "Asymp. Sig."]
+            let mut names_of_rows = vec!["Chi-Square", "df", "Asymp. Sig."];
+            if run.exact {
+                names_of_rows.extend(["Exact Sig.", "Point Probability"]);
+                stats.extend(exact_stats);
+            }
+            let rows = names_of_rows
                 .iter()
                 .map(|s| s.to_string())
                 .zip(stats)
@@ -718,7 +772,6 @@ pub(crate) fn groups(
         }
         GroupTest::Median(given) => median(run, &names, &data, group, given, ranged),
         GroupTest::JonckheereTerpstra => {
-            run.no_exact("Jonckheere-Terpstra test");
             let mut rows = Vec::new();
             for (d, name) in data.iter().zip(&names) {
                 let n = d.sizes();
@@ -739,6 +792,24 @@ pub(crate) fn groups(
                     ]
                     .map(number),
                 );
+                if run.exact {
+                    let tail = if usable {
+                        let tail = d.jonckheere_exact(t, 3e7);
+                        if tail.is_none() {
+                            run.warnings.push(format!(
+                                "/METHOD: the exact significance of the Jonckheere-Terpstra test of {name} needs too many steps; the asymptotic one is shown"
+                            ));
+                        }
+                        tail
+                    } else {
+                        None
+                    };
+                    row.extend([
+                        number(tail.map(|t| t.0)),
+                        number(tail.map(|t| t.1)),
+                        number(tail.map(|t| t.2)),
+                    ]);
+                }
                 rows.push(row);
             }
             let columns = vec![
@@ -751,6 +822,17 @@ pub(crate) fn groups(
                 "Std. J-T Statistic".into(),
                 "Asymp. Sig. (2-tailed)".into(),
             ];
+            let mut columns = columns;
+            if run.exact {
+                columns.extend(
+                    [
+                        "Exact Sig. (2-tailed)",
+                        "Exact Sig. (1-tailed)",
+                        "Point Probability",
+                    ]
+                    .map(String::from),
+                );
+            }
             vec![table("Jonckheere-Terpstra Test", 1, columns, rows)]
         }
     })

@@ -338,7 +338,7 @@ fn exact_tests_of_a_small_sample() {
 fn method_exact_adds_exact_significances() {
     let (tables, warnings) = small(
         "NPAR TESTS /M-W=x BY g(1,2) /WILCOXON=x WITH y /SIGN=x WITH y /RUNS(MEDIAN)=x
-         /K-W=x BY g(1,2) /METHOD=EXACT.",
+         /MH=x WITH y /METHOD=EXACT.",
     );
     // Mann-Whitney given the tied ranks, every split of the 12 cases enumerated
     let mw = nth(&tables, "Mann-Whitney Test", 0);
@@ -354,11 +354,9 @@ fn method_exact_adds_exact_significances() {
     let runs = nth(&tables, "Runs Test", 0);
     near(num(runs, 7, 1), 1.0, 12);
     near(num(runs, 8, 1), 0.2545454545454545, 12);
-    assert!(
-        warnings
-            .iter()
-            .any(|w| w.contains("exact significance of the Kruskal-Wallis test is not computed"))
-    );
+    assert!(warnings.iter().any(|w| {
+        w.contains("exact significance of the marginal homogeneity test is not computed")
+    }));
 }
 
 #[test]
@@ -687,4 +685,70 @@ NPAR TESTS /MEDIAN=x BY g(1,3) /METHOD=EXACT.");
     near(num(t, at, 1), 0.5337995337995, 12);
     near(num(t, at - 1, 1), 0.4168620197, 8);
     assert!(warnings.iter().all(|w| !w.contains("median")));
+}
+
+// The exact Kruskal-Wallis tail: every labelling of the 14 cases (their tied ranks) with the
+// group sizes 5, 5 and 4, 252 252 of them, enumerated in a general statistics package and ordered
+// by the sum of squared rank sums over the group sizes.
+#[test]
+fn method_exact_of_kruskal_wallis_enumerates_the_labellings() {
+    let (tables, warnings) = run("DATA LIST LIST /x g.
+BEGIN DATA
+3 1
+5 1
+5 2
+8 2
+2 3
+9 2
+7 1
+5 3
+6 3
+1 1
+4 2
+8 3
+12 2
+2 1
+END DATA.
+NPAR TESTS /K-W=x BY g(1,3) /METHOD=EXACT.");
+    let t = nth(&tables, "Kruskal-Wallis Test", 0);
+    let at = (0..t.rows.len())
+        .find(|&i| label(t, i, 0) == "Exact Sig.")
+        .unwrap();
+    near(num(t, at, 1), 0.1438799296, 10);
+    assert_eq!(label(t, at + 1, 0), "Point Probability");
+    near(num(t, at + 1, 1), 0.0003805718091, 12);
+    near(num(t, 0, 1), 3.914476615, 8);
+    assert!(warnings.iter().all(|w| !w.contains("Kruskal")));
+}
+
+// The exact Jonckheere-Terpstra tails: J of every labelling of the 14 cases (252 252) with the
+// group sizes 5, 5 and 4, in a general statistics package; two-sided as a distance from the mean,
+// one-sided on the side of the observed value.
+#[test]
+fn method_exact_of_jonckheere_terpstra_enumerates_the_labellings() {
+    let (tables, warnings) = run("DATA LIST LIST /x g.
+BEGIN DATA
+3 1
+5 1
+5 2
+8 2
+2 3
+9 2
+7 1
+5 3
+6 3
+1 1
+4 2
+8 3
+12 2
+2 1
+END DATA.
+NPAR TESTS /J-T=x BY g(1,3) /METHOD=EXACT.");
+    let t = nth(&tables, "Jonckheere-Terpstra Test", 0);
+    let column = |name: &str| t.columns.iter().position(|c| c == name).unwrap();
+    near(num(t, 0, column("Observed J-T Statistic")), 41.5, 10);
+    near(num(t, 0, column("Exact Sig. (2-tailed)")), 0.3084138084, 9);
+    near(num(t, 0, column("Exact Sig. (1-tailed)")), 0.1539967969, 9);
+    near(num(t, 0, column("Point Probability")), 0.0118690833, 9);
+    assert!(warnings.iter().all(|w| !w.contains("Jonckheere")));
 }
