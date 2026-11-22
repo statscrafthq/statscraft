@@ -57,7 +57,11 @@ other chart. Draw only numbers the result tables gave.
 Paths: window_status gives the platform the server runs on and, when the agent was started inside \
 WSL, wsl_distro. Tool arguments then take Linux paths too; the server translates them. File names \
 inside the syntax (GET FILE, SAVE and so on) are read as written: on a Windows server write them \
-as Windows paths, such as C:\\data\\survey.sav, or \\\\wsl$\\DISTRO\\home\\... for a file inside WSL.";
+as Windows paths, such as C:\\data\\survey.sav, or \\\\wsl$\\DISTRO\\home\\... for a file inside WSL.
+OpenStatSpec databases: apply_plan edits a dataset stored in one in place, with only the \
+commands its syntax argument lists. Preview first (apply false), then apply. After applying, read \
+the dataset back from the database instead of assuming what the edit did. On Dolt, put all \
+edits into one plan: an apply needs a clean working set, and it never commits.";
 
 /// What `describe` takes.
 #[derive(Deserialize, JsonSchema)]
@@ -280,6 +284,44 @@ struct ExportInput {
 struct ReadOutputInput {
     /// The output document, as window_status names it. Default: the designated output window.
     document: Option<String>,
+}
+
+/// What `apply_plan` takes.
+#[derive(Deserialize, JsonSchema)]
+struct PlanInput {
+    /// The edits, in OpenStatSpec's bounded subset of the syntax: RECODE, VARIABLE LABELS,
+    /// VALUE LABELS, ADD VALUE LABELS, FORMATS, VARIABLE LEVEL, COMPUTE and IF with a single
+    /// value or variable, and EXECUTE. Any other command is refused.
+    syntax: String,
+    /// The kind of database.
+    database: Database,
+    /// For sqlite the absolute path of the database file; for the others its URL, such as
+    /// postgres://user@host/db. Never put a password in it: the server takes it from the
+    /// STATSCRAFT_DB_PASSWORD environment variable.
+    location: String,
+    /// The name of the dataset in the database.
+    dataset: String,
+    /// Apply the plan to the dataset in place, in one transaction with one audit row.
+    /// Default: false, a preview that writes nothing.
+    apply: Option<bool>,
+    /// Who applies the plan, for the audit row. Default: the user the server runs as.
+    actor: Option<String>,
+    /// Dolt only, needed to apply: the branch the database must be on.
+    expected_branch: Option<String>,
+    /// Dolt only, needed to apply: the commit HEAD must be at.
+    expected_head: Option<String>,
+    /// The frontend profile: "0.1", "0.2" or "0.3". Default: "0.3".
+    profile: Option<String>,
+}
+
+/// The kinds of OpenStatSpec database.
+#[derive(Deserialize, JsonSchema, Clone, Copy, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum Database {
+    Sqlite,
+    Postgres,
+    Mysql,
+    Dolt,
 }
 
 #[derive(Clone)]
@@ -682,6 +724,87 @@ fn window_call(request: Request) -> CallToolResult {
         },
         Err(errors) => failed(errors),
     }
+}
+
+/// Whether a database URL carries a password: a colon before the first @ after the scheme.
+/// It errs on the side of refusing.
+fn has_password(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let rest = lower.split_once("://").map_or(lower.as_str(), |(_, r)| r);
+    let authority = rest.split(['/', '?']).next().unwrap_or("");
+    let user = authority.rsplit_once('@').map(|(user, _)| user);
+    user.is_some_and(|u| u.contains(':')) || lower.contains("password=")
+}
+
+/// Previews or applies a plan as `statscraft plan` with a database and --name does, and replies
+/// with its JSON. A diagnostic with a position is a normal result for the agent to fix.
+fn apply_plan(input: PlanInput) -> CallToolResult {
+    let dolt = input.database == Database::Dolt;
+    if !dolt && (input.expected_branch.is_some() || input.expected_head.is_some()) {
+        return usage("expected_branch and expected_head are for dolt only");
+    }
+    let profile = input.profile.unwrap_or_else(|| "0.3".into());
+    if !["0.1", "0.2", "0.3"].contains(&profile.as_str()) {
+        return usage("profile must be 0.1, 0.2 or 0.3");
+    }
+    let mut target = crate::db::Target {
+        sqlite: None,
+        postgres: None,
+        mysql: None,
+        dolt: None,
+    };
+    match input.database {
+        Database::Sqlite => {
+            let path = PathBuf::from(local(input.location));
+            if !path.is_absolute() {
+                return usage("location of a sqlite database must be an absolute path");
+            }
+            target.sqlite = Some(path);
+        }
+        _ if has_password(&input.location) => {
+            return usage(&format!(
+                "location must not carry a password: set {} for the server instead",
+                crate::db::PASSWORD_VARIABLE
+            ));
+        }
+        Database::Postgres => target.postgres = Some(input.location),
+        Database::Mysql => target.mysql = Some(input.location),
+        Database::Dolt => target.dolt = Some(input.location),
+    }
+    let apply = input.apply.unwrap_or(false);
+    let args = crate::plan::PlanArgs {
+        file: None,
+        text: Some(input.syntax),
+        input_schema: None,
+        session: None,
+        target,
+        name: Some(input.dataset),
+        apply,
+        expected_branch: input.expected_branch,
+        expected_head: input.expected_head,
+        actor: input.actor,
+        profile,
+        alias: "input".into(),
+    };
+    let mut value = crate::plan::output(&args);
+    let ok = value["ok"] == true;
+    let note = match (ok, apply) {
+        (true, false) => "preview only: nothing was written; give apply true to apply this plan",
+        (true, true) if dolt => {
+            value["committed"] = false.into();
+            "applied in place; nothing was committed: the commit on Dolt is yours to make"
+        }
+        (true, true) => "applied in place; read the dataset back to see the result",
+        (false, _) => "ok: false; nothing was written",
+    };
+    let text = format!("{note}\n{value}");
+    let mut reply = if ok || value["error"]["line"].is_number() {
+        CallToolResult::structured(value)
+    } else {
+        CallToolResult::structured_error(value)
+    };
+    reply.content = vec![ContentBlock::text(text)];
+    reply
 }
 
 #[tool_router]
@@ -1209,6 +1332,31 @@ impl Server {
             Err(errors) => failed(errors),
         })
         .await)
+    }
+
+    /// Previews or applies edits to a dataset stored in an OpenStatSpec database (SQLite,
+    /// PostgreSQL, MySQL or Dolt), in place: the same dataset and table, no copy. The syntax is
+    /// lowered to a transformation plan; the reply has the plan, plan_hash and source_hash, and
+    /// after an apply also applied (apply_id, dataset_id, operation_count). Preview first, then
+    /// apply. After applying, read the dataset back instead of assuming the result. It never
+    /// commits, branches or resets on Dolt, and an apply there needs a clean working set, so
+    /// put all edits into one plan. Errors have a stable code, and line and column when the
+    /// syntax is at fault.
+    #[tool(
+        title = "Apply OpenStatSpec plan",
+        annotations(
+            title = "Apply OpenStatSpec plan",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn apply_plan(
+        &self,
+        Parameters(input): Parameters<PlanInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || apply_plan(input)).await)
     }
 
     /// Says whether a Statscraft window is open on this computer. When one is, calls without a

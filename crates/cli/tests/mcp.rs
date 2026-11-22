@@ -169,6 +169,7 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
         ("close_syntax", true),
         ("undo", true),
         ("export_output", true),
+        ("apply_plan", true),
         ("edit_syntax", false),
         ("new_syntax_window", false),
         ("open_syntax_file", false),
@@ -1073,4 +1074,95 @@ fn an_agent_inside_wsl_gives_linux_paths_to_a_windows_server() {
         "{run}"
     );
     assert!(text(&run).contains("(in WSL: /mnt/"), "{}", text(&run));
+}
+
+/// apply_plan previews a plan without writing, applies it in place with one audit row, and
+/// gives a frontend error its stable code and position.
+#[test]
+fn apply_plan_previews_then_applies_in_place_to_a_sqlite_dataset() {
+    use statscraft_openstatspec::db::Db;
+    use statscraft_openstatspec::{catalog, sqlite, wire};
+    let dir = Workdir::new("plan");
+    let db = dir.0.join("study.db");
+    let exported = Command::new(env!("CARGO_BIN_EXE_statscraft"))
+        .args(["db", "export", &fixture("survey_basic.sav"), "--sqlite"])
+        .arg(&db)
+        .args(["--name", "survey"])
+        .output()
+        .unwrap();
+    assert!(exported.status.success(), "{exported:?}");
+    let audit_rows = || {
+        let mut db = sqlite::open(&db, false).unwrap();
+        db.query("SELECT count(*) FROM transformation_apply", &[])
+            .unwrap()[0][0]
+            .int()
+            .unwrap()
+    };
+    let (mut client, _) = Client::start(&dir, &dir.0);
+    let call = |client: &mut Client, syntax: &str, apply: bool| {
+        client.call(
+            "apply_plan",
+            json!({ "syntax": syntax, "database": "sqlite", "location": db.to_str().unwrap(),
+                "dataset": "survey", "apply": apply, "actor": "tester" }),
+        )
+    };
+    let syntax = "RECODE age (LOWEST THRU 29 = 1) (ELSE = 0) INTO young.";
+
+    let preview = call(&mut client, syntax, false);
+    let result = &preview["structuredContent"];
+    assert_eq!(result["ok"], true, "{preview}");
+    assert_eq!(result["plan"]["operations"][0]["source"], "age");
+    assert_eq!(result["plan_hash"].as_str().unwrap().len(), 64);
+    assert!(result["applied"].is_null());
+    assert!(text(&preview).starts_with("preview only"));
+    assert_eq!(audit_rows(), 0, "a preview writes nothing");
+
+    let applied = call(&mut client, syntax, true);
+    let result = &applied["structuredContent"];
+    assert_eq!(result["ok"], true, "{applied}");
+    assert_eq!(result["applied"]["operation_count"], 1);
+    assert_eq!(
+        result["plan_hash"],
+        preview["structuredContent"]["plan_hash"]
+    );
+    assert_eq!(audit_rows(), 1);
+    let (data, _) =
+        catalog::read_dataset(&mut sqlite::open(&db, false).unwrap(), "survey", false).unwrap();
+    let ages = data.variable("age").unwrap().numeric().unwrap();
+    let young = data.variable("young").unwrap().numeric().unwrap();
+    for (age, young) in ages.iter().zip(young.iter()) {
+        let want = if age.is_some_and(|a| a <= 29.0) {
+            1.0
+        } else {
+            0.0
+        };
+        assert_eq!(young, Some(want), "age {age:?}");
+    }
+
+    // a command outside the subset is a normal result with the profile's code and position
+    let refused = call(&mut client, "EXECUTE.\nFREQUENCIES age.", true);
+    assert_eq!(refused["isError"], false);
+    let error = &refused["structuredContent"]["error"];
+    assert_eq!(error["code"], wire::UNSUPPORTED_COMMAND, "{refused}");
+    assert_eq!((&error["line"], &error["column"]), (&2.into(), &1.into()));
+    let unknown = call(&mut client, "VARIABLE LABELS nosuch 'X'.", false);
+    assert_eq!(
+        unknown["structuredContent"]["error"]["code"],
+        "unknown_variable"
+    );
+    assert_eq!(audit_rows(), 1);
+
+    // a password in a URL, in the user part or as a parameter, is refused before anything connects
+    for location in [
+        "postgres://ana:secret@localhost/study",
+        "postgres://ana@localhost/study?Password=secret",
+    ] {
+        let password = client.call(
+            "apply_plan",
+            json!({ "syntax": syntax, "database": "postgres", "dataset": "survey",
+                "location": location }),
+        );
+        assert_eq!(password["isError"], true);
+        assert!(!password.to_string().contains("secret"), "{password}");
+    }
 }
