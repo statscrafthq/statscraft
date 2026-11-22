@@ -2120,6 +2120,10 @@ fn random_needs_factors_and_no_within_subjects_factor_and_treats_several_depende
         "{RANDOM_BALANCED}UNIANOVA y BY A B /RANDOM=nosuch."
     ));
     assert!(message.contains("nosuch"), "{message}");
+    let message = run_error(&format!(
+        "{RANDOM_BALANCED}COMPUTE y2 = y * 2.\nGLM y y2 BY A /WSFACTOR=t 2 /RANDOM=A."
+    ));
+    assert!(message.contains("WSFACTOR"), "{message}");
     let mut engine = Engine::default();
     run(
         &mut engine,
