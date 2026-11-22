@@ -1414,7 +1414,7 @@ fn univariate(
         command,
         d,
         fit,
-        None,
+        (None, None),
         &[dependent.to_string()],
         &flags,
         warnings,
@@ -1424,7 +1424,7 @@ fn univariate(
             command,
             d,
             fit,
-            None,
+            (None, None),
             &[dependent.to_string()],
             robust,
             warnings,
@@ -1643,14 +1643,18 @@ fn between_subjects(command: &Glm, d: &Data, fit: &Fit, flags: &Flags) -> (Table
 
 type NamedRow = (String, Vec<f64>);
 
+/// An M matrix with the names of its transformed variables.
+type Transformation = (Matrix, Vec<String>);
+
 /// The custom hypothesis tests of CONTRAST and LMATRIX (with KMATRIX), and of the intercept
 /// when only KMATRIX or MMATRIX is given. `given_m` is the M matrix of MMATRIX with the names
-/// of its columns; CONTRAST always uses the identity.
+/// of its columns, `default_m` the transformation a repeated measures model uses when MMATRIX
+/// gives none (the average); without either, the identity.
 fn custom_hypotheses(
     command: &Glm,
     d: &Data,
     fit: &Fit,
-    given_m: Option<&(Matrix, Vec<String>)>,
+    (given_m, default_m): (Option<&Transformation>, Option<&Transformation>),
     dependents: &[String],
     flags: &Flags,
     warnings: &mut Vec<String>,
@@ -1695,14 +1699,18 @@ fn custom_hypotheses(
             fit,
             &h,
             &l,
-            (&identity, dependents, false),
+            default_m.map_or((&identity, dependents, false), |(m, n)| {
+                (m, n.as_slice(), true)
+            }),
             None,
             &format!("{factor} {kind_name} Contrast"),
             flags,
             warnings,
         ));
     }
-    let (m, names) = given_m.map_or((&identity, dependents), |(m, n)| (m, n.as_slice()));
+    let (m, names) = given_m
+        .or(default_m)
+        .map_or((&identity, dependents), |(m, n)| (m, n.as_slice()));
     // each L matrix: its title and its named rows
     let mut matrices: Vec<(String, Vec<NamedRow>)> = Vec::new();
     for (n, lm) in command.lmatrix.iter().enumerate() {
@@ -1768,7 +1776,7 @@ fn custom_hypotheses(
             fit,
             &h,
             &l,
-            (m, names, given_m.is_some()),
+            (m, names, given_m.is_some() || default_m.is_some()),
             k.as_ref(),
             &title,
             flags,
@@ -4228,6 +4236,133 @@ fn block_diagonal(a: &Matrix, times: usize) -> Matrix {
     out
 }
 
+/// The Transformation Coefficients (M Matrix) table: a row for each dependent variable and a
+/// column for each transformed variable.
+fn m_matrix_table(dependents: &[String], m: &Matrix, names: &[String]) -> Table {
+    let mut columns = plain(&["Dependent Variable"]);
+    columns.extend(
+        names
+            .iter()
+            .map(|n| ("Transformed Variable".into(), n.clone())),
+    );
+    let rows = dependents
+        .iter()
+        .zip(m)
+        .map(|(dep, row)| {
+            let mut cells = vec![text(dep.clone())];
+            cells.extend(row.iter().map(|v| number(Some(*v))));
+            cells
+        })
+        .collect();
+    table(
+        "Transformation Coefficients (M Matrix)",
+        1,
+        columns,
+        rows,
+        None,
+    )
+}
+
+/// The custom hypotheses of a repeated measures model (CONTRAST, LMATRIX, KMATRIX, MMATRIX):
+/// unless MMATRIX gives another, the transformation is the average of each measure's cells
+/// over the root of their number, as the manual says, so the tests are on the transformed
+/// variables named after the measures (Average for one measure).
+fn rm_hypotheses(
+    command: &Glm,
+    d: &Data,
+    effects: &[Effect],
+    dependents: &[String],
+    names: &[String],
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Table>, Error> {
+    let wanted = !command.contrasts.is_empty()
+        || !command.lmatrix.is_empty()
+        || command.kmatrix.is_some()
+        || command.mmatrix.is_some()
+        || command.print.mmatrix;
+    if !wanted {
+        return Ok(Vec::new());
+    }
+    let m = names.len();
+    let r = dependents.len() / m;
+    let average = block_diagonal(&vec![vec![1.0 / (r as f64).sqrt()]; r], m);
+    let default = (average, names.to_vec());
+    let given = m_matrix(command, dependents)?;
+    let fit = Fit::new(d, effects.to_vec(), &d.y, command.eps);
+    let flags = flags_of(command);
+    let mut out = Vec::new();
+    if command.print.mmatrix {
+        let (matrix, columns) = given.as_ref().unwrap_or(&default);
+        out.push(m_matrix_table(dependents, matrix, columns));
+    }
+    out.extend(custom_hypotheses(
+        command,
+        d,
+        &fit,
+        (given.as_ref(), Some(&default)),
+        dependents,
+        &flags,
+        warnings,
+    )?);
+    Ok(out)
+}
+
+/// POSTHOC of a repeated measures model: the multiple comparisons of the between-subjects
+/// factors on the average of each measure's cells over the root of their number (the
+/// transformed variable of the Tests of Between-Subjects Effects). One measure gives the
+/// tables of the univariate model; several have the measure as an outer column.
+#[allow(clippy::too_many_arguments)]
+fn rm_posthoc(
+    command: &Glm,
+    d: &Data,
+    effects: &[Effect],
+    dependents: &[String],
+    names: &[String],
+    label_of: &dyn Fn(usize, usize) -> String,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Table>, Error> {
+    if command.posthoc.is_empty() {
+        return Ok(Vec::new());
+    }
+    let m = names.len();
+    let r = dependents.len() / m;
+    let mut only = command.clone();
+    only.emmeans.clear();
+    only.plots.clear();
+    let flags = flags_of(command);
+    let mut per_measure: Vec<Vec<Table>> = Vec::new();
+    for k in 0..m {
+        let y: Vec<Vec<f64>> =
+            d.y.iter()
+                .map(|row| {
+                    let sum: f64 = row[k * r..(k + 1) * r].iter().sum();
+                    vec![sum / (r as f64).sqrt()]
+                })
+                .collect();
+        let dk = Data { y, ..d.clone() };
+        let fit = Fit::new(&dk, effects.to_vec(), &dk.y, command.eps);
+        per_measure.push(means_and_posthoc(
+            &only, &dk, &fit, &names[k], &flags, label_of, warnings,
+        )?);
+    }
+    if m == 1 {
+        return Ok(per_measure.remove(0));
+    }
+    let mut out = Vec::new();
+    for (at, first) in per_measure[0].iter().enumerate() {
+        let tables: Vec<Table> = per_measure
+            .iter()
+            .filter_map(|t| t.get(at).cloned())
+            .collect();
+        if tables.len() == m {
+            out.push(merge(tables, names, false, "Measure"));
+        } else {
+            out.push(first.clone());
+        }
+    }
+    Ok(out)
+}
+
 /// The tables of a repeated measures model that concern the original dependent variables under
 /// the between-subjects design, as in the multivariate model: Box's M and Levene's tests
 /// (HOMOGENEITY), the parameter estimates and the lack of fit of each dependent, the design
@@ -4339,6 +4474,12 @@ impl Engine {
         };
         let mut single = command.clone();
         single.measures.clear();
+        single.posthoc.clear();
+        single.contrasts.clear();
+        single.lmatrix.clear();
+        single.kmatrix = None;
+        single.mmatrix = None;
+        single.print.mmatrix = false;
         // these tables are about the original dependents, made once below
         for flag in [
             &mut single.print.homogeneity,
@@ -4442,6 +4583,12 @@ impl Engine {
                 out.push(merge(tables, &names, false, "Measure"));
             }
         }
+        out.extend(rm_hypotheses(
+            command, d, &effects, dependents, &names, warnings,
+        )?);
+        out.extend(rm_posthoc(
+            command, d, &effects, dependents, &names, label_of, warnings,
+        )?);
         out.extend(original_dependent_tables(
             command, d, &effects, dependents, warnings,
         ));
@@ -4603,13 +4750,7 @@ impl Engine {
         }
         for (what, given) in [
             ("SAVE", !command.save.is_empty()),
-            ("POSTHOC", !command.posthoc.is_empty()),
-            ("CONTRAST", !command.contrasts.is_empty()),
-            ("LMATRIX", !command.lmatrix.is_empty()),
             ("TEST", !command.tests.is_empty()),
-            ("MMATRIX", command.mmatrix.is_some()),
-            ("KMATRIX", command.kmatrix.is_some()),
-            ("PRINT TEST(MMATRIX)", command.print.mmatrix),
         ] {
             if given {
                 return Err(Error(format!("{what} with WSFACTOR is not supported yet")));
@@ -5048,6 +5189,24 @@ impl Engine {
             dependents,
             warnings,
         ));
+        let measure = ["Average".to_string()];
+        out.extend(rm_hypotheses(
+            command,
+            d,
+            &fit.effects,
+            dependents,
+            &measure,
+            warnings,
+        )?);
+        out.extend(rm_posthoc(
+            command,
+            d,
+            &fit.effects,
+            dependents,
+            &measure,
+            label_of,
+            warnings,
+        )?);
         for e in &command.emmeans {
             out.extend(rm_emmeans_tables(command, d, &fit, ws, e, label_of)?);
         }
@@ -5632,34 +5791,13 @@ impl Engine {
             out.extend(residual_tables(&fit, texts, &design));
         }
         if let (true, Some((m, names))) = (command.print.mmatrix, &given_m) {
-            let mut columns = plain(&["Dependent Variable"]);
-            columns.extend(
-                names
-                    .iter()
-                    .map(|n| ("Transformed Variable".into(), n.clone())),
-            );
-            let rows = texts
-                .iter()
-                .zip(m)
-                .map(|(dep, row)| {
-                    let mut cells = vec![text(dep.clone())];
-                    cells.extend(row.iter().map(|v| number(Some(*v))));
-                    cells
-                })
-                .collect();
-            out.push(table(
-                "Transformation Coefficients (M Matrix)",
-                1,
-                columns,
-                rows,
-                None,
-            ));
+            out.push(m_matrix_table(texts, m, names));
         }
         out.extend(custom_hypotheses(
             command,
             d,
             &fit,
-            given_m.as_ref(),
+            (given_m.as_ref(), None),
             texts,
             &flags,
             warnings,

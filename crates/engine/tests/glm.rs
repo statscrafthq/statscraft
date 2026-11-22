@@ -2556,3 +2556,121 @@ fn repeated_measures_estimated_means_follow_the_covariance_of_the_dependents() {
     check("Pairwise Comparisons", "1 / 2", "Std. Error", 0.50999518);
     check("Pairwise Comparisons", "1 / 2", "Sig.", 0.2768772);
 }
+
+#[test]
+fn repeated_measures_hypotheses_and_post_hoc_tests_use_the_average_of_the_cells() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 BY g /WSFACTOR=time 3 /CONTRAST(g)=SIMPLE(1) /LMATRIX='diff' g 1 -1 \
+             /POSTHOC=g(LSD) /PRINT=TEST(MMATRIX)."
+        ),
+    );
+    // R: the average of the three cells over the root of three, a linear model on the groups
+    let want = |title: &str, row: &str, column: &str, expected: f64| {
+        let got = number(cell(&tables, title, row, column));
+        assert!(
+            (got - expected).abs() <= 1e-7 * expected.abs().max(1e-3),
+            "{title} / {row} / {column}: {got} vs {expected}"
+        );
+    };
+    let m = number(cell(
+        &tables,
+        "Transformation Coefficients (M Matrix)",
+        "a2",
+        "Transformed Variable / Average",
+    ));
+    assert!((m - 1.0 / 3f64.sqrt()).abs() < 1e-12);
+    for (title, row, sign) in [
+        (
+            "Contrast Results (K Matrix)",
+            "Level 2 vs. Level 1 / Contrast Estimate",
+            1.0,
+        ),
+        (
+            "Contrast Results (K Matrix)",
+            "L1 / Contrast Estimate",
+            -1.0,
+        ),
+    ] {
+        want(title, row, "Average", sign * 1.00623904);
+    }
+    want(
+        "Contrast Results (K Matrix)",
+        "L1 / Std. Error",
+        "Average",
+        0.88333757,
+    );
+    want(
+        "Contrast Results (K Matrix)",
+        "L1 / Sig.",
+        "Average",
+        0.2768772,
+    );
+    want(
+        "Univariate Test Results",
+        "Contrast / Average",
+        "F",
+        1.29762416,
+    );
+    want(
+        "Univariate Test Results",
+        "Contrast / Average",
+        "Sum of Squares",
+        3.54380952,
+    );
+    want(
+        "Univariate Test Results",
+        "Error / Average",
+        "Mean Square",
+        2.73099841,
+    );
+    let post = "Multiple Comparisons: Average";
+    want(post, "LSD / 1 / 2", "Mean Difference (I-J)", -1.00623904);
+    want(post, "LSD / 1 / 2", "Std. Error", 0.88333757);
+    want(post, "LSD / 1 / 2", "Sig.", 0.2768772);
+    want(
+        post,
+        "LSD / 1 / 2",
+        "95% Confidence Interval / Lower Bound",
+        -2.93086627,
+    );
+}
+
+#[test]
+fn hypotheses_with_measures_have_a_transformed_variable_for_each() {
+    let mut engine = Engine::default();
+    let both = run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 b1 b2 b3 BY g /WSFACTOR=time 3 /MEASURE=A B /LMATRIX='diff' g 1 -1 /POSTHOC=g(LSD)."
+        ),
+    );
+    let one = run(
+        &mut engine,
+        "GLM b1 b2 b3 BY g /WSFACTOR=time 3 /LMATRIX='diff' g 1 -1.",
+    );
+    let table = both
+        .iter()
+        .find(|t| t.title == "Contrast Results (K Matrix)")
+        .unwrap();
+    assert_eq!(table.columns, ["Contrast", "", "A", "B"]);
+    let got = number(cell(
+        &both,
+        "Contrast Results (K Matrix)",
+        "L1 / Std. Error",
+        "B",
+    ));
+    let want = number(cell(
+        &one,
+        "Contrast Results (K Matrix)",
+        "L1 / Std. Error",
+        "Average",
+    ));
+    assert!(close(got, want), "{got} vs {want}");
+    assert!(
+        both.iter()
+            .any(|t| t.title.starts_with("Multiple Comparisons"))
+    );
+}

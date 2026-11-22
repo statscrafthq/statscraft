@@ -591,12 +591,6 @@ fn errors_name_the_problem() {
     );
     assert_eq!(
         run_error(&format!(
-            "{DATA}\nGLM y1 y2 y3 /WSFACTOR=t 3 /MMATRIX=ALL 1 -1 0."
-        )),
-        "MMATRIX with WSFACTOR is not supported yet"
-    );
-    assert_eq!(
-        run_error(&format!(
             "{DATA}\nGLM y1 y2 BY g /INTERCEPT=EXCLUDE /MMATRIX=y1 1 y2 -1."
         )),
         "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out or makes redundant"
