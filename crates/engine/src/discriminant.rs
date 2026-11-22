@@ -1272,11 +1272,11 @@ impl Engine {
                     Some("Fisher's linear discriminant functions".into()),
                 ));
             }
+            let cross = command
+                .statistics
+                .crossvalid
+                .then(|| cross_validate(&sample, &s, &set, &priors));
             if command.statistics.table || command.statistics.crossvalid {
-                let cross = command
-                    .statistics
-                    .crossvalid
-                    .then(|| cross_validate(&sample, &s, &set, &priors));
                 let parts: Vec<(Option<bool>, String)> = match command.select {
                     Some(_) => vec![
                         (Some(true), "Cases Selected".to_string()),
@@ -1301,7 +1301,7 @@ impl Engine {
                         let rows = used
                             .iter()
                             .zip(cross)
-                            .map(|(&c, &k)| (group_of[c].map(index_of), k, weight(c)))
+                            .map(|(&c, k)| (group_of[c].map(index_of), k.predicted, weight(c)))
                             .collect();
                         blocks.push(("Cross-validated", rows));
                     }
@@ -1393,6 +1393,7 @@ impl Engine {
                     &group_labels,
                     &number,
                     &actual,
+                    cross.as_deref().map(|rows| (used.as_slice(), rows)),
                 ));
             }
             let maps = Maps {
@@ -1825,10 +1826,12 @@ fn casewise(
     group_labels: &[String],
     case_number: &dyn Fn(usize) -> usize,
     actual: &dyn Fn(usize) -> Option<usize>,
+    cross: Option<(&[usize], &[Classified])>,
 ) -> Table {
     let mut rows = Vec::new();
     let mut misclassified = false;
-    for (c, k) in classified.iter().take(limit.unwrap_or(usize::MAX)) {
+    let listed = classified.iter().take(limit.unwrap_or(usize::MAX));
+    for (c, k) in listed.clone() {
         let first = k.predicted;
         let second = (0..group_labels.len())
             .filter(|&j| j != first)
@@ -1850,12 +1853,53 @@ fn casewise(
             number(Some(k.distance[second])),
         ];
         row.extend(k.scores.iter().map(|&v| number(Some(v))));
+        if cross.is_some() {
+            row.insert(0, text(if rows.is_empty() { "Original" } else { "" }));
+        }
         rows.push(row);
+    }
+    // The cross-validated rows follow, for the listed cases that are in the analysis.
+    if let Some((used, validated)) = cross {
+        let mut first = true;
+        for (c, _) in listed {
+            let Ok(at) = used.binary_search(c) else {
+                continue;
+            };
+            let k = &validated[at];
+            let top = k.predicted;
+            let second = (0..group_labels.len())
+                .filter(|&j| j != top)
+                .max_by(|&a, &b| k.posterior[a].total_cmp(&k.posterior[b]).then(b.cmp(&a)))
+                .expect("two groups");
+            let wrong = actual(*c).is_some_and(|a| a != top);
+            misclassified |= wrong;
+            let mark = if wrong { "**" } else { "" };
+            let finite = |v: f64| number(v.is_finite().then_some(v));
+            let mut row = vec![
+                text(if first { "Cross-validated" } else { "" }),
+                Cell::Number(case_number(*c) as f64),
+                text(actual(*c).map_or("Ungrouped".to_string(), |a| group_labels[a].clone())),
+                text(format!("{}{mark}", group_labels[top])),
+                Cell::Empty,
+                Cell::Empty,
+                finite(k.posterior[top]),
+                finite(k.distance[top]),
+                text(group_labels[second].clone()),
+                finite(k.posterior[second]),
+                finite(k.distance[second]),
+            ];
+            row.extend((0..kf).map(|_| Cell::Empty));
+            first = false;
+            rows.push(row);
+        }
     }
     let highest = "Highest Group".to_string();
     let second = "Second Highest Group".to_string();
     let distance = "Squared Mahalanobis Distance to Centroid".to_string();
     let mut columns = plain(&["Case Number", "Actual Group"]);
+    if cross.is_some() {
+        columns.insert(0, (String::new(), String::new()));
+    }
     columns.extend([
         (highest.clone(), "Predicted Group".to_string()),
         (highest.clone(), "P(D>d | G=g)".into()),
@@ -1868,7 +1912,8 @@ fn casewise(
     ]);
     columns.extend((1..=kf).map(|f| ("Discriminant Scores".to_string(), format!("Function {f}"))));
     let caption = misclassified.then(|| "** Misclassified case.".to_string());
-    table("Casewise Statistics", 1, columns, rows, caption)
+    let labels = if cross.is_some() { 2 } else { 1 };
+    table("Casewise Statistics", labels, columns, rows, caption)
 }
 
 /// What the plots of one analysis are drawn from.
@@ -2221,9 +2266,11 @@ fn box_m(s: &Sums, names: &[String], groups: &[String]) -> Vec<Table> {
     out
 }
 
-/// The group each analysis case is classified into when it is left out of the means and the
-/// pooled covariance matrix (the linear discriminant rule over the entered variables).
-fn cross_validate(sample: &Sample, s: &Sums, set: &[usize], priors: &[f64]) -> Vec<usize> {
+/// How each analysis case is classified when it is left out of the means and the pooled
+/// covariance matrix (the linear discriminant rule over the entered variables): the group, the
+/// posteriors and the squared distances to the group means. There are no scores, and a case
+/// whose reduced covariance matrix is singular keeps its own group with no numbers.
+fn cross_validate(sample: &Sample, s: &Sums, set: &[usize], priors: &[f64]) -> Vec<Classified> {
     let q = set.len();
     let g = s.g;
     sample
@@ -2261,21 +2308,33 @@ fn cross_validate(sample: &Sample, s: &Sums, set: &[usize], priors: &[f64]) -> V
                 })
                 .collect();
             let Some((inv, _)) = inverse(&cov) else {
-                return own;
+                return Classified {
+                    scores: Vec::new(),
+                    posterior: vec![f64::NAN; g],
+                    predicted: own,
+                    distance: vec![f64::NAN; g],
+                };
             };
-            (0..g)
+            let distance: Vec<f64> = (0..g)
                 .map(|j| {
                     let e: Vec<f64> = (0..q).map(|a| xs[a] - means[j][a]).collect();
-                    let d2: f64 = (0..q)
+                    (0..q)
                         .map(|a| (0..q).map(|b| e[a] * inv[a][b] * e[b]).sum::<f64>())
-                        .sum();
-                    priors[j].ln() - d2 / 2.0
+                        .sum()
                 })
-                .enumerate()
-                .fold((0, f64::NEG_INFINITY), |best, (j, v)| {
-                    if v > best.1 { (j, v) } else { best }
-                })
-                .0
+                .collect();
+            let logs: Vec<f64> = (0..g).map(|j| priors[j].ln() - distance[j] / 2.0).collect();
+            let top = logs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let e: Vec<f64> = logs.iter().map(|l| (l - top).exp()).collect();
+            let sum: f64 = e.iter().sum();
+            let posterior: Vec<f64> = e.iter().map(|v| v / sum).collect();
+            let predicted = (0..g).fold(0, |best, j| if logs[j] > logs[best] { j } else { best });
+            Classified {
+                scores: Vec::new(),
+                posterior,
+                predicted,
+                distance,
+            }
         })
         .collect()
 }

@@ -3050,11 +3050,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  with a single function both give histograms of the scores. CASES lists every classified case (the\n\
                  first n) in a Casewise Statistics table: actual group, the two most likely groups with their\n\
                  posterior probabilities and squared distances to the centroid, the chi-square significance of\n\
-                 the first one's distance, and the scores. MAP splits the plane of the first two functions into\n\
+                 the first one's distance, and the scores (with CROSSVALID a second block\n\
+                 repeats the cases in the analysis for the rule refitted without each). MAP splits the plane of the first two functions into\n\
                  the territory of each group, a convex polygon, under the pooled rule with the priors, drawn as\n\
                  tinted polygons with the centroids named; there is no\n\
                  map with one function or CLASSIFY=SEPARATE. Not supported yet: ROTATE=COEFF and STRUCTURE, MATRIX,\n\
-                 OUTFILE, cross-validated rows in the casewise listing.",
+                 OUTFILE.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
         parse: discriminant::discriminant,
     },

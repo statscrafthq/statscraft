@@ -677,3 +677,98 @@ fn errors() {
     let _ = last;
     assert!(result.unwrap_err().to_string().contains("two groups"));
 }
+
+#[test]
+fn casewise_listing_adds_the_cross_validated_rows() {
+    let tables = run("DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 \
+                      /STATISTICS=CROSSVALID /PLOT=CASES(6).");
+    let t = find(&tables, "Casewise Statistics");
+    assert_eq!(t.rows.len(), 12);
+    assert_eq!(label(&t.rows[0][0]), "Original");
+    assert_eq!(label(&t.rows[6][0]), "Cross-validated");
+    // R, the rule refitted without each case (MASS::lda with CV=TRUE agrees on the class and
+    // the highest posterior to 1e-15): case, actual, highest group, its posterior and squared
+    // distance, second group, its posterior and squared distance
+    let want = [
+        (
+            1.0,
+            "1",
+            "1",
+            0.834126289052715,
+            5.52022950880264,
+            "2",
+            0.16543054486511535,
+            8.75589626555221,
+        ),
+        (
+            2.0,
+            "2",
+            "3**",
+            0.889851008674512,
+            3.49145234038044,
+            "2",
+            0.10725715917225577,
+            7.72310181029921,
+        ),
+        (
+            3.0,
+            "3",
+            "3",
+            0.989629228027513,
+            4.57627465629617,
+            "2",
+            0.01037018052848938,
+            13.69306650633551,
+        ),
+        (
+            4.0,
+            "1",
+            "1",
+            0.997772834405225,
+            1.04351766482275,
+            "3",
+            0.00128470137756124,
+            14.35351632327911,
+        ),
+        (
+            5.0,
+            "2",
+            "2",
+            0.951060991237800,
+            1.87124998122744,
+            "3",
+            0.04703642524766947,
+            7.88456175615641,
+        ),
+        (
+            6.0,
+            "3",
+            "3",
+            0.741364385671167,
+            7.72101784857316,
+            "2",
+            0.24033818803599907,
+            9.97390825794568,
+        ),
+    ];
+    for (i, w) in want.iter().enumerate() {
+        let r = &t.rows[6 + i];
+        assert_eq!(number(&r[1]), w.0);
+        assert_eq!(label(&r[2]), w.1);
+        assert_eq!(label(&r[3]), w.2);
+        assert!(matches!(r[4], Cell::Empty) && matches!(r[5], Cell::Empty));
+        assert_near(
+            &[number(&r[6]), number(&r[7]), number(&r[9]), number(&r[10])],
+            &[w.3, w.4, w.6, w.7],
+            1e-9,
+            "cross-validated case",
+        );
+        assert_eq!(label(&r[8]), w.5);
+        assert!(r[11..].iter().all(|c| matches!(c, Cell::Empty)));
+    }
+    // without CROSSVALID the table keeps its old shape
+    let plain = run("DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /PLOT=CASES(6).");
+    let t = find(&plain, "Casewise Statistics");
+    assert_eq!(t.rows.len(), 6);
+    assert_eq!(t.columns.len(), 12);
+}

@@ -1293,7 +1293,7 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - FPAIR shows the F of the last step.
 - The stepwise tables are Variables Entered/Removed (with the criterion after each step), Wilks' Lambda with Rao's F, and the variables in and not in the analysis at every step.
 - PLOT comes as chart data and a table. COMBINED and SEPARATE plot the classified cases (ungrouped ones in a group of their own on the combined plot) on the first two functions, with the group centroids labeled; with one function they are histograms of the scores. Weighted cases are plotted once each.
-- CASES lists the classified cases in file order in Casewise Statistics. The significance of the highest group is that of its squared distance under chi-square with as many df as functions. A misclassified case has ** after its predicted group. There are no cross-validated rows yet.
+- CASES lists the classified cases in file order in Casewise Statistics. The significance of the highest group is that of its squared distance under chi-square with as many df as functions. A misclassified case has ** after its predicted group. With CROSSVALID the listing gains a Cross-validated block after the original rows, for the listed cases that are in the analysis: the group, posteriors and squared distances of the rule refitted without the case (the pooled linear rule, whatever CLASSIFY says). It has no significance, df or scores, and a case whose reduced covariance matrix is singular shows its own group and no numbers. The manual says only that validated statistics are shown; this layout is ours.
 - MAP gives each group's territory as a convex polygon: the points of the plane of the first two functions where the group has the highest ln(prior) minus half the squared distance to its centroid. The polygons fill a box around the plotted cases and centroids, widened by 1 on each side. Beyond two functions the map ignores the others, so a case may lie outside the territory of the group it is classified into. With CLASSIFY=SEPARATE, or with one function, there is no map, with a warning. The window and `--charts` draw each territory as a tinted polygon outlined in its color, with each centroid as a dot labeled with its group; the office files hold the map as its data table.
 
 ### CORRESPONDENCE
@@ -1886,7 +1886,7 @@ Where the documentation is silent:
   - CLUSTER has no MATRIX=OUT.
   - TWOSTEP CLUSTER has no INFILE and writes no OUTFILE model or tree; DETECTANOMALY writes no OUTFILE model.
   - MVA has no OUTFILE under SPLIT FILE.
-  - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE, and no cross-validated rows in the casewise listing.
+  - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE.
   - USE takes case numbers only with /PERMANENT.
   - ADD FILES, MATCH FILES and UPDATE take no PASSWORD.
   - GET DATA reads no ODBC or OLEDB sources.
