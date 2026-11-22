@@ -492,8 +492,8 @@ pub(crate) fn groups(
     Ok(match test {
         GroupTest::MannWhitney => mann_whitney(run, &names, &data, group),
         GroupTest::KolmogorovSmirnov => {
-            run.no_exact("two-sample Kolmogorov-Smirnov test");
             let mut stats: Vec<Vec<Option<f64>>> = vec![Vec::new(); 5];
+            let mut exact_stats: Vec<Vec<Option<f64>>> = vec![Vec::new(); 2];
             let mut labels = Vec::new();
             let mut sizes = Vec::new();
             for d in &data {
@@ -505,14 +505,30 @@ pub(crate) fn groups(
                 for (s, value) in stats.iter_mut().zip(values) {
                     s.push(usable.then_some(value));
                 }
+                // the exact tail of the absolute gap, from the counts of each distinct value
+                let tail = (run.exact && usable).then(|| {
+                    let blocks: Vec<(u64, u64)> = d
+                        .blocks()
+                        .iter()
+                        .map(|b| (b.0.round() as u64, b.1.round() as u64))
+                        .collect();
+                    let gap = (values[0] * n[0] * n[1]).round() as i64;
+                    crate::npar_exact::smirnov_exact(&blocks, gap)
+                });
+                exact_stats[0].push(tail.map(|t| t.0));
+                exact_stats[1].push(tail.map(|t| t.1));
             }
-            let labels_rows = [
+            let mut labels_rows = vec![
                 ("Most Extreme Differences", "Absolute"),
                 ("", "Positive"),
                 ("", "Negative"),
                 ("Kolmogorov-Smirnov Z", ""),
                 ("Asymp. Sig. (2-tailed)", ""),
             ];
+            if run.exact {
+                labels_rows.extend([("Exact Sig. (2-tailed)", ""), ("Point Probability", "")]);
+                stats.extend(exact_stats);
+            }
             let mut columns = vec![String::new(), String::new()];
             columns.extend(names.iter().cloned());
             let rows = labels_rows

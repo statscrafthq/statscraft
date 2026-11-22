@@ -94,6 +94,62 @@ pub(crate) fn within_case_tail(
     })
 }
 
+/// The exact two-sample Kolmogorov-Smirnov tail: with the distinct values as blocks of (first
+/// group's, second group's) counts, the share of the C(n1 + n2, n1) assignments of the pooled
+/// cases to the groups (the cases of a tie are interchangeable) whose largest absolute gap
+/// between the two distribution functions, taken at the distinct values, is at least the
+/// observed one, and the share where it is equal to it. `gap` is the observed gap times n1 n2,
+/// a whole number.
+pub(crate) fn smirnov_exact(blocks: &[(u64, u64)], gap: i64) -> (f64, f64) {
+    let n1: u64 = blocks.iter().map(|b| b.0).sum();
+    let n2: u64 = blocks.iter().map(|b| b.1).sum();
+    let total_cases = n1 + n2;
+    // ways[t][x] = C(t, x) for the blocks' sizes, as f64
+    let choose = |t: u64, x: u64| -> f64 {
+        let mut c = 1.0;
+        for i in 0..x {
+            c = c * (t - i) as f64 / (i + 1) as f64;
+        }
+        c
+    };
+    // the number of assignments whose gaps all stay within `limit` (inclusive)
+    let within = |limit: i64| -> f64 {
+        let mut ways = vec![0.0; n1 as usize + 1];
+        ways[0] = 1.0;
+        let mut seen = 0_u64;
+        for &(c1, c2) in blocks {
+            let t = c1 + c2;
+            let mut next = vec![0.0; n1 as usize + 1];
+            for (a, &w) in ways.iter().enumerate() {
+                if w == 0.0 {
+                    continue;
+                }
+                for x in 0..=t.min(n1 - a as u64) {
+                    let a2 = a as u64 + x;
+                    let b2 = seen + t - a2;
+                    if b2 > n2 {
+                        continue;
+                    }
+                    let diff = (a2 as i64 * n2 as i64 - b2 as i64 * n1 as i64).abs();
+                    if diff <= limit {
+                        next[a2 as usize] += w * choose(t, x);
+                    }
+                }
+            }
+            ways = next;
+            seen += t;
+        }
+        ways[n1 as usize]
+    };
+    let all = choose(total_cases, n1);
+    let below = within(gap - 1);
+    let up_to = within(gap);
+    (
+        ((all - below) / all).clamp(0.0, 1.0),
+        ((up_to - below) / all).max(0.0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,6 +159,17 @@ mod tests {
         assert_eq!(arrangements(&[1, 2, 3]).len(), 6);
         assert_eq!(arrangements(&[0, 0, 1]).len(), 3);
         assert_eq!(arrangements(&[2, 2, 2]).len(), 1);
+    }
+
+    #[test]
+    fn smirnov_tail_by_enumeration() {
+        // 2 + 2 distinct cases: of the 6 orders, AABB and BBAA reach the gap 4 (in units of
+        // 1 / (n1 n2)) and the other four stop at 2
+        let blocks = [(1, 0), (1, 0), (0, 1), (0, 1)];
+        let (p, point) = smirnov_exact(&blocks, 4);
+        assert!((p - 2.0 / 6.0).abs() < 1e-12 && (point - 2.0 / 6.0).abs() < 1e-12);
+        let (p, _) = smirnov_exact(&blocks, 2);
+        assert!((p - 1.0).abs() < 1e-12);
     }
 
     #[test]

@@ -1555,7 +1555,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  n1 n2 / 2 + min(n1, n2) <= 220; median test up to 30 cases (Fisher); W-W up to 30 cases; Moses.\n\
                  K-S with normal parameters taken from the data uses the Lilliefors significance. METHOD adds exact\n\
                  significances for Wilcoxon, sign, McNemar, Mann-Whitney and the runs tests (MC gives them too, as\n\
-                 exact results replace simulated ones), and for Friedman, Kendall and Cochran (every arrangement of\n\
+                 exact results replace simulated ones), for the two-sample K-S (every assignment of the cases to the groups) and for Friedman, Kendall and Cochran (every arrangement of\n\
                  each case's values over the columns, as Exact Sig. and Point Probability; too large a problem\n\
                  keeps the asymptotic one with a warning); other tests stay asymptotic, with a warning. ANALYSIS (default)\n\
                  leaves out cases missing on a test's variables, LISTWISE cases missing on any variable of the command.\n\

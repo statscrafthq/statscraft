@@ -606,3 +606,53 @@ NPAR TESTS /FRIEDMAN=a b c.");
     let t = nth(&tables, "Friedman Test", 0);
     assert!((0..t.rows.len()).all(|i| label(t, i, 0) != "Exact Sig."));
 }
+
+// The exact two-sample Kolmogorov-Smirnov tail: the share of the C(12, 6) or C(12, 5)
+// assignments of the cases to the groups (ties interchangeable) whose largest gap between the
+// two distribution functions reaches the observed one, enumerated in a general statistics package.
+#[test]
+fn method_exact_of_the_two_sample_kolmogorov_smirnov_enumerates_the_assignments() {
+    let (tables, warnings) = run("DATA LIST LIST /x y g.
+BEGIN DATA
+3 4 1
+5 4 1
+5 7 2
+8 5 2
+2 6 1
+9 2 2
+7 9 1
+5 9 2
+6 3 2
+1 8 1
+4 1 1
+8 10 2
+END DATA.
+NPAR TESTS /K-S=x y BY g(1,2) /METHOD=EXACT.
+DATA LIST LIST /v h.
+BEGIN DATA
+3 1
+5 1
+5 1
+8 2
+2 2
+9 2
+7 2
+5 2
+6 2
+1 2
+4 1
+8 2
+END DATA.
+NPAR TESTS /K-S=v BY h(1,2) /METHOD=EXACT.");
+    let first = nth(&tables, "Two-Sample Kolmogorov-Smirnov Test", 0);
+    assert_eq!(label(first, 5, 0), "Exact Sig. (2-tailed)");
+    assert_eq!(label(first, 6, 0), "Point Probability");
+    near(num(first, 5, 2), 0.1082251082251, 12);
+    near(num(first, 6, 2), 0.0930735930736, 12);
+    near(num(first, 5, 3), 1.0, 12);
+    near(num(first, 6, 3), 0.1558441558442, 12);
+    let unequal = nth(&tables, "Two-Sample Kolmogorov-Smirnov Test", 1);
+    near(num(unequal, 5, 2), 0.1777777777778, 12);
+    near(num(unequal, 6, 2), 0.1353535353535, 12);
+    assert!(warnings.iter().all(|w| !w.contains("Kolmogorov")));
+}
