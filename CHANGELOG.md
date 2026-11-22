@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- FACTOR /MATRIX=IN(FAC=...) reads a factor-loading matrix (such as one MATRIX=OUT(FAC=...) wrote) and gives its communalities, the variance it accounts for, the loadings and the rotation asked for.
 - DISCRIMINANT /MATRIX=OUT writes the group counts and means and the pooled deviations and correlations of the first analysis as a matrix data file.
 - CLUSTER /MATRIX=OUT writes the proximity matrix of the run (rows of type PROX, the layout PROXIMITIES writes) to a file, a dataset or the active dataset.
 - FACTOR /MATRIX=OUT(FAC=...) writes the factor loadings, one record per factor, and OUT(FSC=...) the means, standard deviations and factor score coefficients.

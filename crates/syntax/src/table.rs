@@ -2374,7 +2374,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "FACTOR",
         summary: "Factor analysis: principal components and six factoring methods, rotations, factor scores.",
-        syntax: "FACTOR VARIABLES=varlist | MATRIX=IN(COR=* | 'file' | COV=* | 'file')\n\
+        syntax: "FACTOR VARIABLES=varlist | MATRIX=IN(COR=* | 'file' | COV=* | 'file' | FAC=* | 'file')\n\
                  \x20      [/MISSING=[LISTWISE | PAIRWISE | MEANSUB] [INCLUDE]] [/SELECT=var(value)]\n\
                  \x20      [/ANALYSIS=varlist] [/METHOD=CORRELATION | COVARIANCE] [/MATRIX=OUT(COR | COV | FAC | FSC = file | *)]\n\
                  \x20      [/PRINT=[DEFAULT] [INITIAL] [EXTRACTION] [ROTATION] [UNIVARIATE] [CORRELATION] [COVARIANCE]\n\
@@ -2411,7 +2411,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  loadings and communalities beside the rescaled ones, and MINEIGEN(n) counts in mean variances.\n\
                  MATRIX=OUT(COR=file) or OUT(COV=file) writes the means, standard deviations, counts\n\
                  and the matrix (a file, a dataset or * for the active dataset), OUT(FAC=file) the loadings and\n\
-                 OUT(FSC=file) the means, deviations and score coefficients. Not supported yet: MATRIX=IN(FAC=...).",
+                 OUT(FSC=file) the means, deviations and score coefficients. MATRIX=IN(FAC=file) reads a\n\
+                 factor-loading matrix and gives its communalities, variance and loadings and the rotation asked for.",
         example: "FACTOR VARIABLES=q1 TO q10 /PRINT=INITIAL EXTRACTION ROTATION KMO /FORMAT=SORT BLANK(.3) /CRITERIA=MINEIGEN(1) /EXTRACTION=PC /ROTATION=VARIMAX /SAVE=REG(ALL).",
         parse: factor::factor,
     },

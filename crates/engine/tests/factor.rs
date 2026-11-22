@@ -1532,3 +1532,96 @@ fn matrix_out_fsc_of_a_covariance_analysis_is_for_the_centered_variables() {
         check(&column[1..], &want[i], 1e-8, "centered score coefficients");
     }
 }
+
+// ---- MATRIX=IN(FAC) ----
+
+#[test]
+fn matrix_in_fac_rotates_the_loadings_of_a_previous_run() {
+    // the loadings of the data run, unrotated, written as a factor-loading matrix
+    let mut engine = Engine::default();
+    let direct = run_on(
+        &mut engine,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /CRITERIA=FACTORS(2) /ROTATION=VARIMAX.\n\
+             FACTOR VARIABLES=x1 TO x5 /CRITERIA=FACTORS(2) /ROTATION=NOROTATE /MATRIX=OUT(FAC=*)."
+        ),
+    );
+    let read = run_on(
+        &mut engine,
+        "FACTOR MATRIX=IN(FAC=*) /ROTATION=VARIMAX /PRINT=EXTRACTION ROTATION.",
+    );
+    // the loadings as read, the rotation of them, and what they account for
+    let (a, b) = (
+        find(&direct, "Rotated Component Matrix"),
+        find(&read, "Rotated Factor Matrix"),
+    );
+    for name in ["x1", "x2", "x3", "x4", "x5"] {
+        check(&row(b, name), &row(a, name), 1e-9, "rotated loadings");
+    }
+    let (a, b) = (
+        find(&direct, "Component Transformation Matrix"),
+        find(&read, "Factor Transformation Matrix"),
+    );
+    check(&row(b, "1"), &row(a, "1"), 1e-9, "transformation");
+    let h = find(&read, "Communalities");
+    let want = find(&direct, "Communalities");
+    for name in ["x1", "x3", "x5"] {
+        check(&row(h, name), &row(want, name)[1..], 1e-9, "communalities");
+    }
+    let v = find(&read, "Total Variance Explained");
+    assert_eq!(v.columns.len(), 1 + 6);
+}
+
+#[test]
+fn matrix_in_fac_rotates_obliquely_too() {
+    let mut engine = Engine::default();
+    let direct = run_on(
+        &mut engine,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /CRITERIA=FACTORS(2) /ROTATION=OBLIMIN(0).\n\
+             FACTOR VARIABLES=x1 TO x5 /CRITERIA=FACTORS(2) /ROTATION=NOROTATE /MATRIX=OUT(FAC=*)."
+        ),
+    );
+    let read = run_on(&mut engine, "FACTOR MATRIX=IN(FAC=*) /ROTATION=OBLIMIN(0).");
+    let (a, b) = (
+        find(&direct, "Pattern Matrix"),
+        find(&read, "Pattern Matrix"),
+    );
+    for name in ["x1", "x3", "x5"] {
+        check(&row(b, name), &row(a, name), 1e-9, "pattern");
+    }
+    let (a, b) = (
+        find(&direct, "Component Correlation Matrix"),
+        find(&read, "Factor Correlation Matrix"),
+    );
+    check(&row(b, "1"), &row(a, "1"), 1e-9, "factor correlations");
+}
+
+#[test]
+fn matrix_in_fac_refuses_what_a_loading_matrix_cannot_give() {
+    let run_error = |source: &str| -> String {
+        let (commands, errors) = parse(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut engine = Engine::default();
+        let mut message = String::new();
+        for c in &commands {
+            if let Err(e) = engine.execute(&c.command) {
+                message = e.to_string();
+            }
+        }
+        message
+    };
+    let loadings = "DATA LIST LIST /ROWTYPE_ (A8) FACTOR_ a b c.\nBEGIN DATA.\n\
+                    FACTOR 1 0.7 0.6 0.5\nFACTOR 2 0.1 -0.3 0.4\nEND DATA.\n";
+    assert!(
+        run_error(&format!("{loadings}FACTOR MATRIX=IN(FAC=*) /ANALYSIS=a b."))
+            .contains("cannot pick variables")
+    );
+    let other =
+        "DATA LIST LIST /ROWTYPE_ (A8) FACTOR_ a b.\nBEGIN DATA.\nCORR 1 1 0.3\nEND DATA.\n";
+    assert!(run_error(&format!("{other}FACTOR MATRIX=IN(FAC=*).")).contains("no FACTOR records"));
+    assert!(
+        run_error("DATA LIST FREE /a b.\nBEGIN DATA.\n1 2\nEND DATA.\nFACTOR MATRIX=IN(FAC=*).")
+            .contains("ROWTYPE_")
+    );
+}

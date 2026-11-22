@@ -426,6 +426,11 @@ impl Engine {
         let wanted = match kind {
             MatrixKind::Correlation => "CORR",
             MatrixKind::Covariance => "COV",
+            MatrixKind::Loadings => {
+                return Err(Error(
+                    "FACTOR: a factor-loading matrix has no correlations".into(),
+                ));
+            }
         };
         for k in 0..data.case_count() {
             let row = || names.iter().map(|name| number(name, k)).collect::<Vec<_>>();
@@ -469,7 +474,7 @@ impl Engine {
                 });
                 (m, cov, sd.unwrap_or_else(|| vec![f64::NAN; p]))
             }
-            MatrixKind::Covariance => {
+            MatrixKind::Covariance | MatrixKind::Loadings => {
                 let sd: Vec<f64> = (0..p).map(|i| m[i][i].sqrt()).collect();
                 let r = (0..p)
                     .map(|i| (0..p).map(|j| m[i][j] / (sd[i] * sd[j])).collect())
@@ -1612,6 +1617,9 @@ impl Engine {
             .iter()
             .map(|s| format!("FACTOR: {s} is ignored, since a later subcommand cancels it"))
             .collect();
+        if let Some((MatrixKind::Loadings, source)) = &command.matrix_in {
+            return self.factor_from_loadings(command, source.as_ref(), warnings);
+        }
         let input = match &command.matrix_in {
             None => self.factor_data(command)?,
             Some((kind, source)) => {
@@ -2442,6 +2450,250 @@ impl Engine {
                 &mut warnings,
             );
             self.charts.extend(charts);
+        }
+        self.warn_all(warnings);
+        Ok(tables)
+    }
+
+    /// MATRIX=IN(FAC): a factor-loading matrix (one FACTOR record per factor) has no
+    /// correlations, so the analysis is what the loadings alone allow: the communalities and the
+    /// variance they account for, the loadings as read, and their rotation.
+    fn factor_from_loadings(
+        &mut self,
+        command: &Factor,
+        source: Option<&String>,
+        mut warnings: Vec<String>,
+    ) -> Result<Vec<Table>, Error> {
+        if command.analysis.is_some() {
+            return Err(Error(
+                "FACTOR /ANALYSIS cannot pick variables of a factor-loading matrix".into(),
+            ));
+        }
+        if command.save.is_some() {
+            return Err(Error(
+                "FACTOR /SAVE needs the cases; it cannot follow MATRIX=IN".into(),
+            ));
+        }
+        let data = match source {
+            None => self.active()?.clone(),
+            Some(name) => self.data_file(name)?,
+        };
+        let find = |name: &str, string: bool| {
+            data.variables()
+                .find(|v| v.name().eq_ignore_ascii_case(name) && v.is_string() == string)
+                .map(|v| v.name().to_string())
+        };
+        let (Some(rowtype), Some(factor_var)) = (find("ROWTYPE_", true), find("FACTOR_", false))
+        else {
+            return Err(Error(
+                "FACTOR /MATRIX=IN(FAC=...) needs ROWTYPE_ (a string) and FACTOR_ (numeric) in the matrix file"
+                    .into(),
+            ));
+        };
+        let at = data.variable_index(&factor_var).expect("found");
+        let names: Vec<String> = data
+            .variables()
+            .skip(at + 1)
+            .filter(|v| !v.is_string())
+            .map(|v| v.name().to_string())
+            .collect();
+        let value = |name: &str, k: usize| -> Option<f64> {
+            match data.variable(name).ok()?.values() {
+                Values::Numeric(v) => v.get(k),
+                Values::String(_) => None,
+            }
+        };
+        let kind = |k: usize| -> String {
+            match data.variable(&rowtype).map(|v| v.values()) {
+                Ok(Values::String(s)) => s.get(k).trim().to_uppercase(),
+                _ => String::new(),
+            }
+        };
+        let mut records: Vec<(f64, Vec<f64>)> = Vec::new();
+        for k in 0..data.case_count() {
+            if kind(k) != "FACTOR" {
+                continue;
+            }
+            let Some(number) = value(&factor_var, k) else {
+                continue;
+            };
+            let row: Option<Vec<f64>> = names.iter().map(|n| value(n, k)).collect();
+            let Some(row) = row else {
+                return Err(Error(format!(
+                    "FACTOR /MATRIX=IN(FAC=...): factor {number} has a missing loading"
+                )));
+            };
+            records.push((number, row));
+        }
+        records.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if records.windows(2).any(|w| w[0].0 == w[1].0) {
+            return Err(Error(
+                "FACTOR /MATRIX=IN(FAC=...): a factor number occurs in more than one record (split groups are not read)"
+                    .into(),
+            ));
+        }
+        let (p, m) = (names.len(), records.len());
+        if m == 0 || p == 0 {
+            return Err(Error(
+                "FACTOR /MATRIX=IN(FAC=...): the matrix file has no FACTOR records".into(),
+            ));
+        }
+        let loadings: Matrix = (0..p)
+            .map(|i| records.iter().map(|(_, row)| row[i]).collect())
+            .collect();
+        let shown = self.shown();
+        let texts: Vec<String> = match self.dataset.as_ref() {
+            Some(d) if source.is_none() => names.iter().map(|n| shown.named(d, n)).collect(),
+            _ => names.clone(),
+        };
+        let names = &texts;
+        let print = command.print;
+        let extraction_caption = "Loadings read from a factor-loading matrix.".to_string();
+        let mut tables = Vec::new();
+
+        let communalities = row_sums_of_squares(&loadings);
+        if print.extraction || print.initial {
+            let rows = (0..p)
+                .map(|i| vec![label(names, i), number(Some(communalities[i]))])
+                .collect();
+            let mut t = table("Communalities", 1, &[plain(&["Extraction"])], rows);
+            t.caption = Some(extraction_caption.clone());
+            tables.push(t);
+        }
+        let rc = &command.rotation_criteria;
+        let rotated = match command.rotation {
+            Rotation::None => None,
+            _ if m < 2 => {
+                warnings.push(
+                    "FACTOR: only one factor was read, so the solution cannot be rotated".into(),
+                );
+                None
+            }
+            Rotation::Oblimin(delta) => Some(oblimin(&loadings, delta, rc, &mut warnings)),
+            Rotation::Promax(kappa) => Some(promax(&loadings, kappa, rc, &mut warnings)),
+            kind => Some(orthogonal(&loadings, kind, rc, &mut warnings)),
+        };
+        let rotation_caption = format!(
+            "{extraction_caption} Rotation Method: {}.",
+            rotation_name(command.rotation, rc.kaiser)
+        );
+        if print.extraction || print.rotation {
+            let three = || {
+                ["Total", "% of Variance", "Cumulative %"]
+                    .map(String::from)
+                    .to_vec()
+            };
+            let mut rows: Vec<Vec<Cell>> = (1..=m).map(|k| vec![Cell::Number(k as f64)]).collect();
+            let mut groups: Vec<(&str, Vec<String>)> = Vec::new();
+            let mut block = |values: &[f64], name: &'static str| {
+                let mut cumulative = 0.0;
+                for (row, v) in rows.iter_mut().zip(values) {
+                    let percent = 100.0 * v / p as f64;
+                    cumulative += percent;
+                    row.extend([
+                        number(Some(*v)),
+                        number(Some(percent)),
+                        number(Some(cumulative)),
+                    ]);
+                }
+                groups.push((name, three()));
+            };
+            block(
+                &column_sums_of_squares(&loadings, m),
+                "Extraction Sums of Squared Loadings",
+            );
+            let mut oblique = false;
+            if let (true, Some(rot)) = (print.rotation, &rotated) {
+                match &rot.phi {
+                    None => block(
+                        &column_sums_of_squares(&rot.pattern, m),
+                        "Rotation Sums of Squared Loadings",
+                    ),
+                    Some(phi) => {
+                        let ss = column_sums_of_squares(&multiply(&rot.pattern, phi), m);
+                        for (row, v) in rows.iter_mut().zip(&ss) {
+                            row.push(number(Some(*v)));
+                        }
+                        groups.push(("Rotation Sums of Squared Loadings", vec!["Total".into()]));
+                        oblique = true;
+                    }
+                }
+            }
+            let mut t = table("Total Variance Explained", 1, &groups, rows);
+            t.columns[0] = "Factor".to_string();
+            t.caption = Some(match oblique {
+                true => format!(
+                    "{extraction_caption} When factors are correlated, sums of squared loadings cannot be added to obtain a total variance."
+                ),
+                false => extraction_caption.clone(),
+            });
+            tables.push(t);
+        }
+        if print.extraction {
+            let plural = if m == 1 { "" } else { "s" };
+            tables.push(loading_table(
+                "Factor Matrix",
+                "Factor",
+                names,
+                &loadings,
+                command.sort,
+                command.blank,
+                format!("{extraction_caption} {m} factor{plural} read."),
+            ));
+        }
+        if let (true, Some(rot)) = (print.rotation, &rotated) {
+            let caption = format!(
+                "{rotation_caption} Rotation converged in {} iterations.",
+                rot.iterations
+            );
+            match &rot.phi {
+                None => tables.push(loading_table(
+                    "Rotated Factor Matrix",
+                    "Factor",
+                    names,
+                    &rot.pattern,
+                    command.sort,
+                    command.blank,
+                    caption,
+                )),
+                Some(phi) => {
+                    tables.push(loading_table(
+                        "Pattern Matrix",
+                        "Factor",
+                        names,
+                        &rot.pattern,
+                        command.sort,
+                        command.blank,
+                        caption,
+                    ));
+                    tables.push(loading_table(
+                        "Structure Matrix",
+                        "Factor",
+                        names,
+                        &multiply(&rot.pattern, phi),
+                        command.sort,
+                        command.blank,
+                        rotation_caption.clone(),
+                    ));
+                }
+            }
+            let (title, values) = match (&rot.transform, &rot.phi) {
+                (Some(t), _) => ("Factor Transformation Matrix", t),
+                (None, Some(phi)) => ("Factor Correlation Matrix", phi),
+                (None, None) => unreachable!("a rotation has one or the other"),
+            };
+            let numbers: Vec<String> = (1..=m).map(|j| j.to_string()).collect();
+            let rows = (0..m)
+                .map(|i| {
+                    let mut row = vec![Cell::Number((i + 1) as f64)];
+                    row.extend(values[i].iter().map(|v| number(Some(*v))));
+                    row
+                })
+                .collect();
+            let mut t = table(title, 1, &[("", numbers)], rows);
+            t.columns[0] = "Factor".to_string();
+            t.caption = Some(rotation_caption);
+            tables.push(t);
         }
         self.warn_all(warnings);
         Ok(tables)

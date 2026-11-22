@@ -139,6 +139,17 @@ fn factor_matrix_out() {
 }
 
 #[test]
+fn factor_matrix_in_loadings() {
+    let f = factor("FACTOR MATRIX=IN(FAC='load.sav') /ROTATION=QUARTIMAX.");
+    assert_eq!(
+        f.matrix_in,
+        Some((MatrixKind::Loadings, Some("load.sav".into())))
+    );
+    let f = factor("FACTOR MATRIX=IN(FAC=*).");
+    assert_eq!(f.matrix_in, Some((MatrixKind::Loadings, None)));
+}
+
+#[test]
 fn factor_method_covariance() {
     assert_eq!(
         factor("FACTOR VARIABLES=a b.").method,
@@ -165,10 +176,7 @@ fn factor_errors() {
     assert!(err("FACTOR VARIABLES=a b /ROTATION=PROMAX(1).").contains("above 1"));
     assert!(err("FACTOR VARIABLES=a b /CRITERIA=FACTORS(0).").contains("positive whole"));
     assert_eq!(err("FACTOR /ANALYSIS=a b."), "unexpected word ANALYSIS");
-    assert_eq!(
-        err("FACTOR MATRIX=IN(FAC=*)."),
-        "FAC in FACTOR /MATRIX=IN is not supported yet"
-    );
+    assert_eq!(err("FACTOR MATRIX=IN(SSCP=*)."), "unexpected word SSCP");
 }
 
 #[test]

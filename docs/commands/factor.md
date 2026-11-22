@@ -7,7 +7,7 @@ Factor analysis: principal components and six factoring methods, rotations, fact
 ## Syntax
 
 ```text
-FACTOR VARIABLES=varlist | MATRIX=IN(COR=* | 'file' | COV=* | 'file')
+FACTOR VARIABLES=varlist | MATRIX=IN(COR=* | 'file' | COV=* | 'file' | FAC=* | 'file')
        [/MISSING=[LISTWISE | PAIRWISE | MEANSUB] [INCLUDE]] [/SELECT=var(value)]
        [/ANALYSIS=varlist] [/METHOD=CORRELATION | COVARIANCE] [/MATRIX=OUT(COR | COV | FAC | FSC = file | *)]
        [/PRINT=[DEFAULT] [INITIAL] [EXTRACTION] [ROTATION] [UNIVARIATE] [CORRELATION] [COVARIANCE]
@@ -25,7 +25,7 @@ The analysis is of the correlation matrix of the ANALYSIS variables (default all
 
 LISTWISE (default) uses the cases valid on every variable of VARIABLES; PAIRWISE each pair's own cases; MEANSUB puts the mean in place of a missing value. SELECT computes the matrix from the cases with that value, while scores are saved for all cases. CRITERIA applies to the EXTRACTION and ROTATION that follow it. The number of factors is FACTORS(n), else the count of eigenvalues above MINEIGEN. Without EXTRACTION the extraction is PC with VARIMAX; with EXTRACTION but no ROTATION the factors are not rotated. A later ANALYSIS cancels the PRINT, DIAGONAL, EXTRACTION, ROTATION and SAVE before it, with a warning. Tables: Descriptive Statistics (UNIVARIATE), Correlation Matrix (CORRELATION, SIG, DET), Inverse of Correlation Matrix (INV), Covariance Matrix, KMO and Bartlett's Test (KMO), Anti-image Matrices (AIC), Communalities, Total Variance Explained, Component or Factor Matrix, Goodness-of-fit Test (ML, GLS), Reproduced Correlations (REPR), the rotated matrix with its transformation matrix, or Pattern, Structure and factor correlation matrices for OBLIMIN and PROMAX, Score Coefficient and Score Covariance Matrix (FSCORE). SORT orders the variables by the factor of their largest loading; BLANK(n) leaves out loadings below n in absolute value. SAVE adds scores by regression, Bartlett or Anderson-Rubin, named FAC1\_1, FAC2\_1 and so on, or rootname1, rootname2. MATRIX=IN reads a matrix file (ROWTYPE\_ N, MEAN, STDDEV, CORR or COV, VARNAME\_) from the active dataset or a file. Weighted when a weight variable is set. PLOT gives chart data: EIGEN the scree plot, every eigenvalue of the matrix analyzed against its number; ROTATION the loading plot, each variable at its loadings (rotated when there is a rotation) on the first two factors, with the third as depth when there are three or more, or one plot per pair given. METHOD=COVARIANCE analyzes the covariance matrix (with PC, PAF or IMAGE only; it needs the standard deviations in a correlation matrix file): the tables show the raw loadings and communalities beside the rescaled ones, and MINEIGEN(n) counts in mean variances.
 
-MATRIX=OUT(COR=file) or OUT(COV=file) writes the means, standard deviations, counts and the matrix (a file, a dataset or \* for the active dataset), OUT(FAC=file) the loadings and OUT(FSC=file) the means, deviations and score coefficients. Not supported yet: MATRIX=IN(FAC=...).
+MATRIX=OUT(COR=file) or OUT(COV=file) writes the means, standard deviations, counts and the matrix (a file, a dataset or \* for the active dataset), OUT(FAC=file) the loadings and OUT(FSC=file) the means, deviations and score coefficients. MATRIX=IN(FAC=file) reads a factor-loading matrix and gives its communalities, variance and loadings and the rotation asked for.
 
 ## Example
 

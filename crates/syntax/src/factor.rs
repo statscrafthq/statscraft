@@ -137,6 +137,8 @@ pub struct FactorSave {
 pub enum MatrixKind {
     Correlation,
     Covariance,
+    /// A factor-loading matrix (`FAC`), read by `MATRIX=IN` only.
+    Loadings,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -564,10 +566,11 @@ fn matrix(p: &mut Parser, command: &mut Factor, first: bool) -> PResult<()> {
                     "MATRIX=IN replaces VARIABLES, so MATRIX must come first",
                 ));
             }
-            let (kind, source) = typed_source(p, "FACTOR /MATRIX=IN", &["FAC"], &["COR", "COV"])?;
+            let (kind, source) = typed_source(p, "FACTOR /MATRIX=IN", &[], &["COR", "COV", "FAC"])?;
             let kind = match kind.as_str() {
                 "COR" => MatrixKind::Correlation,
-                _ => MatrixKind::Covariance,
+                "COV" => MatrixKind::Covariance,
+                _ => MatrixKind::Loadings,
             };
             command.matrix_in = Some((kind, source));
         } else if p.eat_keyword("OUT") {
