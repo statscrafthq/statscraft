@@ -8,7 +8,7 @@
 //! sorted vector) with its probability; a case adds each distinct arrangement of its values with
 //! equal probability.
 
-use std::collections::HashMap;
+use crate::ctables::FastMap;
 
 /// The probability that the sum of squared column sums is at least the observed one, and
 /// that it equals it.
@@ -52,27 +52,62 @@ pub(crate) fn within_case_tail(
     observed: &[i64],
     budget: f64,
 ) -> Option<Tail> {
+    if within_case_floor(blocks, budget) > budget {
+        return None;
+    }
+    within_case_walk(blocks, observed, budget)
+}
+
+/// The within-case walk itself.
+fn within_case_walk(blocks: &[(Vec<i64>, u64)], observed: &[i64], budget: f64) -> Option<Tail> {
     let k = observed.len();
     let square =
         |sums: &[i64]| -> i128 { sums.iter().map(|&s| i128::from(s) * i128::from(s)).sum() };
     let target = square(observed);
-    let mut states: HashMap<Vec<i64>, f64> = HashMap::new();
+    let options: Vec<Vec<Vec<i64>>> = blocks.iter().map(|b| arrangements(&b.0)).collect();
+    // A sorted state plus the case's values in increasing order is a sorted state, and two
+    // states stay apart, so the states never become fewer: each case still to come costs at
+    // least the states now times its arrangements. The walk stops as soon as that passes the
+    // budget instead of when it gets there.
+    let mut left: f64 = blocks
+        .iter()
+        .zip(&options)
+        .map(|(b, o)| b.1 as f64 * o.len() as f64)
+        .sum();
+    let mut states: FastMap<Vec<i64>, f64> = FastMap::default();
     states.insert(vec![0; k], 1.0);
     let mut work = 0.0;
-    for (values, count) in blocks {
-        let options = arrangements(values);
+    let mut moved = vec![0_i64; k];
+    for ((_, count), options) in blocks.iter().zip(&options) {
         let share = 1.0 / options.len() as f64;
         for _ in 0..*count {
-            work += states.len() as f64 * options.len() as f64;
-            if work > budget {
+            if work + states.len() as f64 * left > budget {
                 return None;
             }
-            let mut next: HashMap<Vec<i64>, f64> = HashMap::with_capacity(states.len() * 2);
+            work += states.len() as f64 * options.len() as f64;
+            left -= options.len() as f64;
+            let mut next: FastMap<Vec<i64>, f64> =
+                FastMap::with_capacity_and_hasher(states.len() * 2, Default::default());
             for (sums, probability) in &states {
-                for option in &options {
-                    let mut moved: Vec<i64> = sums.iter().zip(option).map(|(a, b)| a + b).collect();
-                    moved.sort_unstable();
-                    *next.entry(moved).or_insert(0.0) += probability * share;
+                for option in options {
+                    // a plain loop and an insertion sort of the few columns, quicker than
+                    // iterators and the general sort in a debug build
+                    for c in 0..k {
+                        let value = sums[c] + option[c];
+                        let mut at = c;
+                        while at > 0 && moved[at - 1] > value {
+                            moved[at] = moved[at - 1];
+                            at -= 1;
+                        }
+                        moved[at] = value;
+                    }
+                    // only a new state allocates its key
+                    match next.get_mut(moved.as_slice()) {
+                        Some(p) => *p += probability * share,
+                        None => {
+                            next.insert(moved.clone(), probability * share);
+                        }
+                    }
                 }
             }
             states = next;
@@ -92,6 +127,85 @@ pub(crate) fn within_case_tail(
         significance: significance.min(1.0),
         point,
     })
+}
+
+/// A lower bound of the steps of the within-case walk, found before it starts from the cases
+/// whose values take two values the same distance apart (all of Cochran's do). Such a
+/// case puts its r higher values in any r of the columns, so the columns' counts of higher
+/// values reach every vector a 0-1 table with these row sums can have: by the Gale-Ryser
+/// condition, every vector whose l largest entries add up to at most the first l column sums
+/// of the conjugate table. All vectors of k counts of at most U meet it, U being the least
+/// such sum over l wherever it is below the total. The states keep sorted sums, so at least
+/// that many vectors over k! are different states, and the other cases only add states. The
+/// sum ends early once it passes `budget` or after `FLOOR_EFFORT` work.
+fn within_case_floor(blocks: &[(Vec<i64>, u64)], budget: f64) -> f64 {
+    let k = blocks.first().map_or(0, |b| b.0.len());
+    // beyond this k! leaves no bound and the alternating sum below loses its precision
+    if !(2..=10).contains(&k) {
+        return 0.0;
+    }
+    // the distance between the two values and how many take the higher one
+    let two = |v: &[i64]| -> Option<(i64, usize)> {
+        let (low, high) = (*v.iter().min()?, *v.iter().max()?);
+        (low < high && v.iter().all(|&x| x == low || x == high))
+            .then(|| (high - low, v.iter().filter(|&&x| x == high).count()))
+    };
+    let mut steps: Vec<(i64, u64)> = Vec::new();
+    for (values, count) in blocks {
+        if let Some((d, _)) = two(values) {
+            match steps.iter_mut().find(|s| s.0 == d) {
+                Some(s) => s.1 += count,
+                None => steps.push((d, *count)),
+            }
+        }
+    }
+    let Some(&(step, _)) = steps.iter().max_by_key(|s| s.1) else {
+        return 0.0;
+    };
+    let orders: f64 = (1..=k).map(|i| i as f64).product();
+    // rows[r]: the two-valued cases so far with r higher values
+    let mut rows = vec![0_u64; k + 1];
+    let states = |rows: &[u64]| -> f64 {
+        let total: u64 = (1..=k).map(|r| r as u64 * rows[r]).sum();
+        let (mut most, mut first) = (total, 0_u64);
+        for l in 1..k {
+            first += rows[l..].iter().sum::<u64>();
+            if first < total {
+                most = most.min(first / l as u64);
+            }
+        }
+        let choose = |n: u64, m: u64| (0..m).fold(1.0, |c, i| c * (n - i) as f64 / (i + 1) as f64);
+        let k = k as u64;
+        let mut vectors = 0.0;
+        for s in 0..=k {
+            let Some(rest) = total.checked_sub(s * (most + 1)) else {
+                break;
+            };
+            let term = choose(k, s) * choose(rest + k - 1, k - 1);
+            vectors += if s % 2 == 0 { term } else { -term };
+        }
+        (vectors / orders).floor().max(1.0)
+    };
+    let (mut floor, mut effort) = (0.0, 0_u64);
+    for (values, count) in blocks {
+        let r = two(values).filter(|t| t.0 == step).map(|t| t.1);
+        let options = arrangements(values).len() as f64;
+        let mut left = *count;
+        while left > 0 {
+            effort += (k * k) as u64;
+            if floor > budget || effort > FLOOR_EFFORT {
+                return floor;
+            }
+            // the other cases leave the bound where it is, all their copies at once
+            let units = if r.is_some() { 1 } else { left };
+            floor += states(&rows) * options * units as f64;
+            if let Some(r) = r {
+                rows[r] += 1;
+            }
+            left -= units;
+        }
+    }
+    floor
 }
 
 /// The exact two-sample Kolmogorov-Smirnov tail: with the distinct values as blocks of (first
@@ -254,6 +368,103 @@ fn factorial(n: u64) -> f64 {
     (1..=n).fold(1.0, |f, i| f * i as f64)
 }
 
+/// How much work a lower bound of a walk's steps does before it stops short and lets the walk
+/// decide (in cases, or in count vectors times the work of counting their compositions); a small
+/// share of the time of the walks it lets through.
+const FLOOR_EFFORT: u64 = 2_000_000;
+
+/// A lower bound of the steps of a walk over the groups' counts (Kruskal-Wallis,
+/// Jonckheere-Terpstra), found before it starts: before block b, every way to share the cases
+/// seen so far between the groups (each within its size) is the count part of at least
+/// `states(b, counts)` states of the walk, and each of those states takes at least
+/// `options_floor` compositions of the block. A bound past the budget means the walk would stop
+/// too. The sum ends early once it passes `budget` or after `FLOOR_EFFORT` work.
+fn walk_floor(
+    blocks: &[u64],
+    sizes: &[u64],
+    budget: f64,
+    states: &mut dyn FnMut(usize, &[u64]) -> f64,
+) -> f64 {
+    fn each(
+        sizes: &[u64],
+        left: u64,
+        counts: &mut Vec<u64>,
+        visit: &mut dyn FnMut(&[u64]) -> bool,
+    ) -> bool {
+        let g = counts.len();
+        if g + 1 == sizes.len() {
+            if left > sizes[g] {
+                return true;
+            }
+            counts.push(left);
+            let go = visit(counts);
+            counts.pop();
+            return go;
+        }
+        let rest: u64 = sizes[g + 1..].iter().sum();
+        for c in left.saturating_sub(rest)..=left.min(sizes[g]) {
+            counts.push(c);
+            let go = each(sizes, left - c, counts, visit);
+            counts.pop();
+            if !go {
+                return false;
+            }
+        }
+        true
+    }
+    let (mut floor, mut effort, mut seen) = (0.0, 0_u64, 0_u64);
+    let mut room = vec![0_u64; sizes.len()];
+    for (b, &t) in blocks.iter().enumerate() {
+        let mut visit = |counts: &[u64]| {
+            effort += (t.min(1000) + 1) * sizes.len() as u64;
+            for ((r, n), c) in room.iter_mut().zip(sizes).zip(counts) {
+                *r = n - c;
+            }
+            floor += states(b, counts) * options_floor(t, &room);
+            floor <= budget && effort <= FLOOR_EFFORT
+        };
+        if !each(sizes, seen, &mut Vec::new(), &mut visit) {
+            break;
+        }
+        seen += t;
+    }
+    floor
+}
+
+/// A lower bound of the compositions of `t` cases into groups with `room` left (at least one,
+/// since the walk only keeps states it can finish): their exact number for blocks of up to a
+/// thousand cases, else the C(t + q - 1, q - 1) ways the q groups with room for all of them
+/// can take them alone.
+fn options_floor(t: u64, room: &[u64]) -> f64 {
+    if t > 1000 {
+        let q = room.iter().filter(|&&r| r >= t).count() as u64;
+        return (1..q).fold(1.0_f64, |c, i| c * (t + i) as f64 / i as f64);
+    }
+    // ways[s]: the compositions of s into the groups so far
+    let t = t as usize;
+    let mut ways = vec![0.0_f64; t + 1];
+    ways[0] = 1.0;
+    for &r in room {
+        for s in 1..=t {
+            ways[s] += ways[s - 1];
+        }
+        for s in (r as usize + 1..=t).rev() {
+            ways[s] -= ways[s - r as usize - 1];
+        }
+    }
+    ways[t].max(1.0)
+}
+
+/// How many different values a sum can take, at least, when a step of a path between its
+/// smallest and largest values moves it by at most `step`.
+fn values_floor(spread: i128, step: i128) -> f64 {
+    if step <= 0 {
+        1.0
+    } else {
+        (spread / step + 1) as f64
+    }
+}
+
 /// The exact tail of the Kruskal-Wallis test. The pooled cases come as tie blocks (how many
 /// cases, their joint rank times two); the groups of sizes `sizes` take them in every way the
 /// cases can be labelled (a block putting x_j of its cases in group j in t! / prod x_j! ways).
@@ -262,6 +473,63 @@ fn factorial(n: u64) -> f64 {
 /// equal to it. The walk keeps, for all groups but the last, the counts and rank sums so far.
 /// None when it passes `budget` transitions.
 pub(crate) fn kruskal_tail(
+    blocks: &[(u64, i64)],
+    sizes: &[u64],
+    observed: &[i64],
+    budget: f64,
+) -> Option<(f64, f64)> {
+    if kruskal_floor(blocks, sizes, budget) > budget {
+        return None;
+    }
+    kruskal_walk(blocks, sizes, observed, budget)
+}
+
+/// A lower bound of the steps of the Kruskal-Wallis walk (see `walk_floor`).
+fn kruskal_floor(blocks: &[(u64, i64)], sizes: &[u64], budget: f64) -> f64 {
+    // A group of c of the cases seen so far sums anything from their c lowest ranks to their c
+    // highest, and moving one case to the next higher rank moves the sum by one gap at most,
+    // so the states with given counts are at least the spread over the largest gap, plus one.
+    let mut seen_ranks: Vec<(i64, u64)> = Vec::new();
+    let mut below: Vec<(u64, i128)> = Vec::new();
+    let mut gap = 0_i128;
+    let mut built = usize::MAX;
+    let mut floor = |b: usize, counts: &[u64]| -> f64 {
+        if built != b {
+            seen_ranks = blocks[..b].iter().map(|&(t, r)| (r, t)).collect();
+            seen_ranks.sort_unstable();
+            below = vec![(0, 0)];
+            for &(r, t) in &seen_ranks {
+                let (cases, sum) = below[below.len() - 1];
+                below.push((cases + t, sum + i128::from(r) * i128::from(t)));
+            }
+            gap = seen_ranks
+                .windows(2)
+                .map(|w| i128::from(w[1].0 - w[0].0))
+                .max()
+                .unwrap_or(0);
+            built = b;
+        }
+        let lowest = |m: u64| -> i128 {
+            let i = below.partition_point(|p| p.0 <= m) - 1;
+            let (cases, sum) = below[i];
+            if m == cases {
+                sum
+            } else {
+                sum + i128::from(m - cases) * i128::from(seen_ranks[i].0)
+            }
+        };
+        let (seen, all) = below[below.len() - 1];
+        counts
+            .iter()
+            .map(|&c| values_floor(all - lowest(seen - c) - lowest(c), gap))
+            .fold(1.0, f64::max)
+    };
+    let counts: Vec<u64> = blocks.iter().map(|b| b.0).collect();
+    walk_floor(&counts, sizes, budget, &mut floor)
+}
+
+/// The Kruskal-Wallis walk itself.
+fn kruskal_walk(
     blocks: &[(u64, i64)],
     sizes: &[u64],
     observed: &[i64],
@@ -277,12 +545,13 @@ pub(crate) fn kruskal_tail(
     };
     let target = statistic(observed);
     // state: counts then rank sums of groups 0..k-1
-    let mut states: HashMap<Vec<i64>, f64> = HashMap::new();
+    let mut states: FastMap<Vec<i64>, f64> = FastMap::default();
     states.insert(vec![0; 2 * (k - 1)], 1.0);
     let mut seen = 0_u64;
     let mut work = 0.0;
     for &(t, doubled) in blocks {
-        let mut next: HashMap<Vec<i64>, f64> = HashMap::with_capacity(states.len() * 2);
+        let mut next: FastMap<Vec<i64>, f64> =
+            FastMap::with_capacity_and_hasher(states.len() * 2, Default::default());
         for (state, weight) in &states {
             let used: i64 = state[..k - 1].iter().sum();
             let last_count = seen as i64 - used;
@@ -336,16 +605,67 @@ pub(crate) fn jonckheere_tail(
     observed_doubled: i64,
     budget: f64,
 ) -> Option<(f64, f64, f64)> {
+    if jonckheere_floor(blocks, sizes, budget) > budget {
+        return None;
+    }
+    jonckheere_walk(blocks, sizes, observed_doubled, budget)
+}
+
+/// A lower bound of the steps of the Jonckheere-Terpstra walk (see `walk_floor`).
+fn jonckheere_floor(blocks: &[u64], sizes: &[u64], budget: f64) -> f64 {
+    // Two neighbouring groups g and g + 1 of a and b cases can trade labels without changing
+    // the pairs with the other groups. Taking the lowest a + b seen cases, the doubled J of
+    // their pairs runs from about 0 (the later group lowest) to 2ab (the earlier one lowest),
+    // short of ties of one block at each end. Swapping two neighbouring cases of the two groups
+    // moves it by at most the sizes of their two blocks, so the states with given counts are at
+    // least that spread over the largest pair of neighbouring blocks, plus one.
+    let (mut gap, mut tied, mut built) = (0_i128, 0_i128, usize::MAX);
+    let mut floor = |b: usize, counts: &[u64]| -> f64 {
+        if built != b {
+            let seen = &blocks[..b];
+            gap = seen
+                .windows(2)
+                .map(|w| i128::from(w[0] + w[1]))
+                .max()
+                .unwrap_or(0);
+            tied = seen
+                .iter()
+                .map(|&t| i128::from(t))
+                .max()
+                .unwrap_or(0)
+                .pow(2)
+                / 4;
+            built = b;
+        }
+        counts
+            .windows(2)
+            .map(|w| {
+                let pairs = i128::from(w[0]) * i128::from(w[1]);
+                values_floor(2 * pairs - 2 * pairs.min(tied), gap)
+            })
+            .fold(1.0, f64::max)
+    };
+    walk_floor(blocks, sizes, budget, &mut floor)
+}
+
+/// The Jonckheere-Terpstra walk itself.
+fn jonckheere_walk(
+    blocks: &[u64],
+    sizes: &[u64],
+    observed_doubled: i64,
+    budget: f64,
+) -> Option<(f64, f64, f64)> {
     let k = sizes.len();
     let total: u64 = sizes.iter().sum();
     let mean_doubled = ((total * total - sizes.iter().map(|n| n * n).sum::<u64>()) / 2) as i64;
     // state: counts of groups 0..k-1, then the doubled statistic
-    let mut states: HashMap<Vec<i64>, f64> = HashMap::new();
+    let mut states: FastMap<Vec<i64>, f64> = FastMap::default();
     states.insert(vec![0; k], 1.0);
     let mut seen = 0_u64;
     let mut work = 0.0;
     for &t in blocks {
-        let mut next: HashMap<Vec<i64>, f64> = HashMap::with_capacity(states.len() * 2);
+        let mut next: FastMap<Vec<i64>, f64> =
+            FastMap::with_capacity_and_hasher(states.len() * 2, Default::default());
         for (state, weight) in &states {
             let used: i64 = state[..k - 1].iter().sum();
             let mut earlier: Vec<i64> = state[..k - 1].to_vec();
@@ -378,7 +698,7 @@ pub(crate) fn jonckheere_tail(
         states = next;
         seen += t;
     }
-    let mut by_value: HashMap<i64, f64> = HashMap::new();
+    let mut by_value: FastMap<i64, f64> = FastMap::default();
     let mut all = 0.0;
     for (state, weight) in &states {
         *by_value.entry(state[k - 1]).or_insert(0.0) += weight;
@@ -419,15 +739,19 @@ pub(crate) fn marginal_tail(
 ) -> Option<(f64, f64, f64)> {
     // sums are kept as whole millionths so equal sums meet in one entry
     let key = |v: f64| (v * 1e6).round() as i64;
-    let mut sums: HashMap<i64, f64> = HashMap::new();
+    let mut sums: FastMap<i64, f64> = FastMap::default();
     sums.insert(0, 1.0);
     let mut work = 0.0;
     let mut mean = 0.0;
+    // every sum plus the second value of each case is a sum of the next step, so the sums never
+    // become fewer: the steps still to come are at least the sums now times their choices
+    let mut left: f64 = groups.iter().map(|g| g.2 as f64 + 1.0).sum();
     for &(a, b, m) in groups {
         // 0.5^m and C(m, x) leave the range of a float far beyond what the walk can do anyway
-        if m > 1000 {
+        if m > 1000 || work + sums.len() as f64 * left > budget {
             return None;
         }
+        left -= m as f64 + 1.0;
         mean += m as f64 * (a + b) / 2.0;
         let mut choose = vec![1.0_f64; m as usize + 1];
         for x in 1..=m as usize {
@@ -438,7 +762,8 @@ pub(crate) fn marginal_tail(
         if work > budget {
             return None;
         }
-        let mut next: HashMap<i64, f64> = HashMap::with_capacity(sums.len() * 2);
+        let mut next: FastMap<i64, f64> =
+            FastMap::with_capacity_and_hasher(sums.len() * 2, Default::default());
         for (&t, &p) in &sums {
             for (x, c) in choose.iter().enumerate() {
                 let moved = t + key(a) * x as i64 + key(b) * (m as i64 - x as i64);
@@ -524,6 +849,104 @@ mod tests {
         assert!((p - 2.0 / 6.0).abs() < 1e-12 && (point - 2.0 / 6.0).abs() < 1e-12);
         let (p, _) = smirnov_exact(&blocks, 2);
         assert!((p - 1.0).abs() < 1e-12);
+    }
+
+    /// Small synthetic cases from a fixed linear congruential sequence.
+    fn sequence(seed: u64) -> impl FnMut(u64) -> u64 {
+        let mut state = seed;
+        move |below| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (state >> 33) % below
+        }
+    }
+
+    // A walk stops exactly when its steps pass the budget, so with the budget just under the
+    // bound it must stop whenever the bound is right.
+    #[test]
+    fn the_bounds_never_pass_the_steps_of_the_walks() {
+        let mut biggest = [0.0_f64; 3];
+        for seed in 0..40 {
+            let mut next = sequence(seed);
+            let k = 2 + next(3) as usize;
+            let sizes: Vec<u64> = (0..k).map(|_| 2 + next(4)).collect();
+            let total: u64 = sizes.iter().sum();
+            // tie blocks of one to three cases, in a scrambled order of ranks for K-W
+            let mut blocks = Vec::new();
+            let mut left = total;
+            while left > 0 {
+                let t = (1 + next(3)).min(left);
+                blocks.push(t);
+                left -= t;
+            }
+            let floor = jonckheere_floor(&blocks, &sizes, f64::INFINITY);
+            biggest[0] = biggest[0].max(floor);
+            assert!(
+                jonckheere_walk(&blocks, &sizes, 0, floor - 0.5).is_none(),
+                "{seed}"
+            );
+            let mut start = 0;
+            let mut ranked: Vec<(u64, i64)> = blocks
+                .iter()
+                .map(|&t| {
+                    let doubled = 2 * start as i64 + t as i64 + 1;
+                    start += t;
+                    (t, doubled)
+                })
+                .collect();
+            let turn = next(ranked.len() as u64) as usize;
+            ranked.rotate_left(turn);
+            let floor = kruskal_floor(&ranked, &sizes, f64::INFINITY);
+            biggest[1] = biggest[1].max(floor);
+            let observed = vec![0; k];
+            assert!(
+                kruskal_walk(&ranked, &sizes, &observed, floor - 0.5).is_none(),
+                "{seed}"
+            );
+            // cases of 0-1 values (some with a third value), each standing for one or two
+            let columns = 3 + next(2) as usize;
+            let cases: Vec<(Vec<i64>, u64)> = (0..4 + next(6))
+                .map(|_| {
+                    let values = (0..columns).map(|_| next(2) as i64 * (1 + next(8) / 7) as i64);
+                    (values.collect(), 1 + next(2))
+                })
+                .collect();
+            let floor = within_case_floor(&cases, f64::INFINITY);
+            biggest[2] = biggest[2].max(floor);
+            let observed = vec![0; columns];
+            assert!(
+                within_case_walk(&cases, &observed, floor - 0.5).is_none(),
+                "{seed}"
+            );
+        }
+        // the bounds are more than one step per case somewhere
+        assert!(biggest.iter().all(|&b| b > 100.0), "{biggest:?}");
+    }
+
+    // 200 cases with distinct values in four groups of 50: far more steps than the budget,
+    // known before the walk
+    #[test]
+    fn large_cases_are_rejected_before_the_walk() {
+        let sizes = [50; 4];
+        let ranked: Vec<(u64, i64)> = (1..=200).map(|r| (1, 2 * r)).collect();
+        assert!(kruskal_floor(&ranked, &sizes, 3e7) > 3e7);
+        assert!(kruskal_tail(&ranked, &sizes, &[0; 4], 3e7).is_none());
+        assert!(jonckheere_floor(&[1; 200], &sizes, 3e7) > 3e7);
+        assert!(jonckheere_tail(&[1; 200], &sizes, 0, 3e7).is_none());
+        // five 0-1 columns of 200 cases with two hits each
+        let cases: Vec<(Vec<i64>, u64)> = (0..200)
+            .map(|i| {
+                (
+                    (0..5)
+                        .map(|j| i64::from(j == i % 5 || j == (i + 2) % 5))
+                        .collect(),
+                    1,
+                )
+            })
+            .collect();
+        assert!(within_case_floor(&cases, 4e8) > 4e8);
+        assert!(within_case_tail(&cases, &[80; 5], 4e8).is_none());
     }
 
     #[test]

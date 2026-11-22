@@ -38,11 +38,11 @@ use std::collections::HashMap;
 /// A map with a fast hash for the cell keys, small vectors of category numbers that are added
 /// to once or more per case. The standard hash resists keys chosen to collide, which these
 /// keys cannot be, and costs most of the time of a large table.
-type FastMap<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<FastHash>>;
+pub(crate) type FastMap<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<FastHash>>;
 
 /// A multiply-and-rotate word hash.
 #[derive(Default)]
-struct FastHash(u64);
+pub(crate) struct FastHash(u64);
 
 impl FastHash {
     fn add(&mut self, word: u64) {

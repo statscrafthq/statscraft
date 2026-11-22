@@ -777,3 +777,70 @@ NPAR TESTS /MH=a b.");
     let t = nth(&tables, "Marginal Homogeneity Test", 0);
     assert!((0..t.rows.len()).all(|i| label(t, i, 0) != "Exact Sig. (2-tailed)"));
 }
+
+// 200 synthetic cases in four groups have far too many labellings and arrangements for the
+// exact walks; a lower bound of their steps sees it before walking, so the asymptotic values
+// (from a general statistics library) come at once, with the exact cells empty and a warning.
+// Walking to the step budget first took minutes in a debug build.
+#[test]
+fn method_exact_falls_back_at_once_on_large_data() {
+    let mut syntax = String::from("DATA LIST FREE /x g p1 p2 p3 p4 p5 a b.\nBEGIN DATA\n");
+    for i in 0..200_u32 {
+        let x = (i * 37) % 101 + 5 * (i % 4);
+        let hits: Vec<String> = (1..=5)
+            .map(|j| u32::from((i * 7 + j * 3) % 5 < 2 || (j == 1 && i % 3 == 0)).to_string())
+            .collect();
+        let a = f64::from(i * 31 % 97) / 7.0 + f64::from(i) / 1000.0;
+        let b = f64::from(i * 17 % 89) / 5.0;
+        syntax += &format!("{x} {} {} {a} {b}\n", i % 4 + 1, hits.join(" "));
+    }
+    syntax += "END DATA.
+NPAR TESTS /K-W=x BY g(1,4) /J-T=x BY g(1,4) /COCHRAN=p1 p2 p3 p4 p5 /MH=a WITH b
+  /METHOD=EXACT.";
+    let start = std::time::Instant::now();
+    let (tables, warnings) = run(&syntax);
+    // generous for a slow machine: the bounds take well under a second
+    assert!(start.elapsed().as_secs() < 20, "{:?}", start.elapsed());
+    let t = nth(&tables, "Kruskal-Wallis Test", 0);
+    let row = |name: &str| (0..t.rows.len()).find(|&i| label(t, i, 0) == name).unwrap();
+    near(num(t, row("Chi-Square"), 1), 6.2457571450, 9);
+    near(num(t, row("Asymp. Sig."), 1), 0.1002469240, 9);
+    assert!(empty(t, row("Exact Sig."), 1) && empty(t, row("Point Probability"), 1));
+    let t = nth(&tables, "Jonckheere-Terpstra Test", 0);
+    let column = |name: &str| t.columns.iter().position(|c| c == name).unwrap();
+    near(num(t, 0, column("Observed J-T Statistic")), 8644.5, 9);
+    near(
+        num(t, 0, column("Std. Deviation of J-T Statistic")),
+        457.7571228818,
+        9,
+    );
+    near(num(t, 0, column("Asymp. Sig. (2-tailed)")), 0.0124111239, 9);
+    for name in [
+        "Exact Sig. (2-tailed)",
+        "Exact Sig. (1-tailed)",
+        "Point Probability",
+    ] {
+        assert!(empty(t, 0, column(name)), "{name}");
+    }
+    let t = nth(&tables, "Cochran Test", 0);
+    let row = |name: &str| (0..t.rows.len()).find(|&i| label(t, i, 0) == name);
+    near(num(t, row("Cochran's Q").unwrap(), 1), 22.4133333333, 9);
+    near(num(t, row("Asymp. Sig.").unwrap(), 1), 0.0001658073, 9);
+    assert!(row("Exact Sig.").is_none());
+    let t = nth(&tables, "Marginal Homogeneity Test", 0);
+    let row = |name: &str| (0..t.rows.len()).find(|&i| label(t, i, 0) == name).unwrap();
+    assert!(empty(t, row("Exact Sig. (2-tailed)"), 1));
+    for test in [
+        "Kruskal-Wallis",
+        "Jonckheere-Terpstra",
+        "Cochran",
+        "marginal homogeneity",
+    ] {
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains(test) && w.contains("needs too many steps")),
+            "{test}: {warnings:?}"
+        );
+    }
+}

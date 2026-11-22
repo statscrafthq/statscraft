@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- NPAR TESTS /METHOD=EXACT: when the exact significance of the Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall's W, Cochran or marginal homogeneity test needs too many steps, it says so at once (from a lower bound of the steps) instead of after minutes of work; the exact walks that do fit run faster and give the same numbers on every run.
+
 ## 0.28.0 (2026-11-22)
 
 - TREE /METHOD TYPE=CRT grows a binary classification tree for a nominal or ordinal dependent: every cut of a scale or ordinal predictor and every subset of a nominal one is tried; /CRT IMPURITY=GINI, TWOING or ORDEREDTWOING, MINIMPROVEMENT, /PRIORS FROMDATA, EQUAL or CUSTOM, and the prior probabilities drive each node's category, the risk and the saved probabilities.
