@@ -1044,6 +1044,10 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             descriptives: true,
             cross_products: true,
             listwise: true,
+            ci: true,
+            ci_level: s("90"),
+            ci_bias: true,
+            spearman_ci: 1,
             bootstrap: boot(),
         }),
         Dialog::Mrsets(Mrsets {

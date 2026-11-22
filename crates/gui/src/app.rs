@@ -5,8 +5,8 @@ use crate::advanced_dialogs::{Advanced, SampleTables};
 use crate::advanced_dialogs_view;
 use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, MEANS_CELLS, MULT_RESPONSE_CELLS, Means, MrGroup,
-    MultResponse, ONEWAY_POLYNOMIALS, ONEWAY_STATISTICS, Oneway, STANDARDIZERS, TREE_LEVELS,
-    TREE_SAVE, TTest, TTestKind, Tree,
+    MultResponse, ONEWAY_POLYNOMIALS, ONEWAY_STATISTICS, Oneway, SPEARMAN_CI, STANDARDIZERS,
+    TREE_LEVELS, TREE_SAVE, TTest, TTestKind, Tree,
 };
 use crate::bayes_dialog::{BAYES_MENU, Bayesian};
 use crate::catreg_dialog::CategoricalRegression;
@@ -6212,6 +6212,24 @@ fn dialog_body(
                     &mut d.cross_products,
                     "Cross-products and covariances (Pearson)",
                 );
+            });
+            // Kendall's tau-b has no interval
+            ui.add_enabled_ui(d.pearson || d.spearman, |ui| {
+                ui.checkbox(&mut d.ci, "Confidence intervals");
+                ui.add_enabled_ui(d.ci, |ui| {
+                    field(ui, "Confidence level %", &mut d.ci_level, 50.0);
+                    ui.add_enabled_ui(d.pearson, |ui| {
+                        ui.checkbox(&mut d.ci_bias, "Bias adjustment (Pearson)");
+                    });
+                    ui.add_enabled_ui(d.spearman, |ui| {
+                        choice(
+                            ui,
+                            "Standard error (Spearman)",
+                            &SPEARMAN_CI,
+                            &mut d.spearman_ci,
+                        );
+                    });
+                });
             });
             ui.checkbox(
                 &mut d.listwise,

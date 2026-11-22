@@ -400,6 +400,14 @@ impl Oneway {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Correlations {
     pub variables: Vec<String>,
+    /// Confidence intervals of Pearson's r and Spearman's rho (Kendall's tau-b has none).
+    pub ci: bool,
+    /// Confidence level in percent.
+    pub ci_level: String,
+    /// Pearson: the bias adjustment of the transformed r.
+    pub ci_bias: bool,
+    /// Spearman: index into `SPEARMAN_CI`.
+    pub spearman_ci: usize,
     pub pearson: bool,
     pub kendall: bool,
     pub spearman: bool,
@@ -417,6 +425,10 @@ impl Default for Correlations {
     fn default() -> Self {
         Self {
             variables: Vec::new(),
+            ci: false,
+            ci_level: "95".into(),
+            ci_bias: false,
+            spearman_ci: 0,
             pearson: true,
             kendall: false,
             spearman: false,
@@ -429,6 +441,13 @@ impl Default for Correlations {
         }
     }
 }
+
+/// The standard errors of Spearman's rho for its confidence interval, keyword and label.
+pub const SPEARMAN_CI: [(&str, &str); 3] = [
+    ("FHP", "Fieller, Hartley and Pearson"),
+    ("CC", "Caruso and Cliff"),
+    ("BW", "Bonett and Wright"),
+];
 
 impl Correlations {
     pub fn syntax(&self) -> Result<String, String> {
@@ -456,6 +475,11 @@ impl Correlations {
         } else {
             ""
         };
+        // the level checked even when it stays the default
+        let level = match confidence(&self.ci_level)? {
+            Some(_) if self.ci => self.ci_level.trim().parse::<f64>().ok().map(number),
+            _ => None,
+        };
         let mut commands = Vec::new();
         if self.pearson {
             let mut text = format!("CORRELATIONS /VARIABLES={list}{}", print(None));
@@ -469,6 +493,11 @@ impl Correlations {
             if !statistics.is_empty() {
                 text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
             }
+            if self.ci {
+                text.push_str("\n  /CI");
+                text.extend(self.ci_bias.then_some(" BIAS=TRUE"));
+                text.extend(level.as_ref().map(|l| format!(" CILEVEL={l}")));
+            }
             commands.push(self.bootstrap.before(format!("{text}{missing}."))?);
         }
         if self.kendall || self.spearman {
@@ -478,9 +507,18 @@ impl Correlations {
                 (false, true) => Some("KENDALL"),
                 _ => None,
             };
+            // only rho has an interval
+            let mut ci = String::new();
+            if self.ci && self.spearman {
+                ci.push_str("\n  /CI");
+                if self.spearman_ci > 0 {
+                    ci.push_str(&format!(" METHOD({})", SPEARMAN_CI[self.spearman_ci].0));
+                }
+                ci.extend(level.as_ref().map(|l| format!(" CILEVEL({l})")));
+            }
             // BOOTSTRAP covers only the next procedure, so each command gets its own
             commands.push(self.bootstrap.before(format!(
-                "NONPAR CORR /VARIABLES={list}{}{missing}.",
+                "NONPAR CORR /VARIABLES={list}{}{ci}{missing}.",
                 print(which)
             ))?);
         }
@@ -1169,6 +1207,28 @@ mod tests {
              /STATISTICS=DESCRIPTIVES XPROD\n  /MISSING=LISTWISE."
         );
         assert_eq!(runs(&syntax), 2);
+        // confidence intervals: Pearson's with the bias adjustment, rho's by Bonett and
+        // Wright; Kendall's tau-b has none, so its command is unchanged
+        let mut c = d.clone();
+        c.ci = true;
+        c.ci_bias = true;
+        c.ci_level = "90".into();
+        c.spearman = true;
+        c.spearman_ci = 2;
+        let syntax = c.syntax().unwrap();
+        assert!(
+            syntax.contains("/STATISTICS=DESCRIPTIVES XPROD\n  /CI BIAS=TRUE CILEVEL=90\n"),
+            "{syntax}"
+        );
+        assert!(
+            syntax.contains(
+                "/PRINT=ONETAIL NOSIG\n  /CI METHOD(BW) CILEVEL(90)\n  /MISSING=LISTWISE."
+            ),
+            "{syntax}"
+        );
+        assert!(statscraft_syntax::parse(&syntax).1.is_empty());
+        c.ci_level = "100".into();
+        assert!(c.syntax().unwrap_err().contains("between 0 and 100"));
         d.pearson = false;
         assert_eq!(
             d.syntax().unwrap_err(),

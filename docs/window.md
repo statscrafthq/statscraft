@@ -409,7 +409,7 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
 
 **Correlate**
 
-- **Bivariate**: Pearson by CORRELATIONS, Spearman and Kendall by NONPAR CORR, and both commands when both kinds are chosen.
+- **Bivariate**: Pearson by CORRELATIONS, Spearman and Kendall by NONPAR CORR, and both commands when both kinds are chosen. Confidence intervals with their level for Pearson's r (with an optional bias adjustment) and Spearman's rho (with the standard error of Fieller, Hartley and Pearson, Caruso and Cliff, or Bonett and Wright); Kendall's tau-b has none.
 - **Partial** (`PARTIAL CORR`): the variables controlling for others; a one- or two-tailed test; the coefficients alone, marked with stars; means and standard deviations; the zero-order correlations; cases left out of every correlation or only where they are missing.
 - **Distances** (`PROXIMITIES`): distances or similarities between the cases, labeled by a variable, or between the variables.
   - The same measures as Hierarchical Cluster, Euclidean distance by default, with their parameters.
