@@ -33,7 +33,7 @@ pub(crate) fn fisher_interval(
     level: f64,
     one_tailed: bool,
 ) -> Option<(f64, f64)> {
-    if !(r.abs() < 1.0) || !se.is_finite() {
+    if !r.is_finite() || r.abs() >= 1.0 || !se.is_finite() {
         return None;
     }
     let zeta = r.atanh() - bias;
