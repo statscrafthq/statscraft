@@ -1400,6 +1400,10 @@ pub struct Tree {
     pub exhaustive: bool,
     /// `/METHOD TYPE=CRT`
     pub crt: bool,
+    /// `/METHOD TYPE=QUEST`; CRT and QUEST share the binary splits, surrogates and pruning.
+    pub quest: bool,
+    /// `/QUEST ALPHASPLIT`
+    pub quest_alpha: f64,
     /// `/CRT IMPURITY`
     pub impurity: TreeImpurity,
     /// `/CRT MINIMPROVEMENT` or `/GROWTHLIMIT MINIMPROVEMENT`
@@ -1460,6 +1464,13 @@ pub struct Tree {
     pub nominal_missing_valid: bool,
     /// What the command accepts but does not use, each said in a warning when it runs.
     pub ignored: Vec<String>,
+}
+
+impl Tree {
+    /// CRT and QUEST grow binary trees and share their surrogates and pruning.
+    pub fn binary(&self) -> bool {
+        self.crt || self.quest
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

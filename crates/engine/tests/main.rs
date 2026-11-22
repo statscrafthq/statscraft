@@ -122,6 +122,7 @@ mod timeseries;
 mod transform;
 mod tree;
 mod tree_crt;
+mod tree_quest;
 mod ts_models;
 mod ts_more;
 mod tsmodel;

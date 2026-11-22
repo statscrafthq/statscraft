@@ -1309,11 +1309,43 @@ fn tree_crt_settings() {
 }
 
 #[test]
+fn tree_quest_settings() {
+    let t = tree_of(
+        "TREE y BY x /METHOD TYPE=QUEST MAXSURROGATES=1 PRUNE=SE(1) /QUEST ALPHASPLIT=.01.",
+    );
+    assert!(t.quest && !t.crt && t.binary());
+    assert_eq!(
+        (t.quest_alpha, t.max_surrogates, t.prune),
+        (0.01, Some(1), Some(1.0))
+    );
+    assert!(t.ignored.is_empty(), "{:?}", t.ignored);
+    // QUEST ignores what belongs to the other methods, with a warning for each
+    let t = tree_of(
+        "TREE y BY x /METHOD TYPE=QUEST /CRT IMPURITY=TWOING /CHAID ALPHASPLIT=.1 \
+         /PRINT IMPORTANCE /GROWTHLIMIT MINIMPROVEMENT=.1 /SCORES EQUALINCREMENTS.",
+    );
+    assert_eq!(t.ignored.len(), 4, "{:?}", t.ignored);
+    assert_eq!(t.quest_alpha, 0.05);
+    let t = tree_of("TREE y BY x /METHOD TYPE=QUEST /GROWTHLIMIT MINIMPROVEMENT=.1.");
+    assert_eq!(t.ignored, ["MINIMPROVEMENT applies to CRT only; ignored"]);
+    // the other methods ignore /QUEST
+    let t = tree_of("TREE y BY x /METHOD TYPE=CRT /QUEST ALPHASPLIT=.2.");
+    assert_eq!(t.ignored, ["QUEST applies to QUEST trees only; ignored"]);
+    // the last METHOD TYPE holds
+    let t = tree_of("TREE y BY x /METHOD TYPE=QUEST TYPE=CHAID.");
+    assert!(!t.quest && !t.crt);
+}
+
+#[test]
 fn tree_errors() {
     let message = |source: &str| err(source).message;
     assert_eq!(
-        message("TREE y BY x /METHOD TYPE=QUEST."),
-        "METHOD TYPE=QUEST is not supported yet"
+        message("TREE y BY x /METHOD TYPE=QUEST /QUEST ALPHASPLIT=1."),
+        "ALPHASPLIT must be above 0 and below 1"
+    );
+    assert_eq!(
+        message("TREE y BY x /QUEST DEPTH=1."),
+        "unexpected word DEPTH"
     );
     assert_eq!(
         message("TREE y BY x /VALIDATION TYPE=SPLITSAMPLE(50)."),

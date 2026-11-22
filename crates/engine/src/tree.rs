@@ -37,6 +37,7 @@
 //!   (target share in the node) and index (response over the overall share).
 
 mod crt;
+mod quest;
 mod scale;
 
 use crate::crosstabs::Key;
@@ -59,6 +60,9 @@ struct Predictor {
     /// The break points of a scale predictor, in its format.
     breaks: Option<Vec<String>>,
     codes: Vec<usize>,
+    /// The value of each category of a scale or ordinal predictor, for QUEST; the rank for a
+    /// category that is no number. Empty for the others.
+    numbers: Vec<f64>,
 }
 
 impl Predictor {
@@ -110,6 +114,21 @@ struct Split {
     improvement: Option<f64>,
     /// The splits of other predictors that best imitate a CRT split, most similar first.
     surrogates: Vec<Surrogate>,
+    /// What QUEST chose the split by.
+    quest: Option<QuestSplit>,
+}
+
+/// The test that picked a QUEST split, and the cut of a scale or ordinal predictor.
+struct QuestSplit {
+    /// F, Levene F or Chi-Square.
+    test: &'static str,
+    statistic: f64,
+    df: f64,
+    /// The degrees of freedom within the classes, for an F.
+    df2: Option<f64>,
+    sig: f64,
+    /// The split point d of x <= d; not a number for a nominal predictor.
+    cut: f64,
 }
 
 /// A split of `predictor` that sends the categories `left` to the left child.
@@ -592,6 +611,17 @@ fn key_of(value: &statscraft_syntax::Value) -> Key {
     }
 }
 
+/// The value of each category of a scale or ordinal predictor: the number it is, else its rank.
+fn numbers_of(keys: &[Key]) -> Vec<f64> {
+    keys.iter()
+        .enumerate()
+        .map(|(rank, k)| match k {
+            Key::Number(x) => *x,
+            _ => rank as f64,
+        })
+        .collect()
+}
+
 fn sorted_unique(mut keys: Vec<Key>) -> Vec<Key> {
     keys.sort_by(|a, b| a.compare(b));
     keys.dedup();
@@ -647,7 +677,7 @@ impl Engine {
                     "the string variable {} cannot be scale; it is nominal",
                     dependent.name()
                 ));
-            } else if !command.crt {
+            } else if !command.binary() {
                 return Err(Error(format!(
                     "TREE with a scale dependent variable ({}) needs METHOD TYPE=CRT; or give it a \
                      level, as in {} [n] or {} [o]",
@@ -659,16 +689,22 @@ impl Engine {
         }
         let scale_dep = dependent_level == Level::Scale && !dependent.is_string();
         let ordinal = dependent_level == Level::Ordinal;
-        if command.crt {
-            if command.impurity == TreeImpurity::OrderedTwoing && !ordinal {
-                return Err(Error(format!(
-                    "IMPURITY=ORDEREDTWOING needs an ordinal dependent variable; {} is not",
-                    dependent.name()
-                )));
-            }
-            if command.force.is_some() {
-                warnings.push("FORCE applies to CHAID trees only; ignored".into());
-            }
+        if command.quest && (scale_dep || ordinal) {
+            return Err(Error(format!(
+                "METHOD TYPE=QUEST needs a nominal dependent variable; {} is not (give it the \
+                 level as in {} [n])",
+                dependent.name(),
+                dependent.name()
+            )));
+        }
+        if command.crt && command.impurity == TreeImpurity::OrderedTwoing && !ordinal {
+            return Err(Error(format!(
+                "IMPURITY=ORDEREDTWOING needs an ordinal dependent variable; {} is not",
+                dependent.name()
+            )));
+        }
+        if command.binary() && command.force.is_some() {
+            warnings.push("FORCE applies to CHAID trees only; ignored".into());
         }
         let weight_name = data.weight_variable().map(str::to_string);
 
@@ -924,7 +960,7 @@ impl Engine {
                     }
                 })
                 .collect();
-            let predictor = if *level == Level::Scale && command.crt {
+            let predictor = if *level == Level::Scale && command.binary() {
                 // every distinct value is a candidate cut, so each is a category of its own
                 let keys = sorted_unique(values.iter().flatten().cloned().collect());
                 let codes = values
@@ -945,6 +981,7 @@ impl Engine {
                     labels: vec![String::new(); keys.len()],
                     breaks: Some(cuts),
                     codes,
+                    numbers: numbers_of(&keys),
                 }
             } else if *level == Level::Scale {
                 let k = intervals
@@ -979,9 +1016,17 @@ impl Engine {
                             .collect(),
                     ),
                     codes,
+                    numbers: Vec::new(),
                 }
             } else {
                 let keys = sorted_unique(values.iter().flatten().cloned().collect());
+                if command.quest && *level == Level::Nominal && keys.len() > 2 {
+                    return Err(Error(format!(
+                        "METHOD TYPE=QUEST with the nominal predictor {} of more than two \
+                         categories is not supported yet",
+                        variable.name()
+                    )));
+                }
                 if keys.len() > 126 {
                     return Err(Error(format!(
                         "the predictor {} has more than 126 categories",
@@ -1001,6 +1046,11 @@ impl Engine {
                     labels: keys.iter().map(|k| shown.value(variable, k)).collect(),
                     breaks: None,
                     codes,
+                    numbers: if *level == Level::Nominal {
+                        Vec::new()
+                    } else {
+                        numbers_of(&keys)
+                    },
                 }
             };
             coded.push(predictor);
@@ -1028,7 +1078,7 @@ impl Engine {
         } else {
             (None, 0.0)
         };
-        let nodes = if command.crt {
+        let nodes = if command.binary() {
             let priors = if scale_dep {
                 vec![1.0]
             } else {
@@ -1050,7 +1100,13 @@ impl Engine {
                 shift: dep_shift,
                 classes: classes.len(),
                 priors: &priors,
-                impurity: command.impurity,
+                // QUEST ranks no split by impurity; surrogates still do, by Gini
+                impurity: if command.quest {
+                    TreeImpurity::Gini
+                } else {
+                    command.impurity
+                },
+                quest: command.quest.then_some(command.quest_alpha),
                 min_improvement: command.min_improvement.unwrap_or(0.0001),
                 min_parent: command.min_parent,
                 min_child: command.min_child,
@@ -1117,6 +1173,7 @@ impl Engine {
                             sig,
                             improvement: None,
                             surrogates: Vec::new(),
+                            quest: None,
                         });
                     }
                 }
@@ -1404,7 +1461,7 @@ impl Engine {
                 charts.push(chart);
             }
         }
-        if command.crt && command.print_surrogates {
+        if command.binary() && command.print_surrogates {
             let mut rows = Vec::new();
             for (id, node) in nodes.iter().enumerate() {
                 let Some(split) = &node.split else { continue };
@@ -1483,8 +1540,15 @@ impl Engine {
                     text(names(&mut predictors.iter())),
                 ),
             ];
-            if command.force.is_some() && !command.crt {
+            if command.force.is_some() && !command.binary() {
                 rows.push(row("", "Forced Variable", text(&predictors[0].name)));
+            }
+            if command.quest {
+                rows.push(row(
+                    "",
+                    "Alpha for Split Selection",
+                    Cell::Number(command.quest_alpha),
+                ));
             }
             if command.crt {
                 rows.push(row(
@@ -1496,6 +1560,8 @@ impl Engine {
                         TreeImpurity::OrderedTwoing => "Ordered Twoing",
                     }),
                 ));
+            }
+            if command.binary() {
                 rows.push(row(
                     "",
                     "Prior Probabilities",
@@ -1505,11 +1571,15 @@ impl Engine {
                         TreePriors::Custom(_) => "Custom",
                     }),
                 ));
+            }
+            if command.crt {
                 rows.push(row(
                     "",
                     "Minimum Change in Improvement",
                     Cell::Number(command.min_improvement.unwrap_or(0.0001)),
                 ));
+            }
+            if command.binary() {
                 rows.push(row(
                     "",
                     "Pruning",
@@ -1585,7 +1655,11 @@ impl Engine {
             push("", "Predicted Category");
             if command.branch_statistics {
                 push("Split", "Variable");
-                if command.crt {
+                if command.quest {
+                    for name in ["Test", "Statistic", "df", "Error df", "Sig.", "Split Point"] {
+                        push("Split", name);
+                    }
+                } else if command.crt {
                     push("Split", "Improvement");
                 } else {
                     push("Split", "Adj. Sig.");
@@ -1637,9 +1711,21 @@ impl Engine {
                     match &node.split {
                         Some(split) => {
                             row.push(text(&predictors[split.predictor].name));
-                            match split.improvement {
-                                Some(gain) => row.push(Cell::Number(gain)),
-                                None => row.extend([
+                            match (&split.quest, split.improvement) {
+                                (Some(q), _) => row.extend([
+                                    text(q.test),
+                                    Cell::Number(q.statistic),
+                                    Cell::Number(q.df),
+                                    q.df2.map_or(Cell::Empty, Cell::Number),
+                                    Cell::Number(q.sig),
+                                    if q.cut.is_nan() {
+                                        Cell::Empty
+                                    } else {
+                                        Cell::Number(q.cut)
+                                    },
+                                ]),
+                                (None, Some(gain)) => row.push(Cell::Number(gain)),
+                                (None, None) => row.extend([
                                     Cell::Number(split.sig),
                                     Cell::Number(split.statistic),
                                     Cell::Number(split.df),
@@ -1647,7 +1733,13 @@ impl Engine {
                             }
                         }
                         None => {
-                            let width = if command.crt { 2 } else { 4 };
+                            let width = if command.quest {
+                                7
+                            } else if command.crt {
+                                2
+                            } else {
+                                4
+                            };
                             row.extend(vec![Cell::Empty; width]);
                         }
                     }
@@ -1658,10 +1750,10 @@ impl Engine {
                 .iter()
                 .map(|c| match c.as_str() {
                     "Percent" => "F5.1".to_string(),
-                    "Adj. Sig." => "F5.3".to_string(),
+                    "Adj. Sig." | "Sig." => "F5.3".to_string(),
                     "Improvement" => "F8.5".to_string(),
-                    "Chi-Square" => "F8.3".to_string(),
-                    "N" | "df" => "F8.0".to_string(),
+                    "Chi-Square" | "Statistic" | "Split Point" => "F8.3".to_string(),
+                    "N" | "df" | "Error df" => "F8.0".to_string(),
                     _ => String::new(),
                 })
                 .collect();
@@ -1699,9 +1791,22 @@ impl Engine {
                 statistics.push(("Predicted".into(), text(&class_labels[node.predicted()])));
                 if let Some(split) = &node.split {
                     statistics.push(("Split by".into(), text(&predictors[split.predictor].name)));
-                    match split.improvement {
-                        Some(gain) => statistics.push(("Improvement".into(), Cell::Number(gain))),
-                        None => {
+                    match (&split.quest, split.improvement) {
+                        (Some(q), _) => {
+                            statistics.push((q.test.into(), Cell::Number(q.statistic)));
+                            statistics.push(("df".into(), Cell::Number(q.df)));
+                            if let Some(df2) = q.df2 {
+                                statistics.push(("Error df".into(), Cell::Number(df2)));
+                            }
+                            statistics.push(("Sig.".into(), Cell::Number(q.sig)));
+                            if !q.cut.is_nan() {
+                                statistics.push(("Split Point".into(), Cell::Number(q.cut)));
+                            }
+                        }
+                        (None, Some(gain)) => {
+                            statistics.push(("Improvement".into(), Cell::Number(gain)))
+                        }
+                        (None, None) => {
                             statistics.push(("Adj. Sig.".into(), Cell::Number(split.sig)));
                             statistics.push(("Chi-Square".into(), Cell::Number(split.statistic)));
                             statistics.push(("df".into(), Cell::Number(split.df)));
@@ -1982,10 +2087,11 @@ impl Engine {
 /// The terminal nodes in the order of the gain tables: by the index of target class `j`,
 /// highest first unless `ascending`.
 fn method_name(command: &Tree) -> &'static str {
-    match (command.crt, command.exhaustive) {
-        (true, _) => "CRT",
-        (false, true) => "Exhaustive CHAID",
-        (false, false) => "CHAID",
+    match (command.crt, command.quest, command.exhaustive) {
+        (true, _, _) => "CRT",
+        (_, true, _) => "QUEST",
+        (_, _, true) => "Exhaustive CHAID",
+        _ => "CHAID",
     }
 }
 
@@ -2038,7 +2144,9 @@ fn risk_estimate<'a>(terminals: impl Iterator<Item = &'a Node>, root: &Node) -> 
 
 /// The depth limit: AUTO is three levels for CHAID and five for CRT.
 fn depth_limit(command: &Tree) -> usize {
-    command.max_depth.unwrap_or(if command.crt { 5 } else { 3 })
+    command
+        .max_depth
+        .unwrap_or(if command.binary() { 5 } else { 3 })
 }
 
 /// The prior probabilities of the classes, summing to 1.

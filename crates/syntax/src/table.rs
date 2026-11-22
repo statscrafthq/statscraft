@@ -4872,9 +4872,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  PLOT GAIN, RESPONSE and INDEX give line charts with one line per TARGET category over cumulative\n\
                  percentile groups INCREMENT percent wide (1, 2, 5, 10, 20 or 25): the terminal nodes in the order\n\
                  of the gain tables, the node that holds a cut counted in proportion. PLOT MEAN, PROFIT and ROI, the\n\
-                 QUEST subcommand and PRINT CATEGORYSPECS are accepted and ignored with a warning. So are the settings\n\
-                 of CRT (CRT, PRIORS, MAXSURROGATES, PRUNE, PRINT IMPORTANCE and SURROGATES, PLOT IMPORTANCE) under\n\
-                 another method, and CHAID, SCORES and FORCE under CRT.\n\
+                 and PRINT CATEGORYSPECS are accepted and ignored with a warning. So are the settings of CRT and\n\
+                 QUEST (CRT, PRIORS, MAXSURROGATES, PRUNE, PRINT SURROGATES) under CHAID, those of CRT alone (IMPURITY,\n\
+                 MINIMPROVEMENT, PRINT IMPORTANCE, PLOT IMPORTANCE) under QUEST, QUEST under another method, and\n\
+                 CHAID, SCORES and FORCE under CRT and QUEST.\n\
                  METHOD TYPE=CRT grows a binary tree for a nominal or ordinal dependent: every cut of a scale or\n\
                  ordinal predictor (a value of the data, x <= v goes left) and every subset of the categories of a\n\
                  nominal one is tried (for more than two classes up to 20 categories present in a node), and the\n\
@@ -4896,8 +4897,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  deviation, the within-node variance, replaces the impurity measure, PRIORS and the class tables do\n\
                  not apply, a node shows its mean and standard deviation and is assigned its mean, and the risk is\n\
                  the mean squared deviation from the terminal node means. SAVE gives NODEID and PREDVAL (the node\n\
-                 mean). Not supported\n\
-                 yet: METHOD TYPE=QUEST, a scale dependent with CHAID, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
+                 mean). METHOD TYPE=QUEST grows a binary tree for a nominal dependent only, with scale and ordinal\n\
+                 predictors treated as numbers: each node tests every predictor against the classes (an F test for a\n\
+                 scale or ordinal one, a chi-square test for a nominal one), takes the smallest p-value when it is\n\
+                 below ALPHASPLIT / the number of predictors (/QUEST ALPHASPLIT, default .05), else the Levene test of\n\
+                 the spread of the scale and ordinal predictors with a stricter limit, else leaves the node whole. The\n\
+                 classes are grouped in two (the 2-means of their means, or the largest class against the rest) and\n\
+                 the cut of a scale or ordinal predictor is the root of the discriminant equation of the two groups;\n\
+                 a nominal predictor with two categories sends one each way. The tree table shows the test, its\n\
+                 statistic, degrees of freedom, significance and the cut. Priors, surrogates, MAXDEPTH (AUTO 5),\n\
+                 MINPARENTSIZE, MINCHILDSIZE, PRUNE and SAVE work as in CRT. Not supported yet: a nominal predictor\n\
+                 of more than two categories under QUEST, a scale dependent with CHAID, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
                  SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",

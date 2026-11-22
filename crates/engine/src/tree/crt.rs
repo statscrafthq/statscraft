@@ -36,7 +36,7 @@
 //!   with pL and pR the shares of the cases with a value of X* that s* sends left and right; only
 //!   a positive association keeps the surrogate, the best ones up to MAXSURROGATES.
 
-use super::{Node, Predictor, Split, Surrogate, make_node, risk_estimate};
+use super::{Node, Predictor, QuestSplit, Split, Surrogate, make_node, quest, risk_estimate};
 use crate::Error;
 use statscraft_syntax::TreeImpurity;
 use std::collections::VecDeque;
@@ -44,6 +44,10 @@ use std::collections::VecDeque;
 /// Most categories of a nominal predictor present in a node whose subsets are listed when the
 /// dependent has more than two classes.
 pub(super) const MAX_SUBSET_CATEGORIES: usize = 20;
+
+/// A chosen split: the predictor, the categories that go left and right, the improvement and,
+/// for QUEST, the test behind it.
+type Picked = (usize, Vec<usize>, Vec<usize>, f64, Option<QuestSplit>);
 
 /// The categories that go left and right, and the improvement.
 type Cut = (Vec<usize>, Vec<usize>, f64);
@@ -59,6 +63,8 @@ pub(super) struct Growth<'a> {
     pub classes: usize,
     pub priors: &'a [f64],
     pub impurity: TreeImpurity,
+    /// QUEST's alpha for the choice of the predictor; None grows by the impurity.
+    pub quest: Option<f64>,
     pub min_improvement: f64,
     pub min_parent: f64,
     pub min_child: f64,
@@ -441,15 +447,22 @@ impl Growth<'_> {
             if node.depth >= self.max_depth || node.n < self.min_parent || pure {
                 continue;
             }
-            let mut best: Option<(usize, Vec<usize>, Vec<usize>, f64)> = None;
-            for (p, valid_counts) in valid.iter().enumerate() {
-                if let Some((left, right, gain)) = self.best_split(p, node, valid_counts)?
-                    && best.as_ref().is_none_or(|b| gain > b.3 + 1e-12 * b.3.abs())
-                {
-                    best = Some((p, left, right, gain));
+            let picked: Option<Picked> = if let Some(alpha) = self.quest {
+                quest::choose(self, &node.cases, &factor, alpha)
+                    .map(|(p, left, right, q)| (p, left, right, 0.0, Some(q)))
+            } else {
+                let mut best: Option<(usize, Vec<usize>, Vec<usize>, f64)> = None;
+                for (p, valid_counts) in valid.iter().enumerate() {
+                    if let Some((left, right, gain)) = self.best_split(p, node, valid_counts)?
+                        && best.as_ref().is_none_or(|b| gain > b.3 + 1e-12 * b.3.abs())
+                    {
+                        best = Some((p, left, right, gain));
+                    }
                 }
-            }
-            let Some((p, left, right, gain)) = best.filter(|b| b.3 >= self.min_improvement) else {
+                best.filter(|b| b.3 >= self.min_improvement)
+                    .map(|(p, left, right, gain)| (p, left, right, gain, None))
+            };
+            let Some((p, left, right, gain, quest_split)) = picked else {
                 continue;
             };
             let predictor = &self.predictors[p];
@@ -498,8 +511,9 @@ impl Growth<'_> {
                 statistic: 0.0,
                 df: 0.0,
                 sig: 0.0,
-                improvement: Some(gain),
+                improvement: quest_split.is_none().then_some(gain),
                 surrogates,
+                quest: quest_split,
             });
         }
         Ok(nodes)

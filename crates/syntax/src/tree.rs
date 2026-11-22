@@ -1,11 +1,11 @@
-//! Parser of TREE: a classification tree grown by CHAID or exhaustive CHAID.
+//! Parser of TREE: a classification tree grown by CHAID, exhaustive CHAID, CRT or QUEST.
 //!
 //! Rules from the Command Syntax Reference (TREE): the dependent variable, BY and the predictors,
 //! each optionally followed by its level in brackets ([S], [O], [N], [C] for nominal), then
 //! FORCE = var. Subcommands come in any order. Keywords are followed by '='; lists of values are
-//! in brackets. CRT, QUEST, validation, custom costs, profits, rules, influence and model files
-//! are refused as not supported yet; settings that only apply to CRT and QUEST are ignored with
-//! a warning, as the manual says.
+//! in brackets. Validation, custom costs, profits, rules, influence and model files are refused as
+//! not supported yet; settings that do not apply to the method are ignored with a warning, as the
+//! manual says.
 
 use crate::ast::{
     Command, Level, Tree, TreeCategory, TreeImpurity, TreePrint, TreePriors, TreeSave, Value,
@@ -146,13 +146,6 @@ fn name_in_parentheses(p: &mut Parser) -> PResult<Option<String>> {
     let name = p.name("a variable name")?;
     p.expect(Punct::RParen)?;
     Ok(Some(name))
-}
-
-/// Skips the rest of a subcommand.
-fn skip(p: &mut Parser) {
-    while !at_end(p) {
-        p.pos += 1;
-    }
 }
 
 fn not_supported(p: &Parser, start: usize, what: &str) -> SyntaxError {
@@ -401,14 +394,11 @@ fn save(p: &mut Parser, command: &mut Tree) -> PResult<()> {
 
 fn method(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     while !at_end(p) {
-        let start = p.pos;
         if p.eat_keyword("TYPE") {
-            match choice(p, &["CHAID", "EXHAUSTIVECHAID", "CRT", "QUEST"])? {
-                0 => command.exhaustive = false,
-                1 => command.exhaustive = true,
-                2 => command.crt = true,
-                _ => return Err(not_supported(p, start, "METHOD TYPE=QUEST")),
-            }
+            let kind = choice(p, &["CHAID", "EXHAUSTIVECHAID", "CRT", "QUEST"])?;
+            command.exhaustive = kind == 1;
+            command.crt = kind == 2;
+            command.quest = kind == 3;
         } else if p.eat_keyword("MAXSURROGATES") {
             p.eat(Punct::Eq);
             command.max_surrogates = if p.eat_keyword("AUTO") {
@@ -491,6 +481,17 @@ fn crt(p: &mut Parser, command: &mut Tree) -> PResult<()> {
             command.min_improvement = Some(positive(p, "MINIMPROVEMENT")?);
         } else {
             return Err(p.unexpected(&["IMPURITY", "MINIMPROVEMENT"]));
+        }
+    }
+    Ok(())
+}
+
+fn quest(p: &mut Parser, command: &mut Tree) -> PResult<()> {
+    while !at_end(p) {
+        if p.eat_keyword("ALPHASPLIT") {
+            command.quest_alpha = alpha(p, "ALPHASPLIT", false)?;
+        } else {
+            return Err(p.unexpected(&["ALPHASPLIT"]));
         }
     }
     Ok(())
@@ -672,6 +673,8 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         scores: None,
         nominal_missing_valid: false,
         crt: false,
+        quest: false,
+        quest_alpha: 0.05,
         impurity: TreeImpurity::Gini,
         min_improvement: None,
         priors: TreePriors::FromData,
@@ -724,11 +727,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             "CHAID" => chaid(p, &mut command)?,
             "CRT" => crt(p, &mut command)?,
             "PRIORS" => priors(p, &mut command)?,
-            "QUEST" => {
-                skip(p);
-                let message = "QUEST applies to QUEST trees only; ignored";
-                command.ignored.push(message.into());
-            }
+            "QUEST" => quest(p, &mut command)?,
             "COSTS" => {
                 p.eat(Punct::Eq);
                 if p.eat_keyword("CUSTOM") {
@@ -762,13 +761,12 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         }
     }
     p.finish(&["'/'"])?;
-    if !command.crt {
+    let binary = command.crt || command.quest;
+    if !binary {
         for (given, what) in [
             (seen.contains(&"CRT"), "CRT"),
             (seen.contains(&"PRIORS"), "PRIORS"),
-            (command.print_importance, "PRINT IMPORTANCE"),
             (command.print_surrogates, "PRINT SURROGATES"),
-            (command.plot_importance, "PLOT IMPORTANCE"),
             (command.max_surrogates.is_some(), "METHOD MAXSURROGATES"),
             (command.prune.is_some(), "METHOD PRUNE"),
         ] {
@@ -777,21 +775,39 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
                 command.ignored.push(message);
             }
         }
+    } else {
+        for name in ["CHAID", "SCORES"] {
+            if seen.contains(&name) {
+                let message = format!("{name} applies to CHAID trees only; ignored");
+                command.ignored.push(message);
+            }
+        }
+    }
+    if !command.crt {
+        // the settings of CRT alone
+        for (given, what) in [
+            (command.print_importance, "PRINT IMPORTANCE"),
+            (command.plot_importance, "PLOT IMPORTANCE"),
+        ] {
+            if given {
+                let message = format!("{what} applies to CRT trees only; ignored");
+                command.ignored.push(message);
+            }
+        }
+        if command.quest && seen.contains(&"CRT") {
+            command
+                .ignored
+                .push("CRT applies to CRT trees only; ignored".into());
+        }
         if command.min_improvement.is_some() && !seen.contains(&"CRT") {
             let message = "MINIMPROVEMENT applies to CRT only; ignored";
             command.ignored.push(message.into());
         }
-    } else {
-        if seen.contains(&"CHAID") {
-            command
-                .ignored
-                .push("CHAID applies to CHAID trees only; ignored".into());
-        }
-        if seen.contains(&"SCORES") {
-            command
-                .ignored
-                .push("SCORES applies to CHAID trees only; ignored".into());
-        }
+    }
+    if !command.quest && seen.contains(&"QUEST") {
+        command
+            .ignored
+            .push("QUEST applies to QUEST trees only; ignored".into());
     }
     if command.min_child >= command.min_parent {
         let message = "GROWTHLIMIT MINCHILDSIZE must be less than MINPARENTSIZE";
