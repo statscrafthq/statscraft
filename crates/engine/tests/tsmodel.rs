@@ -802,3 +802,140 @@ fn model_summary_residual_plots_need_reestimation() {
     );
     std::fs::remove_dir_all(&dir).ok();
 }
+
+// ---- seasonal, differenced and transformed ARIMA models against the reference package ----
+
+/// Eight years of monthly values: an AR(1) around a yearly pattern, made for the seasonal AR check.
+const SEASONAL_AR: &str = "58.42 62.55 66.31 60.86 59.18 57.68 56.54 60.24 63.83 65.93 65.18 61.41 60.85 59.79 64.90 \
+63.27 57.58 55.43 54.87 56.86 60.08 63.02 62.18 58.41 60.92 64.48 67.21 61.50 60.10 54.84 \
+54.51 58.93 61.60 60.59 62.39 59.96 58.47 64.67 62.79 62.04 57.91 55.14 53.44 61.49 61.23 \
+62.15 60.38 59.70 59.62 64.72 66.83 62.59 59.71 57.12 52.94 55.78 59.90 61.87 62.07 61.82 \
+60.87 66.97 66.73 61.78 61.38 56.04 54.26 57.99 64.36 64.04 61.82 60.69 60.77 63.15 62.47 \
+58.20 59.26 58.13 57.14 56.21 61.33 60.86 62.48 59.67 58.86 63.99 65.78 60.39 58.55 55.40 \
+52.27 56.66 60.29 62.20 62.78 58.82";
+
+/// A random walk whose changes follow an MA(2), made for the differenced model check.
+const MA2_DIFFERENCED: &str = "61.03 61.77 60.59 59.38 56.12 52.07 47.75 46.97 46.36 47.38 47.92 46.66 45.74 43.11 40.31 \
+38.66 39.91 41.57 42.63 41.74 42.53 44.47 45.05 44.86 45.98 44.89 46.21 49.16 52.97 54.58 \
+55.20 55.91 57.38 61.31 59.98 59.04 57.52 56.48 55.64 55.77 56.60 58.68 57.53 55.93 54.54 \
+52.77 54.41 54.60 54.25 54.21 54.35 55.29 54.56 56.53 56.35 58.15 59.26 60.84 61.87 64.15 \
+65.30 68.55 70.55 68.44 67.08 68.17 69.56 68.34 66.02 61.74 57.24 53.92 52.71 52.47 47.61 \
+47.47 47.20 47.01 45.95 43.98 43.87";
+
+/// Positive values whose square root follows an ARMA(1,1) around a level.
+const ARMA_TO_SQUARE: &str = "28.57 30.89 30.42 29.80 29.51 31.49 32.26 30.65 28.64 28.31 31.43 33.13 33.18 33.40 31.65 \
+31.32 30.33 29.44 30.83 30.34 28.88 33.03 31.92 33.84 34.71 32.06 28.76 28.79 27.97 31.17 \
+32.57 30.03 28.33 28.23 28.20 28.99 31.16 29.27 26.15 26.55 29.05 32.44 32.32 29.29 28.32 \
+30.71 32.35 31.46 31.71 32.94 30.39 28.40 28.84 31.35 31.49 28.46 25.43 25.42 29.12 30.48 \
+31.59 31.34 32.02 30.33 27.46 28.45 31.47 33.55 32.13 31.39 29.21 28.88 32.16 30.74 30.54 \
+33.77 34.15 31.09 27.91 27.96 29.22 30.40 31.64 30.31 31.36 29.01 28.63 29.14 28.28 29.51";
+
+#[test]
+fn seasonal_autoregression_with_a_constant_matches_the_reference() {
+    // R: arima(y, order=c(1,0,0), seasonal=list(order=c(1,0,0), period=12)); estimates, standard errors and 12 forecasts.
+    let source = format!(
+        "{}PREDICT THRU {}.\nTSMODEL /MODELDETAILS PRINT=[PARAMETERS FORECASTS] \
+         /AUXILIARY SEASONLENGTH=12 /MODEL DEPENDENT=y /ARIMA AR=[1] ARSEASONAL=[1] MA=[0].\n",
+        data("y", SEASONAL_AR),
+        series(SEASONAL_AR).len() + 12
+    );
+    let (tables, _) = run(&source);
+    let expected: [(&str, f64, f64); 3] = [
+        ("AR Lag 1", 0.39965, 0.09639),
+        ("AR, Seasonal Lag 1", 0.71146, 0.07157),
+        ("Constant", 60.42697, 0.92495),
+    ];
+    for (name, estimate, se) in expected {
+        let (got, got_se) = parameter(&tables, "ARIMA Model Parameters", name);
+        assert!(
+            close(got, estimate, 1e-3),
+            "{name}: {got} against {estimate}"
+        );
+        assert!(
+            (got_se / se - 1.0).abs() < 0.02,
+            "{name}: standard error {got_se} against {se}"
+        );
+    }
+    let forecasts = find(&tables, "Forecast");
+    let expected = [
+        58.8851, 62.7913, 64.1673, 60.3734, 59.0807, 56.8461, 54.6218, 57.7462, 60.3292, 61.6883,
+        62.1010, 59.2837,
+    ];
+    assert_eq!(forecasts.rows.len(), 12);
+    for (row, e) in forecasts.rows.iter().zip(expected) {
+        assert!(close(num(&row[2]), e, 2e-3), "{:?} against {e}", row[2]);
+    }
+}
+
+#[test]
+fn a_differenced_moving_average_without_constant_matches_the_reference() {
+    // R: arima(y, order=c(0,1,2), include.mean=FALSE); the moving-average sign is the opposite of ours.
+    let source = format!(
+        "{}PREDICT THRU {}.\nTSMODEL /MODELDETAILS PRINT=[PARAMETERS FORECASTS] \
+         /AUXILIARY SEASONLENGTH=12 /MODEL DEPENDENT=y /ARIMA AR=[0] MA=[1 2] DIFF=1 CONSTANT=NO.\n",
+        data("y", MA2_DIFFERENCED),
+        series(MA2_DIFFERENCED).len() + 12
+    );
+    let (tables, _) = run(&source);
+    let expected: [(&str, f64, f64); 2] = [
+        ("MA Lag 1", -0.53729, 0.10403),
+        ("MA Lag 2", -0.32030, 0.10527),
+    ];
+    for (name, estimate, se) in expected {
+        let (got, got_se) = parameter(&tables, "ARIMA Model Parameters", name);
+        assert!(
+            close(got, estimate, 1e-3),
+            "{name}: {got} against {estimate}"
+        );
+        assert!(
+            (got_se / se - 1.0).abs() < 0.02,
+            "{name}: standard error {got_se} against {se}"
+        );
+    }
+    let forecasts = find(&tables, "Forecast");
+    let expected = [
+        43.8581, 44.1138, 44.1138, 44.1138, 44.1138, 44.1138, 44.1138, 44.1138, 44.1138, 44.1138,
+        44.1138, 44.1138,
+    ];
+    assert_eq!(forecasts.rows.len(), 12);
+    for (row, e) in forecasts.rows.iter().zip(expected) {
+        assert!(close(num(&row[2]), e, 2e-3), "{:?} against {e}", row[2]);
+    }
+}
+
+#[test]
+fn a_square_root_transform_forecasts_back_to_the_original_scale() {
+    // R: arima(sqrt(y), order=c(1,0,1)) with forecasts squared; the moving-average sign is the opposite of ours.
+    let source = format!(
+        "{}PREDICT THRU {}.\nTSMODEL /MODELDETAILS PRINT=[PARAMETERS FORECASTS] \
+         /AUXILIARY SEASONLENGTH=12 /MODEL DEPENDENT=y /ARIMA AR=[1] MA=[1] TRANSFORM=SQRT.\n",
+        data("y", ARMA_TO_SQUARE),
+        series(ARMA_TO_SQUARE).len() + 12
+    );
+    let (tables, _) = run(&source);
+    let expected: [(&str, f64, f64); 3] = [
+        ("AR Lag 1", 0.25816, 0.12614),
+        ("MA Lag 1", -0.61842, 0.09401),
+        ("Constant", 5.50218, 0.03002),
+    ];
+    for (name, estimate, se) in expected {
+        let (got, got_se) = parameter(&tables, "ARIMA Model Parameters", name);
+        assert!(
+            close(got, estimate, 1e-3),
+            "{name}: {got} against {estimate}"
+        );
+        assert!(
+            (got_se / se - 1.0).abs() < 0.02,
+            "{name}: standard error {got_se} against {se}"
+        );
+    }
+    let forecasts = find(&tables, "Forecast");
+    let expected = [
+        30.3803, 30.3014, 30.2811, 30.2758, 30.2745, 30.2741, 30.2740, 30.2740, 30.2740, 30.2740,
+        30.2740, 30.2740,
+    ];
+    assert_eq!(forecasts.rows.len(), 12);
+    for (row, e) in forecasts.rows.iter().zip(expected) {
+        assert!(close(num(&row[2]), e, 2e-3), "{:?} against {e}", row[2]);
+    }
+}
