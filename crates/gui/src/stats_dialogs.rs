@@ -538,6 +538,8 @@ pub struct NparTests {
     pub descriptives: bool,
     pub quartiles: bool,
     pub listwise: bool,
+    /// Exact significances where the command computes them (METHOD=EXACT).
+    pub exact: bool,
 }
 
 impl NparTests {
@@ -559,6 +561,7 @@ impl NparTests {
             descriptives: false,
             quartiles: false,
             listwise: false,
+            exact: false,
         }
     }
 
@@ -712,6 +715,9 @@ impl NparTests {
         }
         if self.listwise {
             text.push_str("\n  /MISSING=LISTWISE");
+        }
+        if self.exact {
+            text.push_str("\n  /METHOD=EXACT");
         }
         text.push('.');
         Ok(text)
@@ -1104,6 +1110,10 @@ mod tests {
              /J-T=age BY region(1, 5)."
         );
         assert!(runs(&syntax) >= 5);
+        d.exact = true;
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.ends_with("/J-T=age BY region(1, 5)\n  /METHOD=EXACT."));
+        assert!(statscraft_syntax::parse(&syntax).1.is_empty());
     }
 
     #[test]

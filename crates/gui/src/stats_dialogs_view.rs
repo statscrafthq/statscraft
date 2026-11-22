@@ -224,6 +224,8 @@ pub fn npar_tests(ui: &mut Ui, d: &mut NparTests, picked: &mut Vec<String>) {
             &mut d.listwise,
             "Leave out a case missing on any variable of any test",
         );
+        ui.checkbox(&mut d.exact, "Exact significance")
+            .on_hover_text("Tests without an exact form keep the asymptotic one, with a warning");
     });
 }
 

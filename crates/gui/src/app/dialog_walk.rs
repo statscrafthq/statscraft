@@ -2820,6 +2820,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         d.descriptives = true;
         d.quartiles = true;
         d.listwise = true;
+        d.exact = true;
         if kind == NparKind::TwoIndependent {
             d.high = s("2");
         }
