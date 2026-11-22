@@ -825,8 +825,9 @@ fn correlations() {
     );
     assert!(
         err("NONPAR CORR a b /CI METHOD(XX).")
-            .message
-            .contains("FHP")
+            .expected
+            .iter()
+            .any(|e| e == "FHP")
     );
     // the manual's MATRIX of both commands only writes
     assert!(
