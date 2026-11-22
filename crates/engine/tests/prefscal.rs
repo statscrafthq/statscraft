@@ -580,6 +580,27 @@ fn problems_are_reported() {
     );
 }
 
+#[test]
+fn smooth_runs_as_ordinal_and_says_so() {
+    let (smooth, engine) = run_parts(&[
+        TASTE,
+        "PREFSCAL c1 TO c5 /TRANSFORMATION=SMOOTH(UNTIE) /PRINT=MEASURES COMMON.",
+    ])
+    .unwrap();
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("SMOOTH") && w.contains("not applied"))
+    );
+    let (ordinal, _) = run_parts(&[
+        TASTE,
+        "PREFSCAL c1 TO c5 /TRANSFORMATION=ORDINAL(UNTIE) /PRINT=MEASURES COMMON.",
+    ])
+    .unwrap();
+    assert_eq!(format!("{smooth:?}"), format!("{ordinal:?}"));
+}
+
 /// A folder for the coordinate files of one test.
 fn folder(name: &str) -> std::path::PathBuf {
     let dir =

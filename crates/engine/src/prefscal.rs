@@ -319,6 +319,14 @@ impl Engine {
             PrefscalTransformation::Linear { intercept: false } => Kind::Linear,
             PrefscalTransformation::Linear { intercept: true } => Kind::LinearIntercept,
             PrefscalTransformation::Ordinal { untie } => Kind::Ordinal { untie },
+            PrefscalTransformation::Smooth { untie } => {
+                warnings.push(
+                    "PREFSCAL: TRANSFORMATION=SMOOTH is read but the smoothing is not applied; \
+                     the run uses the ordinal transformation with the same tie handling"
+                        .to_string(),
+                );
+                Kind::Ordinal { untie }
+            }
             PrefscalTransformation::Spline {
                 intercept,
                 degree,

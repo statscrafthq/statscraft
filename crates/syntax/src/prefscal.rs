@@ -11,7 +11,8 @@
 //!   that hold the coordinates (rows first, then columns).
 //! - CONDITION=ROW (default), MATRIX or UNCONDITIONAL.
 //! - TRANSFORMATION=NONE[(INTERCEPT)], LINEAR[(INTERCEPT)], ORDINAL[(KEEPTIES | UNTIE)]
-//!   (default ORDINAL with ties kept), SMOOTH (not supported yet) or
+//!   (default ORDINAL with ties kept), SMOOTH[(KEEPTIES | UNTIE)] (accepted, run as ORDINAL with
+//!   a warning) or
 //!   SPLINE[([INTERCEPT] [ORDER | DEGREE=2] [INKNOT=1])].
 //! - MODEL=IDENTITY (default), WEIGHTED or GENERALIZED.
 //! - RESTRICTIONS=ROW(NONE | COORDINATES (file) [varlist]) COLUMN(...): fixed coordinates of the
@@ -78,6 +79,10 @@ pub enum PrefscalTransformation {
         intercept: bool,
     },
     Ordinal {
+        untie: bool,
+    },
+    /// Read but not applied: the engine runs it as `Ordinal` and warns.
+    Smooth {
         untie: bool,
     },
     Spline {
@@ -222,7 +227,11 @@ fn transformation(p: &mut Parser) -> PResult<PrefscalTransformation> {
         Ok(PrefscalTransformation::Linear {
             intercept: intercept_only(p)?,
         })
-    } else if p.eat_keyword("ORDINAL") {
+    } else if p.at_keyword("ORDINAL") || p.at_keyword("SMOOTH") {
+        let smooth = p.eat_keyword("SMOOTH");
+        if !smooth {
+            p.eat_keyword("ORDINAL");
+        }
         let mut untie = false;
         if p.eat(Punct::LParen) {
             if p.eat_keyword("UNTIE") {
@@ -232,12 +241,11 @@ fn transformation(p: &mut Parser) -> PResult<PrefscalTransformation> {
             }
             p.expect(Punct::RParen)?;
         }
-        Ok(PrefscalTransformation::Ordinal { untie })
-    } else if p.at_keyword("SMOOTH") {
-        Err(SyntaxError::new(
-            p.span(),
-            "the SMOOTH transformation is not supported yet",
-        ))
+        Ok(if smooth {
+            PrefscalTransformation::Smooth { untie }
+        } else {
+            PrefscalTransformation::Ordinal { untie }
+        })
     } else if p.eat_keyword("SPLINE") {
         let (mut intercept, mut degree, mut inknot) = (false, 2, 1);
         if p.eat(Punct::LParen) {
@@ -773,10 +781,22 @@ mod tests {
     }
 
     #[test]
+    fn smooth_is_read_with_its_tie_keyword() {
+        assert_eq!(
+            one("PREFSCAL a b /TRANSFORMATION=SMOOTH.").transformation,
+            PrefscalTransformation::Smooth { untie: false }
+        );
+        assert_eq!(
+            one("PREFSCAL a b /TRANSFORMATION=SMO(UNTIE).").transformation,
+            PrefscalTransformation::Smooth { untie: true }
+        );
+    }
+
+    #[test]
     fn errors() {
         assert!(err("PREFSCAL a b /RESTRICTIONS=ROW(FREE).").contains("word FREE"));
         assert!(err("PREFSCAL a b /RESTRICTIONS=BOTH(NONE).").contains("word BOTH"));
-        assert!(err("PREFSCAL a b /TRANSFORMATION=SMOOTH.").contains("not supported yet"));
+        assert!(err("PREFSCAL a b /TRANSFORMATION=SMOOTH(TIED).").contains("word TIED"));
         assert!(err("PREFSCAL a b /INITIAL=('start.sav'.").contains("end of command"));
         assert!(err("PREFSCAL a b /PENALTY=LAMBDA(0).").contains("LAMBDA"));
         assert!(err("PREFSCAL a b /PENALTY=OMEGA(-1).").contains("OMEGA"));

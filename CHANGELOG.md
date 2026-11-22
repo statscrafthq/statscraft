@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- PREFSCAL /TRANSFORMATION=SMOOTH[(KEEPTIES | UNTIE)] is read instead of refused: the run is the ORDINAL one, with a warning that the smoothing is not applied.
 - Window: Multidimensional Unfolding starts from coordinates in a file and fixes the coordinates of the rows or the columns from a file (Restrictions), each with the variables to read.
 
 ## 0.25.0 (2026-11-22)

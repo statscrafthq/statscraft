@@ -33,7 +33,7 @@ The loss is penalized stress: the mean over transformation lists of the normaliz
 
 Tables: Case Processing Summary; Measures (penalized stress with its stress and penalty parts; with MEASURES also normalized stress, Kruskal's Stress-I and II, Young's S-Stress-I and II, dispersion and variance accounted for, recovered preference orders, the mean Spearman rho and Kendall tau-b of the rows and the coefficients of variation); Final Common Space (rows, then columns); Dimension Weights or Space Weights; and on request the proximities, Random Starts, Initial Common Space, Iteration History, Decomposition of Normalized Stress, Individual Space Coordinates, Distances and Transformed Proximities. Charts: the joint plot of the common space (OPTIONS groups the rows by the values of a variable), Dimension Weights, Individual Space, Scree Plot, Initial Common Space, Random Starts, and Transformation, Shepard, Fit and Residuals plots; the values pick rows (CONDITION=ROW) or sources by their number or identifier, ALL for all. OUTFILE writes DIM\_1, DIM\_2, ... for the common space or the weights and ROW\_1, ..., COL\_1, ... for the distances and transformed proximities, the sources one below the other.
 
-Not supported yet: the SMOOTH transformation.
+SMOOTH is read but runs as ORDINAL with a warning: the smoothing is not applied.
 
 ## Example
 

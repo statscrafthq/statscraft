@@ -2889,7 +2889,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  plots; the values pick rows (CONDITION=ROW) or sources by their number or identifier, ALL for\n\
                  all. OUTFILE writes DIM_1, DIM_2, ... for the common space or the weights and ROW_1, ...,\n\
                  COL_1, ... for the distances and transformed proximities, the sources one below the other.\n\
-                 Not supported yet: the SMOOTH transformation.",
+                 SMOOTH is read but runs as ORDINAL with a warning: the smoothing is not applied.",
         example: "PREFSCAL brand1 TO brand6 /INPUT=ROWS(person) /TRANSFORMATION=ORDINAL(UNTIE) /PRINT=MEASURES COMMON HISTORY /PLOT=COMMON TRANSFORMATIONS(1 TO 4).",
         parse: prefscal::prefscal,
     },
