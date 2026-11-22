@@ -1485,6 +1485,9 @@ pub enum TreeValidation {
     SplitPercent(f64),
     /// SPLITSAMPLE(variable): the cases with the value 1 grow the tree.
     SplitVariable(String),
+    /// CROSSVALIDATION(folds): the risk estimate comes from this many trees, each grown without
+    /// one fold of the cases and tested on it.
+    Cross(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

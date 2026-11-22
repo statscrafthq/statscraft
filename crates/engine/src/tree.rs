@@ -275,6 +275,15 @@ fn rescore(nodes: &[Node], class: &[usize], weight: &[f64]) -> Vec<Node> {
         .collect()
 }
 
+/// What the tree was checked against besides the cases it grew on.
+#[derive(Clone, Copy, Default)]
+struct Checks<'a> {
+    /// The tree's nodes counting the test sample's cases.
+    test: Option<&'a [Node]>,
+    /// The cross-validated risk and its variance.
+    cross: Option<(f64, f64)>,
+}
+
 /// What the tests of independence need.
 struct Tester<'a> {
     /// Scores of the classes of an ordinal dependent; None for a nominal one.
@@ -991,7 +1000,7 @@ impl Engine {
         // the cases that grow the tree; the others are the test sample, carried along with weight
         // 0 so that they are routed like the rest without counting in any statistic
         let is_train: Vec<bool> = match &command.validation {
-            TreeValidation::None => vec![true; cases.len()],
+            TreeValidation::None | TreeValidation::Cross(_) => vec![true; cases.len()],
             TreeValidation::SplitPercent(percent) => cases
                 .iter()
                 .map(|_| self.random.borrow_mut().uniform() < percent / 100.0)
@@ -1021,127 +1030,11 @@ impl Engine {
                     .collect()
             }
         };
-        let validated = command.validation != TreeValidation::None;
-        let mut coded = Vec::new();
-        for (variable, level) in &variables {
-            let values: Vec<Option<Key>> = cases
-                .iter()
-                .map(|&(c, _)| {
-                    let r = raw(variable, c);
-                    if missing_of(*level, &r) {
-                        return None;
-                    }
-                    match r {
-                        Raw::Valid(k) | Raw::UserMissing(k) => Some(k),
-                        Raw::SysMissing => None,
-                    }
-                })
-                .collect();
-            let predictor = if *level == Level::Scale && command.binary() {
-                // every distinct value is a candidate cut, so each is a category of its own
-                let keys = sorted_unique(values.iter().flatten().cloned().collect());
-                let codes = values
-                    .iter()
-                    .map(|v| match v {
-                        Some(k) => keys.iter().position(|x| x == k).expect("a key of the data"),
-                        None => keys.len(),
-                    })
-                    .collect();
-                let cuts: Vec<String> = keys
-                    .iter()
-                    .take(keys.len().saturating_sub(1))
-                    .map(|k| shown.value(variable, k))
-                    .collect();
-                Predictor {
-                    name: shown.variable(variable),
-                    nominal: false,
-                    labels: vec![String::new(); keys.len()],
-                    breaks: Some(cuts),
-                    codes,
-                    numbers: numbers_of(&keys),
-                }
-            } else if *level == Level::Scale {
-                let k = intervals
-                    .iter()
-                    .find(|(n, _)| n.eq_ignore_ascii_case(variable.name()))
-                    .map_or(command.intervals, |(_, k)| *k);
-                let pairs: Vec<(f64, f64)> = values
-                    .iter()
-                    .zip(&cases)
-                    .zip(&is_train)
-                    .filter_map(|((v, &(c, _)), &train)| match v {
-                        Some(Key::Number(x)) if train => Some((*x, weight(c))),
-                        _ => None,
-                    })
-                    .collect();
-                let breaks = break_points(pairs, k);
-                let missing = breaks.len() + 1;
-                let codes = values
-                    .iter()
-                    .map(|v| match v {
-                        Some(Key::Number(x)) => breaks.partition_point(|b| b < x),
-                        _ => missing,
-                    })
-                    .collect();
-                Predictor {
-                    name: shown.variable(variable),
-                    nominal: false,
-                    labels: vec![String::new(); missing],
-                    breaks: Some(
-                        breaks
-                            .iter()
-                            .map(|b| category_text(*b, variable.format()))
-                            .collect(),
-                    ),
-                    codes,
-                    numbers: Vec::new(),
-                }
-            } else {
-                // the categories are those of the training cases; another one is missing
-                let keys = sorted_unique(
-                    values
-                        .iter()
-                        .zip(&is_train)
-                        .filter(|(_, train)| **train)
-                        .filter_map(|(v, _)| v.clone())
-                        .collect(),
-                );
-                if command.quest && *level == Level::Nominal && keys.len() > quest::MAX_CATEGORIES {
-                    return Err(Error(format!(
-                        "METHOD TYPE=QUEST allows a nominal predictor at most {} categories; {} has {}",
-                        quest::MAX_CATEGORIES,
-                        variable.name(),
-                        keys.len()
-                    )));
-                }
-                if keys.len() > 126 {
-                    return Err(Error(format!(
-                        "the predictor {} has more than 126 categories",
-                        variable.name()
-                    )));
-                }
-                let codes = values
-                    .iter()
-                    .map(|v| match v {
-                        Some(k) => keys.iter().position(|x| x == k).unwrap_or(keys.len()),
-                        None => keys.len(),
-                    })
-                    .collect();
-                Predictor {
-                    name: shown.variable(variable),
-                    nominal: *level == Level::Nominal,
-                    labels: keys.iter().map(|k| shown.value(variable, k)).collect(),
-                    breaks: None,
-                    codes,
-                    numbers: if *level == Level::Nominal {
-                        Vec::new()
-                    } else {
-                        numbers_of(&keys)
-                    },
-                }
-            };
-            coded.push(predictor);
-        }
+        // a test sample is held out, as opposed to cross-validation, which tests every case once
+        let validated = matches!(
+            command.validation,
+            TreeValidation::SplitPercent(_) | TreeValidation::SplitVariable(_)
+        );
         let all_weight: Vec<f64> = cases.iter().map(|&(c, _)| weight(c)).collect();
         let case_weight: Vec<f64> = all_weight
             .iter()
@@ -1176,19 +1069,148 @@ impl Engine {
                 ));
             }
         }
-        if command.quest {
-            // a nominal predictor of more than two categories is scored once, on the whole sample
-            for p in coded.iter_mut().filter(|p| p.nominal && p.labels.len() > 2) {
-                p.numbers = quest::coordinates(
-                    &p.codes,
-                    p.labels.len(),
-                    &case_class,
-                    &case_weight,
-                    classes.len(),
-                );
-            }
-        }
 
+        // the predictors coded from the cases `train` marks (the categories and break points are
+        // theirs); QUEST scores a nominal one on them with `weights`
+        let code = |train: &[bool], weights: &[f64]| -> Result<Vec<Predictor>, Error> {
+            let mut coded = Vec::new();
+            for (variable, level) in &variables {
+                let values: Vec<Option<Key>> = cases
+                    .iter()
+                    .map(|&(c, _)| {
+                        let r = raw(variable, c);
+                        if missing_of(*level, &r) {
+                            return None;
+                        }
+                        match r {
+                            Raw::Valid(k) | Raw::UserMissing(k) => Some(k),
+                            Raw::SysMissing => None,
+                        }
+                    })
+                    .collect();
+                let predictor = if *level == Level::Scale && command.binary() {
+                    // every distinct value is a candidate cut, so each is a category of its own
+                    let keys = sorted_unique(values.iter().flatten().cloned().collect());
+                    let codes = values
+                        .iter()
+                        .map(|v| match v {
+                            Some(k) => keys.iter().position(|x| x == k).expect("a key of the data"),
+                            None => keys.len(),
+                        })
+                        .collect();
+                    let cuts: Vec<String> = keys
+                        .iter()
+                        .take(keys.len().saturating_sub(1))
+                        .map(|k| shown.value(variable, k))
+                        .collect();
+                    Predictor {
+                        name: shown.variable(variable),
+                        nominal: false,
+                        labels: vec![String::new(); keys.len()],
+                        breaks: Some(cuts),
+                        codes,
+                        numbers: numbers_of(&keys),
+                    }
+                } else if *level == Level::Scale {
+                    let k = intervals
+                        .iter()
+                        .find(|(n, _)| n.eq_ignore_ascii_case(variable.name()))
+                        .map_or(command.intervals, |(_, k)| *k);
+                    let pairs: Vec<(f64, f64)> = values
+                        .iter()
+                        .zip(&cases)
+                        .zip(train)
+                        .filter_map(|((v, &(c, _)), &train)| match v {
+                            Some(Key::Number(x)) if train => Some((*x, weight(c))),
+                            _ => None,
+                        })
+                        .collect();
+                    let breaks = break_points(pairs, k);
+                    let missing = breaks.len() + 1;
+                    let codes = values
+                        .iter()
+                        .map(|v| match v {
+                            Some(Key::Number(x)) => breaks.partition_point(|b| b < x),
+                            _ => missing,
+                        })
+                        .collect();
+                    Predictor {
+                        name: shown.variable(variable),
+                        nominal: false,
+                        labels: vec![String::new(); missing],
+                        breaks: Some(
+                            breaks
+                                .iter()
+                                .map(|b| category_text(*b, variable.format()))
+                                .collect(),
+                        ),
+                        codes,
+                        numbers: Vec::new(),
+                    }
+                } else {
+                    // the categories are those of the training cases; another one is missing
+                    let keys = sorted_unique(
+                        values
+                            .iter()
+                            .zip(train)
+                            .filter(|(_, train)| **train)
+                            .filter_map(|(v, _)| v.clone())
+                            .collect(),
+                    );
+                    if command.quest
+                        && *level == Level::Nominal
+                        && keys.len() > quest::MAX_CATEGORIES
+                    {
+                        return Err(Error(format!(
+                            "METHOD TYPE=QUEST allows a nominal predictor at most {} categories; {} has {}",
+                            quest::MAX_CATEGORIES,
+                            variable.name(),
+                            keys.len()
+                        )));
+                    }
+                    if keys.len() > 126 {
+                        return Err(Error(format!(
+                            "the predictor {} has more than 126 categories",
+                            variable.name()
+                        )));
+                    }
+                    let codes = values
+                        .iter()
+                        .map(|v| match v {
+                            Some(k) => keys.iter().position(|x| x == k).unwrap_or(keys.len()),
+                            None => keys.len(),
+                        })
+                        .collect();
+                    Predictor {
+                        name: shown.variable(variable),
+                        nominal: *level == Level::Nominal,
+                        labels: keys.iter().map(|k| shown.value(variable, k)).collect(),
+                        breaks: None,
+                        codes,
+                        numbers: if *level == Level::Nominal {
+                            Vec::new()
+                        } else {
+                            numbers_of(&keys)
+                        },
+                    }
+                };
+                coded.push(predictor);
+            }
+            if command.quest {
+                // a nominal predictor of more than two categories is scored once, on the whole sample
+                for p in coded.iter_mut().filter(|p| p.nominal && p.labels.len() > 2) {
+                    p.numbers = quest::coordinates(
+                        &p.codes,
+                        p.labels.len(),
+                        &case_class,
+                        weights,
+                        classes.len(),
+                    );
+                }
+            }
+            Ok(coded)
+        };
+        let coded = code(&is_train, &case_weight)?;
         // a scale dependent is shifted by its mean, so sums of squares do not cancel
         let (dep_values, dep_shift): (Option<Vec<f64>>, f64) = if scale_dep {
             let values: Vec<f64> = cases
@@ -1209,186 +1231,243 @@ impl Engine {
         } else {
             (None, 0.0)
         };
-        let nodes = if command.binary() {
-            let priors = if scale_dep {
-                vec![1.0]
-            } else {
-                crt_priors(
-                    command,
-                    &classes,
-                    &case_class,
-                    &case_weight,
-                    &labels,
-                    &dependent,
-                    &mut warnings,
-                )?
-            };
-            let grown = crt::Growth {
-                predictors: &coded,
-                case_class: &case_class,
-                case_weight: &case_weight,
-                values: dep_values.as_deref(),
-                shift: dep_shift,
-                classes: classes.len(),
-                priors: &priors,
-                // QUEST ranks no split by impurity; surrogates still do, by Gini
-                impurity: if command.quest {
-                    TreeImpurity::Gini
-                } else {
-                    command.impurity
-                },
-                quest: command.quest.then_some(command.quest_alpha),
-                min_improvement: command.min_improvement.unwrap_or(0.0001),
-                min_parent: command.min_parent,
-                min_child: command.min_child,
-                max_depth: depth_limit(command),
-                max_surrogates: command.max_surrogates,
-            }
-            .grow()?;
-            match command.prune {
-                Some(b) => {
-                    // with a test sample, the subtrees' risks are the test sample's
-                    let tested = (validated).then(|| rescore(&grown, &case_class, &test_weight));
-                    crt::prune(
-                        grown,
-                        b,
-                        tested.as_deref(),
-                        command.priors == TreePriors::FromData,
-                    )
-                }
-                None => grown,
-            }
+        let priors = if !command.binary() {
+            Vec::new()
+        } else if scale_dep {
+            vec![1.0]
         } else {
-            let merging = Merging {
-                tester: Tester {
-                    scores: ordinal.then_some(&scores[..]),
-                    likelihood_ratio: command.likelihood_ratio,
-                    converge: command.converge,
-                    max_iterations: command.max_iterations,
-                },
-                exhaustive: command.exhaustive,
-                alpha_merge: command.alpha_merge,
-                min_child: command.min_child,
-                bonferroni: command.bonferroni,
-            };
-            let max_depth = depth_limit(command);
-            let ones = vec![1.0; classes.len()];
-            let node_of = |cases: Vec<usize>, parent, depth, definition| {
-                make_node(
-                    cases,
-                    parent,
-                    depth,
-                    definition,
-                    (&case_class, &case_weight, None),
-                    &ones,
-                )
-            };
-            let mut nodes = vec![node_of((0..cases.len()).collect(), None, 0, None)];
-            let mut queue = VecDeque::from([0]);
-            while let Some(id) = queue.pop_front() {
-                let node = &nodes[id];
-                let pure = node.counts.iter().filter(|&&n| n > 0.0).count() < 2;
-                if node.depth >= max_depth || node.n < command.min_parent || pure {
-                    continue;
+            crt_priors(
+                command,
+                &classes,
+                &case_class,
+                &case_weight,
+                &labels,
+                &dependent,
+                &mut warnings,
+            )?
+        };
+        let grow = |coded: &[Predictor],
+                    weights: &[f64],
+                    held_out: Option<&[f64]>|
+         -> Result<Vec<Node>, Error> {
+            Ok(if command.binary() {
+                let grown = crt::Growth {
+                    predictors: coded,
+                    case_class: &case_class,
+                    case_weight: weights,
+                    values: dep_values.as_deref(),
+                    shift: dep_shift,
+                    classes: classes.len(),
+                    priors: &priors,
+                    // QUEST ranks no split by impurity; surrogates still do, by Gini
+                    impurity: if command.quest {
+                        TreeImpurity::Gini
+                    } else {
+                        command.impurity
+                    },
+                    quest: command.quest.then_some(command.quest_alpha),
+                    min_improvement: command.min_improvement.unwrap_or(0.0001),
+                    min_parent: command.min_parent,
+                    min_child: command.min_child,
+                    max_depth: depth_limit(command),
+                    max_surrogates: command.max_surrogates,
                 }
-                let mut best: Option<Split> = None;
-                for (p, predictor) in coded.iter().enumerate() {
-                    if id == 0 && command.force.is_some() && p != 0 {
+                .grow()?;
+                match command.prune {
+                    Some(b) => {
+                        // with a test sample, the subtrees' risks are the test sample's
+                        let tested = held_out.map(|test| rescore(&grown, &case_class, test));
+                        crt::prune(
+                            grown,
+                            b,
+                            tested.as_deref(),
+                            command.priors == TreePriors::FromData,
+                        )
+                    }
+                    None => grown,
+                }
+            } else {
+                let merging = Merging {
+                    tester: Tester {
+                        scores: ordinal.then_some(&scores[..]),
+                        likelihood_ratio: command.likelihood_ratio,
+                        converge: command.converge,
+                        max_iterations: command.max_iterations,
+                    },
+                    exhaustive: command.exhaustive,
+                    alpha_merge: command.alpha_merge,
+                    min_child: command.min_child,
+                    bonferroni: command.bonferroni,
+                };
+                let max_depth = depth_limit(command);
+                let ones = vec![1.0; classes.len()];
+                let node_of = |cases: Vec<usize>, parent, depth, definition| {
+                    make_node(
+                        cases,
+                        parent,
+                        depth,
+                        definition,
+                        (&case_class, weights, None),
+                        &ones,
+                    )
+                };
+                let mut nodes = vec![node_of((0..cases.len()).collect(), None, 0, None)];
+                let mut queue = VecDeque::from([0]);
+                while let Some(id) = queue.pop_front() {
+                    let node = &nodes[id];
+                    let pure = node.counts.iter().filter(|&&n| n > 0.0).count() < 2;
+                    if node.depth >= max_depth || node.n < command.min_parent || pure {
                         continue;
                     }
-                    let mut table = vec![vec![0.0; classes.len()]; predictor.labels.len() + 1];
-                    for &i in &node.cases {
-                        table[predictor.codes[i]][case_class[i]] += case_weight[i];
+                    let mut best: Option<Split> = None;
+                    for (p, predictor) in coded.iter().enumerate() {
+                        if id == 0 && command.force.is_some() && p != 0 {
+                            continue;
+                        }
+                        let mut table = vec![vec![0.0; classes.len()]; predictor.labels.len() + 1];
+                        for &i in &node.cases {
+                            table[predictor.codes[i]][case_class[i]] += weights[i];
+                        }
+                        let Some((groups, statistic, df, sig)) = merging.merge(predictor, &table)
+                        else {
+                            continue;
+                        };
+                        if best.as_ref().is_none_or(|b| sig < b.sig) {
+                            best = Some(Split {
+                                predictor: p,
+                                groups,
+                                statistic,
+                                df,
+                                sig,
+                                improvement: None,
+                                surrogates: Vec::new(),
+                                quest: None,
+                            });
+                        }
                     }
-                    let Some((groups, statistic, df, sig)) = merging.merge(predictor, &table)
+                    let forced = id == 0 && command.force.is_some();
+                    let Some(split) = best.filter(|s| forced || s.sig <= command.alpha_split)
                     else {
                         continue;
                     };
-                    if best.as_ref().is_none_or(|b| sig < b.sig) {
-                        best = Some(Split {
-                            predictor: p,
-                            groups,
-                            statistic,
-                            df,
-                            sig,
-                            improvement: None,
-                            surrogates: Vec::new(),
-                            quest: None,
-                        });
-                    }
-                }
-                let forced = id == 0 && command.force.is_some();
-                let Some(split) = best.filter(|s| forced || s.sig <= command.alpha_split) else {
-                    continue;
-                };
-                let predictor = &coded[split.predictor];
-                let mut members: Vec<Vec<usize>> = split
-                    .groups
-                    .iter()
-                    .map(|group| {
-                        nodes[id]
-                            .cases
-                            .iter()
-                            .copied()
-                            .filter(|&i| group.contains(&predictor.codes[i]))
-                            .collect()
-                    })
-                    .collect();
-                // a case whose category no training case of the node has (a test case) goes to
-                // the group with the nearest category of an ordered predictor, else to the group
-                // with the most weight
-                let missing = predictor.missing();
-                for &i in &nodes[id].cases {
-                    let code = predictor.codes[i];
-                    if split.groups.iter().any(|g| g.contains(&code)) {
-                        continue;
-                    }
-                    let target = if !predictor.nominal && code != missing {
-                        (0..split.groups.len()).min_by_key(|&g| {
-                            let near = split.groups[g].iter().filter(|&&c| c != missing);
-                            near.map(|&c| c.abs_diff(code)).min().unwrap_or(usize::MAX)
+                    let predictor = &coded[split.predictor];
+                    let mut members: Vec<Vec<usize>> = split
+                        .groups
+                        .iter()
+                        .map(|group| {
+                            nodes[id]
+                                .cases
+                                .iter()
+                                .copied()
+                                .filter(|&i| group.contains(&predictor.codes[i]))
+                                .collect()
                         })
-                    } else {
-                        let weight = |g: &usize| -> f64 {
-                            members[*g].iter().map(|&k| case_weight[k]).sum()
+                        .collect();
+                    // a case whose category no training case of the node has (a test case) goes to
+                    // the group with the nearest category of an ordered predictor, else to the group
+                    // with the most weight
+                    let missing = predictor.missing();
+                    for &i in &nodes[id].cases {
+                        let code = predictor.codes[i];
+                        if split.groups.iter().any(|g| g.contains(&code)) {
+                            continue;
+                        }
+                        let target = if !predictor.nominal && code != missing {
+                            (0..split.groups.len()).min_by_key(|&g| {
+                                let near = split.groups[g].iter().filter(|&&c| c != missing);
+                                near.map(|&c| c.abs_diff(code)).min().unwrap_or(usize::MAX)
+                            })
+                        } else {
+                            let weight = |g: &usize| -> f64 {
+                                members[*g].iter().map(|&k| weights[k]).sum()
+                            };
+                            (0..split.groups.len())
+                                .reduce(|a, b| if weight(&b) > weight(&a) { b } else { a })
                         };
-                        (0..split.groups.len())
-                            .reduce(|a, b| if weight(&b) > weight(&a) { b } else { a })
-                    };
-                    if let Some(g) = target {
-                        members[g].push(i);
+                        if let Some(g) = target {
+                            members[g].push(i);
+                        }
                     }
+                    let depth = nodes[id].depth + 1;
+                    let children: Vec<Node> = members
+                        .into_iter()
+                        .zip(&split.groups)
+                        .map(|(cases, group)| {
+                            node_of(
+                                cases,
+                                Some(id),
+                                depth,
+                                Some((split.predictor, group.clone())),
+                            )
+                        })
+                        .collect();
+                    for child in children {
+                        let next = nodes.len();
+                        nodes[id].children.push(next);
+                        queue.push_back(nodes.len());
+                        nodes.push(child);
+                    }
+                    nodes[id].split = Some(split);
                 }
-                let depth = nodes[id].depth + 1;
-                let children: Vec<Node> = members
-                    .into_iter()
-                    .zip(&split.groups)
-                    .map(|(cases, group)| {
-                        node_of(
-                            cases,
-                            Some(id),
-                            depth,
-                            Some((split.predictor, group.clone())),
-                        )
-                    })
-                    .collect();
-                for child in children {
-                    let next = nodes.len();
-                    nodes[id].children.push(next);
-                    queue.push_back(nodes.len());
-                    nodes.push(child);
-                }
-                nodes[id].split = Some(split);
-            }
 
-            nodes
+                nodes
+            })
         };
+        let nodes = grow(&coded, &case_weight, validated.then_some(&test_weight[..]))?;
 
         let tested = validated.then(|| rescore(&nodes, &case_class, &test_weight));
+        // cross-validation: a tree grown without each fold of the cases, scored on that fold, and
+        // the weights of the cases each fold's tree misclassifies added up
+        let cross = match command.validation {
+            TreeValidation::Cross(folds) => {
+                let mut keys: Vec<(f64, usize)> = (0..cases.len())
+                    .map(|i| (self.random.borrow_mut().uniform(), i))
+                    .collect();
+                keys.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let mut fold = vec![0; cases.len()];
+                for (rank, &(_, i)) in keys.iter().enumerate() {
+                    fold[i] = rank % folds;
+                }
+                let mut wrong = vec![0.0; classes.len()];
+                for f in 0..folds {
+                    let weights = |keep: bool| -> Vec<f64> {
+                        case_weight
+                            .iter()
+                            .zip(&fold)
+                            .map(|(&w, &k)| if (k == f) == keep { w } else { 0.0 })
+                            .collect()
+                    };
+                    let (learning, held) = (weights(false), weights(true));
+                    let learning_cases: Vec<bool> = fold.iter().map(|&k| k != f).collect();
+                    let fold_coded = code(&learning_cases, &learning)?;
+                    let grown = grow(&fold_coded, &learning, None)?;
+                    let scored = rescore(&grown, &case_class, &held);
+                    for node in scored.iter().filter(|n| n.children.is_empty()) {
+                        for (j, &count) in node.counts.iter().enumerate() {
+                            if j != node.predicted() {
+                                wrong[j] += count;
+                            }
+                        }
+                    }
+                }
+                Some(misclassification_risk(
+                    &wrong,
+                    &nodes[0],
+                    Some(!command.binary() || command.priors == TreePriors::FromData),
+                ))
+            }
+            _ => None,
+        };
         let mut charts = Vec::new();
         let mut tables = self.tree_output(
             command,
-            (&nodes, tested.as_deref()),
+            (
+                &nodes,
+                Checks {
+                    test: tested.as_deref(),
+                    cross,
+                },
+            ),
             &coded,
             &classes,
             &dependent,
@@ -1687,14 +1766,15 @@ impl Engine {
     fn tree_output(
         &self,
         command: &Tree,
-        trees: (&[Node], Option<&[Node]>),
+        trees: (&[Node], Checks),
         predictors: &[Predictor],
         classes: &[Key],
         dependent: &Variable,
         charts: &mut Vec<crate::Chart>,
     ) -> Result<Vec<Table>, Error> {
         // the tree grown, and the same nodes counting the test sample's cases
-        let (nodes, test) = trees;
+        let (nodes, checks) = trees;
+        let test = checks.test;
         if nodes[0].scale {
             return Ok(self.scale_output(command, nodes, predictors, dependent, charts));
         }
@@ -1786,6 +1866,7 @@ impl Engine {
                         format!("Split sample, {p}% to grow the tree")
                     }
                     TreeValidation::SplitVariable(v) => format!("Split sample by {v}"),
+                    TreeValidation::Cross(v) => format!("Cross-validation, {v} folds"),
                 }),
             ));
             if let Some(test) = test {
@@ -2070,27 +2151,40 @@ impl Engine {
             confusions.push(confusion);
         }
         if command.print.risk {
-            let rows: Vec<Vec<Cell>> = samples
+            let labelled = validated || checks.cross.is_some();
+            let mut rows: Vec<Vec<Cell>> = samples
                 .iter()
                 .map(|(label, ns)| {
                     let (risk, variance) =
                         risk_estimate(terminals.iter().map(|&t| &ns[t]), &ns[0], empirical(label));
                     let mut row = Vec::new();
-                    if validated {
-                        row.push(text(*label));
+                    if labelled {
+                        let name = if checks.cross.is_some() {
+                            "Resubstitution"
+                        } else {
+                            label
+                        };
+                        row.push(text(name));
                     }
                     row.extend([Cell::Number(risk), Cell::Number(variance.sqrt())]);
                     row
                 })
                 .collect();
+            if let Some((risk, variance)) = checks.cross {
+                rows.push(vec![
+                    text("Cross-Validation"),
+                    Cell::Number(risk),
+                    Cell::Number(variance.sqrt()),
+                ]);
+            }
             let mut columns = vec!["Estimate".to_string(), "Std. Error".to_string()];
-            if validated {
-                columns.insert(0, "Sample".into());
+            if labelled {
+                columns.insert(0, if validated { "Sample" } else { "Method" }.into());
             }
             let width = columns.len();
             out.push(Table {
                 title: "Risk".into(),
-                row_headers: usize::from(validated),
+                row_headers: usize::from(labelled),
                 column_groups: vec![Vec::new(); width],
                 columns,
                 formats: vec![
@@ -2398,6 +2492,13 @@ fn risk_estimate<'a>(
             }
         }
     }
+    misclassification_risk(&wrong, root, empirical)
+}
+
+/// The risk and its variance from the weight of each class that was assigned wrongly, and the
+/// root of the sample the classes are counted in (its priors in `assign`, its class totals).
+fn misclassification_risk(wrong: &[f64], root: &Node, empirical: Option<bool>) -> (f64, f64) {
+    let classes = root.counts.len();
     let prior_total: f64 = root.assign.iter().sum();
     // priors from the data (M1), judged by the priors' setting for a test sample, else by whether
     // they equal the shares of the cases

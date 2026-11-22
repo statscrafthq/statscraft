@@ -540,12 +540,11 @@ fn priors(p: &mut Parser, command: &mut Tree) -> PResult<()> {
 
 fn validation(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     while !at_end(p) {
-        let start = p.pos;
         if p.eat_keyword("TYPE") {
             match choice(p, &["NONE", "SPLITSAMPLE", "CROSSVALIDATION"])? {
                 0 => command.validation = TreeValidation::None,
                 1 => command.validation = split_sample(p)?,
-                _ => return Err(not_supported(p, start, "VALIDATION TYPE=CROSSVALIDATION")),
+                _ => command.validation = cross_validation(p)?,
             }
         } else if p.eat_keyword("OUTPUT") {
             // applies to split-sample validation only
@@ -555,6 +554,23 @@ fn validation(p: &mut Parser, command: &mut Tree) -> PResult<()> {
         }
     }
     Ok(())
+}
+
+/// `(folds)` after CROSSVALIDATION, a whole number from 2 to 25; 10 when there is none.
+fn cross_validation(p: &mut Parser) -> PResult<TreeValidation> {
+    if !p.eat(Punct::LParen) {
+        return Ok(TreeValidation::Cross(10));
+    }
+    let start = p.pos;
+    let folds = p
+        .number()
+        .filter(|n| n.fract() == 0.0 && (2.0..=25.0).contains(n));
+    let Some(folds) = folds else {
+        let message = "CROSSVALIDATION needs a whole number of folds from 2 to 25";
+        return Err(SyntaxError::new(p.span_from(start), message));
+    };
+    p.expect(Punct::RParen)?;
+    Ok(TreeValidation::Cross(folds as usize))
 }
 
 /// `(percent)` or `(variable)` after SPLITSAMPLE; 50 percent when there is none.
@@ -783,6 +799,12 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         }
     }
     p.finish(&["'/'"])?;
+    if matches!(command.validation, TreeValidation::Cross(_)) && command.force.is_some() {
+        command
+            .ignored
+            .push("CROSSVALIDATION is ignored when FORCE is given".into());
+        command.validation = TreeValidation::None;
+    }
     let binary = command.crt || command.quest;
     if !binary {
         for (given, what) in [

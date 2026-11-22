@@ -14,7 +14,7 @@ TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]
      [/PRINT=MODELSUMMARY CLASSIFICATION RISK CPS TREETABLE | NONE]
      [/GAIN CATEGORYTABLE=YES | NO  TYPE=[NODE]  SORT=DESCENDING | ASCENDING  CUMULATIVE=YES | NO]
      [/SAVE NODEID[(name)] PREDVAL[(name)] PREDPROB[(root)]]
-     [/METHOD TYPE=CHAID | EXHAUSTIVECHAID]  [/VALIDATION TYPE=NONE | SPLITSAMPLE(percent | var)]
+     [/METHOD TYPE=CHAID | EXHAUSTIVECHAID]  [/VALIDATION TYPE=NONE | SPLITSAMPLE(percent | var) | CROSSVALIDATION(folds)]
      [OUTPUT=BOTHSAMPLES | TESTSAMPLE]
      [/GROWTHLIMIT MAXDEPTH=AUTO | n  MINPARENTSIZE=100  MINCHILDSIZE=50]
      [/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 SPLITMERGED=NO CHISQUARE=PEARSON | LR CONVERGE=.001
@@ -38,7 +38,7 @@ VALIDATION TYPE=SPLITSAMPLE(percent) grows the tree on that share of the cases, 
 
 With PRUNE the test sample's risk picks the subtree. SAVE gives every case, test cases included, a node.
 
-A scale dependent cannot be validated yet. Not supported yet: a scale dependent with CHAID, VALIDATION CROSSVALIDATION, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.
+CROSSVALIDATION(folds) (2 to 25, 10 when no number is given) deals the cases to that many folds at random, grows a tree without each fold with the same settings and scores it on the fold; the Risk table then also gives the cross-validated estimate, the pooled misses of those trees. It does not change the tree, and is ignored with a warning when FORCE is given. A scale dependent cannot be validated yet. Not supported yet: a scale dependent with CHAID, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.
 
 DMTREE is another name for the command.
 

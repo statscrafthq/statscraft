@@ -4848,7 +4848,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20    [/PRINT=MODELSUMMARY CLASSIFICATION RISK CPS TREETABLE | NONE]\n\
                  \x20    [/GAIN CATEGORYTABLE=YES | NO  TYPE=[NODE]  SORT=DESCENDING | ASCENDING  CUMULATIVE=YES | NO]\n\
                  \x20    [/SAVE NODEID[(name)] PREDVAL[(name)] PREDPROB[(root)]]\n\
-                 \x20    [/METHOD TYPE=CHAID | EXHAUSTIVECHAID]  [/VALIDATION TYPE=NONE | SPLITSAMPLE(percent | var)]\n\
+                 \x20    [/METHOD TYPE=CHAID | EXHAUSTIVECHAID]  [/VALIDATION TYPE=NONE | SPLITSAMPLE(percent | var) | CROSSVALIDATION(folds)]\n\
                  \x20    [OUTPUT=BOTHSAMPLES | TESTSAMPLE]\n\
                  \x20    [/GROWTHLIMIT MAXDEPTH=AUTO | n  MINPARENTSIZE=100  MINCHILDSIZE=50]\n\
                  \x20    [/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 SPLITMERGED=NO CHISQUARE=PEARSON | LR CONVERGE=.001\n\
@@ -4918,8 +4918,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Classification tables and the gain tables and charts are given for the training and the test sample\n\
                  (OUTPUT=TESTSAMPLE: the test sample only); the tree and its tables are those of the training cases.\n\
                  With PRUNE the test sample's risk picks the subtree. SAVE gives every case, test cases included, a node.\n\
-                 A scale dependent cannot be validated yet. Not supported yet: a scale dependent with CHAID, VALIDATION\n\
-                 CROSSVALIDATION, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 CROSSVALIDATION(folds) (2 to 25, 10 when no number is given) deals the cases to that many folds at\n\
+                 random, grows a tree without each fold with the same settings and scores it on the fold; the Risk table\n\
+                 then also gives the cross-validated estimate, the pooled misses of those trees. It does not change the\n\
+                 tree, and is ignored with a warning when FORCE is given. A scale dependent cannot be validated yet. Not\n\
+                 supported yet: a scale dependent with CHAID, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,

@@ -1348,6 +1348,14 @@ fn tree_validation_settings() {
     assert_eq!(t.validation, TreeValidation::SplitVariable("part".into()));
     let t = tree_of("TREE y BY x /VALIDATION TYPE=NONE.");
     assert_eq!(t.validation, TreeValidation::None);
+    let t = tree_of("TREE y BY x /VALIDATION TYPE=CROSSVALIDATION(5).");
+    assert_eq!(t.validation, TreeValidation::Cross(5));
+    let t = tree_of("TREE y BY x /VALIDATION TYPE=CROSSVALIDATION.");
+    assert_eq!(t.validation, TreeValidation::Cross(10));
+    // FORCE and cross-validation do not go together: the validation is dropped with a warning
+    let t = tree_of("TREE y BY x FORCE=x /VALIDATION TYPE=CROSSVALIDATION(5).");
+    assert_eq!(t.validation, TreeValidation::None);
+    assert_eq!(t.ignored.len(), 1, "{:?}", t.ignored);
 }
 
 #[test]
@@ -1362,8 +1370,8 @@ fn tree_errors() {
         "unexpected word DEPTH"
     );
     assert_eq!(
-        message("TREE y BY x /VALIDATION TYPE=CROSSVALIDATION(5)."),
-        "VALIDATION TYPE=CROSSVALIDATION is not supported yet"
+        message("TREE y BY x /VALIDATION TYPE=CROSSVALIDATION(1)."),
+        "CROSSVALIDATION needs a whole number of folds from 2 to 25"
     );
     assert_eq!(
         message("TREE y BY x /VALIDATION TYPE=SPLITSAMPLE(100)."),

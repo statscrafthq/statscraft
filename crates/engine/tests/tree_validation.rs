@@ -563,3 +563,183 @@ fn what_validation_cannot_use_is_refused() {
         "{message}"
     );
 }
+
+/// The fold of each case as the engine draws it: one uniform number per case in order, the
+/// cases sorted by it, the k-th in that order in fold k mod V.
+fn folds(seed: u32, count: usize, v: usize) -> Vec<usize> {
+    let mut engine = engine();
+    run(
+        &mut engine,
+        &format!("SET SEED={seed}.\nCOMPUTE u = UNIFORM(1)."),
+    );
+    let u = values(&engine, "u");
+    let mut order: Vec<usize> = (0..count).collect();
+    order.sort_by(|&a, &b| u[a].total_cmp(&u[b]));
+    let mut fold = vec![0; count];
+    for (rank, &i) in order.iter().enumerate() {
+        fold[i] = rank % v;
+    }
+    fold
+}
+
+/// The cross-validated risk of `command` against the same trees grown fold by fold with a split
+/// sample (the fold held out as the test sample).
+fn cross_validation_equals_the_folds(command: &str, v: usize, equal_priors: bool) {
+    let seed = 13579;
+    let fold = folds(seed, 150, v);
+    // the fold of each case as a column of the data
+    let mut with_fold = String::from(DATA);
+    let marker = "END DATA.";
+    let at = with_fold.find("BEGIN DATA\n").expect("data") + "BEGIN DATA\n".len();
+    let end = with_fold.find(marker).expect("end");
+    let rows: Vec<String> = with_fold[at..end]
+        .lines()
+        .zip(&fold)
+        .map(|(row, f)| format!("{row} {f}"))
+        .collect();
+    with_fold = format!(
+        "{}\n{}\nEND DATA.\n",
+        "DATA LIST FREE / y y3 x1 x2 o g xm z r b v zv g4 gm tr w fold.\nBEGIN DATA",
+        rows.join("\n")
+    );
+    let printing = "/PRINT RISK CLASSIFICATION TREETABLE /TREE DISPLAY=NONE";
+    let mut engine = Engine::default();
+    run(&mut engine, &with_fold);
+    run(&mut engine, "WEIGHT BY w.");
+    let crossed = run(
+        &mut engine,
+        &format!("SET SEED={seed}.\n{command} /VALIDATION TYPE=CROSSVALIDATION({v}) {printing}."),
+    );
+    let plain = run(&mut engine, &format!("{command} {printing}."));
+    // the tree and its resubstitution risk are those without validation
+    assert_eq!(
+        table(&crossed, "Tree Table").rows,
+        table(&plain, "Tree Table").rows
+    );
+    let risk = table(&crossed, "Risk");
+    assert_eq!(risk.rows.len(), 2);
+    assert!(matches!(&risk.rows[0][0], Cell::Text(t) if t == "Resubstitution"));
+    assert!(matches!(&risk.rows[1][0], Cell::Text(t) if t == "Cross-Validation"));
+    close(
+        number(&risk.rows[0][1]),
+        number(&table(&plain, "Risk").rows[0][0]),
+        1e-12,
+    );
+    // the class weights missed by the tree of each fold, from its test-sample classification
+    let classes = 3;
+    let mut wrong = vec![0.0; classes];
+    for f in 0..v {
+        run(&mut engine, &format!("COMPUTE keep = (fold <> {f})."));
+        let tables = run(
+            &mut engine,
+            &format!("{command} /VALIDATION TYPE=SPLITSAMPLE(keep) OUTPUT=TESTSAMPLE {printing}."),
+        );
+        let classification = table(&tables, "Classification");
+        for (j, row) in classification.rows.iter().take(classes).enumerate() {
+            let on_diagonal = number(&row[2 + j]);
+            let total: f64 = (0..classes).map(|k| number(&row[2 + k])).sum();
+            wrong[j] += total - on_diagonal;
+        }
+        run(&mut engine, "DELETE VARIABLES keep.");
+    }
+    let totals: Vec<f64> = (1..=3)
+        .map(|class| {
+            let (y3, w) = (values(&engine, "y3"), values(&engine, "w"));
+            (0..150)
+                .filter(|&i| y3[i] == class as f64)
+                .map(|i| w[i])
+                .sum()
+        })
+        .collect();
+    let n: f64 = totals.iter().sum();
+    let (estimate, variance) = if equal_priors {
+        (
+            (0..classes)
+                .map(|j| wrong[j] / totals[j] / 3.0)
+                .sum::<f64>(),
+            (0..classes)
+                .map(|j| {
+                    (1.0 / 3.0 / totals[j]).powi(2) * (wrong[j] - wrong[j] * wrong[j] / totals[j])
+                })
+                .sum::<f64>(),
+        )
+    } else {
+        let r = wrong.iter().sum::<f64>() / n;
+        (r, r * (1.0 - r) / n)
+    };
+    close(number(&risk.rows[1][1]), estimate, 1e-12);
+    close(number(&risk.rows[1][2]), variance.sqrt(), 1e-9);
+}
+
+#[test]
+fn cross_validation_of_chaid_is_the_pooled_misses_of_its_fold_trees() {
+    cross_validation_equals_the_folds(
+        &format!("TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CHAID {SMALL}"),
+        5,
+        false,
+    );
+}
+
+#[test]
+fn cross_validation_of_crt_with_equal_priors() {
+    cross_validation_equals_the_folds(
+        &format!("TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT /PRIORS EQUAL {SMALL}"),
+        4,
+        true,
+    );
+}
+
+#[test]
+fn cross_validation_of_quest_with_a_nominal_predictor() {
+    cross_validation_equals_the_folds(
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=QUEST /PRIORS EQUAL {SMALL}"
+        ),
+        3,
+        true,
+    );
+}
+
+#[test]
+fn cross_validation_with_force_is_ignored_and_scale_dependents_wait() {
+    let mut engine = engine();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] FORCE=x1 /VALIDATION TYPE=CROSSVALIDATION(5) /PRINT RISK {SMALL}."
+        ),
+    );
+    assert_eq!(table(&tables, "Risk").rows.len(), 1);
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("CROSSVALIDATION is ignored"))
+    );
+    let message = error(
+        &mut engine,
+        "TREE r [s] BY x1 [s] /METHOD TYPE=CRT /VALIDATION TYPE=CROSSVALIDATION(5).",
+    );
+    assert!(message.contains("scale dependent"), "{message}");
+}
+
+#[test]
+fn cross_validation_prunes_each_fold_tree_by_its_own_cases() {
+    // not the test sample's risk as in a split sample: a fold tree has only its learning cases
+    let mut engine = engine();
+    let tables = run(
+        &mut engine,
+        "SET SEED=99.\nTREE y3 [n] BY x1 [s] x2 [s] o [o] /METHOD TYPE=CRT PRUNE=SE(1) \
+         /VALIDATION TYPE=CROSSVALIDATION(5) /PRINT RISK MODELSUMMARY /GROWTHLIMIT MAXDEPTH=5 MINPARENTSIZE=10 MINCHILDSIZE=5 /TREE DISPLAY=NONE.",
+    );
+    let risk = table(&tables, "Risk");
+    assert_eq!(risk.rows.len(), 2);
+    assert!(number(&risk.rows[1][1]) > 0.0 && number(&risk.rows[1][1]) < 1.0);
+    let summary = table(&tables, "Model Summary");
+    assert!(
+        summary
+            .rows
+            .iter()
+            .any(|r| matches!(&r[2], Cell::Text(t) if t == "Cross-validation, 5 folds"))
+    );
+}
