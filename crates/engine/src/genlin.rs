@@ -3551,7 +3551,7 @@ impl Engine {
                         let wald = (b / se).powi(2);
                         let (lower, upper) = match profiles[pi] {
                             Some(limits) => limits,
-                            None => (ok.then(|| b - z * se), ok.then(|| b + z * se)),
+                            None => (ok.then_some(b - z * se), ok.then_some(b + z * se)),
                         };
                         row.extend([
                             Cell::Number(b),
