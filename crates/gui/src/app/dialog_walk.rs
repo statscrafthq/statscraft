@@ -1030,8 +1030,11 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             linearity: true,
             bootstrap: boot(),
         }),
+        // no bootstrap: Games-Howell, Dunnett's C and the other range tests take seconds a run in a
+        // debug build, times every bootstrap sample; the bootstrap section writes its syntax with
+        // the same code for every dialog
         Dialog::Oneway(Oneway {
-            bootstrap: boot(),
+            bootstrap: Bootstrap::default(),
             dependents: v(&["age", "monthly_spend"]),
             factor: s("region"),
             statistics: [true; 5],
@@ -1509,8 +1512,9 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             constant: true,
             ..Default::default()
         }),
+        // no bootstrap, as for One-Way ANOVA: the range tests times every bootstrap sample
         Dialog::Univariate(Univariate {
-            bootstrap: boot(),
+            bootstrap: Bootstrap::default(),
             dependent: s("monthly_spend"),
             factors: v(&["region", "gender"]),
             covariates: v(&["age"]),
@@ -1549,8 +1553,9 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             alpha: s("0.01"),
             ..Default::default()
         }),
+        // no bootstrap, as for One-Way ANOVA: the range tests times every bootstrap sample
         Dialog::Univariate(Univariate {
-            bootstrap: boot(),
+            bootstrap: Bootstrap::default(),
             multivariate: true,
             dependents: v(&["monthly_spend", "q1_satisfaction", "q2_recommend"]),
             factors: v(&["region", "gender"]),
@@ -3035,6 +3040,8 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         },
     ))));
+    // twenty iterations: the unfolding runs for minutes in a debug build otherwise, and the
+    // walk checks the syntax, not the solution
     list.push(Dialog::Advanced(Advanced::Prefscal(Box::new(Prefscal {
         variables: v(&["age", "monthly_spend", "q1_satisfaction", "q2_recommend"]),
         layout: 2,
@@ -3052,7 +3059,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         omega: s("0.5"),
         min_dimensions: s("1"),
         max_dimensions: s("2"),
-        max_iterations: s("200"),
+        max_iterations: s("20"),
         diff_stress: s("0.00001"),
         min_stress: s("0.001"),
         print: [true; 11],
@@ -3067,6 +3074,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         intercept: true,
         condition: 2,
         start: 3,
+        max_iterations: s("20"),
         ..Default::default()
     }))));
     // the four columns fixed from a file of their coordinates: external unfolding
@@ -3087,7 +3095,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
     list.push(Dialog::Advanced(Advanced::Prefscal(Box::new(Prefscal {
         variables: v(&["age", "monthly_spend", "q1_satisfaction", "q2_recommend"]),
         fixed: [(String::new(), String::new()), (columns, s("x y"))],
-        max_iterations: s("200"),
+        max_iterations: s("20"),
         ..Default::default()
     }))));
     list.push(Dialog::Advanced(Advanced::Oms(Oms {
