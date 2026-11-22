@@ -596,8 +596,10 @@ impl Dialect {
     }
 }
 
-/// The OpenStatSpec commit this adapter was tested against: untagged work on `main`.
-pub const SPECIFICATION_COMMIT: &str = "8594ee12ccf57526cf1142df4b216432c366da84";
+/// The OpenStatSpec commit this adapter is tested against: the pin CI checks out.
+pub const SPECIFICATION_COMMIT: &str = include_str!("../spec-commit").trim_ascii();
+/// The published release whose tag targets [`SPECIFICATION_COMMIT`]; change both together.
+pub const SPECIFICATION_RELEASE: &str = "v0.5.1";
 
 /// The adapter's machine-readable capability declaration: per SQL profile the claimed and
 /// tested server versions, the effective limits with their units and sources, and the
@@ -631,8 +633,8 @@ pub fn capabilities() -> Value {
         "adapter_implementation_id": "statscraft-openstatspec",
         "adapter_version": env!("CARGO_PKG_VERSION"),
         "specification_commit": SPECIFICATION_COMMIT,
-        "specification_status": "release_candidate",
-        "specification_release": null,
+        "specification_status": "released",
+        "specification_release": SPECIFICATION_RELEASE,
         "source_profile": crate::catalog::SPEC_VERSION,
         "directions": ["import", "export", "semantic_round_trip"],
         "transformation_bindings": [
@@ -659,7 +661,7 @@ pub fn capabilities() -> Value {
             },
             "postgresql": {
                 "claimed_release_series": ["17.x", "18.x"],
-                "tested_versions": ["17.11"],
+                "tested_versions": ["17.12", "18.7"],
                 "physical_columns": limit(1600, "columns", "PostgreSQL column limit"),
                 "identifier": {"unit": "bytes", "source": "active max_identifier_length, UTF8"},
                 "value": limit((1 << 30) - 1, "bytes", "varlena limit"),
@@ -669,8 +671,8 @@ pub fn capabilities() -> Value {
                 "text": "TEXT NOT NULL; U+0000 refused",
                 "atomic_schema_change": true,
             },
-            "mysql": innodb(&["8.4.9"], &["8.4.x", "9.7.x"], 41),
-            "mariadb": innodb(&["11.8.9"], &["11.4.x", "11.8.x", "12.3.x"], 21),
+            "mysql": innodb(&["8.4.13", "9.7.4"], &["8.4.x", "9.7.x"], 41),
+            "mariadb": innodb(&["11.4.13", "11.8.9", "12.3.3"], &["11.4.x", "11.8.x", "12.3.x"], 21),
             "dolt": {
                 "database_io_policy": "openstatspec-database-io-v1",
                 "claimed_product_versions": ">=2.2.2,<2.3.0",
@@ -733,6 +735,16 @@ pub fn uuid() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_specification_commit_is_a_full_commit_id() {
+        assert_eq!(SPECIFICATION_COMMIT.len(), 40);
+        assert!(
+            SPECIFICATION_COMMIT
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        );
+    }
 
     #[test]
     fn uuids_are_version_7_and_in_creation_order() {
