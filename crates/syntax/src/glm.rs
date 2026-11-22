@@ -199,6 +199,9 @@ pub struct Glm {
     pub save: Vec<(GlmTemp, Option<String>)>,
     /// PLOT, in the order asked.
     pub plots: Vec<GlmPlot>,
+    /// `/ROBUST=HCn`: the heteroskedasticity-consistent covariance, n from 0 to 4 (3 when
+    /// none is named; the last ROBUST counts).
+    pub robust: Option<u8>,
 }
 
 /// A plot of PLOT.
@@ -1229,9 +1232,8 @@ fn wsfactors(p: &mut Parser) -> PResult<Vec<WsFactor>> {
     Ok(out)
 }
 
-const SUBCOMMANDS_LATER: [&str; 10] = [
+const SUBCOMMANDS_LATER: [&str; 9] = [
     "RANDOM",
-    "ROBUST",
     "OUTFILE",
     "MBPDESIGN",
     "BPDESIGN",
@@ -1279,6 +1281,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         mmatrix: None,
         save: Vec::new(),
         plots: Vec::new(),
+        robust: None,
     };
     while p.eat(Punct::Slash) {
         if p.eat_keyword("METHOD") {
@@ -1417,6 +1420,23 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
             command.save = save(p)?;
         } else if p.eat_keyword("PLOT") {
             command.plots.extend(plot(p)?);
+        } else if p.eat_keyword("ROBUST") {
+            p.eat(Punct::Eq);
+            let mut level = 3;
+            if !at_end(p) {
+                let word = match p.peek() {
+                    Some(TokenKind::Word(w)) => w.to_uppercase(),
+                    _ => String::new(),
+                };
+                match word.as_str() {
+                    "HC0" | "HC1" | "HC2" | "HC3" | "HC4" => {
+                        level = word.as_bytes()[2] - b'0';
+                        p.pos += 1;
+                    }
+                    _ => return Err(p.unexpected(&["HC0", "HC1", "HC2", "HC3", "HC4"])),
+                }
+            }
+            command.robust = Some(level);
         } else {
             let mut later: Vec<&str> = SUBCOMMANDS_LATER.to_vec();
             later.retain(|s| *s != "PLOT" && *s != "CONTRAST");

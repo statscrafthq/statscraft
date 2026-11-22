@@ -627,3 +627,15 @@ fn print_gef_and_test_lmatrix_are_keywords() {
     let p = print("GLM y1 y2 BY a /PRINT=TEST(SSCP LMATRIX MMATRIX) GEF.");
     assert!(p.sscp && p.lmatrix && p.mmatrix && p.gef);
 }
+
+#[test]
+fn robust_takes_one_of_five_estimators_and_hc3_by_default() {
+    assert_eq!(glm("UNIANOVA y BY a.").robust, None);
+    assert_eq!(glm("UNIANOVA y BY a /ROBUST.").robust, Some(3));
+    assert_eq!(glm("UNIANOVA y BY a /ROBUST=HC0.").robust, Some(0));
+    assert_eq!(glm("GLM y BY a /ROBUST HC4.").robust, Some(4));
+    // the last ROBUST counts
+    assert_eq!(glm("GLM y BY a /ROBUST=HC1 /ROBUST=HC2.").robust, Some(2));
+    let (_, errors) = parse("GLM y BY a /ROBUST=HC5.");
+    assert!(errors[0].to_string().contains("HC0"));
+}

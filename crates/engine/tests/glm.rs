@@ -1525,3 +1525,158 @@ fn print_test_lmatrix_also_shows_the_matrices_of_contrast_and_lmatrix() {
     assert_eq!(row("[a=1]"), [1.0]);
     assert_eq!(row("[a=2]"), [-1.0]);
 }
+
+const ROBUST_DATA: &str = "DATA LIST FREE /y a x w.
+BEGIN DATA
+3.207 1 1.55 1.6
+8.481 2 9.68 1.56
+7.32 3 4.68 1.61
+7.333 1 7.77 1.7
+6.6 2 4.08 1.63
+7.266 3 5.39 1.45
+3.987 1 2.07 0.87
+5.429 2 1.87 1.33
+13.997 3 7.8 0.85
+4.11 1 1.94 0.89
+8.898 2 4.34 1.93
+3.445 3 0.02 1.79
+10.477 1 8.35 0.91
+7.291 2 8.3 1.33
+12.006 3 9.57 1.82
+16.605 1 9.48 0.68
+8.799 2 6.01 1.32
+5.568 3 2.62 0.85
+6.059 1 6.43 1.4
+9.221 2 5.26 1.57
+7.105 3 8.81 1.47
+6.754 1 6.07 0.78
+11.029 2 7.4 0.86
+14.979 3 8.03 0.61
+9.794 1 9.02 0.68
+3.326 2 0.93 1.43
+8.665 3 5.75 0.75
+5.57 1 5.75 0.72
+11.109 2 9.44 0.78
+5.38 3 2.19 1.36
+5.81 1 4.78 0.5
+3.734 2 0.45 0.99
+12.003 3 7.99 0.62
+4.766 1 3.68 1.41
+8.461 2 5.63 0.99
+3.831 3 2.47 1.69
+END DATA.
+";
+
+fn robust_se(tables: &[Table], row: &str) -> f64 {
+    named_cell(
+        tables,
+        "Robust Parameter Estimates",
+        row,
+        "Robust Std. Error",
+    )
+}
+
+// The estimators written out from the Algorithms manual in a general statistics package, with
+// the fit's own residuals and the weighted hat values of lm(): G X' diag(w omega) X G.
+#[test]
+fn robust_standard_errors_follow_hc0_to_hc4() {
+    let mut engine = Engine::default();
+    let cases = [
+        ("HC0", [0.8370491124, 0.7714849893, 0.1232635049]),
+        ("HC1", [0.8878246554, 0.8182834013, 0.1307406903]),
+        ("HC2", [0.8907333699, 0.8198236825, 0.1319780772]),
+        ("HC3", [0.9480120947, 0.8713639330, 0.1413285113]),
+        ("HC4", [0.8948403415, 0.8227155465, 0.1334924820]),
+    ];
+    for (hc, want) in cases {
+        let t = run(
+            &mut engine,
+            &format!("{ROBUST_DATA}UNIANOVA y BY a WITH x /ROBUST={hc} /DESIGN=a x."),
+        );
+        for (row, want) in ["[a=1]", "[a=2]", "x"].into_iter().zip(want) {
+            let got = robust_se(&t, row);
+            assert!(close(got, want), "{hc} {row}: {got} against {want}");
+        }
+        let b = named_cell(&t, "Robust Parameter Estimates", "x", "B");
+        assert!(close(b, 0.9306395539));
+        // the redundant level stays out
+        let table = t
+            .iter()
+            .find(|t| t.title == "Robust Parameter Estimates")
+            .unwrap();
+        assert!(row_keys(table).contains(&"[a=3] (redundant)".to_string()));
+    }
+}
+
+// Bare ROBUST is HC3. The Wald F of an effect uses the rows of its Type III hypothesis, and with
+// one row it is the square of the robust t of that parameter. LMATRIX gets a second, robust set.
+#[test]
+fn robust_wald_tests_and_a_second_set_of_lmatrix_results() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{ROBUST_DATA}UNIANOVA y BY a WITH x /ROBUST /LMATRIX='a1 vs a3' a 1 0 -1 /DESIGN=a x."
+        ),
+    );
+    let title = "Robust Tests of Between-Subjects Effects";
+    assert!(close(named_cell(&t, title, "a", "F"), 1.37717635985));
+    assert!(close(named_cell(&t, title, "a", "Hypothesis df"), 2.0));
+    assert!(close(named_cell(&t, title, "a", "Sig."), 0.266840891071));
+    assert!(close(named_cell(&t, title, "x", "F"), 43.361414941));
+    assert!(close(named_cell(&t, title, "x", "Error df"), 32.0));
+    let k = t
+        .iter()
+        .find(|x| x.title == "Robust Contrast Results (K Matrix)")
+        .unwrap();
+    // rows: estimate, hypothesized, difference, standard error, Sig.
+    assert!(close(number(&k.rows[0][2]), -1.546175342));
+    assert!(close(number(&k.rows[3][2]), 0.9480120947));
+    let wald = t.iter().find(|x| x.title == "Robust Test Results").unwrap();
+    let f = number(&wald.rows[0][1]);
+    assert!(close(f, (1.546175342_f64 / 0.9480120947).powi(2)), "{f}");
+    // the model-based results stay as they were
+    assert!(t.iter().any(|x| x.title == "Contrast Results (K Matrix)"));
+    assert!(
+        t.iter()
+            .any(|x| x.title == "Tests of Between-Subjects Effects")
+    );
+}
+
+// With a regression weight the leverage includes the weight, as the weighted hat values of lm().
+#[test]
+fn robust_standard_errors_with_a_regression_weight() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!("{ROBUST_DATA}UNIANOVA y BY a WITH x /REGWGT=w /ROBUST=HC3 /DESIGN=a x."),
+    );
+    for (row, want) in [
+        ("[a=1]", 0.7974155447),
+        ("[a=2]", 0.8315477713),
+        ("x", 0.1287443037),
+    ] {
+        let got = robust_se(&t, row);
+        assert!(close(got, want), "{row}: {got} against {want}");
+    }
+    let t = run(
+        &mut engine,
+        &format!("{ROBUST_DATA}UNIANOVA y BY a WITH x /REGWGT=w /ROBUST=HC0 /DESIGN=a x."),
+    );
+    assert!(close(robust_se(&t, "x"), 0.1108898304));
+}
+
+#[test]
+fn robust_needs_one_dependent_and_a_valid_estimator() {
+    let mut engine = Engine::default();
+    run(&mut engine, &format!("{ROBUST_DATA}COMPUTE y2 = y * 2."));
+    let before = engine.warnings().len();
+    let t = run(&mut engine, "GLM y y2 BY a /ROBUST.");
+    assert!(t.iter().all(|t| !t.title.starts_with("Robust")));
+    assert!(engine.warnings().len() > before);
+    let (_, errors) = parse("UNIANOVA y BY a /ROBUST=HC9.");
+    assert!(
+        errors[0].to_string().contains("HC4"),
+        "the choices are named"
+    );
+}

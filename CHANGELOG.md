@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- UNIANOVA and GLM /ROBUST=HC0 to HC4 (HC3 by default): robust parameter estimates, Wald F tests of the effects and a robust set of CONTRAST and LMATRIX results, for models with one dependent variable.
 - CATREG, CATPCA and the other procedures that group a fractional variable with DISTR=NORMAL: the cut points of NCAT groups above about 15 were not fully converged (7e-6 off at 20 groups, 2e-3 at 28, 2e-2 at 36); they are now found to 1e-14.
 - PREFSCAL /TRANSFORMATION=SMOOTH[(KEEPTIES | UNTIE)] is read instead of refused: the run is the ORDINAL one, with a warning that the smoothing is not applied.
 - Window: Multidimensional Unfolding starts from coordinates in a file and fixes the coordinates of the rows or the columns from a file (Restrictions), each with the variables to read.

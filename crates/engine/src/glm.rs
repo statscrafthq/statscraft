@@ -527,10 +527,13 @@ struct Source {
     tested: bool,
 }
 
+#[derive(Clone)]
 struct Flags {
     etasq: bool,
     opower: bool,
     alpha: f64,
+    /// ROBUST: the covariance of the coefficients that custom tests use instead of the model's.
+    psi: Option<Matrix>,
 }
 
 /// The noncentrality F times df1 and the power of the F test at `alpha`.
@@ -1046,6 +1049,11 @@ impl Engine {
             return Err(Error(format!("{name}: the design has no effects")));
         }
         let mut warnings = Vec::new();
+        if command.robust.is_some() && (!command.wsfactors.is_empty() || dependents.len() > 1) {
+            warnings.push(format!(
+                "{name}: ROBUST applies to a model with one dependent variable and is ignored"
+            ));
+        }
         let label_of = |f: usize, l: usize| level_texts[f][l].clone();
         let dependent_texts: Vec<String> = dep_vars.iter().map(|v| shown.variable(v)).collect();
         let mut tables = Vec::new();
@@ -1258,6 +1266,7 @@ fn flags_of(command: &Glm) -> Flags {
         etasq: command.print.etasq,
         opower: command.print.opower,
         alpha: command.alpha,
+        psi: None,
     }
 }
 
@@ -1309,6 +1318,16 @@ fn univariate(
             dfe,
         ));
     }
+    let mut robust_flags = None;
+    if let Some(hc) = command.robust {
+        let psi = robust_covariance(d, fit, hc);
+        out.push(robust_parameter_table(command, d, fit, dependent, hc, &psi));
+        out.push(robust_effects_table(command, fit, dependent, hc, &psi));
+        robust_flags = Some(Flags {
+            psi: Some(psi),
+            ..flags.clone()
+        });
+    }
     if command.print.lof {
         out.push(lack_of_fit(d, fit, dependent, &flags));
     }
@@ -1334,6 +1353,17 @@ fn univariate(
         &flags,
         warnings,
     )?);
+    if let Some(robust) = &robust_flags {
+        out.extend(custom_hypotheses(
+            command,
+            d,
+            fit,
+            None,
+            &[dependent.to_string()],
+            robust,
+            warnings,
+        )?);
+    }
     out.extend(error_term_tests(command, d, fit)?);
     out.extend(means_and_posthoc(
         command, d, fit, dependent, &flags, label_of, warnings,
@@ -1587,7 +1617,7 @@ fn custom_hypotheses(
             })
             .collect();
         let kind_name = contrast_name(kind);
-        if command.print.lmatrix {
+        if command.print.lmatrix && flags.psi.is_none() {
             out.push(l_prime_of_rows(
                 d,
                 fit,
@@ -1642,7 +1672,7 @@ fn custom_hypotheses(
     }
     let columns = m[0].len();
     for (title, l) in matrices {
-        if command.print.lmatrix {
+        if command.print.lmatrix && flags.psi.is_none() {
             out.push(l_prime_of_rows(d, fit, &title, &l));
         }
         let k: Option<Matrix> = match &command.kmatrix {
@@ -2261,6 +2291,91 @@ fn parameter_table(
         caption.push_str(&format!(" Computed using alpha = {}.", flags.alpha));
     }
     table("Parameter Estimates", 1, columns, rows, Some(caption))
+}
+
+/// The Parameter Estimates of ROBUST: the standard errors, t tests and intervals come from the
+/// heteroskedasticity-consistent covariance, with the error degrees of freedom.
+fn robust_parameter_table(
+    command: &Glm,
+    d: &Data,
+    fit: &Fit,
+    dependent: &str,
+    hc: u8,
+    psi: &Matrix,
+) -> Table {
+    let dfe = fit.df_error();
+    let group = format!("{} Confidence Interval", percent_title(command.alpha));
+    let mut columns = plain(&["Parameter", "B", "Robust Std. Error", "t", "Sig."]);
+    columns.push((group.clone(), "Lower Bound".into()));
+    columns.push((group, "Upper Bound".into()));
+    let tc = t_quantile(command.alpha / 2.0, dfe);
+    let mut rows = Vec::new();
+    for e in &fit.effects {
+        for (k, cell) in e.cells.iter().enumerate() {
+            let j = e.start + k;
+            let name = parameter_name(d, e, cell);
+            if fit.redundant[j] {
+                let mut row = vec![text(format!("{name} (redundant)")), Cell::Number(0.0)];
+                row.extend(std::iter::repeat_n(Cell::Empty, columns.len() - 2));
+                rows.push(row);
+                continue;
+            }
+            let b = fit.b[j][0];
+            let se = psi[j][j].sqrt();
+            let t = b / se;
+            rows.push(vec![
+                text(name),
+                number(Some(b)),
+                number(Some(se)),
+                number(Some(t)),
+                number(Some(t_p(t, dfe))),
+                number(Some(b - tc * se)),
+                number(Some(b + tc * se)),
+            ]);
+        }
+    }
+    table(
+        "Robust Parameter Estimates",
+        1,
+        columns,
+        rows,
+        Some(format!(
+            "Dependent Variable: {dependent}. Heteroskedasticity-consistent covariance HC{hc}."
+        )),
+    )
+}
+
+/// ROBUST's test of every effect: the Wald F of the rows of L the sum of squares type uses,
+/// with the robust covariance, as the Algorithms manual gives it in place of the F of sums of
+/// squares.
+fn robust_effects_table(command: &Glm, fit: &Fit, dependent: &str, hc: u8, psi: &Matrix) -> Table {
+    let groups: Vec<(String, Matrix, Vec<f64>)> = (0..fit.effects.len())
+        .filter_map(|e| {
+            let l = match command.sstype {
+                1 => fit.type1(e),
+                2 => fit.type2(e),
+                t => fit.type34(e, t == 4),
+            };
+            if l.is_empty() {
+                return None;
+            }
+            let value = l
+                .iter()
+                .map(|row| (0..fit.p).map(|j| row[j] * fit.b[j][0]).sum::<f64>())
+                .collect();
+            Some((fit.effects[e].label.clone(), l, value))
+        })
+        .collect();
+    wald_table(
+        "Robust Tests of Between-Subjects Effects",
+        &groups,
+        psi,
+        fit.df_error(),
+        format!(
+            "Dependent Variable: {dependent}. Type {} hypotheses as Wald F tests with the heteroskedasticity-consistent covariance HC{hc}.",
+            roman(command.sstype)
+        ),
+    )
 }
 
 fn lack_of_fit(d: &Data, fit: &Fit, dependent: &str, flags: &Flags) -> Table {
@@ -3036,6 +3151,85 @@ fn emmeans_tables(
     Ok(out)
 }
 
+/// The heteroskedasticity-consistent covariance of the coefficients, HC0 to HC4 of the
+/// Algorithms manual: G X' W^1/2 diag(w) W^1/2 X G with the squared weighted residual of each
+/// case divided as the estimator says. The leverage of a case is its regression weight times
+/// x G x' (G holds the frequencies too), which is the manual's x G x' when there is no REGWGT.
+fn robust_covariance(d: &Data, fit: &Fit, hc: u8) -> Matrix {
+    let n = fit.n;
+    let rank = fit.rank as f64;
+    let p = fit.p;
+    let mut meat = vec![vec![0.0; p]; p];
+    for i in 0..d.rows() {
+        let x = &fit.x[i];
+        let fitted: f64 = (0..p).map(|j| x[j] * fit.b[j][0]).sum();
+        let e = d.y[i][0] - fitted;
+        let h: f64 = d.g[i]
+            * (0..p)
+                .map(|a| x[a] * (0..p).map(|b| fit.ginv[a][b] * x[b]).sum::<f64>())
+                .sum::<f64>();
+        let u = d.g[i] * e * e;
+        let omega = match hc {
+            0 => u,
+            1 => u * n / (n - rank),
+            2 => u / (1.0 - h),
+            3 => u / ((1.0 - h) * (1.0 - h)),
+            _ => u / (1.0 - h).powf((4.0_f64).min(n * h / rank)),
+        };
+        let weight = d.f[i] * d.g[i] * omega;
+        for a in 0..p {
+            if x[a] == 0.0 {
+                continue;
+            }
+            for b in 0..p {
+                meat[a][b] += weight * x[a] * x[b];
+            }
+        }
+    }
+    multiply(&multiply(&fit.ginv, &meat), &fit.ginv)
+}
+
+/// The Wald F tests of L B = 0 for each group of rows in `groups` (rows and their values L b)
+/// under the covariance `psi`: F = b' L' (L psi L')^- L b / rank, with the error df.
+fn wald_table(
+    title: &str,
+    groups: &[(String, Matrix, Vec<f64>)],
+    psi: &Matrix,
+    dfe: f64,
+    caption: String,
+) -> Table {
+    let rows = groups
+        .iter()
+        .map(|(label, l, value)| {
+            let v = multiply(&multiply(l, psi), &transpose(l));
+            let (inv, rank) = ginverse(&v, 1e-10);
+            let wald: f64 = (0..value.len())
+                .map(|a| {
+                    (0..value.len())
+                        .map(|b| value[a] * inv[a][b] * value[b])
+                        .sum::<f64>()
+                })
+                .sum();
+            let f = wald / rank as f64;
+            let tested = rank > 0 && dfe > 0.0;
+            vec![
+                text(label.clone()),
+                number(tested.then_some(f)),
+                number(Some(rank as f64)),
+                number(Some(dfe)),
+                number(tested.then(|| f_p(f, rank as f64, dfe))),
+            ]
+        })
+        .collect();
+    table(
+        title,
+        1,
+        plain(&["Source", "F", "Hypothesis df", "Error df", "Sig."]),
+        rows,
+        Some(caption),
+    )
+}
+
 /// The custom hypothesis test L B M = K of the rows of `l`: the Contrast Results (K Matrix),
 /// then for one dependent variable the Test Results, else the Multivariate and the Univariate
 /// Test Results of the transformed variables (the columns of M, named `names`).
@@ -3071,20 +3265,20 @@ fn custom_tests(
             ));
             continue;
         }
-        let v: f64 = (0..fit.p)
-            .map(|a| {
-                (0..fit.p)
-                    .map(|b| row[a] * fit.ginv[a][b] * row[b])
-                    .sum::<f64>()
-            })
-            .sum();
+        let quad = |m: &Matrix| -> f64 {
+            (0..fit.p)
+                .map(|a| (0..fit.p).map(|b| row[a] * m[a][b] * row[b]).sum::<f64>())
+                .sum()
+        };
+        let v: f64 = quad(&fit.ginv);
+        let robust_variance = flags.psi.as_ref().map(quad);
         let mut lines: Vec<Vec<Option<f64>>> = vec![Vec::new(); 7];
         let hyps: Vec<f64> = (0..names.len())
             .map(|c| k.map_or(0.0, |k| k[i][c]))
             .collect();
         for (c, hyp) in hyps.iter().enumerate() {
             let estimate: f64 = row.iter().zip(&bm).map(|(a, b)| a * b[c]).sum();
-            let se = (se_m[c][c] / dfe * v).sqrt();
+            let se = robust_variance.map_or_else(|| (se_m[c][c] / dfe * v).sqrt(), f64::sqrt);
             let diff = estimate - hyp;
             for (line, value) in lines.iter_mut().zip([
                 estimate,
@@ -3129,8 +3323,13 @@ fn custom_tests(
     }
     let mut columns = plain(&["Contrast", ""]);
     columns.extend(names.iter().map(|n| (String::new(), n.clone())));
+    let robust = flags.psi.is_some();
     let mut out = vec![table(
-        "Contrast Results (K Matrix)",
+        if robust {
+            "Robust Contrast Results (K Matrix)"
+        } else {
+            "Contrast Results (K Matrix)"
+        },
         2,
         columns,
         rows,
@@ -3143,6 +3342,21 @@ fn custom_tests(
                 "{title}: the joint test needs every row estimable and is left out"
             ));
         }
+        return out;
+    }
+    if let (Some(psi), true) = (&flags.psi, univariate) {
+        let value: Vec<f64> = kept
+            .iter()
+            .zip(&kept_k)
+            .map(|(row, hyp)| row.iter().zip(&bm).map(|(a, b)| a * b[0]).sum::<f64>() - hyp[0])
+            .collect();
+        out.push(wald_table(
+            "Robust Test Results",
+            &[("Contrast".into(), kept.clone(), value)],
+            psi,
+            dfe,
+            caption,
+        ));
         return out;
     }
     let (ssh, df) = fit.hypothesis(&kept, Some(m), k.map(|_| &kept_k));
