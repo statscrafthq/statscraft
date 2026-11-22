@@ -6491,7 +6491,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "GET DATA",
-        summary: "Read a text data file or a sheet of a workbook as the active dataset.",
+        summary: "Read a text data file, a sheet of a workbook or a dataset of an OpenStatSpec database as the active dataset.",
         syntax: "GET DATA /TYPE=TXT /FILE='path' [/ENCODING='name'] [/ARRANGEMENT=DELIMITED | FIXED]\n\
                  \x20        [/FIRSTCASE=n] [/DELCASE=LINE | VARIABLES n] [/FIXCASE=n] [/DELIMITERS=\"chars\"]\n\
                  \x20        [/QUALIFIER=\"c\"] [/IMPORTCASE=ALL | FIRST n] [/MULTIPLESPACES IGNORE=NO | YES]\n\
@@ -6501,6 +6501,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20        [/CELLRANGE=FULL | RANGE 'A1:K14'] [/READNAMES=ON | OFF] [/ASSUMEDSTRWIDTH=n]\n\
                  \x20        [/HIDDEN IGNORE=NO | YES] [/LEADINGSPACES IGNORE=NO | YES]\n\
                  \x20        [/TRAILINGSPACES IGNORE=NO | YES] [/DATATYPEMIN PERCENTAGE=n].\n\
+                 GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE | POSTGRES | MYSQL | DOLT 'file or URL'\n\
+                 \x20        /DATASET=name [/ALLOWLOSS=NO | YES].\n\
                  Text files. FIXED: /VARIABLES=[/record] name first-last format ..., columns counted from 0.\n\
                  format: F, A, DATE, ADATE, SDATE, DATETIME, DOLLAR, COMMA and the other input formats, with\n\
                  or without a width; AUTO reads a number when every value is one, else a string as wide as the\n\
@@ -6521,10 +6523,18 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  IGNORE=YES leaves out hidden rows and columns (XLSX only). ASSUMEDSTRWIDTH cuts longer\n\
                  strings (XLS: 255 by default). LEADINGSPACES IGNORE=YES removes leading blanks of strings;\n\
                  TRAILINGSPACES IGNORE=YES leaves trailing blanks out of the width.\n\
+                 Databases. OPENSTATSPEC reads a dataset that statscraft db export stored. SQLITE takes a\n\
+                 file, the others a server URL written as for statscraft db (MYSQL also serves MariaDB).\n\
+                 Syntax never holds a password: a URL with one is refused, and the password comes from the\n\
+                 STATSCRAFT_DB_PASSWORD environment variable. ALLOWLOSS=YES goes on when the catalog holds\n\
+                 items the dataset cannot keep, with a warning for each. The read is logged in the catalog,\n\
+                 as for statscraft db import, except on DOLT, where nothing is written and a table names\n\
+                 the branch and HEAD commit that were read; uncommitted changes there give a warning.\n\
                  ODBC and OLEDB are not supported yet.",
         example: "GET DATA /TYPE=TXT /FILE='wave2.csv' /DELIMITERS=\",\" /QUALIFIER='\"' /FIRSTCASE=2\n\
                   \x20 /VARIABLES=id F5 name A20 born SDATE10.\n\
-                  GET DATA /TYPE=XLSX /FILE='wave3.xlsx' /SHEET=NAME 'Answers' /CELLRANGE=RANGE 'A1:F200'.",
+                  GET DATA /TYPE=XLSX /FILE='wave3.xlsx' /SHEET=NAME 'Answers' /CELLRANGE=RANGE 'A1:F200'.\n\
+                  GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE 'panel.db' /DATASET=wave_4.",
         parse: get_data::get_data,
     },
     CommandSpec {

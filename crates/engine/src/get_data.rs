@@ -11,9 +11,10 @@
 //!   and a time of day h:m[:s]; TIME values are h:m[:s].
 //! - A value that cannot be read is system-missing, with a warning naming the line.
 
-use crate::{Engine, Error};
+use crate::{Cell, Engine, Error, Table};
 use statscraft_data::Dataset;
-use statscraft_syntax::{Format, FormatType, GetData};
+use statscraft_openstatspec::{apply, catalog, db};
+use statscraft_syntax::{DatabaseKind, DatabaseSource, Format, FormatType, GetData};
 
 const SHOWN_WARNINGS: usize = 20;
 
@@ -379,6 +380,61 @@ impl Engine {
         self.warn_some(warnings);
         self.make_active(data);
         Ok(())
+    }
+
+    /// GET DATA /TYPE=OPENSTATSPEC: a dataset of an OpenStatSpec database as the active
+    /// dataset. The driver records the read as it does for `statscraft db import`; a syntax
+    /// check reads without recording anything. On Dolt a table names the branch and HEAD read.
+    pub(crate) fn get_database(&mut self, source: &DatabaseSource) -> Result<Vec<Table>, Error> {
+        let path = self.path(&source.location);
+        let url = source.location.as_str();
+        let location = match source.kind {
+            DatabaseKind::Sqlite => db::Location::Sqlite(&path),
+            DatabaseKind::Postgres => db::Location::Postgres(url),
+            DatabaseKind::Mysql => db::Location::Mysql(url),
+            DatabaseKind::Dolt => db::Location::Dolt(url),
+        };
+        let failed = |e: db::DbError| Error(format!("GET DATA: {} ({})", e.message, e.code));
+        let mut db = db::open(location, false).map_err(failed)?;
+        let context = match source.kind {
+            DatabaseKind::Dolt => Some(apply::dolt_context(db.as_mut()).map_err(failed)?),
+            _ => None,
+        };
+        if context.is_some() {
+            let changes = apply::dolt_uncommitted(db.as_mut()).map_err(failed)?;
+            if changes > 0 {
+                self.warn(format!(
+                    "the working set has {changes} uncommitted table changes, so the data read \
+                     differs from HEAD, and an apply is refused until they are committed"
+                ));
+            }
+        }
+        let read = if self.dry_run {
+            catalog::read_dataset_unrecorded
+        } else {
+            catalog::read_dataset
+        };
+        let (data, losses) =
+            read(db.as_mut(), &source.dataset, source.allow_loss).map_err(failed)?;
+        for loss in losses {
+            self.warn(format!("not read: {loss}"));
+        }
+        self.make_active(data);
+        let text = |s: &str| Cell::Text(s.to_string());
+        Ok(context
+            .map(|c| Table {
+                title: "Dolt Context".into(),
+                row_headers: 1,
+                columns: vec![String::new(), "Value".into()],
+                rows: vec![
+                    vec![text("Dataset"), text(&source.dataset)],
+                    vec![text("Branch"), text(&c.branch)],
+                    vec![text("HEAD"), text(&c.head)],
+                ],
+                ..Table::default()
+            })
+            .into_iter()
+            .collect())
     }
 
     /// The first warnings about values, and how many more there are.

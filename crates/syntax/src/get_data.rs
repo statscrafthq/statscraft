@@ -1,6 +1,9 @@
-//! GET DATA /TYPE=TXT, XLSX, XLSM and XLS.
+//! GET DATA /TYPE=TXT, XLSX, XLSM, XLS and OPENSTATSPEC.
 
-use crate::ast::{Command, Format, FormatType, GetData, GetDataVariable, Sheet, Spreadsheet};
+use crate::ast::{
+    Command, DatabaseKind, DatabaseSource, Format, FormatType, GetData, GetDataVariable, Sheet,
+    Spreadsheet,
+};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
@@ -137,6 +140,18 @@ const SHEET_ONLY: [&str; 6] = [
     "TRAILINGSPACES",
 ];
 
+/// Subcommands only a database takes.
+const DATABASE_ONLY: [&str; 3] = ["DATABASE", "DATASET", "ALLOWLOSS"];
+
+/// A server URL with a password in it, as `user:secret@host` or a password parameter.
+fn holds_password(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let rest = lower.split_once("://").map_or(lower.as_str(), |(_, r)| r);
+    let authority = rest.split(['/', '?']).next().unwrap_or("");
+    let user = authority.rsplit_once('@').map(|(user, _)| user);
+    user.is_some_and(|u| u.contains(':')) || lower.contains("password=")
+}
+
 pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
     let mut command = GetData {
         file: String::new(),
@@ -152,7 +167,11 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
         ignore_leading_spaces: false,
         variables: Vec::new(),
         spreadsheet: None,
+        database: None,
     };
+    let mut database = None;
+    let mut dataset = None;
+    let mut allow_loss = false;
     let mut sheet = Spreadsheet {
         binary: false,
         sheet: Sheet::Index(1),
@@ -172,7 +191,7 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
         if p.eat_keyword("TYPE") {
             equals(p);
             let Some(TokenKind::Word(w)) = p.peek() else {
-                return Err(p.unexpected(&["TXT", "XLSX", "XLS"]));
+                return Err(p.unexpected(&["TXT", "XLSX", "XLS", "OPENSTATSPEC"]));
             };
             kind = Some(w.to_uppercase());
             if let Some(other @ ("ODBC" | "OLEDB")) = kind.as_deref() {
@@ -341,6 +360,44 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
                 }
             }
             break;
+        } else if p.eat_word("DATABASE") {
+            equals(p);
+            let kind = if p.eat_keyword("SQLITE") {
+                DatabaseKind::Sqlite
+            } else if p.eat_keyword("POSTGRES") {
+                DatabaseKind::Postgres
+            } else if p.eat_keyword("MYSQL") {
+                DatabaseKind::Mysql
+            } else if p.eat_keyword("DOLT") {
+                DatabaseKind::Dolt
+            } else {
+                return Err(p.unexpected(&["SQLITE", "POSTGRES", "MYSQL", "DOLT"]));
+            };
+            let start = p.pos;
+            let location = p.string("a quoted file name or URL")?;
+            if kind != DatabaseKind::Sqlite && holds_password(&location) {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "syntax never holds a password: remove it from the URL and set the \
+                     STATSCRAFT_DB_PASSWORD environment variable",
+                ));
+            }
+            database = Some((kind, location));
+            "DATABASE"
+        } else if p.eat_word("DATASET") {
+            equals(p);
+            dataset = Some(p.file("a dataset name")?);
+            "DATASET"
+        } else if p.eat_keyword("ALLOWLOSS") {
+            equals(p);
+            allow_loss = if p.eat_keyword("YES") {
+                true
+            } else if p.eat_keyword("NO") {
+                false
+            } else {
+                return Err(p.unexpected(&["YES", "NO"]));
+            };
+            "ALLOWLOSS"
         } else if p.eat_keyword("MAP") {
             // MAP only lists the variables read: accepted, nothing to do
             "MAP"
@@ -360,36 +417,59 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
                 "SHEET",
                 "CELLRANGE",
                 "READNAMES",
+                "DATABASE",
+                "DATASET",
             ]));
         };
         seen.push((name, at));
     }
     // a subcommand of the other kind of file, reported where it stands
-    let misplaced = |names: &[&str], kind: &str| {
-        seen.iter()
-            .find(|(n, _)| names.contains(n))
-            .map(|(n, span)| {
-                let message = format!("{n} does not apply to GET DATA /TYPE={kind}");
-                SyntaxError::new(*span, message)
-            })
+    let misplaced = |wrong: &dyn Fn(&str) -> bool, kind: &str| {
+        seen.iter().find(|(n, _)| wrong(n)).map(|(n, span)| {
+            let message = format!("{n} does not apply to GET DATA /TYPE={kind}");
+            SyntaxError::new(*span, message)
+        })
     };
     match kind.as_deref() {
         Some("TXT") => {
-            if let Some(error) = misplaced(&SHEET_ONLY, "TXT") {
+            let wrong = |n: &str| SHEET_ONLY.contains(&n) || DATABASE_ONLY.contains(&n);
+            if let Some(error) = misplaced(&wrong, "TXT") {
                 return Err(error);
             }
         }
         Some(name @ ("XLS" | "XLSX" | "XLSM")) => {
             sheet.binary = name == "XLS";
             let mut wrong = TXT_ONLY.to_vec();
+            wrong.extend(DATABASE_ONLY);
             if sheet.binary {
                 // the manual: HIDDEN is not valid for TYPE=XLS
                 wrong.push("HIDDEN");
             }
-            if let Some(error) = misplaced(&wrong, name) {
+            if let Some(error) = misplaced(&|n| wrong.contains(&n), name) {
                 return Err(error);
             }
             command.spreadsheet = Some(sheet);
+        }
+        Some("OPENSTATSPEC") => {
+            if let Some(error) = misplaced(&|n| !DATABASE_ONLY.contains(&n), "OPENSTATSPEC") {
+                return Err(error);
+            }
+            p.finish(&["'/'"])?;
+            let Some((kind, location)) = database else {
+                let message = "GET DATA /TYPE=OPENSTATSPEC needs /DATABASE=kind 'file or URL'";
+                return Err(SyntaxError::new(p.span(), message));
+            };
+            let Some(dataset) = dataset else {
+                let message = "GET DATA /TYPE=OPENSTATSPEC needs /DATASET='name'";
+                return Err(SyntaxError::new(p.span(), message));
+            };
+            command.database = Some(DatabaseSource {
+                kind,
+                location,
+                dataset,
+                allow_loss,
+            });
+            return Ok(Command::GetData(command));
         }
         Some(other) => {
             return Err(SyntaxError::new(
@@ -400,7 +480,7 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
         None => {
             return Err(SyntaxError::new(
                 p.span(),
-                "GET DATA needs /TYPE=TXT, XLSX or XLS",
+                "GET DATA needs /TYPE=TXT, XLSX, XLS or OPENSTATSPEC",
             ));
         }
     }

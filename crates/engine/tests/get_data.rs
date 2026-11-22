@@ -122,3 +122,68 @@ fn values_per_case_across_lines_and_other_types_refused() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// The operations the catalog of a SQLite database recorded.
+fn operations(path: &std::path::Path) -> i64 {
+    use statscraft_openstatspec::db;
+    let mut db = db::open(db::Location::Sqlite(path), false).unwrap();
+    db.query("SELECT count(*) FROM operation", &[]).unwrap()[0][0]
+        .int()
+        .unwrap()
+}
+
+#[test]
+fn a_dataset_from_an_openstatspec_database_matches_the_file() {
+    use statscraft_openstatspec::{catalog, db};
+    let dir = temp_dir("openstatspec");
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/survey_basic.sav"
+    );
+    let mut from_file = Session::default();
+    from_file
+        .run(&format!("GET FILE='{fixture}'."), None)
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let file_data = from_file.dataset().unwrap();
+    let path = dir.join("survey.db");
+    let mut store = db::open(db::Location::Sqlite(&path), true).unwrap();
+    catalog::write_dataset(store.as_mut(), file_data, "survey").unwrap();
+    drop(store);
+    let before = operations(&path);
+
+    let mut session = Session::default();
+    let source = format!(
+        "CD '{}'.\nGET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE 'survey.db' /DATASET=survey.",
+        dir.display()
+    );
+    // a check reads the dictionary but records nothing in the database
+    session
+        .check(&source, None)
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(operations(&path), before);
+    assert!(session.dataset().is_none());
+
+    let result = session
+        .run(&source, None)
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(result.commands.iter().all(|c| c.tables.is_empty()));
+    assert_eq!(operations(&path), before + 1, "the read is recorded");
+    let data = session.dataset().unwrap();
+    assert_eq!(data.case_count(), file_data.case_count());
+    let names = |d: &Dataset| d.variable_names().map(str::to_string).collect::<Vec<_>>();
+    assert_eq!(names(data), names(file_data));
+    for (read, file) in data.variables().zip(file_data.variables()) {
+        assert_eq!(read.label(), file.label(), "{}", file.name());
+        assert_eq!(read.value_labels(), file.value_labels(), "{}", file.name());
+        assert!(read == file, "{}", file.name());
+    }
+
+    let errors = session
+        .run(
+            "GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE 'survey.db' /DATASET=absent.",
+            None,
+        )
+        .unwrap_err();
+    assert!(errors[0].message.contains("absent"), "{errors:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

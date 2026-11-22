@@ -561,7 +561,10 @@ impl Engine {
             Command::Use(range) => self.use_cases(range.as_ref())?,
             Command::Display(display) => return self.display_command(display),
             Command::List(_) => return self.procedure(command),
-            Command::GetData(get) => self.get_data(get)?,
+            Command::GetData(get) => match &get.database {
+                Some(source) => return self.get_database(source),
+                None => self.get_data(get)?,
+            },
             Command::AddValueLabels(_)
             | Command::FileLabel(_)
             | Command::AddDocument(_)

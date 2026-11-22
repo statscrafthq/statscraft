@@ -614,6 +614,12 @@ fn dolt_apply_needs_the_controlled_context() {
     for server in dolts() {
         let mut db = server.fresh();
         write_dataset(db.as_mut(), &numbers(&[1.0]), "d").unwrap();
+        // what GET DATA shows, so that a later apply can name it
+        let context = statscraft_openstatspec::apply::dolt_context(db.as_mut()).unwrap();
+        assert!(
+            !context.branch.is_empty() && context.head.len() == 32,
+            "{context:?}"
+        );
         let plan = statscraft_openstatspec::validate_plan(&serde_json::json!({
             "contract": "openstatspec-transformation-plan-v0.2",
             "input_alias": "d",

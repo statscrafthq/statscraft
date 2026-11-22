@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE | POSTGRES | MYSQL | DOLT 'file or URL' /DATASET=name reads a dataset of an OpenStatSpec database as the active dataset, as `statscraft db import` does, from `run`, the window and the MCP server. ALLOWLOSS=YES goes on past items the dataset cannot keep. The password comes from STATSCRAFT_DB_PASSWORD, never from the syntax. On Dolt a table shows the branch and HEAD commit read.
 - Window: Multidimensional Unfolding starts from coordinates in a file and fixes the coordinates of the rows or the columns from a file (Restrictions), each with the variables to read.
 
 ## 0.25.0 (2026-11-22)

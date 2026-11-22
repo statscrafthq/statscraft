@@ -9,7 +9,7 @@ One page per supported command, generated from the same table that the parser an
 | Command | What it does |
 |---|---|
 | [GET](get.md) | Read a data file and make it the active dataset. |
-| [GET DATA](get-data.md) | Read a text data file or a sheet of a workbook as the active dataset. |
+| [GET DATA](get-data.md) | Read a text data file, a sheet of a workbook or a dataset of an OpenStatSpec database as the active dataset. |
 | [GET TRANSLATE](get-translate.md) | Read a tab-delimited text file, a dBASE file or an old Excel workbook. |
 | [GET STATA](get-stata.md) | Read a Stata data file (.dta) and make it the active dataset. |
 | [IMPORT](import.md) | Read a portable (.por) file and make it the active dataset. |

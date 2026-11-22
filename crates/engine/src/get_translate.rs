@@ -409,6 +409,7 @@ impl Engine {
             ignore_leading_spaces: false,
             variables: Vec::new(),
             spreadsheet: Some(options.clone()),
+            database: None,
         };
         let mut data = self
             .read_workbook(&get, &options)
