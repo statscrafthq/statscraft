@@ -4887,8 +4887,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  split variable follows the first surrogate (a split of another predictor that imitates the main\n\
                  one, kept when its association is positive; METHOD MAXSURROGATES gives the most kept, AUTO is one\n\
                  fewer than the predictors, 0 none) it has a value for, and goes to the child with more cases when\n\
-                 there is none. PRINT SURROGATES lists them with their association. Pruning, a scale dependent\n\
-                 and importance are not built yet. Not supported\n\
+                 there is none. PRINT SURROGATES lists them with their association. METHOD PRUNE=SE(b) (b is 1 when\n\
+                 omitted) cuts the grown tree back by repeatedly turning its weakest links into terminal nodes and\n\
+                 keeps the smallest subtree whose risk is within b standard errors of the lowest risk, all from\n\
+                 the risk of the cases analyzed (there is no validation sample yet). A scale dependent and\n\
+                 importance are not built yet. Not supported\n\
                  yet: METHOD TYPE=QUEST, a scale dependent, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
                  SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",

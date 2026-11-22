@@ -344,6 +344,88 @@ const SURROGATES_S3: &[(usize, &str, f64)] = &[
     (6, "z", 0.741709146409),
 ];
 
+const EXPECTED_P1_B0: &[Node] = &[
+    (0, &[88.0, 62.0], 1, "x1", Some(0.0528960408685)),
+    (0, &[49.0, 14.0], 1, "x2", Some(0.00901371437957)),
+    (0, &[39.0, 48.0], 2, "x2", Some(0.0413301181577)),
+    (1, &[14.0, 8.0], 1, "x2", Some(0.0114081996435)),
+    (1, &[35.0, 6.0], 1, "", None),
+    (2, &[17.0, 5.0], 1, "o", Some(0.0126262626263)),
+    (2, &[22.0, 43.0], 2, "g", Some(0.0219242979243)),
+    (3, &[5.0, 0.0], 1, "", None),
+    (3, &[9.0, 8.0], 1, "x1", Some(0.00544494720965)),
+    (5, &[7.0, 5.0], 1, "g", Some(0.01)),
+    (5, &[10.0, 0.0], 1, "", None),
+    (6, &[17.0, 18.0], 2, "x2", Some(0.0170062111801)),
+    (6, &[5.0, 25.0], 2, "", None),
+    (8, &[1.0, 3.0], 2, "", None),
+    (8, &[8.0, 5.0], 1, "", None),
+    (9, &[5.0, 1.0], 1, "", None),
+    (9, &[2.0, 4.0], 2, "", None),
+    (11, &[8.0, 15.0], 2, "", None),
+    (11, &[9.0, 3.0], 1, "", None),
+];
+const EXPECTED_P1_B05: &[Node] = &[
+    (0, &[88.0, 62.0], 1, "x1", Some(0.0528960408685)),
+    (0, &[49.0, 14.0], 1, "", None),
+    (0, &[39.0, 48.0], 2, "x2", Some(0.0413301181577)),
+    (2, &[17.0, 5.0], 1, "o", Some(0.0126262626263)),
+    (2, &[22.0, 43.0], 2, "g", Some(0.0219242979243)),
+    (3, &[7.0, 5.0], 1, "g", Some(0.01)),
+    (3, &[10.0, 0.0], 1, "", None),
+    (4, &[17.0, 18.0], 2, "x2", Some(0.0170062111801)),
+    (4, &[5.0, 25.0], 2, "", None),
+    (5, &[5.0, 1.0], 1, "", None),
+    (5, &[2.0, 4.0], 2, "", None),
+    (7, &[8.0, 15.0], 2, "", None),
+    (7, &[9.0, 3.0], 1, "", None),
+];
+const EXPECTED_P1_B1: &[Node] = &[
+    (0, &[88.0, 62.0], 1, "x1", Some(0.0528960408685)),
+    (0, &[49.0, 14.0], 1, "", None),
+    (0, &[39.0, 48.0], 2, "x2", Some(0.0413301181577)),
+    (2, &[17.0, 5.0], 1, "", None),
+    (2, &[22.0, 43.0], 2, "g", Some(0.0219242979243)),
+    (4, &[17.0, 18.0], 2, "x2", Some(0.0170062111801)),
+    (4, &[5.0, 25.0], 2, "", None),
+    (5, &[8.0, 15.0], 2, "", None),
+    (5, &[9.0, 3.0], 1, "", None),
+];
+const EXPECTED_P2_B0: &[Node] = &[
+    (0, &[70.0, 48.0, 32.0], 1, "x1", Some(0.158942508893)),
+    (0, &[52.0, 7.0, 1.0], 1, "", None),
+    (0, &[18.0, 41.0, 31.0], 2, "g", Some(0.0603481867284)),
+    (2, &[14.0, 6.0, 2.0], 1, "x1", Some(0.0541666666667)),
+    (2, &[4.0, 35.0, 29.0], 2, "x1", Some(0.0212108330278)),
+    (3, &[14.0, 0.0, 0.0], 1, "", None),
+    (3, &[0.0, 6.0, 2.0], 2, "", None),
+    (4, &[3.0, 30.0, 16.0], 2, "x2", Some(0.0132459208412)),
+    (4, &[1.0, 5.0, 13.0], 3, "g", Some(0.0154230315558)),
+    (7, &[1.0, 21.0, 6.0], 2, "", None),
+    (7, &[2.0, 9.0, 10.0], 3, "o", Some(0.00938418571064)),
+    (8, &[1.0, 0.0, 9.0], 3, "", None),
+    (8, &[0.0, 5.0, 4.0], 2, "x1", Some(0.00340277777778)),
+    (10, &[2.0, 6.0, 3.0], 2, "", None),
+    (10, &[0.0, 3.0, 7.0], 3, "", None),
+    (12, &[0.0, 3.0, 1.0], 2, "", None),
+    (12, &[0.0, 2.0, 3.0], 3, "", None),
+];
+const EXPECTED_P2_B1: &[Node] = &[
+    (0, &[70.0, 48.0, 32.0], 1, "x1", Some(0.158942508893)),
+    (0, &[52.0, 7.0, 1.0], 1, "", None),
+    (0, &[18.0, 41.0, 31.0], 2, "g", Some(0.0603481867284)),
+    (2, &[14.0, 6.0, 2.0], 1, "x1", Some(0.0541666666667)),
+    (2, &[4.0, 35.0, 29.0], 2, "x1", Some(0.0212108330278)),
+    (3, &[14.0, 0.0, 0.0], 1, "", None),
+    (3, &[0.0, 6.0, 2.0], 2, "", None),
+    (4, &[3.0, 30.0, 16.0], 2, "x2", Some(0.0132459208412)),
+    (4, &[1.0, 5.0, 13.0], 3, "", None),
+    (7, &[1.0, 21.0, 6.0], 2, "", None),
+    (7, &[2.0, 9.0, 10.0], 3, "o", Some(0.00938418571064)),
+    (10, &[2.0, 6.0, 3.0], 2, "", None),
+    (10, &[0.0, 3.0, 7.0], 3, "", None),
+];
+
 fn run(engine: &mut Engine, source: &str) -> Vec<Table> {
     let (commands, errors) = parse(source);
     assert!(errors.is_empty(), "{errors:?}");
@@ -654,8 +736,6 @@ fn what_cannot_be_asked_says_so() {
         message.contains("no probability for category 3"),
         "{message}"
     );
-    let (_, errors) = parse("TREE y [n] BY x1 /METHOD TYPE=CRT PRUNE=SE(1).");
-    assert_eq!(errors[0].message, "METHOD PRUNE=SE is not supported yet");
 }
 
 #[test]
@@ -679,4 +759,37 @@ fn settings_of_another_method_are_ignored_with_a_warning() {
     for what in ["CHAID applies", "SCORES applies", "FORCE applies"] {
         assert!(warnings.contains(what), "{what}: {warnings}");
     }
+}
+
+const PRUNING: &str = " /GROWTHLIMIT MINPARENTSIZE=8 MINCHILDSIZE=4";
+
+#[test]
+fn pruning_keeps_the_smallest_tree_within_the_standard_errors() {
+    // the grown tree has 35 nodes; its weakest-link sequence has risks 0.2067 (for 18 and 10
+    // leaves), 0.22, 0.2333, 0.2733 and 0.4133 (rpart's cost-complexity table agrees)
+    let base = "TREE y [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT";
+    let (_, tables) = grown(&format!("{base} PRUNE=SE(0){PRUNING}"), 2, EXPECTED_P1_B0);
+    // nothing is lost: the pruned tree misclassifies as many cases as the grown one
+    close(risk(&tables).0, 31.0 / 150.0, 1e-12);
+    grown(&format!("{base} PRUNE=SE(.5){PRUNING}"), 2, EXPECTED_P1_B05);
+    // SE without a number is one standard error
+    let (_, tables) = grown(&format!("{base} PRUNE=SE{PRUNING}"), 2, EXPECTED_P1_B1);
+    let summary = table(&tables, "Model Summary");
+    assert!(summary.rows.iter().any(|r| text(&r[1]) == "Pruning"));
+}
+
+#[test]
+fn pruning_with_priors_uses_the_weighted_risk() {
+    let priors = " /PRIORS CUSTOM=1 [5] 2 [3] 3 [2]";
+    let base = "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT";
+    grown(
+        &format!("{base} PRUNE=SE(0){priors}{PRUNING}"),
+        3,
+        EXPECTED_P2_B0,
+    );
+    grown(
+        &format!("{base} PRUNE=SE(1){priors}{PRUNING}"),
+        3,
+        EXPECTED_P2_B1,
+    );
 }

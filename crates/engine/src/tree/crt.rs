@@ -19,6 +19,13 @@
 //!   the best improvement is below MINIMPROVEMENT. A candidate that would leave a child below
 //!   MINCHILDSIZE (cases with a value of the predictor) is not offered, so the best remaining
 //!   split is taken.
+//! - Pruning (PRUNE=SE(b)): the subtrees T0 (the grown tree), T1, ... down to the root are the
+//!   repeated weakest-link cuts: each step turns every internal node with the smallest
+//!   (R(t) - R(subtree of t)) / (terminal nodes of the subtree - 1) into a terminal node, R the
+//!   resubstitution risk of a node, the weight of the classes it does not assign (priors over class
+//!   totals times counts). The risk of each subtree and its standard error come from the same
+//!   estimators as the Risk table. With k* the smallest subtree whose risk is the smallest, the
+//!   one kept is the smallest subtree with risk at most R(T_k*) + b se(R(T_k*)).
 //! - A case with no value of the split predictor follows the first surrogate whose predictor it
 //!   has, and the child with more cases when there is none. A surrogate for a split s* of X* is
 //!   the split of another predictor X with the largest probability of sending a case that has
@@ -29,7 +36,7 @@
 //!   with pL and pR the shares of the cases with a value of X* that s* sends left and right; only
 //!   a positive association keeps the surrogate, the best ones up to MAXSURROGATES.
 
-use super::{Node, Predictor, Split, Surrogate, make_node};
+use super::{Node, Predictor, Split, Surrogate, make_node, risk_estimate};
 use crate::Error;
 use statscraft_syntax::TreeImpurity;
 use std::collections::VecDeque;
@@ -416,4 +423,131 @@ impl Growth<'_> {
         }
         Ok(nodes)
     }
+}
+
+/// The node's own risk: the weight of the classes it does not assign.
+fn node_risk(node: &Node) -> f64 {
+    node.assign.iter().sum::<f64>() - node.assign[node.predicted()]
+}
+
+/// Prunes by the standard error rule: the nodes of the kept subtree, renumbered in order.
+pub(super) fn prune(nodes: Vec<Node>, b: f64) -> Vec<Node> {
+    let n = nodes.len();
+    // cut[t]: the subtree below t is gone and t is terminal
+    let mut cut = vec![false; n];
+    let mut sequence = vec![cut.clone()];
+    let terminals = |cut: &[bool]| -> Vec<usize> {
+        let mut found = Vec::new();
+        let mut stack = vec![0];
+        while let Some(t) = stack.pop() {
+            if cut[t] || nodes[t].children.is_empty() {
+                found.push(t);
+            } else {
+                stack.extend(&nodes[t].children);
+            }
+        }
+        found
+    };
+    loop {
+        // children come after their parents, so a backward pass sees them first
+        let (mut leaves, mut subtree_risk) = (vec![1.0; n], vec![0.0; n]);
+        let mut gap = vec![f64::INFINITY; n];
+        for t in (0..n).rev() {
+            if cut[t] || nodes[t].children.is_empty() {
+                subtree_risk[t] = node_risk(&nodes[t]);
+            } else {
+                let [l, r] = [nodes[t].children[0], nodes[t].children[1]];
+                leaves[t] = leaves[l] + leaves[r];
+                subtree_risk[t] = subtree_risk[l] + subtree_risk[r];
+                gap[t] = (node_risk(&nodes[t]) - subtree_risk[t]) / (leaves[t] - 1.0);
+            }
+        }
+        // only nodes still part of the tree count
+        let mut live = vec![false; n];
+        for t in terminals(&cut) {
+            let mut up = Some(t);
+            while let Some(u) = up {
+                live[u] = true;
+                up = nodes[u].parent;
+            }
+        }
+        let weakest = (0..n)
+            .filter(|&t| live[t] && gap[t].is_finite())
+            .map(|t| gap[t])
+            .fold(f64::INFINITY, f64::min);
+        if !weakest.is_finite() {
+            break;
+        }
+        let limit = weakest + 1e-9 * weakest.abs() + 1e-15;
+        for t in 0..n {
+            let below_cut = {
+                let mut up = nodes[t].parent;
+                let mut found = false;
+                while let Some(u) = up {
+                    found |= cut[u];
+                    up = nodes[u].parent;
+                }
+                found
+            };
+            if live[t] && gap[t] <= limit && !cut[t] && !below_cut {
+                cut[t] = true;
+            }
+        }
+        sequence.push(cut.clone());
+    }
+    let risks: Vec<(f64, f64)> = sequence
+        .iter()
+        .map(|c| {
+            let (risk, variance) =
+                risk_estimate(terminals(c).into_iter().map(|t| &nodes[t]), &nodes[0]);
+            (risk, variance.sqrt())
+        })
+        .collect();
+    let lowest = risks.iter().map(|r| r.0).fold(f64::INFINITY, f64::min);
+    let smallest = (0..risks.len())
+        .rev()
+        .find(|&k| risks[k].0 <= lowest + 1e-12)
+        .expect("a subtree has the lowest risk");
+    let allowed = risks[smallest].0 + b * risks[smallest].1 + 1e-12;
+    let kept = (0..risks.len())
+        .rev()
+        .find(|&k| risks[k].0 <= allowed)
+        .expect("the subtree with the lowest risk is allowed");
+    renumber(nodes, &sequence[kept])
+}
+
+/// The nodes that stay when the subtrees below the `cut` nodes go, in their order.
+fn renumber(nodes: Vec<Node>, cut: &[bool]) -> Vec<Node> {
+    let mut keep = vec![false; nodes.len()];
+    keep[0] = true;
+    for t in 0..nodes.len() {
+        if keep[t] && !cut[t] {
+            for &c in &nodes[t].children {
+                keep[c] = true;
+            }
+        }
+    }
+    let mut new_id = vec![0; nodes.len()];
+    let mut next = 0;
+    for t in 0..nodes.len() {
+        if keep[t] {
+            new_id[t] = next;
+            next += 1;
+        }
+    }
+    let mut kept = Vec::new();
+    for (t, mut node) in nodes.into_iter().enumerate() {
+        if !keep[t] {
+            continue;
+        }
+        node.parent = node.parent.map(|p| new_id[p]);
+        if cut[t] {
+            node.children.clear();
+            node.split = None;
+        } else {
+            node.children = node.children.iter().map(|&c| new_id[c]).collect();
+        }
+        kept.push(node);
+    }
+    kept
 }

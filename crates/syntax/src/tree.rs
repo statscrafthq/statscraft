@@ -792,9 +792,6 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
                 .ignored
                 .push("SCORES applies to CHAID trees only; ignored".into());
         }
-        if command.prune.is_some() {
-            return Err(not_supported(p, 0, "METHOD PRUNE=SE"));
-        }
     }
     if command.min_child >= command.min_parent {
         let message = "GROWTHLIMIT MINCHILDSIZE must be less than MINPARENTSIZE";

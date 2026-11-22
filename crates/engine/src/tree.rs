@@ -958,7 +958,7 @@ impl Engine {
                 &dependent,
                 &mut warnings,
             )?;
-            crt::Growth {
+            let grown = crt::Growth {
                 predictors: &coded,
                 case_class: &case_class,
                 case_weight: &case_weight,
@@ -971,7 +971,11 @@ impl Engine {
                 max_depth: depth_limit(command),
                 max_surrogates: command.max_surrogates,
             }
-            .grow()?
+            .grow()?;
+            match command.prune {
+                Some(b) => crt::prune(grown, b),
+                None => grown,
+            }
         } else {
             let merging = Merging {
                 tester: Tester {
@@ -1284,6 +1288,14 @@ impl Engine {
                     "Minimum Change in Improvement",
                     Cell::Number(command.min_improvement.unwrap_or(0.0001)),
                 ));
+                rows.push(row(
+                    "",
+                    "Pruning",
+                    text(match command.prune {
+                        None => "None".to_string(),
+                        Some(b) => format!("Standard error rule, {b} standard errors"),
+                    }),
+                ));
             }
             rows.extend([
                 row("", "Validation", text("None")),
@@ -1545,27 +1557,7 @@ impl Engine {
             }
         }
         let correct: f64 = (0..classes.len()).map(|j| confusion[j][j]).sum();
-        // with the priors the data give, the share misclassified; otherwise each class's share
-        // misclassified, weighted by its prior
-        let root = &nodes[0];
-        let prior_total: f64 = root.assign.iter().sum();
-        let from_data = (0..classes.len())
-            .all(|j| (root.assign[j] / prior_total - root.counts[j] / root_n).abs() < 1e-12);
-        let (risk, risk_variance) = if from_data {
-            let risk = 1.0 - correct / root_n;
-            (risk, risk * (1.0 - risk) / root_n)
-        } else {
-            let (mut risk, mut variance) = (0.0, 0.0);
-            for (j, row) in confusion.iter().enumerate() {
-                let (total, wrong) = (row.iter().sum::<f64>(), row.iter().sum::<f64>() - row[j]);
-                if total > 0.0 {
-                    let prior = root.assign[j] / prior_total;
-                    risk += prior * wrong / total;
-                    variance += (prior / total).powi(2) * (wrong - wrong * wrong / total);
-                }
-            }
-            (risk, variance)
-        };
+        let (risk, risk_variance) = risk_estimate(terminals.iter().map(|&t| &nodes[t]), &nodes[0]);
         if command.print.risk {
             out.push(Table {
                 title: "Risk".into(),
@@ -1806,6 +1798,39 @@ fn method_name(command: &Tree) -> &'static str {
         (false, true) => "Exhaustive CHAID",
         (false, false) => "CHAID",
     }
+}
+
+/// The resubstitution risk of a tree and its variance, from its terminal nodes and the root.
+/// With the priors the data give it is the share misclassified; otherwise each class's share
+/// misclassified, weighted by its prior.
+fn risk_estimate<'a>(terminals: impl Iterator<Item = &'a Node>, root: &Node) -> (f64, f64) {
+    let classes = root.counts.len();
+    let mut wrong = vec![0.0; classes];
+    for node in terminals {
+        let predicted = node.predicted();
+        for (j, &count) in node.counts.iter().enumerate() {
+            if j != predicted {
+                wrong[j] += count;
+            }
+        }
+    }
+    let prior_total: f64 = root.assign.iter().sum();
+    let from_data = (0..classes)
+        .all(|j| (root.assign[j] / prior_total - root.counts[j] / root.n).abs() < 1e-12);
+    if from_data {
+        let risk = wrong.iter().sum::<f64>() / root.n;
+        return (risk, risk * (1.0 - risk) / root.n);
+    }
+    let (mut risk, mut variance) = (0.0, 0.0);
+    for (j, &missed) in wrong.iter().enumerate() {
+        let total = root.counts[j];
+        if total > 0.0 {
+            let prior = root.assign[j] / prior_total;
+            risk += prior * missed / total;
+            variance += (prior / total).powi(2) * (missed - missed * missed / total);
+        }
+    }
+    (risk, variance)
 }
 
 /// The depth limit: AUTO is three levels for CHAID and five for CRT.
