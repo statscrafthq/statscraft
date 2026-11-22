@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- MCP: apply_plan previews or applies a bounded OpenStatSpec transformation plan in place to a dataset in a SQLite, PostgreSQL, MySQL or Dolt database, as `statscraft plan --apply` does: one transaction, one audit row, no commit on Dolt, and a URL with a password refused.
 - Window: Multidimensional Unfolding starts from coordinates in a file and fixes the coordinates of the rows or the columns from a file (Restrictions), each with the variables to read.
 
 ## 0.25.0 (2026-11-22)

@@ -27,6 +27,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 | `read_output` | optional `document` | what an output window of the open window holds, as `statscraft output --json`: every heading, table and chart with whether it is hidden or selected, and which kinds the window shows |
 | `undo` | none | the last run that changed the data in the open window taken back, as its Edit > Undo and `statscraft undo`; gives that run's syntax under `undone` |
 | `add_chart` | `chart`, optional `session` and `vega_lite` | the chart checked and added to the designated output document, as the result of a run; the text starts with `chart added to output document NAME` |
+| `apply_plan` | `syntax`, `database` (`sqlite`, `postgres`, `mysql` or `dolt`), `location`, `dataset`, optional `apply`, `actor`, `expected_branch`, `expected_head`, `profile` | the JSON of `statscraft plan` with a database and `--name`: the plan, `plan_hash` and `source_hash`, and after an apply `applied`; see [Editing a dataset in a database](#editing-a-dataset-in-a-database) |
 
 - `syntax` is the text of one or more commands; `file` is the absolute path of a .sps file. Give one of them.
 - `lines` limits the run to the commands within a line range, such as `"12-20"`. Line numbers stay those of the whole text.
@@ -95,6 +96,18 @@ When the person asks to fix or explain their syntax, the agent reads the window,
 
 `read_output` shows the agent what the person sees in an output window: the designated one, or the output document `document`. Its structured content is the JSON of `statscraft output --json`; its text a summary line and the tables as `run_syntax` gives them, each hidden or selected one marked so.
 
+## Editing a dataset in a database
+
+`apply_plan` edits a dataset stored in an [OpenStatSpec database](command-line.md#db) in place, as `statscraft plan --apply` does: the same dataset and the same table, with no copy.
+
+- `syntax` takes only the bounded subset of [`plan`](command-line.md#plan): RECODE, VARIABLE LABELS, VALUE LABELS, ADD VALUE LABELS, FORMATS, VARIABLE LEVEL, simple COMPUTE and IF, and EXECUTE. `profile` picks `0.1`, `0.2` or `0.3` (the default).
+- `location` is the absolute path of a SQLite file, or the URL of a PostgreSQL, MySQL or Dolt database. A URL with a password is refused; the server takes the password from `STATSCRAFT_DB_PASSWORD` in its own environment.
+- Without `apply`, or with `apply` false, the tool only previews: it reads the dataset's dictionary, lowers the syntax to a plan and writes nothing. With `apply` true it applies the plan in one transaction with one audit row naming `actor` (default: the user the server runs as).
+- On Dolt, an apply needs `expected_branch` and `expected_head`: the database must be on that branch at that commit, with a clean working set. The tool never commits, branches or resets; the reply has `"committed": false` and the commit is yours. Put all edits of one step into one plan.
+- Errors carry a stable `code`. When the syntax is at fault they also carry `line` and `column`, and come as a normal result for the agent to fix; others, such as an unknown dataset or a database that cannot be reached, are tool errors.
+
+Preview first, then apply. After an apply, read the dataset back from the database, for example with `statscraft db import`, instead of assuming what the edit did.
+
 ## Sessions and the window
 
 A session keeps the data, settings, macros and named datasets between calls, as with `statscraft run -s NAME` (see [sessions](command-line.md#sessions-and-line-ranges)).
@@ -106,5 +119,5 @@ A session keeps the data, settings, macros and named datasets between calls, as 
 ## Safety
 
 - The server can do what the command line can do, and nothing more. Syntax can read files, and it can write them with `SAVE`, `AGGREGATE OUTFILE`, `OUTPUT EXPORT` or the `xlsx` argument. `check_syntax` writes nothing; nothing is written without one of those.
-- The tools tell the agent app which of them only read (`describe`, `list_commands`, `command_help`, `check_syntax`, `window_status`, `list_syntax_windows`, `read_syntax`, `read_output`), which change only the window's syntax windows (`edit_syntax`, `new_syntax_window`, `open_syntax_file`) or add to its output (`add_chart`, which writes no file), that `close_syntax` can lose unsaved syntax and `undo` takes back a change to the data, and that `run_syntax`, `save_syntax` and `export_output` can change files. Agent apps ask you before a tool runs, unless you allowed it; allow `run_syntax` only for agents you trust with your files.
-- The server talks only to the app that started it, over standard input and output. It opens no network port. Calls to the window use the window's local connection, described in [AI agents](ai-agents.md#safety-of-the-live-session).
+- The tools tell the agent app which of them only read (`describe`, `list_commands`, `command_help`, `check_syntax`, `window_status`, `list_syntax_windows`, `read_syntax`, `read_output`), which change only the window's syntax windows (`edit_syntax`, `new_syntax_window`, `open_syntax_file`) or add to its output (`add_chart`, which writes no file), that `close_syntax` can lose unsaved syntax and `undo` takes back a change to the data, that `run_syntax`, `save_syntax` and `export_output` can change files, and that `apply_plan` can change a dataset in a database. Agent apps ask you before a tool runs, unless you allowed it; allow `run_syntax` only for agents you trust with your files.
+- The server talks only to the app that started it, over standard input and output. It opens no network port. `apply_plan` with a URL connects to that database server. Calls to the window use the window's local connection, described in [AI agents](ai-agents.md#safety-of-the-live-session).

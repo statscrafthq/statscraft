@@ -33,44 +33,58 @@ On Dolt, --apply needs --expected-branch and --expected-head: the session must b
 branch at that commit with a clean working set, and the changes stay uncommitted.")]
 pub struct PlanArgs {
     /// Syntax file, or - for standard input
-    file: Option<String>,
+    pub(crate) file: Option<String>,
     /// Syntax text given directly
     #[arg(short = 'e', long = "execute", conflicts_with = "file")]
-    text: Option<String>,
+    pub(crate) text: Option<String>,
     /// Input schema: a JSON file with {"variables": [{"name", "storage_kind", ...}]}
     #[arg(long, value_name = "FILE", conflicts_with_all = ["session", "name"])]
-    input_schema: Option<PathBuf>,
+    pub(crate) input_schema: Option<PathBuf>,
     /// Take the input schema from the dataset of this session
     #[arg(short, long, conflicts_with = "name")]
-    session: Option<String>,
+    pub(crate) session: Option<String>,
     /// The database that holds the dataset named by --name
     #[command(flatten)]
-    target: Target,
+    pub(crate) target: Target,
     /// Dataset name in the database
     #[arg(long, value_name = "DATASET")]
-    name: Option<String>,
+    pub(crate) name: Option<String>,
     /// Apply the plan to the dataset in place
     #[arg(long, requires = "name")]
-    apply: bool,
+    pub(crate) apply: bool,
     /// Dolt: the branch the apply must run on
     #[arg(long, value_name = "BRANCH", requires = "apply")]
-    expected_branch: Option<String>,
+    pub(crate) expected_branch: Option<String>,
     /// Dolt: the commit HEAD must be at
     #[arg(long, value_name = "COMMIT", requires = "apply")]
-    expected_head: Option<String>,
+    pub(crate) expected_head: Option<String>,
     /// Who applies the plan, for the audit row; defaults to $USER
     #[arg(long)]
-    actor: Option<String>,
+    pub(crate) actor: Option<String>,
     /// Frontend profile version
     #[arg(long, default_value = "0.3", value_parser = ["0.1", "0.2", "0.3"])]
-    profile: String,
+    pub(crate) profile: String,
     /// Symbolic name of the input dataset in the plan
     #[arg(long, default_value = "input")]
-    alias: String,
+    pub(crate) alias: String,
 }
 
 pub fn run(args: PlanArgs) -> ExitCode {
-    let output = match request(&args) {
+    let output = output(&args);
+    println!(
+        "{}",
+        canonical_json(&output).expect("plain data with small integers")
+    );
+    if output["ok"] == true {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// The JSON `run` prints; the MCP tool apply_plan replies with it too.
+pub(crate) fn output(args: &PlanArgs) -> Value {
+    match request(args) {
         Ok(request) => {
             let out = compile_request(&request);
             match out.result {
@@ -83,7 +97,7 @@ pub fn run(args: PlanArgs) -> ExitCode {
                     });
                     if args.apply {
                         let source_hash = out.source_hash.as_deref().unwrap_or("");
-                        match apply_to_dataset(&args, &c.plan, source_hash) {
+                        match apply_to_dataset(args, &c.plan, source_hash) {
                             Ok(applied) => ok["applied"] = applied,
                             Err(e) => {
                                 ok["ok"] = json!(false);
@@ -110,15 +124,6 @@ pub fn run(args: PlanArgs) -> ExitCode {
             }
         }
         Err(message) => json!({"ok": false, "error": {"code": "usage", "message": message}}),
-    };
-    println!(
-        "{}",
-        canonical_json(&output).expect("plain data with small integers")
-    );
-    if output["ok"] == true {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
     }
 }
 

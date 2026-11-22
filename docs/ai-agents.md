@@ -50,6 +50,8 @@ Good habits:
 - To hand over the output itself, end the run with `OUTPUT SAVE OUTFILE='results.scout'.`: the person opens it in the window with File > Open output. A `.scout` file the person gives you is plain JSON: read it directly, each command with its syntax and tables ([output files](command-line.md#output-files)). To turn one into a workbook or web page, run `OUTPUT OPEN FILE='results.scout'.` and OUTPUT EXPORT.
 - Add `--vega-lite` when you want to show a chart: every chart then carries a Vega-Lite specification with its numbers inline, ready for any Vega-Lite viewer. Do not draw charts from numbers you computed yourself.
 
+A dataset stored in an OpenStatSpec database is edited in place with `statscraft plan` and a database, or the MCP tool `apply_plan`: preview the plan first, then apply it, then read the dataset back with `statscraft db import` instead of assuming the result. On Dolt, put the edits of one step into one plan, since an apply needs a clean working set and never commits. See [plan](command-line.md#plan) and [Editing a dataset in a database](mcp.md#editing-a-dataset-in-a-database).
+
 ## Working in the open window
 
 When the person has `statscraft-gui` open, the agent can work in it instead of a file session: the session name `gui` sends the syntax to the window, which runs it like its own Run button. The person sees each table appear in the output window and each command in the log, and can keep working in the window between the agent's runs.
