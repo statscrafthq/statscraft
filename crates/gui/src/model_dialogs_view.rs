@@ -8,10 +8,11 @@ use crate::model_dialogs::{
     ClusterMeasure, DISCRIMINANT_METHODS, DISCRIMINANT_SAVE, DISCRIMINANT_STATISTICS,
     DISCRIMINANT_STATISTICS_GROUPS, Discriminant, FACTOR_DESCRIPTIVES, FACTOR_EXTRACTIONS,
     FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, FactorContrast,
-    GLM_ADJUSTMENTS, GLM_CONTRASTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans,
-    LOGISTIC_CONTRASTS, LOGISTIC_METHODS, LOGISTIC_SAVE, LOGISTIC_SAVE_GROUPS, Logistic, MColumn,
-    PRINT_M_MATRIX, PROFILE_ERROR_BARS, RepeatedMeasures, SELECT_RELATIONS, SUM_OF_SQUARES,
-    Solutions, UNIVARIATE_PRINT, Univariate, WithinFactor, glm_has_reference, has_reference,
+    GLM_ADJUSTMENTS, GLM_CONTRASTS, GLM_HET_TESTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS,
+    HET_MODELS, Hierarchical, KMeans, LOGISTIC_CONTRASTS, LOGISTIC_METHODS, LOGISTIC_SAVE,
+    LOGISTIC_SAVE_GROUPS, Logistic, MColumn, PRINT_M_MATRIX, PROFILE_ERROR_BARS, ROBUST_ESTIMATORS,
+    RepeatedMeasures, SELECT_RELATIONS, SUM_OF_SQUARES, Solutions, UNIVARIATE_PRINT, Univariate,
+    WithinFactor, glm_has_reference, has_reference,
 };
 use crate::stats_dialogs_view::{blocks, small_field};
 use eframe::egui::{self, ComboBox, TextEdit, Ui};
@@ -494,6 +495,33 @@ pub fn univariate(ui: &mut Ui, d: &mut Univariate, picked: &mut Vec<String>) {
                 &GLM_PRINT[..UNIVARIATE_PRINT],
                 &mut d.print[..UNIVARIATE_PRINT],
             );
+        }
+        ui.label("Heteroskedasticity tests");
+        for (i, (_, label)) in GLM_HET_TESTS.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut d.het[i], *label);
+                if let Some(model) = d.het_model.get_mut(i) {
+                    ui.add_enabled_ui(d.het[i], |ui| {
+                        ComboBox::from_id_salt(("het_model", i))
+                            .selected_text(HET_MODELS[*model].1)
+                            .show_index(ui, model, HET_MODELS.len(), |k| HET_MODELS[k].1);
+                    });
+                }
+            });
+        }
+        if !d.multivariate {
+            ui.checkbox(
+                &mut d.robust,
+                "Parameter estimates with robust standard errors",
+            );
+            ui.add_enabled_ui(d.robust, |ui| {
+                choice(
+                    ui,
+                    "Robust covariance",
+                    &ROBUST_ESTIMATORS,
+                    &mut d.robust_estimator,
+                );
+            });
         }
         field(ui, "Significance level", &mut d.alpha, 50.0);
     });

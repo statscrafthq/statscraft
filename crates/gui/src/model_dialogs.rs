@@ -980,6 +980,34 @@ pub const GLM_PRINT: [(&str, &str); 11] = [
     ("TEST(MMATRIX)", "Coefficients of the M matrix"),
 ];
 
+/// The tests for heteroskedasticity on /PRINT, keyword and label; the first three are run on
+/// the auxiliary model of `HET_DESIGNS`.
+pub const GLM_HET_TESTS: [(&str, &str); 4] = [
+    ("MBP", "Modified Breusch-Pagan test"),
+    ("BP", "Breusch-Pagan test"),
+    ("F", "F test"),
+    ("WHITE", "White's test"),
+];
+
+/// The subcommand of the auxiliary model of each of the first three `GLM_HET_TESTS`.
+const HET_DESIGNS: [&str; 3] = ["MBPDESIGN", "BPDESIGN", "FDESIGN"];
+
+/// The auxiliary model of a test for heteroskedasticity: the predicted values (no subcommand)
+/// or the terms of the model (a bare design subcommand).
+pub const HET_MODELS: [(&str, &str); 2] = [
+    ("", "on the predicted values"),
+    ("DESIGN", "on the terms of the model"),
+];
+
+/// The estimators of the robust covariance of /ROBUST.
+pub const ROBUST_ESTIMATORS: [(&str, &str); 5] = [
+    ("HC0", "HC0"),
+    ("HC1", "HC1"),
+    ("HC2", "HC2"),
+    ("HC3", "HC3"),
+    ("HC4", "HC4"),
+];
+
 /// The number of entries of `GLM_PRINT` the Univariate dialog offers.
 pub const UNIVARIATE_PRINT: usize = 8;
 
@@ -1134,6 +1162,14 @@ pub struct Univariate {
     pub save: [bool; 8],
     /// One flag per entry of `GLM_PRINT`; Univariate uses the first `UNIVARIATE_PRINT`.
     pub print: [bool; 11],
+    /// One flag per entry of `GLM_HET_TESTS`.
+    pub het: [bool; 4],
+    /// The auxiliary model of each of the first three tests, an index into `HET_MODELS`.
+    pub het_model: [usize; 3],
+    /// Parameter estimates with robust standard errors (Univariate only).
+    pub robust: bool,
+    /// Index into `ROBUST_ESTIMATORS`.
+    pub robust_estimator: usize,
     pub alpha: String,
     /// The columns of MMATRIX (Multivariate only).
     pub m_matrix: Vec<MColumn>,
@@ -1172,6 +1208,10 @@ impl Default for Univariate {
             profile_errors: 0,
             save: [false; 8],
             print: [false; 11],
+            het: [false; 4],
+            het_model: [0; 3],
+            robust: false,
+            robust_estimator: 3,
             alpha: "0.05".into(),
             m_matrix: Vec::new(),
             bootstrap: Default::default(),
@@ -1389,7 +1429,18 @@ impl Univariate {
             print.retain(|k| !k.starts_with("TEST("));
             print.push(&test);
         }
+        print.extend(keywords(&GLM_HET_TESTS, &self.het));
         glm_options(&mut text, self.sstype, print, &self.alpha)?;
+        for ((design, on), model) in HET_DESIGNS.iter().zip(self.het).zip(self.het_model) {
+            if on && model == 1 {
+                text.push_str(&format!("\n  /{design}"));
+            }
+        }
+        // the robust estimates are for one dependent variable
+        if self.robust && !self.multivariate {
+            let estimator = ROBUST_ESTIMATORS[self.robust_estimator].0;
+            text.push_str(&format!("\n  /ROBUST={estimator}"));
+        }
         if self.multivariate {
             self.m_matrix_syntax(&mut text)?;
         }
@@ -2179,6 +2230,21 @@ mod tests {
              /PRINT=DESCRIPTIVE ETASQ OPOWER PARAMETER HOMOGENEITY LOF TEST(LMATRIX) GEF\n  \
              /CRITERIA=ALPHA(0.01)."
         );
+        // the tests for heteroskedasticity, two on the terms of the model, and robust estimates
+        let mut h = d.clone();
+        h.het = [true; 4];
+        h.het_model = [1, 0, 1];
+        h.robust = true;
+        h.robust_estimator = 0;
+        let het = h.syntax().unwrap();
+        assert!(
+            het.contains(
+                "TEST(LMATRIX) GEF MBP BP F WHITE\n  /CRITERIA=ALPHA(0.01)\n  /MBPDESIGN\n  \
+                 /FDESIGN\n  /ROBUST=HC0."
+            ),
+            "{het}"
+        );
+        assert!(statscraft_syntax::parse(&het).1.is_empty());
         // the dialog walk with every option on runs this set (app/dialog_walk.rs), and the
         // engine's GLM tests check the saved variables
         assert!(statscraft_syntax::parse(&syntax).1.is_empty());

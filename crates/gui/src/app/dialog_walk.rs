@@ -1527,6 +1527,10 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             profile_errors: 2,
             save: [true; 8],
             print: [true; 11],
+            het: [true; 4],
+            het_model: [1, 0, 1],
+            robust: true,
+            robust_estimator: 4,
             alpha: s("0.01"),
             ..Default::default()
         }),
@@ -1557,6 +1561,8 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             profile_errors: 1,
             save: [true; 8],
             print: [true; 11],
+            het: [true; 4],
+            het_model: [0, 1, 0],
             alpha: s("0.1"),
             m_matrix: vec![MColumn {
                 label: s("Spend minus satisfaction"),
