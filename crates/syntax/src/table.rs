@@ -116,7 +116,7 @@ macro_rules! glm_syntax {
                  \x20  [/WSFACTOR=name levels [POLYNOMIAL | contrast] ...] [/WSDESIGN=effects] (GLM)\n\
                  \x20  [/METHOD=SSTYPE(1 | 2 | 3 | 4)] [/INTERCEPT=INCLUDE | EXCLUDE] [/MISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/CRITERIA=[EPS(1E-8)] [ALPHA(0.05)]] [/REGWGT=var]\n\
-                 \x20  [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF] [RSSCP] [GEF]\n\
+                 \x20  [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF] [RSSCP] [GEF] [MBP] [BP] [F] [WHITE]\n\
                  \x20         [TEST([SSCP] [LMATRIX | ESTIMABLE] [MMATRIX | TRANSFORM])]]\n\
                  \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
                  \x20            [COMPARE[(factor)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
@@ -127,6 +127,7 @@ macro_rules! glm_syntax {
                  \x20  [/MMATRIX=['label'] dependent value ... | ALL values [; ...]] (GLM) [/KMATRIX=values [; ...]]\n\
                  \x20  [/SAVE=tempvar[(name)] ...] [/DESIGN=effects]\n\
                  \x20  [/ROBUST[=HC0 | HC1 | HC2 | HC3 | HC4]]\n\
+                 \x20  [/MBPDESIGN[=effects]] [/BPDESIGN[=effects]] [/FDESIGN[=effects]]\n\
                  \x20  [/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]\n\
                  \x20         [TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...\n\
                  effects: INTERCEPT, a factor or covariate, a*b or a BY b, a(b) or a WITHIN b, a(b(c)), x*x, x*a.\n\
@@ -186,9 +187,13 @@ macro_rules! glm_syntax {
                  each effect's hypothesis rows, by the sum of squares type, with the error df) with the\n\
                  heteroskedasticity-consistent covariance, and a robust set of Contrast Results and Test Results\n\
                  for CONTRAST and LMATRIX; it is for one dependent variable and is ignored with a warning\n\
-                 otherwise. Not supported yet: RANDOM,\n\
-                 OUTFILE, MEASURE, MBP, BP, F and\n\
-                 WHITE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
+                 otherwise. PRINT=MBP, BP, F and WHITE test for heteroskedasticity: the squared residuals (times\n\
+                 the regression weight) are regressed on an auxiliary model, by default the constant, the\n\
+                 fitted values and their squares, or the terms of MBPDESIGN, BPDESIGN and FDESIGN (a bare one names\n\
+                 the model of DESIGN; an intercept is always in); White's uses every level, square and cross\n\
+                 product of the design columns. One Heteroskedasticity Tests table (for each dependent variable\n\
+                 of GLM) gives the chi-square or F, df and Sig. Not supported yet: RANDOM,\n\
+                 OUTFILE and MEASURE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
                  EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE and PRINT\n\
                  PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).")
     };

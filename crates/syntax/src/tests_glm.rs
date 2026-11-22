@@ -639,3 +639,23 @@ fn robust_takes_one_of_five_estimators_and_hc3_by_default() {
     let (_, errors) = parse("GLM y BY a /ROBUST=HC5.");
     assert!(errors[0].to_string().contains("HC0"));
 }
+
+#[test]
+fn heteroskedasticity_tests_and_their_auxiliary_models() {
+    let g = glm("UNIANOVA y BY a WITH x /PRINT=MBP BP F WHITE.");
+    assert!(g.print.mbp && g.print.bp && g.print.f_test && g.print.white);
+    assert!(g.bp_design.is_none() && g.mbp_design.is_none() && g.f_design.is_none());
+    let g = glm("GLM y BY a WITH x /BPDESIGN=x a /MBPDESIGN /FDESIGN=a*x.");
+    assert_eq!(g.bp_design.as_ref().map(Vec::len), Some(2));
+    assert_eq!(g.mbp_design, Some(Vec::new()));
+    assert_eq!(g.f_design.as_ref().map(Vec::len), Some(1));
+    // the last one counts
+    let g = glm("GLM y BY a WITH x /BPDESIGN=x /BPDESIGN=a.");
+    assert_eq!(
+        g.bp_design
+            .as_ref()
+            .and_then(|t| t.first())
+            .map(|t| t.label.as_str()),
+        Some("a")
+    );
+}

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- UNIANOVA and GLM PRINT=MBP, BP, F and WHITE with MBPDESIGN, BPDESIGN and FDESIGN: the Breusch-Pagan, modified Breusch-Pagan, F and White tests for heteroskedasticity.
+
 ## 0.26.0 (2026-11-22)
 
 - UNIANOVA and GLM /ROBUST=HC0 to HC4 (HC3 by default): robust parameter estimates, Wald F tests of the effects and a robust set of CONTRAST and LMATRIX results, for models with one dependent variable.

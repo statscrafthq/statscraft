@@ -31,7 +31,9 @@
 use crate::contrast::contrast_rows;
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
-use crate::dist::{f_p, f_quantile, noncentral_f_cdf, noncentral_t_cdf, t_p, t_quantile};
+use crate::dist::{
+    chi_square_p, f_p, f_quantile, noncentral_f_cdf, noncentral_t_cdf, t_p, t_quantile,
+};
 use crate::examine::Distribution;
 use crate::format::category_text;
 use crate::matrix::{Matrix, multiply, sweep, transpose};
@@ -1331,6 +1333,9 @@ fn univariate(
     if command.print.lof {
         out.push(lack_of_fit(d, fit, dependent, &flags));
     }
+    out.extend(heteroskedasticity_tests(
+        command, d, fit, dependent, warnings,
+    )?);
     out.extend(design_matrix_tables(command, d, fit));
     for (what, given) in [
         ("MMATRIX", command.mmatrix.is_some()),
@@ -3151,6 +3156,204 @@ fn emmeans_tables(
     Ok(out)
 }
 
+/// The regression of the squared weighted residuals on the columns `z` (with frequencies as
+/// replicated cases): the explained sum of squares u'Z(Z'Z)^-Z'u and the rank of Z.
+fn auxiliary_fit(z: &[Vec<f64>], f: &[f64], u: &[f64]) -> (f64, usize) {
+    let q = z.first().map_or(0, Vec::len);
+    let mut ztz = vec![vec![0.0; q]; q];
+    let mut ztu = vec![0.0; q];
+    for ((row, &fi), &ui) in z.iter().zip(f).zip(u) {
+        for a in 0..q {
+            ztu[a] += fi * row[a] * ui;
+            if row[a] == 0.0 {
+                continue;
+            }
+            for b in 0..q {
+                ztz[a][b] += fi * row[a] * row[b];
+            }
+        }
+    }
+    let (g, rank) = ginverse(&ztz, 1e-10);
+    let ssr = (0..q)
+        .map(|a| ztu[a] * (0..q).map(|b| g[a][b] * ztu[b]).sum::<f64>())
+        .sum();
+    (ssr, rank)
+}
+
+/// PRINT=MBP BP F WHITE for one dependent variable: the Algorithms manual's tests from the
+/// squared weighted residuals u = g e^2 regressed on an auxiliary model Z. With U'U, the mean
+/// ubar and the explained sum of squares S: BP = (S - n ubar^2) / (2 ubar^2), the modified test
+/// and White's n (S - n ubar^2) / (U'U - n ubar^2) (chi-square, rank Z - 1 df), and F with
+/// R^2 = (S - n ubar^2) / (U'U - n ubar^2) on rank Z - 1 and n - rank Z df. The default Z is the
+/// constant, the fitted values and their squares; White's is every product of two columns of X.
+fn heteroskedasticity_tests(
+    command: &Glm,
+    d: &Data,
+    fit: &Fit,
+    dependent: &str,
+    warnings: &mut Vec<String>,
+) -> Result<Option<Table>, Error> {
+    let print = &command.print;
+    if !(print.mbp || print.bp || print.f_test || print.white) {
+        return Ok(None);
+    }
+    let p = fit.p;
+    let fitted: Vec<f64> = (0..d.rows())
+        .map(|i| (0..p).map(|j| fit.x[i][j] * fit.b[j][0]).sum())
+        .collect();
+    let u: Vec<f64> = (0..d.rows())
+        .map(|i| d.g[i] * (d.y[i][0] - fitted[i]).powi(2))
+        .collect();
+    let n = fit.n;
+    let ubar = (0..d.rows()).map(|i| d.f[i] * u[i]).sum::<f64>() / n;
+    let uu: f64 = (0..d.rows()).map(|i| d.f[i] * u[i] * u[i]).sum();
+    if ubar <= 0.0 || uu - n * ubar * ubar <= 1e-12 * uu {
+        warnings.push(format!(
+            "The tests for heteroskedasticity need residuals that differ; {dependent} has none"
+        ));
+        return Ok(None);
+    }
+    let auxiliary = |given: &Option<Vec<Term>>| -> Result<(Vec<Vec<f64>>, String), Error> {
+        match given {
+            None => Ok((
+                fitted.iter().map(|&y| vec![1.0, y, y * y]).collect(),
+                "Intercept + predicted values + squared predicted values".to_string(),
+            )),
+            Some(terms) if terms.is_empty() => {
+                Ok((fit.x.clone(), "the model of DESIGN".to_string()))
+            }
+            Some(terms) => {
+                let mut terms = terms.clone();
+                if !terms.iter().any(|t| t.variables.is_empty()) {
+                    terms.insert(0, intercept_term());
+                }
+                let mut effects = effects_of(&terms, &d.factors, &d.covariates)?;
+                let z = design(d, &mut effects);
+                let names: Vec<String> = effects.iter().map(|e| e.label.clone()).collect();
+                Ok((z, names.join(" + ")))
+            }
+        }
+    };
+    let mut rows = Vec::new();
+    let mut notes = Vec::new();
+    let mut add =
+        |label: &str, statistic: f64, df: f64, error_df: Option<f64>, sig: f64, note: &str| {
+            rows.push(vec![
+                text(label.to_string()),
+                number(Some(statistic)),
+                number(Some(df)),
+                number(error_df),
+                number(Some(sig)),
+            ]);
+            notes.push(note.to_string());
+        };
+    let explained = |z: &[Vec<f64>]| -> (f64, usize) {
+        let (ssr, rank) = auxiliary_fit(z, &d.f, &u);
+        (ssr - n * ubar * ubar, rank)
+    };
+    if print.mbp {
+        let (z, note) = auxiliary(&command.mbp_design)?;
+        let (excess, rank) = explained(&z);
+        if rank > 1 {
+            let t = n * excess / (uu - n * ubar * ubar);
+            let df = (rank - 1) as f64;
+            add(
+                "Modified Breusch-Pagan Test",
+                t,
+                df,
+                None,
+                chi_square_p(t, df),
+                &format!("MBP: {note}"),
+            );
+        } else {
+            warnings.push(
+                "MBPDESIGN: the auxiliary model has only a constant; the test is left out".into(),
+            );
+        }
+    }
+    if print.bp {
+        let (z, note) = auxiliary(&command.bp_design)?;
+        let (excess, rank) = explained(&z);
+        if rank > 1 {
+            let t = excess / (2.0 * ubar * ubar);
+            let df = (rank - 1) as f64;
+            add(
+                "Breusch-Pagan Test",
+                t,
+                df,
+                None,
+                chi_square_p(t, df),
+                &format!("BP: {note}"),
+            );
+        } else {
+            warnings.push(
+                "BPDESIGN: the auxiliary model has only a constant; the test is left out".into(),
+            );
+        }
+    }
+    if print.f_test {
+        let (z, note) = auxiliary(&command.f_design)?;
+        let (excess, rank) = explained(&z);
+        if rank > 1 && n > rank as f64 {
+            let r2 = excess / (uu - n * ubar * ubar);
+            let (df1, df2) = ((rank - 1) as f64, n - rank as f64);
+            let f = (r2 / df1) / ((1.0 - r2) / df2);
+            add(
+                "F Test",
+                f,
+                df1,
+                Some(df2),
+                f_p(f, df1, df2),
+                &format!("F: {note}"),
+            );
+        } else {
+            warnings.push("FDESIGN: the auxiliary model has only a constant or as many columns as cases; the test is left out".into());
+        }
+    }
+    if print.white {
+        let columns: Vec<Vec<f64>> = fit
+            .x
+            .iter()
+            .map(|row| {
+                (0..p)
+                    .flat_map(|a| (a..p).map(move |b| (a, b)))
+                    .map(|(a, b)| row[a] * row[b])
+                    .collect()
+            })
+            .collect();
+        let (excess, rank) = explained(&columns);
+        if rank > 1 {
+            let t = n * excess / (uu - n * ubar * ubar);
+            let df = (rank - 1) as f64;
+            add(
+                "White's Test",
+                t,
+                df,
+                None,
+                chi_square_p(t, df),
+                "White: the levels, squares and cross products of the design columns",
+            );
+        } else {
+            warnings.push(
+                "White's test needs a model with more than a constant; it is left out".into(),
+            );
+        }
+    }
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(table(
+        "Heteroskedasticity Tests",
+        1,
+        plain(&["Test", "Statistic", "df", "Error df", "Sig."]),
+        rows,
+        Some(format!(
+            "Dependent Variable: {dependent}. The null hypothesis is that the error variance is the same whatever the independent variables are. The statistics are chi-square, except the F test. Auxiliary models: {}.",
+            notes.join("; ")
+        )),
+    )))
+}
+
 /// The heteroskedasticity-consistent covariance of the coefficients, HC0 to HC4 of the
 /// Algorithms manual: G X' W^1/2 diag(w) W^1/2 X G with the squared weighted residual of each
 /// case divided as the estimator says. The leverage of a case is its regression weight times
@@ -4676,6 +4879,9 @@ impl Engine {
                 .map(|((dj, fj), dep)| lack_of_fit(dj, fj, dep, &flags))
                 .collect();
             out.push(merge(tables, texts, true, "Dependent Variable"));
+        }
+        for ((dj, fj), dep) in parts.iter().zip(texts) {
+            out.extend(heteroskedasticity_tests(command, dj, fj, dep, warnings)?);
         }
         if command.print.sscp {
             out.push(sscp_table(&fit, &sscp, texts, command.sstype));

@@ -1703,3 +1703,129 @@ UNIANOVA y BY a /ROBUST=HC3 /DESIGN=a.",
         assert!(close(got, want), "{row}: {got} against {want}");
     }
 }
+
+fn het(tables: &[Table], row: &str, column: &str) -> f64 {
+    named_cell(tables, "Heteroskedasticity Tests", row, column)
+}
+
+// The tests of the Algorithms manual written out in a general statistics package: the squared
+// residuals regressed on the auxiliary model with lm()'s own residuals and fitted values.
+#[test]
+fn heteroskedasticity_tests_with_the_default_and_given_auxiliary_models() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!("{ROBUST_DATA}UNIANOVA y BY a WITH x /PRINT=MBP BP F WHITE /DESIGN=a x."),
+    );
+    assert!(close(
+        het(&t, "Modified Breusch-Pagan Test", "Statistic"),
+        9.331726203
+    ));
+    assert!(close(het(&t, "Modified Breusch-Pagan Test", "df"), 2.0));
+    assert!(close(
+        het(&t, "Modified Breusch-Pagan Test", "Sig."),
+        0.009411121966
+    ));
+    assert!(close(
+        het(&t, "Breusch-Pagan Test", "Statistic"),
+        17.78047883
+    ));
+    assert!(close(
+        het(&t, "Breusch-Pagan Test", "Sig."),
+        0.0001377266803
+    ));
+    assert!(close(het(&t, "F Test", "Statistic"), 5.773657624));
+    assert!(close(het(&t, "F Test", "Error df"), 33.0));
+    assert!(close(het(&t, "F Test", "Sig."), 0.007078230066));
+    // White: the squares and cross products leave 7 independent columns of the design
+    assert!(close(het(&t, "White's Test", "Statistic"), 11.59862256));
+    assert!(close(het(&t, "White's Test", "df"), 6.0));
+    // the models of the design subcommands
+    let t = run(
+        &mut engine,
+        &format!(
+            "{ROBUST_DATA}UNIANOVA y BY a WITH x /PRINT=MBP BP F /MBPDESIGN=x /BPDESIGN=x /FDESIGN=x /DESIGN=a x."
+        ),
+    );
+    assert!(close(
+        het(&t, "Modified Breusch-Pagan Test", "Statistic"),
+        8.264767084
+    ));
+    assert!(close(
+        het(&t, "Breusch-Pagan Test", "Statistic"),
+        15.74751691
+    ));
+    assert!(close(het(&t, "Breusch-Pagan Test", "df"), 1.0));
+    assert!(close(het(&t, "F Test", "Statistic"), 10.13159261));
+    assert!(close(het(&t, "F Test", "Error df"), 34.0));
+    // by itself a design subcommand names the model of DESIGN
+    let t = run(
+        &mut engine,
+        &format!(
+            "{ROBUST_DATA}UNIANOVA y BY a WITH x /PRINT=MBP BP F /MBPDESIGN /BPDESIGN /FDESIGN /DESIGN=a x."
+        ),
+    );
+    assert!(close(
+        het(&t, "Modified Breusch-Pagan Test", "Statistic"),
+        8.612992734
+    ));
+    assert!(close(
+        het(&t, "Breusch-Pagan Test", "Statistic"),
+        16.41101889
+    ));
+    assert!(close(het(&t, "F Test", "Statistic"), 3.354580572));
+    assert!(close(het(&t, "F Test", "df"), 3.0));
+}
+
+// With a regression weight the squared residuals are weighted (u = w e^2) and the fitted values
+// are those of the weighted fit.
+#[test]
+fn heteroskedasticity_tests_with_a_regression_weight() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{ROBUST_DATA}UNIANOVA y BY a WITH x /REGWGT=w /PRINT=MBP BP F WHITE /DESIGN=a x."
+        ),
+    );
+    assert!(close(
+        het(&t, "Modified Breusch-Pagan Test", "Statistic"),
+        10.15047789
+    ));
+    assert!(close(
+        het(&t, "Breusch-Pagan Test", "Statistic"),
+        15.9446542
+    ));
+    assert!(close(het(&t, "F Test", "Statistic"), 6.479148225));
+    assert!(close(het(&t, "White's Test", "Statistic"), 11.79219222));
+}
+
+#[test]
+fn heteroskedasticity_tests_of_each_dependent_and_their_refusals() {
+    let mut engine = Engine::default();
+    run(&mut engine, &format!("{ROBUST_DATA}COMPUTE y2 = y * y."));
+    let t = run(&mut engine, "GLM y y2 BY a WITH x /PRINT=BP /DESIGN=a x.");
+    let tables: Vec<&Table> = t
+        .iter()
+        .filter(|t| t.title == "Heteroskedasticity Tests")
+        .collect();
+    assert_eq!(tables.len(), 2, "one table for each dependent variable");
+    assert!(
+        tables[0]
+            .caption
+            .as_deref()
+            .unwrap()
+            .contains("Dependent Variable: y.")
+    );
+    assert!(
+        tables[1]
+            .caption
+            .as_deref()
+            .unwrap()
+            .contains("Dependent Variable: y2.")
+    );
+    let message = run_error(&format!(
+        "{ROBUST_DATA}UNIANOVA y BY a /PRINT=BP /BPDESIGN=nosuch."
+    ));
+    assert!(message.contains("nosuch"), "{message}");
+}

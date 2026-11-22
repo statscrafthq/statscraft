@@ -66,6 +66,11 @@ pub struct GlmPrint {
     pub lmatrix: bool,
     /// GEF: the general form of the estimable functions.
     pub gef: bool,
+    /// MBP, BP, F and WHITE: the tests for heteroskedasticity.
+    pub mbp: bool,
+    pub bp: bool,
+    pub f_test: bool,
+    pub white: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +204,11 @@ pub struct Glm {
     pub save: Vec<(GlmTemp, Option<String>)>,
     /// PLOT, in the order asked.
     pub plots: Vec<GlmPlot>,
+    /// MBPDESIGN, BPDESIGN and FDESIGN: the terms of the auxiliary model of each test; Some with
+    /// no terms is the DESIGN model, None the default (the fitted and squared fitted values).
+    pub mbp_design: Option<Vec<Term>>,
+    pub bp_design: Option<Vec<Term>>,
+    pub f_design: Option<Vec<Term>>,
     /// `/ROBUST=HCn`: the heteroskedasticity-consistent covariance, n from 0 to 4 (3 when
     /// none is named; the last ROBUST counts).
     pub robust: Option<u8>,
@@ -1091,7 +1101,7 @@ fn mmatrix(p: &mut Parser) -> PResult<Vec<MColumn>> {
 fn print(p: &mut Parser) -> PResult<GlmPrint> {
     p.eat(Punct::Eq);
     let mut out = GlmPrint::default();
-    const KEYWORDS: [&str; 9] = [
+    const KEYWORDS: [&str; 13] = [
         "DESCRIPTIVE",
         "HOMOGENEITY",
         "PARAMETER",
@@ -1101,8 +1111,12 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
         "RSSCP",
         "TEST",
         "GEF",
+        "MBP",
+        "BP",
+        "F",
+        "WHITE",
     ];
-    const LATER: [&str; 5] = ["MBP", "BP", "F", "WHITE", "ERROR"];
+    const LATER: [&str; 1] = ["ERROR"];
     while !at_end(p) {
         let word = match p.peek() {
             Some(TokenKind::Word(w)) => w.to_uppercase(),
@@ -1124,6 +1138,14 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
             out.rsscp = true;
         } else if p.eat_word("GEF") {
             out.gef = true;
+        } else if p.eat_word("MBP") {
+            out.mbp = true;
+        } else if p.eat_word("BP") {
+            out.bp = true;
+        } else if p.eat_word("F") {
+            out.f_test = true;
+        } else if p.eat_word("WHITE") {
+            out.white = true;
         } else if p.eat_keyword("TEST") {
             if !p.at(Punct::LParen) || matches!(p.peek_at(1), Some(TokenKind::Punct(Punct::RParen)))
             {
@@ -1232,17 +1254,7 @@ fn wsfactors(p: &mut Parser) -> PResult<Vec<WsFactor>> {
     Ok(out)
 }
 
-const SUBCOMMANDS_LATER: [&str; 9] = [
-    "RANDOM",
-    "OUTFILE",
-    "MBPDESIGN",
-    "BPDESIGN",
-    "FDESIGN",
-    "MEASURE",
-    "SPLIT",
-    "PLOT",
-    "CONTRAST",
-];
+const SUBCOMMANDS_LATER: [&str; 6] = ["RANDOM", "OUTFILE", "MEASURE", "SPLIT", "PLOT", "CONTRAST"];
 
 /// `UNIANOVA ...` and `GLM ...`.
 pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command> {
@@ -1282,6 +1294,9 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         save: Vec::new(),
         plots: Vec::new(),
         robust: None,
+        mbp_design: None,
+        bp_design: None,
+        f_design: None,
     };
     while p.eat(Punct::Slash) {
         if p.eat_keyword("METHOD") {
@@ -1420,6 +1435,15 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
             command.save = save(p)?;
         } else if p.eat_keyword("PLOT") {
             command.plots.extend(plot(p)?);
+        } else if p.eat_keyword("MBPDESIGN") {
+            p.eat(Punct::Eq);
+            command.mbp_design = Some(terms(p)?);
+        } else if p.eat_keyword("BPDESIGN") {
+            p.eat(Punct::Eq);
+            command.bp_design = Some(terms(p)?);
+        } else if p.eat_keyword("FDESIGN") {
+            p.eat(Punct::Eq);
+            command.f_design = Some(terms(p)?);
         } else if p.eat_keyword("ROBUST") {
             p.eat(Punct::Eq);
             let mut level = 3;
