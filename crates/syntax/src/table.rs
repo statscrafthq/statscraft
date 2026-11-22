@@ -4907,10 +4907,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the spread of the scale and ordinal predictors with a stricter limit, else leaves the node whole. The\n\
                  classes are grouped in two (the 2-means of their means, or the largest class against the rest) and\n\
                  the cut of a scale or ordinal predictor is the root of the discriminant equation of the two groups;\n\
-                 a nominal predictor with two categories sends one each way. The tree table shows the test, its\n\
+                 a nominal predictor is scored once on the whole sample by its largest discriminant coordinate (at most\n\
+                 25 categories) and cut like a scale one, one with two categories sends one each way. The tree table\n\
+                 shows the test, its\n\
                  statistic, degrees of freedom, significance and the cut. Priors, surrogates, MAXDEPTH (AUTO 5),\n\
-                 MINPARENTSIZE, MINCHILDSIZE, PRUNE and SAVE work as in CRT. Not supported yet: a nominal predictor\n\
-                 of more than two categories under QUEST, a scale dependent with CHAID, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
+                 MINPARENTSIZE, MINCHILDSIZE, PRUNE and SAVE work as in CRT. Not supported yet: a scale dependent with CHAID, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
                  SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",

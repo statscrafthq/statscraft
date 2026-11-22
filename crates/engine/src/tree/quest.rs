@@ -24,7 +24,10 @@
 //!   or the single root, when it leaves cases on both sides; the midpoint of the means when there
 //!   is no such root. The cut is x <= d.
 //! - A nominal predictor with two categories sends the first present category left and the other
-//!   right.
+//!   right. One with more (up to 25) is scored once on the whole sample by its largest
+//!   discriminant coordinate (see `coordinates`); the scores stand in for values in the choice of
+//!   superclasses and split point, the categories at or below the cut go to one child, and the
+//!   child with the first category present in the node is the left one.
 //! - A split that leaves a child under MINCHILDSIZE (weight of the cases with a value) is not made;
 //!   the node stays a leaf. IMPROVEMENT plays no part; the split's test is what the tables report.
 
@@ -298,6 +301,106 @@ fn split_point(obs: &[Obs], in_a: &[bool], factor: &[f64], classes: usize) -> Op
         .or(Some(midpoint).filter(|&d| ok(d)))
 }
 
+/// The most categories a nominal predictor may have under QUEST.
+pub(super) const MAX_CATEGORIES: usize = 25;
+
+/// The largest discriminant coordinate of each category of a nominal predictor, from the whole
+/// learning sample: the scores that make the ratio of between-class to within-class sum of
+/// squares largest. With the category indicators v, T their total scatter and B the scatter of
+/// the class means, T = Q D Q' (its null direction, the sum of the indicators, dropped: a
+/// direction whose d is under 1e-10 of the largest), the leading eigenvector a of
+/// D^-1/2 Q' B Q D^-1/2 gives the score c = Q D^-1/2 a of each category. The scores sum to
+/// zero; the sign is the one that makes the first category's score negative.
+pub(super) fn coordinates(
+    codes: &[usize],
+    categories: usize,
+    class: &[usize],
+    weight: &[f64],
+    classes: usize,
+) -> Vec<f64> {
+    let mut count = vec![vec![0.0; categories]; classes];
+    for (i, &code) in codes.iter().enumerate() {
+        if code < categories {
+            count[class[i]][code] += weight[i];
+        }
+    }
+    let total: Vec<f64> = (0..categories)
+        .map(|c| count.iter().map(|row| row[c]).sum())
+        .collect();
+    let n: f64 = total.iter().sum();
+    let mean: Vec<f64> = total.iter().map(|t| t / n).collect();
+    let mut t: Vec<Vec<f64>> = (0..categories)
+        .map(|a| {
+            (0..categories)
+                .map(|b| {
+                    let own = if a == b { total[a] } else { 0.0 };
+                    own - n * mean[a] * mean[b]
+                })
+                .collect()
+        })
+        .collect();
+    let mut b = vec![vec![0.0; categories]; categories];
+    for row in &count {
+        let size: f64 = row.iter().sum();
+        if size <= 0.0 {
+            continue;
+        }
+        let diff: Vec<f64> = (0..categories).map(|c| row[c] / size - mean[c]).collect();
+        for x in 0..categories {
+            for y in 0..categories {
+                b[x][y] += size * diff[x] * diff[y];
+            }
+        }
+    }
+    // symmetric up to rounding
+    for x in 0..categories {
+        for y in 0..x {
+            let (tm, bm) = ((t[x][y] + t[y][x]) / 2.0, (b[x][y] + b[y][x]) / 2.0);
+            (t[x][y], t[y][x], b[x][y], b[y][x]) = (tm, tm, bm, bm);
+        }
+    }
+    let eigen = crate::matrix::symmetric_eigen(&t);
+    let largest = eigen.first().map_or(0.0, |e| e.0);
+    let kept: Vec<&(f64, Vec<f64>)> = eigen.iter().filter(|e| e.0 > 1e-10 * largest).collect();
+    if kept.is_empty() {
+        return vec![0.0; categories];
+    }
+    let apply = |q: &[f64]| -> Vec<f64> {
+        (0..categories)
+            .map(|x| (0..categories).map(|y| b[x][y] * q[y]).sum())
+            .collect()
+    };
+    let projected: Vec<Vec<f64>> = kept.iter().map(|(_, q)| apply(q)).collect();
+    let m: Vec<Vec<f64>> = (0..kept.len())
+        .map(|i| {
+            (0..kept.len())
+                .map(|j| {
+                    let dot: f64 = kept[i]
+                        .1
+                        .iter()
+                        .zip(&projected[j])
+                        .map(|(a, b)| a * b)
+                        .sum();
+                    dot / (kept[i].0 * kept[j].0).sqrt()
+                })
+                .collect()
+        })
+        .collect();
+    let leading = crate::matrix::symmetric_eigen(&m);
+    let a = &leading[0].1;
+    let mut score = vec![0.0; categories];
+    for (k, (d, q)) in kept.iter().enumerate() {
+        for c in 0..categories {
+            score[c] += q[c] * a[k] / d.sqrt();
+        }
+    }
+    let first = (0..categories).find(|&c| total[c] > 0.0).unwrap_or(0);
+    if score[first] > 0.0 {
+        score.iter_mut().for_each(|x| *x = -*x);
+    }
+    score
+}
+
 /// What QUEST chose for a node: the predictor, the categories that go left and right, and the
 /// test and cut behind it.
 pub(super) type Chosen = (usize, Vec<usize>, Vec<usize>, QuestSplit);
@@ -364,12 +467,28 @@ pub(super) fn choose(g: &Growth, cases: &[usize], factor: &[f64], alpha: f64) ->
     let predictor = &predictors[p];
     let obs = &observed[p];
     let missing = predictor.missing();
-    let (left, right, cut) = if predictor.nominal {
+    let (left, right, cut) = if predictor.nominal && predictor.numbers.is_empty() {
         // two categories: the first present goes left
         let first = obs.iter().map(|o| o.0 as usize).min()?;
         let left = vec![first];
         let right: Vec<usize> = (0..missing).filter(|&c| c != first).collect();
         (left, right, f64::NAN)
+    } else if predictor.nominal {
+        // the discriminant coordinate of each category stands in for the value; the categories at
+        // or below the cut go left, and the side holding the first category present goes left
+        let scores: Vec<Obs> = obs
+            .iter()
+            .map(|&(code, j, w)| (predictor.numbers[code as usize], j, w))
+            .collect();
+        let in_a = superclasses(&scores, g.classes)?;
+        let d = split_point(&scores, &in_a, factor, g.classes)?;
+        let first = obs.iter().map(|o| o.0 as usize).min()?;
+        let below = |c: usize| (predictor.numbers[c] <= d) == (predictor.numbers[first] <= d);
+        (
+            (0..missing).filter(|&c| below(c)).collect(),
+            (0..missing).filter(|&c| !below(c)).collect(),
+            f64::NAN,
+        )
     } else {
         let in_a = superclasses(obs, g.classes)?;
         let d = split_point(obs, &in_a, factor, g.classes)?;
@@ -455,6 +574,41 @@ mod tests {
         ]);
         let d = split_point(&data, &[true, false], &[1.0, 1.0], 2).expect("a cut");
         assert!(d < 5.0 && d > 2.0, "{d}");
+    }
+
+    #[test]
+    fn the_discriminant_scores_maximize_the_ratio_of_between_to_within() {
+        // three categories over two classes, 8 cases
+        let codes = [0, 0, 0, 1, 1, 2, 2, 2];
+        let class = [0, 0, 1, 0, 1, 1, 1, 0];
+        let weight = [1.0; 8];
+        let score = coordinates(&codes, 3, &class, &weight, 2);
+        assert!(score.iter().sum::<f64>().abs() < 1e-12);
+        assert!(score[0] <= 0.0);
+        let ratio = |c: &[f64]| {
+            let x: Vec<f64> = codes.iter().map(|&k| c[k]).collect();
+            let mean = x.iter().sum::<f64>() / 8.0;
+            let (mut between, mut within) = (0.0, 0.0);
+            for j in 0..2 {
+                let members: Vec<f64> = (0..8).filter(|&i| class[i] == j).map(|i| x[i]).collect();
+                let m = members.iter().sum::<f64>() / members.len() as f64;
+                between += members.len() as f64 * (m - mean).powi(2);
+                within += members.iter().map(|v| (v - m).powi(2)).sum::<f64>();
+            }
+            between / within
+        };
+        let best = ratio(&score);
+        let mut seed = 12345_u64;
+        for _ in 0..500 {
+            let mut other = [0.0; 3];
+            for v in &mut other {
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                *v = (seed >> 33) as f64 / (1u64 << 31) as f64;
+            }
+            assert!(ratio(&other) <= best + 1e-9);
+        }
     }
 
     #[test]

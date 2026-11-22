@@ -1020,11 +1020,12 @@ impl Engine {
                 }
             } else {
                 let keys = sorted_unique(values.iter().flatten().cloned().collect());
-                if command.quest && *level == Level::Nominal && keys.len() > 2 {
+                if command.quest && *level == Level::Nominal && keys.len() > quest::MAX_CATEGORIES {
                     return Err(Error(format!(
-                        "METHOD TYPE=QUEST with the nominal predictor {} of more than two \
-                         categories is not supported yet",
-                        variable.name()
+                        "METHOD TYPE=QUEST allows a nominal predictor at most {} categories; {} has {}",
+                        quest::MAX_CATEGORIES,
+                        variable.name(),
+                        keys.len()
                     )));
                 }
                 if keys.len() > 126 {
@@ -1057,6 +1058,18 @@ impl Engine {
         }
         let case_weight: Vec<f64> = cases.iter().map(|&(c, _)| weight(c)).collect();
         let case_class: Vec<usize> = cases.iter().map(|&(_, k)| k).collect();
+        if command.quest {
+            // a nominal predictor of more than two categories is scored once, on the whole sample
+            for p in coded.iter_mut().filter(|p| p.nominal && p.labels.len() > 2) {
+                p.numbers = quest::coordinates(
+                    &p.codes,
+                    p.labels.len(),
+                    &case_class,
+                    &case_weight,
+                    classes.len(),
+                );
+            }
+        }
 
         // a scale dependent is shifted by its mean, so sums of squares do not cancel
         let (dep_values, dep_shift): (Option<Vec<f64>>, f64) = if scale_dep {
