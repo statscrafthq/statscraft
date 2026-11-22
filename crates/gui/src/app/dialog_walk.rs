@@ -2835,7 +2835,10 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         d.descriptives = true;
         d.quartiles = true;
         d.listwise = true;
-        d.exact = true;
+        // not for several groups: the exact Kruskal-Wallis and Jonckheere-Terpstra tests of 200
+        // cases walk their whole step budget before falling back, minutes in a debug build;
+        // the dialog's own test checks that it writes /METHOD=EXACT
+        d.exact = kind != NparKind::KIndependent;
         if kind == NparKind::TwoIndependent {
             d.high = s("2");
         }
