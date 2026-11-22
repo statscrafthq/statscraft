@@ -117,6 +117,8 @@ struct Surrogate {
     left: Vec<usize>,
     /// The predictive measure of association with the primary split.
     association: f64,
+    /// The improvement the split makes on its own.
+    improvement: f64,
 }
 
 struct Node {
@@ -627,14 +629,6 @@ impl Engine {
             }
             if command.force.is_some() {
                 warnings.push("FORCE applies to CHAID trees only; ignored".into());
-            }
-            for (given, what) in [
-                (command.print_importance, "PRINT IMPORTANCE"),
-                (command.plot_importance, "PLOT IMPORTANCE"),
-            ] {
-                if given {
-                    warnings.push(format!("{what} is not shown yet; ignored"));
-                }
             }
         }
         let weight_name = data.weight_variable().map(str::to_string);
@@ -1512,6 +1506,78 @@ impl Engine {
         }
         if command.print.tree_table {
             out.push(node_table("Tree Table", false));
+        }
+        if command.crt && (command.print_importance || command.plot_importance) {
+            // the sum of the improvements of the splits where a predictor is the main one or a
+            // surrogate, relative to the largest
+            let mut total = vec![0.0; predictors.len()];
+            for split in nodes.iter().filter_map(|n| n.split.as_ref()) {
+                total[split.predictor] += split.improvement.unwrap_or(0.0);
+                for found in &split.surrogates {
+                    total[found.predictor] += found.improvement;
+                }
+            }
+            let mut order: Vec<usize> = (0..predictors.len()).filter(|&p| total[p] > 0.0).collect();
+            order.sort_by(|&a, &b| total[b].total_cmp(&total[a]));
+            let largest = order.first().map_or(1.0, |&p| total[p]);
+            if command.print_importance {
+                let rows: Vec<Vec<Cell>> = order
+                    .iter()
+                    .map(|&p| {
+                        vec![
+                            text(&predictors[p].name),
+                            Cell::Number(total[p]),
+                            percent(total[p], largest),
+                        ]
+                    })
+                    .collect();
+                let formats = vec![vec![String::new(), "F8.5".into(), "PCT6.1".into()]; rows.len()];
+                out.push(Table {
+                    title: "Independent Variable Importance".into(),
+                    row_headers: 1,
+                    columns: vec![
+                        "Independent Variable".into(),
+                        "Importance".into(),
+                        "Normalized Importance".into(),
+                    ],
+                    column_groups: vec![Vec::new(); 3],
+                    rows,
+                    formats,
+                    ..Table::default()
+                });
+            }
+            if command.plot_importance && !order.is_empty() {
+                let categories = order
+                    .iter()
+                    .map(|&p| crate::chart::Category {
+                        label: predictors[p].name.clone(),
+                        value: text(&predictors[p].name),
+                        missing: false,
+                        bin: None,
+                    })
+                    .collect();
+                let series = vec![crate::chart::Series {
+                    name: "Normalized importance".into(),
+                    statistic: crate::chart::Statistic::Value,
+                    variable: None,
+                    value: Cell::Empty,
+                    values: order.iter().map(|&p| 100.0 * total[p] / largest).collect(),
+                }];
+                let mut chart = crate::Chart::lines(
+                    format!(
+                        "Independent variable importance for {}",
+                        shown.variable(dependent)
+                    ),
+                    crate::chart::Axis::titled("Independent variable"),
+                    crate::chart::Axis::titled("Normalized importance"),
+                    categories,
+                    series,
+                );
+                chart.kind = crate::chart::ChartKind::Bar;
+                chart.grouping = Some(crate::chart::Grouping::Clustered);
+                chart.orientation = Some(crate::chart::Orientation::Horizontal);
+                charts.push(chart);
+            }
         }
         if command.crt && command.print_surrogates {
             let mut rows = Vec::new();

@@ -220,7 +220,7 @@ impl Growth<'_> {
         node: &Node,
         p: usize,
         left: &[usize],
-        priors_root: &[f64],
+        valid: &[Vec<f64>],
     ) -> Vec<Surrogate> {
         let limit = self
             .max_surrogates
@@ -237,7 +237,7 @@ impl Growth<'_> {
             .copied()
             .filter(|&i| primary.codes[i] != primary.missing())
             .collect();
-        let factor = self.factor(priors_root);
+        let factor = self.factor(&valid[p]);
         let (mut pl, mut pr) = (0.0, 0.0);
         for &i in &with_value {
             let w = self.case_weight[i] * factor[self.case_class[i]];
@@ -318,10 +318,26 @@ impl Growth<'_> {
             };
             let association = (smaller - (1.0 - agreement / all)) / smaller;
             if association > 1e-12 {
+                // the improvement of the surrogate as a split of the node's cases with a value
+                let (mut l, mut r) = (vec![0.0; self.classes], vec![0.0; self.classes]);
+                for &i in node
+                    .cases
+                    .iter()
+                    .filter(|&&i| other.codes[i] != other.missing())
+                {
+                    let side = if codes.contains(&other.codes[i]) {
+                        &mut l
+                    } else {
+                        &mut r
+                    };
+                    side[self.case_class[i]] += self.case_weight[i];
+                }
+                let improvement = self.improvement(&l, &r, &self.factor(&valid[q]));
                 found.push(Surrogate {
                     predictor: q,
                     left: codes,
                     association,
+                    improvement,
                 });
             }
         }
@@ -372,7 +388,7 @@ impl Growth<'_> {
                 continue;
             };
             let predictor = &self.predictors[p];
-            let surrogates = self.surrogates(node, p, &left, &valid[p]);
+            let surrogates = self.surrogates(node, p, &left, &valid);
             let (mut to_left, mut to_right) = (Vec::new(), Vec::new());
             let (mut weight_left, mut weight_right) = (0.0, 0.0);
             let mut unknown = Vec::new();

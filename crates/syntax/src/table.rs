@@ -4874,8 +4874,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  of the gain tables, the node that holds a cut counted in proportion. PLOT MEAN, PROFIT and ROI, the\n\
                  QUEST subcommand and PRINT CATEGORYSPECS are accepted and ignored with a warning. So are the settings\n\
                  of CRT (CRT, PRIORS, MAXSURROGATES, PRUNE, PRINT IMPORTANCE and SURROGATES, PLOT IMPORTANCE) under\n\
-                 another method, and CHAID, SCORES and FORCE under CRT. Under CRT, PRINT IMPORTANCE and PLOT IMPORTANCE\n\
-                 are accepted and not shown yet.\n\
+                 another method, and CHAID, SCORES and FORCE under CRT.\n\
                  METHOD TYPE=CRT grows a binary tree for a nominal or ordinal dependent: every cut of a scale or\n\
                  ordinal predictor (a value of the data, x <= v goes left) and every subset of the categories of a\n\
                  nominal one is tried (for more than two classes up to 20 categories present in a node), and the\n\
@@ -4890,8 +4889,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  there is none. PRINT SURROGATES lists them with their association. METHOD PRUNE=SE(b) (b is 1 when\n\
                  omitted) cuts the grown tree back by repeatedly turning its weakest links into terminal nodes and\n\
                  keeps the smallest subtree whose risk is within b standard errors of the lowest risk, all from\n\
-                 the risk of the cases analyzed (there is no validation sample yet). A scale dependent and\n\
-                 importance are not built yet. Not supported\n\
+                 the risk of the cases analyzed (there is no validation sample yet). PRINT IMPORTANCE and PLOT\n\
+                 IMPORTANCE give each predictor's importance: the improvements of the splits of the final tree\n\
+                 where it is the main splitter or a surrogate, added up and shown relative to the largest. A scale\n\
+                 dependent is not built yet. Not supported\n\
                  yet: METHOD TYPE=QUEST, a scale dependent, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
                  SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",

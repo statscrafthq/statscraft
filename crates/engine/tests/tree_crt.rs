@@ -793,3 +793,85 @@ fn pruning_with_priors_uses_the_weighted_risk() {
         EXPECTED_P2_B1,
     );
 }
+
+/// A predictor, its importance and the importance relative to the largest.
+type Importance = (&'static str, f64, f64);
+
+/// The importance table: variable, importance and normalized importance, largest first.
+fn importance(command: &str, extra: &str) -> (Engine, Vec<(String, f64, f64)>) {
+    let mut engine = engine();
+    let tables = run(
+        &mut engine,
+        &format!("{command} /PRINT RISK{extra} /TREE DISPLAY=NONE."),
+    );
+    let found = table(&tables, "Independent Variable Importance");
+    let rows = found
+        .rows
+        .iter()
+        .map(|r| (text(&r[0]).to_string(), number(&r[1]), number(&r[2])))
+        .collect();
+    (engine, rows)
+}
+
+#[test]
+fn importance_adds_the_improvements_of_main_and_surrogate_splits() {
+    // three scenarios of the R implementation: all surrogates, two surrogates with priors on
+    // three classes, and a pruned tree (the cut splits count for nothing)
+    let cases: [(&str, &[Importance]); 3] = [
+        (
+            "TREE y [n] BY xm [s] z [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
+            &[
+                ("x2", 0.0803362942517, 100.0),
+                ("xm", 0.0620704475419, 77.2632695098),
+                ("z", 0.0535388659953, 66.6434349431),
+                ("g", 0.0261889519748, 32.5991536188),
+            ],
+        ),
+        (
+            "TREE y3 [n] BY xm [s] z [s] o [o] g [n] /METHOD TYPE=CRT MAXSURROGATES=2 /PRIORS CUSTOM=1 [5] 2 [3] 3 [2] /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
+            &[
+                ("xm", 0.202038920557, 100.0),
+                ("z", 0.173229626924, 85.74072087),
+                ("g", 0.0681865160131, 33.7491983351),
+                ("o", 0.00166980539862, 0.826477093627),
+            ],
+        ),
+        (
+            "TREE y [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT PRUNE=SE /GROWTHLIMIT MINPARENTSIZE=8 MINCHILDSIZE=4",
+            &[
+                ("x2", 0.0616949706965, 100.0),
+                ("x1", 0.0556174785447, 90.1491287164),
+                ("g", 0.0259981208998, 42.1397734796),
+                ("o", 0.00528937728938, 8.57343350627),
+            ],
+        ),
+    ];
+    for (command, expected) in cases {
+        let (_, found) = importance(command, " IMPORTANCE");
+        assert_eq!(found.len(), expected.len(), "{command}");
+        for ((name, value, normalized), (want_name, want, want_normalized)) in
+            found.iter().zip(expected)
+        {
+            assert_eq!(name, want_name, "{command}");
+            close(*value, *want, 1e-9);
+            close(*normalized, *want_normalized, 1e-9);
+        }
+    }
+}
+
+#[test]
+fn the_importance_chart_has_one_bar_per_variable() {
+    let (mut engine, found) = importance(
+        "TREE y [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT PRUNE=SE /GROWTHLIMIT MINPARENTSIZE=8 MINCHILDSIZE=4",
+        " IMPORTANCE /PLOT IMPORTANCE",
+    );
+    let charts = engine.take_charts();
+    let chart = charts
+        .iter()
+        .find(|c| c.title.contains("importance"))
+        .expect("a chart");
+    let labels: Vec<&str> = chart.categories.iter().map(|c| c.label.as_str()).collect();
+    let names: Vec<&str> = found.iter().map(|r| r.0.as_str()).collect();
+    assert_eq!(labels, names);
+    close(chart.series[0].values[1], 90.1491287164, 1e-9);
+}
