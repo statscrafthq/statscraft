@@ -2323,3 +2323,41 @@ fn measure_names_must_match_the_dependents() {
             .contains("MEASURE is for a repeated measures model")
     );
 }
+
+#[test]
+fn doubly_multivariate_options_reach_every_measure() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 b1 b2 b3 BY g /WSFACTOR=time 3 /MEASURE=A B /PRINT=DESCRIPTIVE ETASQ OPOWER."
+        ),
+    );
+    let titles: Vec<&str> = tables.iter().map(|t| t.title.as_str()).collect();
+    // one Descriptive Statistics table for each of the six dependents
+    assert_eq!(
+        titles
+            .iter()
+            .filter(|t| **t == "Descriptive Statistics")
+            .count(),
+        6
+    );
+    for title in [
+        "Multivariate Tests",
+        "Multivariate Tests of Between-Subjects Effects",
+    ] {
+        let table = tables.iter().find(|t| t.title == title).unwrap();
+        assert!(
+            table.columns.iter().any(|c| c == "Partial Eta Squared"),
+            "{title}"
+        );
+    }
+    assert!(
+        number(cell(
+            &tables,
+            "Tests of Within-Subjects Effects",
+            "time / A / Sphericity Assumed",
+            "Observed Power"
+        )) > 0.0
+    );
+}
