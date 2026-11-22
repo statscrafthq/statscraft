@@ -1,6 +1,6 @@
 //! TREE with METHOD TYPE=CRT on an invented sample of 150 cases: y (1, 2) and y3 (1 to 3) by x1
 //! (scale, distinct values), x2 (scale, ties), o (ordinal 1 to 4), g (nominal 1 to 4) and xm (x1
-//! with 14 system-missing values). The expected trees come from an independent brute-force grower
+//! with 14 system-missing values) and z (x1 over 5, rounded, 6 system-missing). The expected trees come from an independent brute-force grower
 //! written in R from the manual's rules (every candidate cut, every subset of a nominal
 //! predictor, p(j,t) from the priors and the class totals of the cases with a value of the
 //! predictor, the split with the largest improvement). For a binary dependent, a Gini measure and
@@ -10,158 +10,158 @@
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
 
-const DATA: &str = "DATA LIST FREE / y y3 x1 x2 o g xm.
+const DATA: &str = "DATA LIST FREE / y y3 x1 x2 o g xm z.
 BEGIN DATA
-1 1 29.4 8 1 2 29.4
-1 1 10.5 8 4 4 10.5
-2 2 42.5 12 2 4 42.5
-1 1 11.1 7 1 2 11.1
-2 2 45.8 8 3 2 45.8
-2 3 52 10 3 4 52
-2 2 43.3 5 2 3 43.3
-1 2 39.9 4 1 4 39.9
-2 2 48.3 5 1 3 48.3
-2 3 58.1 5 2 1 58.1
-2 3 53.2 4 2 2 .
-1 1 14.7 12 2 1 14.7
-1 1 13.6 7 4 1 13.6
-1 1 24.9 9 1 2 24.9
-1 1 35.4 11 1 1 35.4
-1 3 45.2 9 2 4 45.2
-1 2 51.6 3 1 1 51.6
-2 3 53.8 8 3 4 .
-1 1 17.7 8 4 3 17.7
-1 1 22.6 7 2 2 22.6
-2 2 41.8 10 2 2 41.8
-2 3 48.7 3 2 2 .
-2 2 53 9 4 1 53
-1 1 26 3 2 1 26
-2 3 55.6 6 1 2 55.6
-1 1 15.9 8 1 2 15.9
-1 2 51.9 2 3 3 51.9
-1 1 11.2 12 1 1 11.2
-2 3 56.2 3 2 3 56.2
-2 1 15.2 3 4 1 15.2
-1 3 55.9 2 4 2 55.9
-1 3 57.3 12 1 3 57.3
-1 2 56.9 2 1 3 56.9
-2 3 46.9 4 1 4 46.9
-1 1 41 11 2 3 41
-1 1 23.3 9 3 3 23.3
-2 2 40.6 7 4 3 40.6
-1 1 49.8 6 1 1 49.8
-2 1 10.5 3 1 1 10.5
-1 1 37.9 3 2 1 37.9
-2 3 45.9 12 1 4 45.9
-1 1 26.7 2 2 2 26.7
-2 2 50.3 10 2 4 50.3
-1 1 16.6 3 3 4 16.6
-1 1 15.8 6 1 3 15.8
-1 2 26.8 9 3 2 26.8
-1 3 33 10 4 3 33
-1 1 17.5 2 1 2 .
-2 2 47.8 11 1 4 47.8
-1 2 49.2 2 3 3 49.2
-1 1 18.7 9 2 4 18.7
-2 2 35 12 4 3 35
-1 1 27.6 8 1 4 27.6
-1 1 35.9 1 4 1 .
-2 2 38.9 8 1 4 38.9
-2 2 54 5 2 3 54
-2 2 37.3 8 4 2 37.3
-1 2 46.1 3 4 4 46.1
-1 1 16.8 11 4 2 16.8
-1 1 47.4 4 3 1 47.4
-2 3 51.2 12 3 2 51.2
-1 2 47.7 3 4 4 47.7
-1 1 49.5 12 2 1 .
-2 3 44.4 12 3 3 .
-1 3 54 11 3 1 54
-1 1 25 1 4 1 25
-2 1 20.9 12 2 4 20.9
-1 1 23.9 11 3 1 23.9
-2 3 49.9 9 1 2 49.9
-1 3 53.1 5 4 4 53.1
-2 2 18 12 3 3 18
-2 3 59.3 12 4 4 59.3
-1 2 45.8 5 3 3 45.8
-1 3 50.9 3 3 4 50.9
-2 2 44.9 9 4 3 .
-1 1 29.7 6 2 1 29.7
-2 2 39.3 7 4 3 39.3
-1 1 49.4 4 1 1 49.4
-1 1 12.1 9 2 3 12.1
-1 1 47.8 7 2 3 .
-1 2 48.5 3 2 2 48.5
-1 1 45 3 3 1 45
-1 3 32.9 10 3 2 32.9
-1 2 45.9 1 2 3 45.9
-1 1 17.8 10 1 3 17.8
-1 1 24.9 3 1 4 24.9
-2 2 56.1 11 1 3 56.1
-1 1 22.1 11 1 3 22.1
-2 3 11.8 11 3 2 11.8
-2 1 14.8 5 4 1 14.8
-1 1 44.1 10 4 1 44.1
-1 1 12.3 9 1 3 12.3
-1 1 21.5 7 3 3 21.5
-2 3 47.8 8 3 4 47.8
-2 1 28.1 3 2 1 28.1
-1 2 37.6 7 3 3 37.6
-1 1 31 11 1 1 31
-1 2 21.2 7 4 2 .
-2 2 59.6 7 1 1 59.6
-1 1 26.7 2 2 3 26.7
-2 1 24.6 3 2 2 24.6
-1 3 42.9 11 3 4 42.9
-1 1 23.5 10 2 4 23.5
-2 1 12 10 4 3 .
-1 1 19.1 10 3 1 19.1
-2 1 41.2 9 2 1 41.2
-1 2 37.4 10 4 2 37.4
-1 3 45 8 4 3 45
-1 1 31.1 12 1 3 31.1
-2 1 26.7 3 1 3 26.7
-1 2 54.5 4 4 1 54.5
-1 2 13.8 7 4 2 13.8
-1 1 50.4 10 2 1 50.4
-2 1 52.5 11 1 2 52.5
-2 3 35.6 9 4 4 35.6
-1 1 12.9 3 3 1 12.9
-2 2 41.9 8 1 4 41.9
-1 2 16.4 7 1 4 16.4
-2 1 46.4 8 3 1 46.4
-1 1 19 4 4 3 19
-2 1 18.8 9 1 2 .
-1 2 52.3 12 1 1 52.3
-1 1 15.1 2 1 3 15.1
-2 2 51.9 8 3 3 51.9
-1 1 29.3 5 1 1 29.3
-1 1 18.3 3 2 3 18.3
-2 1 24.8 4 4 2 24.8
-1 1 33.7 9 4 1 33.7
-2 3 40.4 6 2 2 40.4
-2 2 51.2 9 2 4 51.2
-2 3 54.2 12 3 4 54.2
-1 1 13.2 8 1 3 13.2
-2 3 39.3 10 4 4 .
-1 1 30.1 3 3 2 30.1
-1 2 59.7 6 1 3 59.7
-1 1 29.2 5 3 4 29.2
-2 1 42 5 3 1 42
-1 3 55 7 3 3 55
-2 2 25.6 4 2 4 25.6
-1 2 39.7 6 1 4 39.7
-2 3 57.4 11 2 4 57.4
-2 1 30.9 7 4 1 30.9
-1 2 26.4 9 3 3 26.4
-1 2 55.8 5 4 1 55.8
-2 2 38.3 7 4 2 38.3
-2 2 44.2 12 1 4 44.2
-2 2 33.9 3 2 2 .
-1 1 45.7 11 1 3 45.7
-2 3 59.4 7 3 3 59.4
-2 2 53.2 8 2 3 53.2
+1 1 29.4 8 1 2 29.4 6
+1 1 10.5 8 4 4 10.5 2
+2 2 42.5 12 2 4 42.5 8
+1 1 11.1 7 1 2 11.1 2
+2 2 45.8 8 3 2 45.8 9
+2 3 52 10 3 4 52 10
+2 2 43.3 5 2 3 43.3 9
+1 2 39.9 4 1 4 39.9 .
+2 2 48.3 5 1 3 48.3 10
+2 3 58.1 5 2 1 58.1 12
+2 3 53.2 4 2 2 . 11
+1 1 14.7 12 2 1 14.7 3
+1 1 13.6 7 4 1 13.6 3
+1 1 24.9 9 1 2 24.9 5
+1 1 35.4 11 1 1 35.4 7
+1 3 45.2 9 2 4 45.2 9
+1 2 51.6 3 1 1 51.6 10
+2 3 53.8 8 3 4 . 11
+1 1 17.7 8 4 3 17.7 4
+1 1 22.6 7 2 2 22.6 5
+2 2 41.8 10 2 2 41.8 8
+2 3 48.7 3 2 2 . 10
+2 2 53 9 4 1 53 11
+1 1 26 3 2 1 26 5
+2 3 55.6 6 1 2 55.6 11
+1 1 15.9 8 1 2 15.9 3
+1 2 51.9 2 3 3 51.9 10
+1 1 11.2 12 1 1 11.2 2
+2 3 56.2 3 2 3 56.2 11
+2 1 15.2 3 4 1 15.2 3
+1 3 55.9 2 4 2 55.9 11
+1 3 57.3 12 1 3 57.3 11
+1 2 56.9 2 1 3 56.9 11
+2 3 46.9 4 1 4 46.9 9
+1 1 41 11 2 3 41 8
+1 1 23.3 9 3 3 23.3 5
+2 2 40.6 7 4 3 40.6 8
+1 1 49.8 6 1 1 49.8 10
+2 1 10.5 3 1 1 10.5 2
+1 1 37.9 3 2 1 37.9 8
+2 3 45.9 12 1 4 45.9 9
+1 1 26.7 2 2 2 26.7 5
+2 2 50.3 10 2 4 50.3 10
+1 1 16.6 3 3 4 16.6 3
+1 1 15.8 6 1 3 15.8 3
+1 2 26.8 9 3 2 26.8 5
+1 3 33 10 4 3 33 7
+1 1 17.5 2 1 2 . 4
+2 2 47.8 11 1 4 47.8 10
+1 2 49.2 2 3 3 49.2 10
+1 1 18.7 9 2 4 18.7 4
+2 2 35 12 4 3 35 7
+1 1 27.6 8 1 4 27.6 6
+1 1 35.9 1 4 1 . 7
+2 2 38.9 8 1 4 38.9 8
+2 2 54 5 2 3 54 11
+2 2 37.3 8 4 2 37.3 7
+1 2 46.1 3 4 4 46.1 9
+1 1 16.8 11 4 2 16.8 3
+1 1 47.4 4 3 1 47.4 9
+2 3 51.2 12 3 2 51.2 10
+1 2 47.7 3 4 4 47.7 10
+1 1 49.5 12 2 1 . 10
+2 3 44.4 12 3 3 . 9
+1 3 54 11 3 1 54 11
+1 1 25 1 4 1 25 5
+2 1 20.9 12 2 4 20.9 4
+1 1 23.9 11 3 1 23.9 5
+2 3 49.9 9 1 2 49.9 10
+1 3 53.1 5 4 4 53.1 11
+2 2 18 12 3 3 18 4
+2 3 59.3 12 4 4 59.3 12
+1 2 45.8 5 3 3 45.8 9
+1 3 50.9 3 3 4 50.9 10
+2 2 44.9 9 4 3 . 9
+1 1 29.7 6 2 1 29.7 6
+2 2 39.3 7 4 3 39.3 8
+1 1 49.4 4 1 1 49.4 10
+1 1 12.1 9 2 3 12.1 2
+1 1 47.8 7 2 3 . 10
+1 2 48.5 3 2 2 48.5 10
+1 1 45 3 3 1 45 9
+1 3 32.9 10 3 2 32.9 7
+1 2 45.9 1 2 3 45.9 9
+1 1 17.8 10 1 3 17.8 4
+1 1 24.9 3 1 4 24.9 5
+2 2 56.1 11 1 3 56.1 11
+1 1 22.1 11 1 3 22.1 4
+2 3 11.8 11 3 2 11.8 2
+2 1 14.8 5 4 1 14.8 .
+1 1 44.1 10 4 1 44.1 9
+1 1 12.3 9 1 3 12.3 2
+1 1 21.5 7 3 3 21.5 4
+2 3 47.8 8 3 4 47.8 10
+2 1 28.1 3 2 1 28.1 6
+1 2 37.6 7 3 3 37.6 8
+1 1 31 11 1 1 31 6
+1 2 21.2 7 4 2 . 4
+2 2 59.6 7 1 1 59.6 12
+1 1 26.7 2 2 3 26.7 5
+2 1 24.6 3 2 2 24.6 5
+1 3 42.9 11 3 4 42.9 9
+1 1 23.5 10 2 4 23.5 5
+2 1 12 10 4 3 . 2
+1 1 19.1 10 3 1 19.1 4
+2 1 41.2 9 2 1 41.2 8
+1 2 37.4 10 4 2 37.4 7
+1 3 45 8 4 3 45 9
+1 1 31.1 12 1 3 31.1 6
+2 1 26.7 3 1 3 26.7 5
+1 2 54.5 4 4 1 54.5 11
+1 2 13.8 7 4 2 13.8 3
+1 1 50.4 10 2 1 50.4 10
+2 1 52.5 11 1 2 52.5 10
+2 3 35.6 9 4 4 35.6 7
+1 1 12.9 3 3 1 12.9 3
+2 2 41.9 8 1 4 41.9 8
+1 2 16.4 7 1 4 16.4 3
+2 1 46.4 8 3 1 46.4 9
+1 1 19 4 4 3 19 4
+2 1 18.8 9 1 2 . 4
+1 2 52.3 12 1 1 52.3 10
+1 1 15.1 2 1 3 15.1 3
+2 2 51.9 8 3 3 51.9 10
+1 1 29.3 5 1 1 29.3 6
+1 1 18.3 3 2 3 18.3 4
+2 1 24.8 4 4 2 24.8 5
+1 1 33.7 9 4 1 33.7 7
+2 3 40.4 6 2 2 40.4 8
+2 2 51.2 9 2 4 51.2 10
+2 3 54.2 12 3 4 54.2 11
+1 1 13.2 8 1 3 13.2 3
+2 3 39.3 10 4 4 . 8
+1 1 30.1 3 3 2 30.1 6
+1 2 59.7 6 1 3 59.7 12
+1 1 29.2 5 3 4 29.2 6
+2 1 42 5 3 1 42 8
+1 3 55 7 3 3 55 11
+2 2 25.6 4 2 4 25.6 5
+1 2 39.7 6 1 4 39.7 .
+2 3 57.4 11 2 4 57.4 11
+2 1 30.9 7 4 1 30.9 6
+1 2 26.4 9 3 3 26.4 5
+1 2 55.8 5 4 1 55.8 11
+2 2 38.3 7 4 2 38.3 .
+2 2 44.2 12 1 4 44.2 9
+2 2 33.9 3 2 2 . .
+1 1 45.7 11 1 3 45.7 .
+2 3 59.4 7 3 3 59.4 12
+2 2 53.2 8 2 3 53.2 11
 END DATA.
 ";
 
@@ -272,6 +272,78 @@ const EXPECTED_H: &[Node] = &[
     (2, &[22.0, 43.0], 2, "", None),
 ];
 
+const EXPECTED_S1: &[Node] = &[
+    (0, &[88.0, 62.0], 1, "xm", Some(0.0555547181763)),
+    (0, &[49.0, 15.0], 1, "x2", Some(0.0117888388123)),
+    (0, &[39.0, 47.0], 2, "x2", Some(0.0469601612857)),
+    (1, &[14.0, 9.0], 1, "", None),
+    (1, &[35.0, 6.0], 1, "x2", Some(0.0037593495935)),
+    (2, &[17.0, 4.0], 1, "", None),
+    (2, &[22.0, 43.0], 2, "g", Some(0.0219242979243)),
+    (4, &[23.0, 2.0], 1, "", None),
+    (4, &[12.0, 4.0], 1, "", None),
+    (6, &[17.0, 18.0], 2, "", None),
+    (6, &[5.0, 25.0], 2, "", None),
+];
+/// Node, surrogate variable and association.
+const SURROGATES_S1: &[(usize, &str, f64)] = &[
+    (0, "z", 0.948331791002),
+    (0, "x2", 0.040062642369),
+    (0, "g", 0.0229071753986),
+    (1, "xm", 0.0570664553828),
+    (2, "xm", 0.0317732624999),
+    (4, "xm", 0.178815723376),
+    (4, "g", 0.0625),
+    (4, "z", 0.0608090372176),
+    (6, "x2", 0.2),
+    (6, "xm", 0.128819782248),
+    (6, "z", 0.0550433606003),
+];
+
+const EXPECTED_S2: &[Node] = &[
+    (0, &[88.0, 62.0], 1, "xm", Some(0.0555547181763)),
+    (0, &[49.0, 14.0], 1, "x2", Some(0.0174658869396)),
+    (0, &[39.0, 48.0], 2, "x2", Some(0.0502711647272)),
+    (1, &[15.0, 10.0], 1, "", None),
+    (1, &[34.0, 4.0], 1, "o", Some(0.00327485380117)),
+    (2, &[16.0, 3.0], 1, "", None),
+    (2, &[23.0, 45.0], 2, "g", Some(0.018311546841)),
+    (4, &[14.0, 0.0], 1, "", None),
+    (4, &[20.0, 4.0], 1, "", None),
+    (6, &[17.0, 19.0], 2, "", None),
+    (6, &[6.0, 26.0], 2, "", None),
+];
+/// Node, surrogate variable and association.
+const SURROGATES_S2: &[(usize, &str, f64)] = &[
+    (0, "x2", 0.040062642369),
+    (1, "xm", 0.146055808656),
+    (4, "xm", 0.0814212356074),
+    (6, "x2", 0.1875),
+];
+
+const EXPECTED_S3: &[Node] = &[
+    (0, &[70.0, 48.0, 32.0], 1, "xm", Some(0.172318667386)),
+    (0, &[52.0, 8.0, 1.0], 1, "g", Some(0.0059636155719)),
+    (0, &[18.0, 40.0, 31.0], 2, "g", Some(0.0600495462736)),
+    (1, &[32.0, 2.0, 0.0], 1, "o", Some(0.00166980539862)),
+    (1, &[20.0, 6.0, 1.0], 1, "", None),
+    (2, &[14.0, 6.0, 2.0], 1, "", None),
+    (2, &[4.0, 34.0, 29.0], 2, "xm", Some(0.0227635039243)),
+    (3, &[19.0, 0.0, 0.0], 1, "", None),
+    (3, &[13.0, 2.0, 0.0], 1, "", None),
+    (6, &[4.0, 31.0, 18.0], 2, "", None),
+    (6, &[0.0, 3.0, 11.0], 3, "", None),
+];
+/// Node, surrogate variable and association.
+const SURROGATES_S3: &[(usize, &str, f64)] = &[
+    (0, "z", 1.0),
+    (0, "g", 0.0153614376799),
+    (1, "xm", 0.11096240973),
+    (2, "xm", 0.00515037110337),
+    (3, "xm", 0.100789762795),
+    (6, "z", 0.741709146409),
+];
+
 fn run(engine: &mut Engine, source: &str) -> Vec<Table> {
     let (commands, errors) = parse(source);
     assert!(errors.is_empty(), "{errors:?}");
@@ -337,8 +409,17 @@ fn engine() -> Engine {
 
 /// Runs a CRT tree and compares its tree table with `expected`.
 fn grown(command: &str, classes: usize, expected: &[Node]) -> (Engine, Vec<Table>) {
+    grown_printing(command, "", classes, expected)
+}
+
+fn grown_printing(
+    command: &str,
+    more: &str,
+    classes: usize,
+    expected: &[Node],
+) -> (Engine, Vec<Table>) {
     let mut engine = engine();
-    let source = format!("{command} /PRINT MODELSUMMARY RISK TREETABLE /TREE DISPLAY=NONE.");
+    let source = format!("{command} /PRINT MODELSUMMARY RISK TREETABLE{more} /TREE DISPLAY=NONE.");
     let tables = run(&mut engine, &source);
     let tree = table(&tables, "Tree Table");
     assert_eq!(tree.rows.len(), expected.len(), "{command}");
@@ -493,27 +574,66 @@ fn a_split_below_the_minimum_improvement_is_not_made() {
 }
 
 #[test]
-fn a_missing_split_value_goes_to_the_larger_child() {
+fn a_missing_split_value_goes_to_the_larger_child_without_surrogates() {
     let (engine, _) = grown(
-        "TREE y [n] BY xm [s] o [o] /METHOD TYPE=CRT /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
+        "TREE y [n] BY xm [s] o [o] /METHOD TYPE=CRT MAXSURROGATES=0 /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
         2,
         EXPECTED_F,
     );
-    assert!(
-        engine
-            .warnings()
-            .iter()
-            .any(|w| w.contains("surrogate splits are not built yet")),
-        "{:?}",
-        engine.warnings()
+    assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+}
+
+/// Runs a tree with surrogates and compares the tree table and the Surrogates table.
+fn with_surrogates(
+    command: &str,
+    classes: usize,
+    nodes: &[Node],
+    surrogates: &[(usize, &str, f64)],
+) {
+    let (_, tables) = grown_printing(command, " SURROGATES", classes, nodes);
+    let found = table(&tables, "Surrogates");
+    assert_eq!(found.rows.len(), surrogates.len(), "{command}");
+    for (row, (node, variable, association)) in found.rows.iter().zip(surrogates) {
+        assert_eq!(number(&row[0]), *node as f64);
+        assert!(
+            text(&row[2]).starts_with(variable),
+            "{} for {variable}",
+            text(&row[2])
+        );
+        close(number(&row[3]), *association, 1e-9);
+    }
+}
+
+#[test]
+fn surrogates_route_cases_with_a_missing_split_value() {
+    // z, which follows xm closely, is the root's first surrogate; a case with neither value
+    // goes by the next surrogate it has, or by the majority
+    with_surrogates(
+        "TREE y [n] BY xm [s] z [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
+        2,
+        EXPECTED_S1,
+        SURROGATES_S1,
     );
-    // with no surrogates asked for there is nothing to warn about
-    let mut quiet = self::engine();
-    run(
-        &mut quiet,
-        "TREE y [n] BY xm [s] o [o] /METHOD TYPE=CRT MAXSURROGATES=0 /TREE DISPLAY=NONE.",
+}
+
+#[test]
+fn the_number_of_surrogates_is_limited() {
+    with_surrogates(
+        "TREE y [n] BY xm [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT MAXSURROGATES=1 /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
+        2,
+        EXPECTED_S2,
+        SURROGATES_S2,
     );
-    assert!(quiet.warnings().is_empty(), "{:?}", quiet.warnings());
+}
+
+#[test]
+fn surrogates_with_priors_and_a_nominal_predictor() {
+    with_surrogates(
+        "TREE y3 [n] BY xm [s] z [s] o [o] g [n] /METHOD TYPE=CRT MAXSURROGATES=2 /PRIORS CUSTOM=1 [5] 2 [3] 3 [2] /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
+        3,
+        EXPECTED_S3,
+        SURROGATES_S3,
+    );
 }
 
 #[test]

@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- TREE /METHOD TYPE=CRT grows a binary classification tree for a nominal or ordinal dependent: every cut of a scale or ordinal predictor and every subset of a nominal one is tried; /CRT IMPURITY=GINI, TWOING or ORDEREDTWOING, MINIMPROVEMENT, /PRIORS FROMDATA, EQUAL or CUSTOM, and the prior probabilities drive each node's category, the risk and the saved probabilities. Surrogate splits, pruning and importance follow.
+- TREE /METHOD TYPE=CRT grows a binary classification tree for a nominal or ordinal dependent: every cut of a scale or ordinal predictor and every subset of a nominal one is tried; /CRT IMPURITY=GINI, TWOING or ORDEREDTWOING, MINIMPROVEMENT, /PRIORS FROMDATA, EQUAL or CUSTOM, and the prior probabilities drive each node's category, the risk and the saved probabilities. Pruning and importance follow.
+- TREE CRT surrogate splits (METHOD MAXSURROGATES) route cases with a missing split value; PRINT SURROGATES lists each node's surrogates with their association.
 - GENLIN CITYPE=PROFILE also gives the profile likelihood interval of an estimated scale and of an estimated negative binomial k.
 - Window: Univariate takes random factors (RANDOM).
 - UNIANOVA and GLM /RANDOM: random effects with the Expected Mean Squares table and each effect tested against its own combination of mean squares (Satterthwaite's degrees of freedom).

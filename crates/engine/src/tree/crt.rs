@@ -19,9 +19,17 @@
 //!   the best improvement is below MINIMPROVEMENT. A candidate that would leave a child below
 //!   MINCHILDSIZE (cases with a value of the predictor) is not offered, so the best remaining
 //!   split is taken.
-//! - A case with no value of the split predictor goes to the child with more cases.
+//! - A case with no value of the split predictor follows the first surrogate whose predictor it
+//!   has, and the child with more cases when there is none. A surrogate for a split s* of X* is
+//!   the split of another predictor X with the largest probability of sending a case that has
+//!   both values to the side s* does (a cut in either direction, or any subset of the categories
+//!   of a nominal predictor, each category going where more of its weight goes), with the
+//!   probabilities of the primary split's class weights taken over the cases with both values
+//!   and conditional on the node. Its association is (min(pL, pR) - (1 - agreement)) / min(pL, pR),
+//!   with pL and pR the shares of the cases with a value of X* that s* sends left and right; only
+//!   a positive association keeps the surrogate, the best ones up to MAXSURROGATES.
 
-use super::{Node, Predictor, Split, make_node};
+use super::{Node, Predictor, Split, Surrogate, make_node};
 use crate::Error;
 use statscraft_syntax::TreeImpurity;
 use std::collections::VecDeque;
@@ -44,6 +52,8 @@ pub(super) struct Growth<'a> {
     pub min_parent: f64,
     pub min_child: f64,
     pub max_depth: usize,
+    /// None is AUTO: one fewer than the predictors.
+    pub max_surrogates: Option<usize>,
 }
 
 /// The classes' share of a node, as the sums of weights.
@@ -197,6 +207,122 @@ impl Growth<'_> {
         }))
     }
 
+    /// The surrogates of the split of predictor `p` that sends the codes `left` left.
+    fn surrogates(
+        &self,
+        node: &Node,
+        p: usize,
+        left: &[usize],
+        priors_root: &[f64],
+    ) -> Vec<Surrogate> {
+        let limit = self
+            .max_surrogates
+            .unwrap_or(usize::MAX)
+            .min(self.predictors.len() - 1);
+        if limit == 0 {
+            return Vec::new();
+        }
+        let primary = &self.predictors[p];
+        let goes_left = |i: usize| left.contains(&primary.codes[i]);
+        let with_value: Vec<usize> = node
+            .cases
+            .iter()
+            .copied()
+            .filter(|&i| primary.codes[i] != primary.missing())
+            .collect();
+        let factor = self.factor(priors_root);
+        let (mut pl, mut pr) = (0.0, 0.0);
+        for &i in &with_value {
+            let w = self.case_weight[i] * factor[self.case_class[i]];
+            if goes_left(i) {
+                pl += w;
+            } else {
+                pr += w;
+            }
+        }
+        let smaller = pl.min(pr) / (pl + pr);
+        if smaller.is_nan() || smaller <= 0.0 {
+            return Vec::new();
+        }
+        let mut found: Vec<Surrogate> = Vec::new();
+        for (q, other) in self.predictors.iter().enumerate() {
+            if q == p {
+                continue;
+            }
+            let both = |i: usize| {
+                primary.codes[i] != primary.missing() && other.codes[i] != other.missing()
+            };
+            // the class totals of every case with both values give the factors
+            let mut totals = vec![0.0; self.classes];
+            for i in 0..self.case_class.len() {
+                if both(i) {
+                    totals[self.case_class[i]] += self.case_weight[i];
+                }
+            }
+            let factor = self.factor(&totals);
+            // the weight of the cases of each category that s* sends left and right
+            let mut side = vec![[0.0; 2]; other.missing()];
+            let mut all = 0.0;
+            for &i in node.cases.iter().filter(|&&i| both(i)) {
+                let w = self.case_weight[i] * factor[self.case_class[i]];
+                side[other.codes[i]][usize::from(!goes_left(i))] += w;
+                all += w;
+            }
+            if all <= 0.0 {
+                continue;
+            }
+            let present: Vec<usize> = (0..other.missing())
+                .filter(|&c| side[c][0] + side[c][1] > 0.0)
+                .collect();
+            // the split and the weight of the cases it sends where s* does
+            let mut best: Option<(Vec<usize>, f64)> = None;
+            let mut offer = |codes: Vec<usize>, agreement: f64| {
+                if best
+                    .as_ref()
+                    .is_none_or(|(_, b)| agreement > *b + 1e-12 * b.abs())
+                {
+                    best = Some((codes, agreement));
+                }
+            };
+            if other.nominal {
+                let codes: Vec<usize> = present
+                    .iter()
+                    .copied()
+                    .filter(|&c| side[c][0] >= side[c][1])
+                    .collect();
+                let agreement = present.iter().map(|&c| side[c][0].max(side[c][1])).sum();
+                offer(codes, agreement);
+            } else {
+                for k in 1..present.len() {
+                    let (below, above) = present.split_at(k);
+                    let last = *below.last().expect("a prefix");
+                    let sum =
+                        |codes: &[usize], s: usize| codes.iter().map(|&c| side[c][s]).sum::<f64>();
+                    // x <= v goes left, or x > v goes left
+                    offer((0..=last).collect(), sum(below, 0) + sum(above, 1));
+                    offer(
+                        (last + 1..other.missing()).collect(),
+                        sum(below, 1) + sum(above, 0),
+                    );
+                }
+            }
+            let Some((codes, agreement)) = best else {
+                continue;
+            };
+            let association = (smaller - (1.0 - agreement / all)) / smaller;
+            if association > 1e-12 {
+                found.push(Surrogate {
+                    predictor: q,
+                    left: codes,
+                    association,
+                });
+            }
+        }
+        found.sort_by(|a, b| b.association.total_cmp(&a.association));
+        found.truncate(limit);
+        found
+    }
+
     pub(super) fn grow(&self) -> Result<Vec<Node>, Error> {
         let n = self.case_class.len();
         let mut totals = vec![0.0; self.classes];
@@ -239,6 +365,7 @@ impl Growth<'_> {
                 continue;
             };
             let predictor = &self.predictors[p];
+            let surrogates = self.surrogates(node, p, &left, &valid[p]);
             let (mut to_left, mut to_right) = (Vec::new(), Vec::new());
             let (mut weight_left, mut weight_right) = (0.0, 0.0);
             let mut unknown = Vec::new();
@@ -254,10 +381,17 @@ impl Growth<'_> {
                     weight_right += self.case_weight[i];
                 }
             }
-            if weight_left >= weight_right {
-                to_left.extend(unknown);
-            } else {
-                to_right.extend(unknown);
+            // a case with no value follows the first surrogate it has a value for, else the majority
+            for i in unknown {
+                let by_surrogate = surrogates.iter().find_map(|s| {
+                    let other = &self.predictors[s.predictor];
+                    (other.codes[i] != other.missing()).then(|| s.left.contains(&other.codes[i]))
+                });
+                if by_surrogate.unwrap_or(weight_left >= weight_right) {
+                    to_left.push(i);
+                } else {
+                    to_right.push(i);
+                }
             }
             let depth = node.depth + 1;
             let children = [
@@ -277,6 +411,7 @@ impl Growth<'_> {
                 df: 0.0,
                 sig: 0.0,
                 improvement: Some(gain),
+                surrogates,
             });
         }
         Ok(nodes)

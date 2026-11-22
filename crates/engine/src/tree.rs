@@ -107,6 +107,16 @@ struct Split {
     sig: f64,
     /// The decrease in impurity of a CRT split; CHAID has the three above instead.
     improvement: Option<f64>,
+    /// The splits of other predictors that best imitate a CRT split, most similar first.
+    surrogates: Vec<Surrogate>,
+}
+
+/// A split of `predictor` that sends the categories `left` to the left child.
+struct Surrogate {
+    predictor: usize,
+    left: Vec<usize>,
+    /// The predictive measure of association with the primary split.
+    association: f64,
 }
 
 struct Node {
@@ -620,7 +630,6 @@ impl Engine {
             }
             for (given, what) in [
                 (command.print_importance, "PRINT IMPORTANCE"),
-                (command.print_surrogates, "PRINT SURROGATES"),
                 (command.plot_importance, "PLOT IMPORTANCE"),
             ] {
                 if given {
@@ -936,18 +945,6 @@ impl Engine {
             };
             coded.push(predictor);
         }
-        if command.crt
-            && command.max_surrogates != Some(0)
-            && coded
-                .iter()
-                .any(|p| p.codes.iter().any(|&c| c == p.missing()))
-        {
-            warnings.push(
-                "surrogate splits are not built yet: a case with no value of the split variable \
-                 goes to the child with more cases (METHOD MAXSURROGATES=0 says the same)"
-                    .into(),
-            );
-        }
         let case_weight: Vec<f64> = cases.iter().map(|&(c, _)| weight(c)).collect();
         let case_class: Vec<usize> = cases.iter().map(|&(_, k)| k).collect();
 
@@ -972,6 +969,7 @@ impl Engine {
                 min_parent: command.min_parent,
                 min_child: command.min_child,
                 max_depth: depth_limit(command),
+                max_surrogates: command.max_surrogates,
             }
             .grow()?
         } else {
@@ -1028,6 +1026,7 @@ impl Engine {
                             df,
                             sig,
                             improvement: None,
+                            surrogates: Vec::new(),
                         });
                     }
                 }
@@ -1501,6 +1500,40 @@ impl Engine {
         }
         if command.print.tree_table {
             out.push(node_table("Tree Table", false));
+        }
+        if command.crt && command.print_surrogates {
+            let mut rows = Vec::new();
+            for (id, node) in nodes.iter().enumerate() {
+                let Some(split) = &node.split else { continue };
+                for found in &split.surrogates {
+                    let other = &predictors[found.predictor];
+                    rows.push(vec![
+                        Cell::Number(id as f64),
+                        text(&predictors[split.predictor].name),
+                        text(format!("{} = {}", other.name, other.describe(&found.left))),
+                        Cell::Number(found.association),
+                    ]);
+                }
+            }
+            let formats =
+                vec![vec![String::new(), String::new(), String::new(), "F8.5".into()]; rows.len()];
+            out.push(Table {
+                title: "Surrogates".into(),
+                row_headers: 1,
+                columns: vec![
+                    "Node".into(),
+                    "Split Variable".into(),
+                    "Surrogate".into(),
+                    "Association".into(),
+                ],
+                column_groups: vec![Vec::new(); 4],
+                rows,
+                formats,
+                caption: Some(
+                    "Each surrogate sends its listed categories to the left child.".into(),
+                ),
+                ..Table::default()
+            });
         }
 
         // misclassification
