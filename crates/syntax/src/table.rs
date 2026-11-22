@@ -113,7 +113,7 @@ pub struct CommandSpec {
 macro_rules! glm_syntax {
     ($name:literal) => {
         concat!($name, " dependent [BY factors] [WITH covariates]\n\
-                 \x20  [/WSFACTOR=name levels [POLYNOMIAL | contrast] ...] [/WSDESIGN=effects] (GLM)\n\
+                 \x20  [/WSFACTOR=name levels [POLYNOMIAL | contrast] ...] [/WSDESIGN=effects] [/MEASURE=names] (GLM)\n\
                  \x20  [/METHOD=SSTYPE(1 | 2 | 3 | 4)] [/INTERCEPT=INCLUDE | EXCLUDE] [/MISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/CRITERIA=[EPS(1E-8)] [ALPHA(0.05)]] [/REGWGT=var]\n\
                  \x20  [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF] [RSSCP] [GEF] [MBP] [BP] [F] [WHITE]\n\
@@ -198,8 +198,11 @@ macro_rules! glm_syntax {
                  fitted values and their squares, or the terms of MBPDESIGN, BPDESIGN and FDESIGN (a bare one names\n\
                  the model of DESIGN; an intercept is always in); White's uses every level, square and cross\n\
                  product of the design columns. One Heteroskedasticity Tests table (for each dependent variable\n\
-                 of GLM) gives the chi-square or F, df and Sig. Not supported yet:\n\
-                 OUTFILE and MEASURE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
+                 of GLM) gives the chi-square or F, df and Sig. MEASURE=names (GLM) names the measures of a doubly\n\
+                 multivariate model: the dependents are the cells of the within-subjects design for the first measure, then the\n\
+                 second, and so on, the last WSFACTOR varying fastest; each measure has its own sphericity, averaged,\n\
+                 contrast and between-subjects tests and the multivariate tests take the measures together. Not supported yet:\n\
+                 OUTFILE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
                  EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE and PRINT\n\
                  PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).")
     };

@@ -1062,7 +1062,7 @@ fn constant_dependent_has_no_r_squared() {
 fn errors_name_the_problem() {
     assert_eq!(
         run_error(&format!("{DATA}\nGLM y x BY a /WSFACTOR=t 3.")),
-        "WSFACTOR gives 3 level combinations for 2 dependent variables; they must be equal"
+        "WSFACTOR gives 3 level combinations for 2 dependent variables; their number must be a multiple of that (one group of dependents for each measure)"
     );
     assert_eq!(
         run_error(&format!("{DATA}\nUNIANOVA y BY a /DESIGN=a b.")),
@@ -2136,4 +2136,190 @@ fn random_needs_factors_and_no_within_subjects_factor_and_treats_several_depende
         .count();
     assert_eq!(tests, 2, "a univariate mixed model for each dependent");
     assert!(t.iter().all(|t| !t.title.contains("Multivariate")));
+}
+
+/// Two measures (A and B) over three times, 14 subjects in two equal groups; the expected
+/// multivariate statistics come from R's `manova` on the transformed variables (the polynomial
+/// contrasts of each measure's three cells side by side, and the sum over the cells).
+const DOUBLY: &str = "DATA LIST FREE /a1 a2 a3 b1 b2 b3 g.\n\
+BEGIN DATA.\n\
+9.23 11.12 11.48 4.17 4.46 5.25 1 \n\
+9.24 10.33 12.58 4.95 3.86 5.16 1 \n\
+7.6 10.2 11.87 3.63 2.51 4.32 1 \n\
+7.89 9.36 10.89 5.08 4.44 5.59 1 \n\
+11.72 10.43 12.7 5.85 3.86 6.03 1 \n\
+7.8 10.77 13.14 4.17 2.37 4.5 1 \n\
+10.63 12.9 13.43 4.77 5.11 4.44 1 \n\
+11.01 12.6 12.76 5.57 3.38 6.55 2 \n\
+9.81 12.39 14.09 4.03 3.93 5.86 2 \n\
+10.23 10.61 14.05 4.99 3.12 5.04 2 \n\
+8.68 10.32 12.24 4.6 3.64 6.3 2 \n\
+9.37 11.85 12.49 5.02 3.32 6.41 2 \n\
+7.15 10.39 11.68 3.74 3.6 5.51 2 \n\
+9.76 11.98 14.05 3.79 2.35 6.21 2 \n\
+END DATA.\n";
+
+#[test]
+fn doubly_multivariate_tests_take_the_measures_together() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 b1 b2 b3 BY g /WSFACTOR=time 3 /MEASURE=A B /WSDESIGN=time /DESIGN=g."
+        ),
+    );
+    // (title, effect, statistic, value, F, hypothesis df, error df, Sig.)
+    let expected = [
+        (
+            "Multivariate Tests",
+            "time",
+            "Pillai's Trace",
+            0.9372639464,
+            33.6145447203,
+            4.0,
+            9.0,
+            2.024442603e-05,
+        ),
+        (
+            "Multivariate Tests",
+            "time",
+            "Wilks' Lambda",
+            0.0627360536,
+            33.6145447203,
+            4.0,
+            9.0,
+            2.024442603e-05,
+        ),
+        (
+            "Multivariate Tests",
+            "time * g",
+            "Pillai's Trace",
+            0.5423867446,
+            2.6668156154,
+            4.0,
+            9.0,
+            0.1020694048,
+        ),
+        (
+            "Multivariate Tests",
+            "time * g",
+            "Wilks' Lambda",
+            0.4576132554,
+            2.6668156154,
+            4.0,
+            9.0,
+            0.1020694048,
+        ),
+        (
+            "Multivariate Tests of Between-Subjects Effects",
+            "Intercept",
+            "Pillai's Trace",
+            0.9947827903,
+            1048.7033579294,
+            2.0,
+            11.0,
+            2.791969171e-13,
+        ),
+        (
+            "Multivariate Tests of Between-Subjects Effects",
+            "Intercept",
+            "Wilks' Lambda",
+            0.0052172097,
+            1048.7033579265,
+            2.0,
+            11.0,
+            2.791969171e-13,
+        ),
+        (
+            "Multivariate Tests of Between-Subjects Effects",
+            "g",
+            "Pillai's Trace",
+            0.0981950034,
+            0.5988794923,
+            2.0,
+            11.0,
+            0.5663951228,
+        ),
+        (
+            "Multivariate Tests of Between-Subjects Effects",
+            "g",
+            "Wilks' Lambda",
+            0.9018049966,
+            0.5988794923,
+            2.0,
+            11.0,
+            0.5663951228,
+        ),
+    ];
+    for (title, effect, statistic, value, f, df1, df2, sig) in expected {
+        let row = format!("{effect} / {statistic}");
+        for (column, want) in [
+            ("Value", value),
+            ("F", f),
+            ("Hypothesis df", df1),
+            ("Error df", df2),
+            ("Sig.", sig),
+        ] {
+            let got = number(cell(&tables, title, &row, column));
+            assert!(
+                (got - want).abs() <= 1e-7 * want.abs().max(1e-3),
+                "{title} / {row} / {column}: {got} vs {want}"
+            );
+        }
+    }
+}
+
+#[test]
+fn each_measure_has_the_tests_of_a_repeated_measures_model_of_its_own() {
+    let mut engine = Engine::default();
+    let both = run(
+        &mut engine,
+        &format!("{DOUBLY}GLM a1 a2 a3 b1 b2 b3 BY g /WSFACTOR=time 3 /MEASURE=A B."),
+    );
+    let one = run(
+        &mut engine,
+        "GLM b1 b2 b3 BY g /WSFACTOR=time 3 POLYNOMIAL.",
+    );
+    // the measure is the outer row header of the merged tables, so its rows are keyed by it
+    for (title, row, column, single_row) in [
+        (
+            "Tests of Within-Subjects Effects",
+            "time / B / Sphericity Assumed",
+            "F",
+            "time / Sphericity Assumed",
+        ),
+        (
+            "Tests of Within-Subjects Effects",
+            "time * g / B / Greenhouse-Geisser",
+            "Sig.",
+            "time * g / Greenhouse-Geisser",
+        ),
+        ("Tests of Between-Subjects Effects", "B / g", "F", "g"),
+    ] {
+        let got = number(cell(&both, title, row, column));
+        let want = number(cell(&one, title, single_row, column));
+        assert!(
+            close(got, want),
+            "{title} / {row} / {column}: {got} vs {want}"
+        );
+    }
+    let factors = both
+        .iter()
+        .find(|t| t.title == "Within-Subjects Factors")
+        .unwrap();
+    assert_eq!(factors.columns, ["time", "A", "B"]);
+}
+
+#[test]
+fn measure_names_must_match_the_dependents() {
+    assert_eq!(
+        run_error(&format!(
+            "{DOUBLY}GLM a1 a2 a3 b1 b2 b3 BY g /WSFACTOR=time 3 /MEASURE=A B C."
+        )),
+        "MEASURE names 3 measures, but 6 dependent variables over 3 level combinations make 2"
+    );
+    assert!(
+        run_error(&format!("{DOUBLY}GLM a1 a2 a3 BY g /MEASURE=A."))
+            .contains("MEASURE is for a repeated measures model")
+    );
 }

@@ -1889,7 +1889,7 @@ Where the documentation is silent:
   - LOGLINEAR, the older loglinear command with contrasts, is not supported; GENLOG and HILOGLINEAR cover its models.
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL from a file, and with REPEATED no multinomial distribution and no generalized score tests.
   - CSCOXREG gives no test of the covariate form (the manual names it without defining it).
-  - UNIANOVA and GLM have no OUTFILE or MEASURE (the manuals define MEASURE only as labels of a doubly multivariate model, which is not built), and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
+  - UNIANOVA and GLM have no OUTFILE, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
   - GENLINMIXED has no model with neither RANDOM nor REPEATED_MEASURES, no spatial or Kronecker residual structures, no GROUPING and no Pearson residuals of a multinomial target.
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
   - TWOSTEP CLUSTER has no INFILE and writes no OUTFILE model or tree; DETECTANOMALY writes no OUTFILE model.

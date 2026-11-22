@@ -111,6 +111,18 @@ impl Data {
         self.case.len()
     }
 
+    /// The same cases with the dependent variables in `range` only.
+    pub(crate) fn columns(&self, range: std::ops::Range<usize>) -> Data {
+        Data {
+            y: self
+                .y
+                .iter()
+                .map(|row| row[range.clone()].to_vec())
+                .collect(),
+            ..self.clone()
+        }
+    }
+
     /// The same cases with dependent variable `j` alone.
     pub(crate) fn only(&self, j: usize) -> Data {
         Data {
@@ -1051,6 +1063,11 @@ impl Engine {
             return Err(Error(format!("{name}: the design has no effects")));
         }
         let mut warnings = Vec::new();
+        if !command.measures.is_empty() && command.wsfactors.is_empty() {
+            return Err(Error(format!(
+                "{name}: MEASURE is for a repeated measures model and needs WSFACTOR"
+            )));
+        }
         if !command.random.is_empty() && !command.wsfactors.is_empty() {
             return Err(Error(format!(
                 "{name}: RANDOM cannot be used with WSFACTOR (a model with a within-subjects factor)"
@@ -3855,6 +3872,296 @@ pub(crate) fn mauchly(xi: &Matrix, dfe: f64, reference: &[f64]) -> (f64, f64, f6
     }
 }
 
+/// The within-subjects effects: WSDESIGN's terms as sets of factor positions, else every main
+/// effect and interaction of the factors.
+fn within_design(command: &Glm) -> Result<Vec<Vec<usize>>, Error> {
+    let ws = &command.wsfactors;
+    Ok(match &command.wsdesign {
+        Some(terms) => {
+            let mut out = Vec::new();
+            for t in terms.iter().filter(|t| !t.variables.is_empty()) {
+                let mut set = Vec::new();
+                for name in &t.variables {
+                    let Some(k) = ws.iter().position(|w| w.name.eq_ignore_ascii_case(name)) else {
+                        return Err(Error(format!(
+                            "{name} in WSDESIGN is not a within-subjects factor"
+                        )));
+                    };
+                    if t.label.contains('(') {
+                        return Err(Error("nesting in WSDESIGN is not supported yet".into()));
+                    }
+                    set.push(k);
+                }
+                set.sort_unstable();
+                set.dedup();
+                out.push(set);
+            }
+            out
+        }
+        None => {
+            let t = ws.len();
+            let mut out: Vec<Vec<usize>> = (1u32..(1 << t))
+                .map(|mask| (0..t).filter(|k| mask & (1 << k) != 0).collect())
+                .collect();
+            out.sort_by_key(|s: &Vec<usize>| (s.len(), s.clone()));
+            out
+        }
+    })
+}
+
+/// The columns of a within-subjects factor's contrasts, one column per contrast.
+fn contrast_matrix(w: &statscraft_syntax::WsFactor, kind: &Contrast) -> Result<Matrix, Error> {
+    let rows =
+        contrast_rows(kind, w.levels).map_err(|e| Error(format!("WSFACTOR {}: {e}", w.name)))?;
+    Ok(transpose(
+        &rows.into_iter().map(|(_, r)| r).collect::<Matrix>(),
+    ))
+}
+
+/// A block-diagonal matrix of `times` copies of `a`: the same transformation for each measure
+/// of a doubly multivariate model.
+fn block_diagonal(a: &Matrix, times: usize) -> Matrix {
+    let (rows, cols) = (a.len(), a[0].len());
+    let mut out = vec![vec![0.0; cols * times]; rows * times];
+    for t in 0..times {
+        for (i, row) in a.iter().enumerate() {
+            for (j, v) in row.iter().enumerate() {
+                out[t * rows + i][t * cols + j] = *v;
+            }
+        }
+    }
+    out
+}
+
+impl Engine {
+    /// A doubly multivariate model: the dependents are `m` measures each over the `r` cells of
+    /// the within-subjects design, a measure's cells together, the last factor varying fastest.
+    /// Each measure has the tables of a repeated measures model of its own (sphericity, the
+    /// averaged and contrast tests, the between-subjects tests, with the measure as an outer
+    /// column), and the multivariate tests take the transformed variables of all measures
+    /// together.
+    #[allow(clippy::too_many_arguments)]
+    fn doubly_multivariate(
+        &mut self,
+        command: &Glm,
+        d: &Data,
+        effects: Vec<Effect>,
+        dependents: &[String],
+        m: usize,
+        warnings: &mut Vec<String>,
+        label_of: &dyn Fn(usize, usize) -> String,
+    ) -> Result<Vec<Table>, Error> {
+        let ws = &command.wsfactors;
+        let r = dependents.len() / m;
+        let names: Vec<String> = if command.measures.is_empty() {
+            (1..=m).map(|k| format!("MEASURE_{k}")).collect()
+        } else {
+            command.measures.clone()
+        };
+        let mut single = command.clone();
+        single.measures.clear();
+        let mut taken: Vec<Vec<Table>> = Vec::new();
+        for k in 0..m {
+            let dk = d.columns(k * r..(k + 1) * r);
+            let mut own = Vec::new();
+            taken.push(self.repeated_measures(
+                &single,
+                &dk,
+                effects.clone(),
+                &dependents[k * r..(k + 1) * r],
+                &mut own,
+                label_of,
+            )?);
+            for w in own {
+                if !warnings.contains(&w) {
+                    warnings.push(w);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        // Within-Subjects Factors: the dependent variable of every measure in each cell
+        let mut columns: Vec<(String, String)> =
+            ws.iter().map(|w| (String::new(), w.name.clone())).collect();
+        columns.extend(
+            names
+                .iter()
+                .map(|n| ("Dependent Variable".to_string(), n.clone())),
+        );
+        let rows = combinations(&ws.iter().map(|w| w.levels).collect::<Vec<_>>())
+            .iter()
+            .enumerate()
+            .map(|(i, combo)| {
+                let mut row: Vec<Cell> = combo
+                    .iter()
+                    .map(|&l| Cell::Number((l + 1) as f64))
+                    .collect();
+                row.extend((0..m).map(|k| text(dependents[k * r + i].clone())));
+                row
+            })
+            .collect();
+        out.push(table(
+            "Within-Subjects Factors",
+            ws.len(),
+            columns,
+            rows,
+            None,
+        ));
+        let find = |title: &str| -> Vec<Table> {
+            taken
+                .iter()
+                .filter_map(|t| t.iter().find(|x| x.title == title).cloned())
+                .collect()
+        };
+        if let Some(between) = taken[0]
+            .iter()
+            .find(|t| t.title == "Between-Subjects Factors")
+        {
+            out.push(between.clone());
+        }
+        for t in &taken {
+            out.extend(
+                t.iter()
+                    .filter(|x| x.title.starts_with("Descriptive"))
+                    .cloned(),
+            );
+        }
+        out.extend(self.joint_multivariate(command, d, effects, m, r)?);
+        for (title, by_source) in [
+            ("Mauchly's Test of Sphericity", false),
+            ("Tests of Within-Subjects Effects", true),
+            ("Tests of Within-Subjects Contrasts", true),
+            ("Tests of Between-Subjects Effects", false),
+        ] {
+            let tables = find(title);
+            if tables.len() == m {
+                out.push(merge(tables, &names, by_source, "Measure"));
+            }
+        }
+        Ok(out)
+    }
+
+    /// The multivariate tests of a doubly multivariate model over the transformed variables of
+    /// all measures: each within-subjects effect (with its crossings with the between-subjects
+    /// effects), and the between-subjects effects on the measures' averages.
+    fn joint_multivariate(
+        &self,
+        command: &Glm,
+        d: &Data,
+        effects: Vec<Effect>,
+        m: usize,
+        r: usize,
+    ) -> Result<Vec<Table>, Error> {
+        let ws = &command.wsfactors;
+        let within = within_design(command)?;
+        let label = |set: &[usize]| {
+            set.iter()
+                .map(|&k| ws[k].name.clone())
+                .collect::<Vec<_>>()
+                .join(" * ")
+        };
+        let y = d.y.clone();
+        let fit = Fit::new(d, effects, &y, command.eps);
+        let sscp = effect_sscp(&fit, command.sstype);
+        let dfe = fit.df_error();
+        let raw = fit.raw();
+        let flags = flags_of(command);
+        let design = fit
+            .effects
+            .iter()
+            .map(|e| e.label.clone())
+            .collect::<Vec<_>>()
+            .join(" + ");
+        let mut rows = Vec::new();
+        for set in &within {
+            let mut parts = Vec::new();
+            for (k, w) in ws.iter().enumerate() {
+                parts.push(if set.contains(&k) {
+                    contrast_matrix(w, &w.contrast)?
+                } else {
+                    vec![vec![1.0]; w.levels]
+                });
+            }
+            let t = block_diagonal(&kronecker(&parts), m);
+            debug_assert_eq!(t.len(), r * m);
+            let se = quadratic(&t, &fit.s);
+            let scale = transformed_scale(&t, &raw);
+            for (e, (sh, rank)) in fit.effects.iter().zip(&sscp) {
+                let name = if e.is_intercept() {
+                    label(set)
+                } else {
+                    format!("{} * {}", label(set), e.label)
+                };
+                let sh = quadratic(&t, sh);
+                for (i, mut row) in multivariate_rows(&sh, &se, &scale, *rank as f64, dfe, &flags)
+                    .into_iter()
+                    .enumerate()
+                {
+                    row.insert(
+                        0,
+                        if i == 0 {
+                            text(name.clone())
+                        } else {
+                            Cell::Empty
+                        },
+                    );
+                    rows.push(row);
+                }
+            }
+        }
+        let mut out = vec![table(
+            "Multivariate Tests",
+            2,
+            multivariate_columns(&flags, true),
+            rows,
+            Some(format!(
+                "Design: {design}. Within Subjects Design: {}. The transformed variables of all measures are tested together.",
+                within
+                    .iter()
+                    .map(|s| label(s))
+                    .collect::<Vec<_>>()
+                    .join(" + ")
+            )),
+        )];
+        // the between-subjects effects on the average of each measure
+        let average = kronecker(
+            &ws.iter()
+                .map(|w| vec![vec![1.0 / (w.levels as f64).sqrt()]; w.levels])
+                .collect::<Vec<_>>(),
+        );
+        let t = block_diagonal(&average, m);
+        let se = quadratic(&t, &fit.s);
+        let scale = transformed_scale(&t, &raw);
+        let mut rows = Vec::new();
+        for (e, (sh, rank)) in fit.effects.iter().zip(&sscp) {
+            let sh = quadratic(&t, sh);
+            for (i, mut row) in multivariate_rows(&sh, &se, &scale, *rank as f64, dfe, &flags)
+                .into_iter()
+                .enumerate()
+            {
+                row.insert(
+                    0,
+                    if i == 0 {
+                        text(e.label.clone())
+                    } else {
+                        Cell::Empty
+                    },
+                );
+                rows.push(row);
+            }
+        }
+        out.push(table(
+            "Multivariate Tests of Between-Subjects Effects",
+            2,
+            multivariate_columns(&flags, true),
+            rows,
+            Some(format!(
+                "Design: {design}. The measures are averaged over the within-subjects cells."
+            )),
+        ));
+        Ok(out)
+    }
+}
+
 impl Engine {
     #[allow(clippy::too_many_arguments)]
     fn repeated_measures(
@@ -3868,11 +4175,23 @@ impl Engine {
     ) -> Result<Vec<Table>, Error> {
         let ws = &command.wsfactors;
         let r: usize = ws.iter().map(|w| w.levels).product();
-        if r != dependents.len() {
+        if !dependents.len().is_multiple_of(r) {
             return Err(Error(format!(
-                "WSFACTOR gives {r} level combinations for {} dependent variables; they must be equal",
+                "WSFACTOR gives {r} level combinations for {} dependent variables; their number must be a multiple of that (one group of dependents for each measure)",
                 dependents.len()
             )));
+        }
+        let m = dependents.len() / r;
+        if !command.measures.is_empty() && command.measures.len() != m {
+            return Err(Error(format!(
+                "MEASURE names {} measures, but {} dependent variables over {r} level combinations make {m}",
+                command.measures.len(),
+                dependents.len()
+            )));
+        }
+        if m > 1 {
+            return self
+                .doubly_multivariate(command, d, effects, dependents, m, warnings, label_of);
         }
         for (what, given) in [
             ("SAVE", !command.save.is_empty()),
@@ -3908,39 +4227,7 @@ impl Engine {
                 )));
             }
         }
-        // the within-subjects effects
-        let within: Vec<Vec<usize>> = match &command.wsdesign {
-            Some(terms) => {
-                let mut out = Vec::new();
-                for t in terms.iter().filter(|t| !t.variables.is_empty()) {
-                    let mut set = Vec::new();
-                    for name in &t.variables {
-                        let Some(k) = ws.iter().position(|w| w.name.eq_ignore_ascii_case(name))
-                        else {
-                            return Err(Error(format!(
-                                "{name} in WSDESIGN is not a within-subjects factor"
-                            )));
-                        };
-                        if t.label.contains('(') {
-                            return Err(Error("nesting in WSDESIGN is not supported yet".into()));
-                        }
-                        set.push(k);
-                    }
-                    set.sort_unstable();
-                    set.dedup();
-                    out.push(set);
-                }
-                out
-            }
-            None => {
-                let t = ws.len();
-                let mut out: Vec<Vec<usize>> = (1u32..(1 << t))
-                    .map(|mask| (0..t).filter(|k| mask & (1 << k) != 0).collect())
-                    .collect();
-                out.sort_by_key(|s: &Vec<usize>| (s.len(), s.clone()));
-                out
-            }
-        };
+        let within = within_design(command)?;
         let within_label = |set: &[usize]| {
             set.iter()
                 .map(|&k| ws[k].name.clone())
@@ -3988,13 +4275,7 @@ impl Engine {
             }
         }
         // the columns of each within-subjects factor
-        let contrast_columns = |k: usize, kind: &Contrast| -> Result<Matrix, Error> {
-            let rows = contrast_rows(kind, ws[k].levels)
-                .map_err(|e| Error(format!("WSFACTOR {}: {e}", ws[k].name)))?;
-            Ok(transpose(
-                &rows.into_iter().map(|(_, r)| r).collect::<Matrix>(),
-            ))
-        };
+        let contrast_columns = |k: usize, kind: &Contrast| contrast_matrix(&ws[k], kind);
         let contrast_names = |k: usize| -> Vec<String> {
             contrast_rows(&ws[k].contrast, ws[k].levels)
                 .map(|rows| rows.into_iter().map(|(n, _)| n).collect())

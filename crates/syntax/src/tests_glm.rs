@@ -671,3 +671,9 @@ fn random_lists_factors_and_adds_up() {
     let (_, errors) = parse("UNIANOVA y BY a /RANDOM=.");
     assert!(!errors.is_empty());
 }
+
+#[test]
+fn measure_names_the_measures_of_a_doubly_multivariate_model() {
+    let g = glm("GLM a1 a2 b1 b2 BY g /WSFACTOR=t 2 /MEASURE=A B.");
+    assert_eq!(g.measures, words(&["A", "B"]));
+}

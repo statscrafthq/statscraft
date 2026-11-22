@@ -176,6 +176,8 @@ pub struct Glm {
     pub wsfactors: Vec<WsFactor>,
     /// WSDESIGN; None is the full factorial of the within-subjects factors.
     pub wsdesign: Option<Vec<Term>>,
+    /// MEASURE: the names of the measures of a doubly multivariate model (empty: MEASURE_1, ...).
+    pub measures: Vec<String>,
     pub sstype: u8,
     /// `/INTERCEPT=INCLUDE` (default) or EXCLUDE.
     pub intercept: bool,
@@ -1279,6 +1281,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         covariates,
         wsfactors: Vec::new(),
         wsdesign: None,
+        measures: Vec::new(),
         sstype: 3,
         intercept: true,
         include: false,
@@ -1383,6 +1386,11 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
             p.eat(Punct::Eq);
             let terms = terms(p)?;
             command.wsdesign = (!terms.is_empty()).then_some(terms);
+        } else if name == "GLM" && p.eat_keyword("MEASURE") {
+            p.eat(Punct::Eq);
+            while !at_end(p) {
+                command.measures.push(p.name("a measure name")?);
+            }
         } else if p.eat_keyword("REGWGT") {
             p.eat(Punct::Eq);
             command.regwgt = Some(p.name("a variable name")?);
