@@ -2,8 +2,9 @@
 //! CORRELATIONS and NONPAR CORR.
 
 use crate::ast::{
-    Command, Correlations, CorrelationsLayout, DunnettSide, Means, MeansCell as M, MeansMissing,
-    NonparCorr, Oneway, Posthoc, Standardizer, TTest, TTestGroups, TTestPairs, VarItem,
+    Command, Correlations, CorrelationsCi, CorrelationsLayout, DunnettSide, Means, MeansCell as M,
+    MeansMissing, NonparCi, NonparCorr, Oneway, Posthoc, SpearmanSe, Standardizer, TTest,
+    TTestGroups, TTestPairs, VarItem,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -697,6 +698,28 @@ fn correlation_list(p: &mut Parser) -> PResult<(Vec<VarItem>, Option<Vec<VarItem
     Ok((rows, columns))
 }
 
+/// `(value)` or `= value` in percent, between 0 and 100 (CILEVEL of the CI subcommands).
+fn percent(p: &mut Parser, what: &str) -> PResult<f64> {
+    let parenthesized = p.eat(Punct::LParen);
+    if !parenthesized {
+        p.eat(Punct::Eq);
+    }
+    let start = p.pos;
+    let Some(value) = p.number() else {
+        return Err(p.unexpected(&["a percent between 0 and 100"]));
+    };
+    if !(value > 0.0 && value < 100.0) {
+        return Err(SyntaxError::new(
+            p.span_from(start),
+            format!("{what} must lie between 0 and 100, got {value}"),
+        ));
+    }
+    if parenthesized {
+        p.expect(Punct::RParen)?;
+    }
+    Ok(value)
+}
+
 /// MATRIX of CORRELATIONS and NONPAR CORR, which only write: `OUT(file | dataset | *)`.
 fn matrix_out_only(p: &mut Parser, io: &mut crate::matrix_io::MatrixIo, who: &str) -> PResult<()> {
     let start = p.pos;
@@ -730,6 +753,7 @@ pub(crate) fn correlations(p: &mut Parser) -> PResult<Command> {
         listwise: false,
         include: false,
         matrix: crate::matrix_io::MatrixIo::default(),
+        ci: None,
     };
     p.eat(Punct::Slash);
     let mut more = true;
@@ -744,6 +768,40 @@ pub(crate) fn correlations(p: &mut Parser) -> PResult<Command> {
         } else if p.at_keyword("MATRIX") {
             p.pos += 1;
             matrix_out_only(p, &mut command.matrix, "CORRELATIONS")?;
+        } else if p.eat_keyword("CI") {
+            let mut ci = CorrelationsCi {
+                bias: false,
+                level: 95.0,
+            };
+            while !at_end(p) {
+                if p.eat_keyword("METHOD") {
+                    p.eat(Punct::Eq);
+                    if p.eat_keyword("EXACT") {
+                        return Err(SyntaxError::new(
+                            p.span(),
+                            "CI METHOD=EXACT is not supported yet; the manual itself says it is not available in its release. FISHER is",
+                        ));
+                    }
+                    if !p.eat_keyword("FISHER") {
+                        return Err(p.unexpected(&["FISHER"]));
+                    }
+                } else if p.eat_keyword("BIAS") {
+                    p.eat(Punct::Eq);
+                    ci.bias = if p.eat_keyword("TRUE") {
+                        true
+                    } else if p.eat_keyword("FALSE") {
+                        false
+                    } else {
+                        return Err(p.unexpected(&["TRUE", "FALSE"]));
+                    };
+                } else if p.eat_keyword("CILEVEL") {
+                    ci.level = percent(p, "CILEVEL")?;
+                } else {
+                    return Err(p.unexpected(&["METHOD", "BIAS", "CILEVEL"]));
+                }
+                p.eat(Punct::Comma);
+            }
+            command.ci = Some(ci);
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
             const CHOICES: [(&str, &[u8]); 4] = [
@@ -801,7 +859,7 @@ pub(crate) fn correlations(p: &mut Parser) -> PResult<Command> {
             // another variable list after a slash, without the VARIABLES keyword
             command.lists.push(correlation_list(p)?);
         } else {
-            return Err(p.subcommand_error("CORRELATIONS", &["CI"]));
+            return Err(p.subcommand_error("CORRELATIONS", &[]));
         }
         more = p.eat(Punct::Slash);
     }
@@ -826,6 +884,7 @@ pub(crate) fn nonpar_corr(p: &mut Parser) -> PResult<Command> {
         listwise: false,
         include: false,
         matrix: crate::matrix_io::MatrixIo::default(),
+        ci: None,
     };
     p.eat(Punct::Slash);
     let mut more = true;
@@ -840,6 +899,37 @@ pub(crate) fn nonpar_corr(p: &mut Parser) -> PResult<Command> {
         } else if p.at_keyword("MATRIX") {
             p.pos += 1;
             matrix_out_only(p, &mut command.matrix, "NONPAR CORR")?;
+        } else if p.eat_keyword("CI") {
+            let mut ci = NonparCi {
+                method: SpearmanSe::Fhp,
+                level: 95.0,
+            };
+            while !at_end(p) {
+                if p.eat_keyword("METHOD") {
+                    let parenthesized = p.eat(Punct::LParen);
+                    if !parenthesized {
+                        p.eat(Punct::Eq);
+                    }
+                    ci.method = if p.eat_keyword("FHP") {
+                        SpearmanSe::Fhp
+                    } else if p.eat_keyword("CC") {
+                        SpearmanSe::Cc
+                    } else if p.eat_keyword("BW") {
+                        SpearmanSe::Bw
+                    } else {
+                        return Err(p.unexpected(&["FHP", "CC", "BW"]));
+                    };
+                    if parenthesized {
+                        p.expect(Punct::RParen)?;
+                    }
+                } else if p.eat_keyword("CILEVEL") {
+                    ci.level = percent(p, "CILEVEL")?;
+                } else {
+                    return Err(p.unexpected(&["METHOD", "CILEVEL"]));
+                }
+                p.eat(Punct::Comma);
+            }
+            command.ci = Some(ci);
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
             const CHOICES: [(&str, &[u8]); 3] =
@@ -889,7 +979,7 @@ pub(crate) fn nonpar_corr(p: &mut Parser) -> PResult<Command> {
             // another variable list after a slash, without the VARIABLES keyword
             command.lists.push(correlation_list(p)?);
         } else {
-            return Err(p.subcommand_error("NONPAR CORR", &["CI"]));
+            return Err(p.subcommand_error("NONPAR CORR", &[]));
         }
         more = p.eat(Punct::Slash);
     }

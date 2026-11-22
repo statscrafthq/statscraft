@@ -1472,7 +1472,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "CORRELATIONS [/VARIABLES=]varlist [WITH varlist] [/varlist ...]\n\
                  \x20            [/PRINT=TWOTAIL | ONETAIL  SIG | NOSIG  FULL | LOWER | LNODIAG]\n\
                  \x20            [/STATISTICS=DESCRIPTIVES XPROD ALL] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]]\n\
-                 \x20            [/MATRIX=OUT(* | 'file' | dataset)].\n\
+                 \x20            [/MATRIX=OUT(* | 'file' | dataset)] [/CI [METHOD=FISHER] [BIAS=FALSE | TRUE] [CILEVEL=95]].\n\
+                 CI adds two rows to each coefficient, its lower and upper limit: Fisher's transformation with the\n\
+                 standard error 1 / sqrt(W - 3) (W the sum of the weights of the pair, above 3), BIAS=TRUE\n\
+                 subtracting r / (2 (W - 1)) from the transformed value first; with ONETAIL one bound is -1 or 1\n\
+                 (the lower limit for a positive r, the upper for a negative or zero r) and the other is found at the\n\
+                 one-tailed level. METHOD=EXACT is not supported yet.\n\
                  MATRIX writes the last list without WITH as a matrix data file (ROWTYPE_ MEAN, STDDEV, N and CORR,\n\
                  VARNAME_; N is one record under LISTWISE, a record per variable under PAIRWISE unless every pair has\n\
                  the same count; one set per SPLIT FILE group); the tables are still shown, and with * the file\n\
@@ -1491,7 +1496,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "NONPAR CORR [/VARIABLES=]varlist [WITH varlist] [/varlist ...]\n\
                  \x20           [/PRINT=SPEARMAN | KENDALL | BOTH  TWOTAIL | ONETAIL  SIG | NOSIG\n\
                  \x20                   FULL | LOWER | LNODIAG] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]] [/SAMPLE]\n\
-                 \x20           [/MATRIX=OUT(* | 'file' | dataset)].\n\
+                 \x20           [/MATRIX=OUT(* | 'file' | dataset)] [/CI [METHOD(FHP | CC | BW)] [CILEVEL(95)]].\n\
+                 CI adds the lower and upper limit of Spearman's rho (not of tau-b, which gets a warning): Fisher's\n\
+                 transformation with the standard error sqrt(1.06 / (W - 3)) (FHP, the default), or\n\
+                 sqrt(1 / (W - 2) + |z| / (6 W + 4 sqrt(W))) (CC) or sqrt((1 + rho^2 / 2) / (W - 3)) (BW), z the\n\
+                 transformed rho and W the sum of the weights of the pair; ONETAIL gives a bound as in CORRELATIONS.\n\
                  MATRIX writes the last list without WITH: the records N (as in CORRELATIONS) and RHO, or TAUB\n\
                  when only KENDALL is asked (BOTH writes rho alone), with VARNAME_ and one set per SPLIT FILE group.\n\
                  A list alone gives a square matrix, WITH a rectangular one (left variables in rows). Ties get\n\
@@ -1500,7 +1509,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  with **. PAIRWISE (default) uses the cases valid on both variables of a pair; LISTWISE the\n\
                  cases valid on every variable of the list, each list on its own. A weight variable repeats\n\
                  each case as often as its weight rounded to a whole number. SAMPLE changes nothing.\n\
-                 Not supported yet: CI.",
+                 ",
         example: "NONPAR CORR /VARIABLES=satisfaction recommend WITH age /PRINT=BOTH NOSIG.",
         parse: stats::nonpar_corr,
     },

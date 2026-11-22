@@ -793,6 +793,41 @@ fn correlations() {
         panic!()
     };
     assert_eq!(c.matrix.output, Some(None));
+    let Command::Correlations(c) = one("CORRELATIONS a b /CI METHOD=FISHER BIAS=TRUE CILEVEL=90.")
+    else {
+        panic!()
+    };
+    assert_eq!(
+        c.ci,
+        Some(CorrelationsCi {
+            bias: true,
+            level: 90.0
+        })
+    );
+    let Command::NonparCorr(c) = one("NONPAR CORR a b /CI METHOD(CC) CILEVEL(99).") else {
+        panic!()
+    };
+    assert_eq!(
+        c.ci,
+        Some(NonparCi {
+            method: SpearmanSe::Cc,
+            level: 99.0
+        })
+    );
+    let Command::NonparCorr(c) = one("NONPAR CORR a b /CI.") else {
+        panic!()
+    };
+    assert_eq!(c.ci.map(|c| c.method), Some(SpearmanSe::Fhp));
+    assert!(
+        err("CORRELATIONS a b /CI CILEVEL=100.")
+            .message
+            .contains("0 and 100")
+    );
+    assert!(
+        err("NONPAR CORR a b /CI METHOD(XX).")
+            .message
+            .contains("FHP")
+    );
     // the manual's MATRIX of both commands only writes
     assert!(
         err("CORRELATIONS a b /MATRIX=IN(*).")

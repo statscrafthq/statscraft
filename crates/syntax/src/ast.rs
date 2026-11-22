@@ -1333,6 +1333,36 @@ pub struct Correlations {
     pub include: bool,
     /// `/MATRIX=OUT(...)`: the matrix data file of the last list without WITH.
     pub matrix: crate::matrix_io::MatrixIo,
+    /// `/CI`: confidence intervals of the coefficients.
+    pub ci: Option<CorrelationsCi>,
+}
+
+/// The CI subcommand of CORRELATIONS: Fisher's interval, optionally with the bias term.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CorrelationsCi {
+    /// `BIAS=TRUE`
+    pub bias: bool,
+    /// CILEVEL, in percent.
+    pub level: f64,
+}
+
+/// The standard error of NONPAR CORR's interval for Spearman's rho.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpearmanSe {
+    /// Fieller, Hartley and Pearson.
+    Fhp,
+    /// Caruso and Cliff.
+    Cc,
+    /// Bonett and Wright.
+    Bw,
+}
+
+/// The CI subcommand of NONPAR CORR.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NonparCi {
+    pub method: SpearmanSe,
+    /// CILEVEL, in percent.
+    pub level: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1354,6 +1384,8 @@ pub struct NonparCorr {
     pub include: bool,
     /// `/MATRIX=OUT(...)`: the matrix data file of the last list without WITH.
     pub matrix: crate::matrix_io::MatrixIo,
+    /// `/CI`: confidence intervals of Spearman's rho.
+    pub ci: Option<NonparCi>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

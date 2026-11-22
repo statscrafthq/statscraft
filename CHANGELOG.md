@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CORRELATIONS /CI (Fisher's interval, BIAS, CILEVEL) and NONPAR CORR /CI (Spearman's rho with the FHP, CC or BW standard error): lower and upper limits under each coefficient.
 - DISCRIMINANT /ROTATE=COEFF and STRUCTURE: a varimax rotation of the functions with its transformation matrix (and the share of the between-groups variance of each rotated function), the rotated standardized coefficients and the rotated structure matrix.
 - CORRELATIONS /MATRIX=OUT and NONPAR CORR /MATRIX=OUT write the matrix data file of the last list without WITH (MEAN, STDDEV, N and CORR; N and RHO or TAUB), per split group.
 - GENLIN /CRITERIA CITYPE=PROFILE: profile likelihood confidence intervals for the regression parameters (and Exp(B)) instead of Wald ones, for the models other than the ordinal multinomial and REPEATED.

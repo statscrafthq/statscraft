@@ -126,6 +126,29 @@ pub(crate) fn coefficient(cases: &[(f64, f64, f64)], kendall: bool) -> [f64; 3] 
     [tau, sig, n]
 }
 
+/// The interval of Spearman's rho: Fisher's transformation with the standard error of
+/// Fieller, Hartley and Pearson sqrt(1.06 / (W - 3)), of Caruso and Cliff
+/// sqrt(1 / (W - 2) + |zeta| / (6 W + 4 sqrt(W))) or of Bonett and Wright
+/// sqrt((1 + r^2 / 2) / (W - 3)); W is the sum of the weights, above 3 (above 2 for CC).
+fn spearman_interval(
+    rho: f64,
+    w: f64,
+    ci: &statscraft_syntax::NonparCi,
+    one_tailed: bool,
+) -> Option<(f64, f64)> {
+    use statscraft_syntax::SpearmanSe;
+    let zeta = rho.atanh();
+    let se = match ci.method {
+        SpearmanSe::Fhp if w > 3.0 => (1.06 / (w - 3.0)).sqrt(),
+        SpearmanSe::Cc if w > 2.0 => {
+            (1.0 / (w - 2.0) + zeta.abs() / (6.0 * w + 4.0 * w.sqrt())).sqrt()
+        }
+        SpearmanSe::Bw if w > 3.0 => ((1.0 + rho * rho / 2.0) / (w - 3.0)).sqrt(),
+        _ => return None,
+    };
+    crate::correlations::fisher_interval(rho, se, 0.0, ci.level, one_tailed)
+}
+
 impl Engine {
     pub(crate) fn nonpar_corr(&mut self, command: &NonparCorr) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
@@ -153,6 +176,21 @@ impl Engine {
         } else {
             "Sig. (2-tailed)"
         };
+        let (ci_lower, ci_upper) = match &command.ci {
+            Some(ci) => {
+                let side = if command.one_tailed {
+                    "1-tailed"
+                } else {
+                    "2-tailed"
+                };
+                (
+                    format!("{}% CI Lower ({side})", ci.level),
+                    format!("{}% CI Upper ({side})", ci.level),
+                )
+            }
+            None => (String::new(), String::new()),
+        };
+        let ci_ignored = command.ci.is_some() && !command.spearman;
         let mut methods = Vec::new();
         if command.kendall {
             methods.push((true, "Kendall's tau_b"));
@@ -238,6 +276,11 @@ impl Engine {
                     if !command.listwise {
                         statistics.push(("N", Vec::new()));
                     }
+                    let with_ci = command.ci.is_some() && !kendall;
+                    if with_ci {
+                        statistics.push((ci_lower.as_str(), Vec::new()));
+                        statistics.push((ci_upper.as_str(), Vec::new()));
+                    }
                     for (j, y) in column_vars.iter().enumerate() {
                         let hidden = *square
                             && match command.layout {
@@ -268,6 +311,13 @@ impl Engine {
                         let mut values = vec![r_cell, number(sig)];
                         if !command.listwise {
                             values.push(Cell::Number(n));
+                        }
+                        if let (true, Some(ci)) = (with_ci, &command.ci) {
+                            let interval = (!same && r.is_finite())
+                                .then(|| spearman_interval(r, n, ci, command.one_tailed))
+                                .flatten();
+                            values.push(number(interval.map(|i| i.0)));
+                            values.push(number(interval.map(|i| i.1)));
                         }
                         for ((_, cells), value) in statistics.iter_mut().zip(values) {
                             cells.push(if hidden { Cell::Empty } else { value });
@@ -316,6 +366,9 @@ impl Engine {
                 caption: (!captions.is_empty()).then(|| captions.join(" ")),
                 ..Table::default()
             });
+        }
+        if ci_ignored {
+            self.warn("NONPAR CORR /CI is for Spearman's rho; with KENDALL alone it is ignored");
         }
         if let Some(part) = matrix_file {
             self.matrix_parts.1.push(part);

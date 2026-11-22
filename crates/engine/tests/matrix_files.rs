@@ -948,3 +948,140 @@ fn correlations_matrix_out_under_split_file_writes_a_set_per_group() {
         "last split value",
     );
 }
+
+/// The last cell of the first row of the Correlations table labelled `label` (the a-b entry of
+/// a two-variable list).
+fn ci_limit(tables: &[Table], label: &str) -> f64 {
+    let table = tables.iter().find(|t| t.title == "Correlations").unwrap();
+    let row = table
+        .rows
+        .iter()
+        .find(|r| r.iter().any(|c| matches!(c, Cell::Text(t) if t == label)))
+        .unwrap_or_else(|| panic!("no row {label}"));
+    match row.last().unwrap() {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    }
+}
+
+// Fisher's interval of the Algorithms manual written out in R (its cor.test() gives the plain
+// two-tailed one), with the bias term, the one-tailed bound by the sign of r and CILEVEL.
+#[test]
+fn correlations_ci_follows_fishers_transformation() {
+    let mut engine = Engine::default();
+    let run_ci = |engine: &mut Engine, rest: &str| run(engine, &format!("{GAPS}{rest}"));
+    let t = run_ci(&mut engine, "CORRELATIONS a b /CI.");
+    near(
+        Some(ci_limit(&t, "95% CI Lower (2-tailed)")),
+        0.189953390382,
+        "lower",
+    );
+    near(
+        Some(ci_limit(&t, "95% CI Upper (2-tailed)")),
+        0.780905572811,
+        "upper",
+    );
+    let t = run_ci(&mut engine, "CORRELATIONS a b /CI BIAS=TRUE.");
+    near(
+        Some(ci_limit(&t, "95% CI Lower (2-tailed)")),
+        0.178379037402,
+        "bias lower",
+    );
+    near(
+        Some(ci_limit(&t, "95% CI Upper (2-tailed)")),
+        0.776186880114,
+        "bias upper",
+    );
+    let t = run_ci(&mut engine, "CORRELATIONS a b /CI CILEVEL=90.");
+    near(
+        Some(ci_limit(&t, "90% CI Lower (2-tailed)")),
+        0.255278802597,
+        "90 lower",
+    );
+    near(
+        Some(ci_limit(&t, "90% CI Upper (2-tailed)")),
+        0.752599956188,
+        "90 upper",
+    );
+    // positive r: the lower bound; negative r: the upper bound
+    let t = run_ci(&mut engine, "CORRELATIONS a b /PRINT=ONETAIL /CI.");
+    near(
+        Some(ci_limit(&t, "95% CI Lower (1-tailed)")),
+        0.255278802597,
+        "one lower",
+    );
+    near(
+        Some(ci_limit(&t, "95% CI Upper (1-tailed)")),
+        1.0,
+        "one upper",
+    );
+    let t = run_ci(&mut engine, "CORRELATIONS c d /PRINT=ONETAIL /CI.");
+    near(
+        Some(ci_limit(&t, "95% CI Lower (1-tailed)")),
+        -1.0,
+        "negative lower",
+    );
+    near(
+        Some(ci_limit(&t, "95% CI Upper (1-tailed)")),
+        -0.0698806550892,
+        "negative upper",
+    );
+    // the diagonal has none and the exact method is refused with its reason
+    let (_, errors) = parse("CORRELATIONS a b /CI METHOD=EXACT.");
+    assert!(errors[0].to_string().contains("EXACT"));
+}
+
+// The three standard errors of NONPAR CORR's interval for rho.
+#[test]
+fn nonpar_corr_ci_uses_the_three_standard_errors_of_spearmans_rho() {
+    let mut engine = Engine::default();
+    let ci = |engine: &mut Engine, rest: &str| run(engine, &format!("{GAPS}{rest}"));
+    for (rest, lower, upper) in [
+        ("NONPAR CORR a b /CI.", 0.0048221782373, 0.7091683389793),
+        (
+            "NONPAR CORR a b /CI METHOD(FHP).",
+            0.0048221782373,
+            0.7091683389793,
+        ),
+        (
+            "NONPAR CORR a b /CI METHOD(CC).",
+            0.0149727164562,
+            0.7040857530717,
+        ),
+        (
+            "NONPAR CORR a b /CI METHOD=BW CILEVEL(95).",
+            -0.000817791272867,
+            0.711960677037100,
+        ),
+    ] {
+        let t = ci(&mut engine, rest);
+        near(Some(ci_limit(&t, "95% CI Lower (2-tailed)")), lower, rest);
+        near(Some(ci_limit(&t, "95% CI Upper (2-tailed)")), upper, rest);
+    }
+    let t = ci(
+        &mut engine,
+        "NONPAR CORR a b /PRINT=ONETAIL /CI METHOD(BW).",
+    );
+    near(
+        Some(ci_limit(&t, "95% CI Lower (1-tailed)")),
+        0.0707660387196,
+        "one-tailed",
+    );
+    near(
+        Some(ci_limit(&t, "95% CI Upper (1-tailed)")),
+        1.0,
+        "one-tailed upper",
+    );
+    // Kendall's tau gets none, with a warning
+    let before = engine.warnings().len();
+    let t = ci(&mut engine, "NONPAR CORR a b /PRINT=KENDALL /CI.");
+    let table = t.iter().find(|t| t.title == "Correlations").unwrap();
+    assert!(
+        !table
+            .rows
+            .iter()
+            .flatten()
+            .any(|c| matches!(c, Cell::Text(t) if t.contains("CI")))
+    );
+    assert!(engine.warnings().len() > before);
+}

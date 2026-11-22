@@ -15,13 +15,41 @@
 //!   coefficient is shown as text with three decimals.
 
 use crate::descriptives::{case_weights, number};
-use crate::dist::t_p;
+use crate::dist::{normal_quantile, t_p};
 use crate::matrix::Matrix;
 use crate::matrix_file::MatrixRows;
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
 use statscraft_syntax::{Correlations, CorrelationsLayout};
+
+/// The interval of a correlation from Fisher's transformation of the Algorithms manual: with
+/// zeta = atanh(r) and its standard error `se`, zeta - bias -/+ z se transformed back by tanh;
+/// the one-tailed bound limits the side away from zero by the sign of r (-1 or 1 on the other).
+pub(crate) fn fisher_interval(
+    r: f64,
+    se: f64,
+    bias: f64,
+    level: f64,
+    one_tailed: bool,
+) -> Option<(f64, f64)> {
+    if !(r.abs() < 1.0) || !se.is_finite() {
+        return None;
+    }
+    let zeta = r.atanh() - bias;
+    let alpha = 1.0 - level / 100.0;
+    if one_tailed {
+        let z = normal_quantile(1.0 - alpha);
+        Some(if r <= 0.0 {
+            (-1.0, (zeta + z * se).tanh())
+        } else {
+            ((zeta - z * se).tanh(), 1.0)
+        })
+    } else {
+        let z = normal_quantile(1.0 - alpha / 2.0);
+        Some(((zeta - z * se).tanh(), (zeta + z * se).tanh()))
+    }
+}
 
 /// Sums of one pair of variables over their common cases.
 pub(crate) struct Pair {
@@ -142,6 +170,20 @@ impl Engine {
             "Sig. (2-tailed)"
         };
         // what pooling over imputations needs: Fisher's z of each pair once, its variance
+        let (ci_lower, ci_upper) = match &command.ci {
+            Some(ci) => {
+                let side = if command.one_tailed {
+                    "1-tailed"
+                } else {
+                    "2-tailed"
+                };
+                (
+                    format!("{}% CI Lower ({side})", ci.level),
+                    format!("{}% CI Upper ({side})", ci.level),
+                )
+            }
+            None => (String::new(), String::new()),
+        };
         let mut pool = Vec::new();
         let mut pooled: Vec<(usize, usize)> = Vec::new();
         for (rows, columns) in &lists {
@@ -159,6 +201,10 @@ impl Engine {
                 }
                 if !command.listwise {
                     statistics.push(("N", Vec::new()));
+                }
+                if command.ci.is_some() {
+                    statistics.push((ci_lower.as_str(), Vec::new()));
+                    statistics.push((ci_upper.as_str(), Vec::new()));
                 }
                 for (j, column_name) in columns.iter().enumerate() {
                     let b = index(column_name);
@@ -210,6 +256,30 @@ impl Engine {
                     }
                     if !command.listwise {
                         values.push(Cell::Number(p.w));
+                    }
+                    if let Some(ci) = &command.ci {
+                        let interval = (!same)
+                            .then(|| {
+                                let bias = if ci.bias {
+                                    r / (2.0 * (p.w - 1.0))
+                                } else {
+                                    0.0
+                                };
+                                (p.w > 3.0)
+                                    .then(|| {
+                                        fisher_interval(
+                                            r,
+                                            (1.0 / (p.w - 3.0)).sqrt(),
+                                            bias,
+                                            ci.level,
+                                            command.one_tailed,
+                                        )
+                                    })
+                                    .flatten()
+                            })
+                            .flatten();
+                        values.push(number(interval.map(|i| i.0)));
+                        values.push(number(interval.map(|i| i.1)));
                     }
                     for ((_, cells), value) in statistics.iter_mut().zip(values) {
                         cells.push(if hidden { Cell::Empty } else { value });

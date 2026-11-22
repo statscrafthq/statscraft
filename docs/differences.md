@@ -463,6 +463,7 @@ This page lists, by topic and command:
 ### CORRELATIONS
 
 - A coefficient marked by NOSIG shows 3 decimals and stars, explained in a caption.
+- CI gives the Fisher interval of the Algorithms manual as two rows (lower and upper limit) under each coefficient, in the Correlations table; with ONETAIL the bound is the one-tailed one and the other limit is -1 or 1 by the sign of r. W is the sum of the weights of the pair; a pair with W of 3 or less, r of 1 or -1, or the diagonal has none. METHOD=EXACT (a noncentral t integral) is refused: the manual says it is not scheduled for its release. PRINT=NOMATRIX is refused with CI as well, so the coefficients always show. NONPAR CORR gives the interval of Spearman's rho only (the manual's CI is for rho) with the three standard errors of FHP (W - 3 df form), CC (needs W above 2) and BW, and ignores CI with a warning when only KENDALL is asked. Checked against cor.test() in R for the plain two-tailed interval and against the closed forms for the others.
 - MATRIX=OUT writes the last list without WITH (rectangular matrices are not written, as the manual says): the records MEAN, STDDEV, N and CORR over its variables, one set for each SPLIT FILE group, the tables shown as usual. N is one record under LISTWISE (the cases valid on every variable of every list, over which the means and standard deviations are taken too) and under PAIRWISE a record when every pair has the same count, else a matrix of records, with the means and standard deviations of each variable's own cases. Only OUT is read: the manual's CORRELATIONS MATRIX has no IN. NONPAR CORR writes N and RHO, or TAUB when only KENDALL is asked, and only Spearman's when BOTH is; the manual says to recode RHO or TAUB to CORR before another procedure reads it. The values were checked against cor() in R with pairwise and complete cases.
 
 ### PARTIAL CORR
@@ -1870,7 +1871,6 @@ Where the documentation is silent:
 - **Commands.** The commands of the language that Statscraft recognizes but does not run are listed at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
 - **Subcommands.** Every command page lists what it accepts. Notably:
   - ONEWAY has no WALLER.
-  - CORRELATIONS and NONPAR CORR have no CI.
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
   - REGRESSION has no MATRIX or OUTFILE.
   - RELIABILITY has no MATRIX.
