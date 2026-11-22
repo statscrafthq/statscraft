@@ -843,3 +843,399 @@ fn quick_cluster_update_file_and_iteration_limit() {
     assert_eq!(initials[1].rows, finals[0].rows);
     assert_eq!(finals[1].rows, finals[0].rows);
 }
+
+// ---- METHOD=COVARIANCE ----
+// Five items measured on very different scales (variances from 0.2 to 765), so a covariance
+// analysis is far from the correlation analysis. Expected numbers from R on these values:
+// eigen(cov(X)) for the components (loadings the eigenvectors times the root of the
+// eigenvalues, rescaled loadings those divided by the standard deviations), the principal axis
+// iteration written out on cov(X) with the diagonal replaced, varimax(normalize = TRUE) on the
+// rescaled loadings, and the score coefficients by their formulas.
+
+const SCALES: &str = "DATA LIST FREE /x1 x2 x3 x4 x5.
+BEGIN DATA.
+1.8 1.5 13 1.13 36\n\
+-0.8 0.8 -5 0.06 -21\n\
+-0.5 0 -2 -0.11 -32\n\
+-0.6 -1.2 -5 -0.25 9\n\
+-1.2 -0.5 5 0.29 -24\n\
+-0.9 1.2 -6 -0.55 22\n\
+0.3 2.6 14 0.26 14\n\
+-0.3 -0.2 11 0.34 4\n\
+-1.1 -2.8 4 -0.45 -33\n\
+1.9 6.7 -8 0.76 55\n\
+1.4 -0.5 -22 -0.09 -28\n\
+1.4 7.4 4 -0.57 -26\n\
+2 6.6 13 -0.1 6\n\
+0.4 1.5 3 0.4 20\n\
+1.9 6.4 11 -0.06 25\n\
+-0.1 -0.6 6 0.69 0\n\
+0.2 -0.9 -7 -0.6 -44\n\
+-1.3 1.3 14 0.15 35\n\
+-0.3 0.6 3 -0.3 2\n\
+0.6 4.2 -13 -0.47 4\n\
+1 -1.3 19 -0.04 -4\n\
+0.9 -0.4 21 -0.39 -20\n\
+0.9 3.1 14 0.52 78\n\
+-1.8 -2.5 4 0.41 12\n\
+1.1 3.7 7 -0.08 38\n\
+-1 0.2 5 0.82 26\n\
+1.2 -0.3 15 0.26 7\n\
+1.1 2.3 13 0.13 23\n\
+-0.1 -1.3 -5 0.3 -15\n\
+-0.1 -2.9 0 -0.42 32\n\
+-0.9 -2.6 -13 0.49 11\n\
+0.8 3.8 2 -0.5 4\n\
+0.5 -1.7 -8 -0.21 -10\n\
+0.4 -0.6 -16 -0.39 -34\n\
+-0.9 0.5 -15 -0.04 -23\n\
+0.7 -2.9 -8 -0.98 26\n\
+-0.2 -1.2 -15 -0.32 20\n\
+0 0.2 -5 -0.19 -6\n\
+0.6 2.3 -5 -0.02 26\n\
+0.4 0.6 26 0.7 59
+END DATA.
+";
+
+fn on_scales(syntax: &str) -> Vec<Table> {
+    run_on(&mut Engine::default(), &format!("{SCALES}{syntax}"))
+}
+
+fn check(actual: &[f64], expected: &[f64], tolerance: f64, what: &str) {
+    assert_eq!(actual.len(), expected.len(), "{what}: {actual:?}");
+    for (a, e) in actual.iter().zip(expected) {
+        assert!(
+            (a - e).abs() <= tolerance * e.abs().max(1.0),
+            "{what}: ours {actual:?}, expected {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn covariance_components_match_the_eigen_decomposition_in_r() {
+    let tables = on_scales(
+        "FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /PRINT=INITIAL EXTRACTION \
+         /CRITERIA=FACTORS(2) /ROTATION=NOROTATE.",
+    );
+    let loadings = find(&tables, "Component Matrix");
+    assert_eq!(loadings.columns.len(), 5);
+    let raw = [
+        [0.235156458504, 0.1181199405036],
+        [0.808446586847, 0.2727588705177],
+        [4.852705633854, 10.3046960212127],
+        [0.210020032111, 0.0858720235982],
+        [27.598556309528, -1.8215437924875],
+    ];
+    let rescaled = [
+        [0.238635927044, 0.1198676901491],
+        [0.297521079721, 0.1003795612231],
+        [0.426031847694, 0.9046764871160],
+        [0.456029853211, 0.1864593863871],
+        [0.997826236987, -0.0658579444367],
+    ];
+    for (i, name) in ["x1", "x2", "x3", "x4", "x5"].iter().enumerate() {
+        let got = row(loadings, name);
+        check(&got[..2], &raw[i], 1e-9, "raw loadings");
+        check(&got[2..], &rescaled[i], 1e-9, "rescaled loadings");
+    }
+    // communalities: the variance of each item and its share
+    let h = find(&tables, "Communalities");
+    check(
+        &row(h, "x3"),
+        &[129.742948717949, 129.7355120584364, 1.0, 0.9999426815901],
+        1e-9,
+        "x3 communalities",
+    );
+    check(
+        &row(h, "x1"),
+        &[0.971051282051, 0.0692508803207, 1.0, 0.0713153688180],
+        1e-9,
+        "x1 communalities",
+    );
+    // the total variance: the initial eigenvalues are those of cov(X), a percent of their
+    // sum; the extraction is a percent of that sum for the raw loadings and of 5 for the
+    // rescaled ones
+    let v = find(&tables, "Total Variance Explained");
+    check(
+        &row(v, "1"),
+        &[
+            785.982055196670,
+            87.0111149142375,
+            87.0111149142375,
+            785.982055197,
+            87.0111149142,
+            87.0111149142,
+            1.530589460044,
+            30.6117892009,
+            30.6117892009,
+        ],
+        1e-9,
+        "variance explained, first",
+    );
+    check(
+        &row(v, "2"),
+        &[
+            109.600505603774,
+            12.1331805538006,
+            99.1442954680381,
+            109.600505604,
+            12.1331805538,
+            99.1442954680,
+            0.881988237411,
+            17.6397647482,
+            48.2515539491,
+        ],
+        1e-9,
+        "variance explained, second",
+    );
+}
+
+#[test]
+fn mineigen_counts_in_mean_variances() {
+    // the mean variance is 180.66: one eigenvalue (785.98) is above it, 109.6 is not
+    let tables = on_scales("FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /ROTATION=NOROTATE.");
+    assert_eq!(find(&tables, "Component Matrix").columns.len(), 3);
+    // MINEIGEN(0.5) is half a mean variance, 90.33: two
+    let tables = on_scales(
+        "FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /CRITERIA=MINEIGEN(0.5) /ROTATION=NOROTATE.",
+    );
+    assert_eq!(find(&tables, "Component Matrix").columns.len(), 5);
+}
+
+#[test]
+fn covariance_principal_axis_matches_the_iteration_in_r() {
+    let tables = on_scales(
+        "FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /PRINT=INITIAL EXTRACTION \
+         /CRITERIA=FACTORS(2) ECONVERGE(0.0001) ITERATE(500) /EXTRACTION=PAF /ROTATION=NOROTATE.",
+    );
+    let loadings = find(&tables, "Factor Matrix");
+    let raw = [
+        [0.392215856955, 0.4601916035720],
+        [1.329938062131, 2.2852898056865],
+        [7.581811262829, -1.5627108463173],
+        [0.343729057156, 0.0526851672131],
+        [15.303648052777, 0.5626293092252],
+    ];
+    let rescaled = [
+        [0.398019238856, 0.4670007816715],
+        [0.489438157876, 0.8410226495180],
+        [0.665627240737, -0.1371945136386],
+        [0.746360763322, 0.1143986544002],
+        [0.553303635792, 0.0203418715148],
+    ];
+    for (i, name) in ["x1", "x2", "x3", "x4", "x5"].iter().enumerate() {
+        let got = row(loadings, name);
+        check(&got[..2], &raw[i], 1e-8, "raw loadings");
+        check(&got[2..], &rescaled[i], 1e-8, "rescaled loadings");
+    }
+    assert!(
+        loadings
+            .caption
+            .as_deref()
+            .unwrap()
+            .contains("16 iterations")
+    );
+    let h = find(&tables, "Communalities");
+    // initial: the squared multiple correlation times the variance, and itself; extraction
+    check(
+        &row(h, "x2"),
+        &[
+            2.8805029620545,
+            6.991284745080,
+            0.390122631792,
+            0.946868807388,
+        ],
+        1e-8,
+        "x2 communalities",
+    );
+    let v = find(&tables, "Total Variance Explained");
+    // the raw extraction is a percent of the total variance, the rescaled one of 5
+    let first = row(v, "1");
+    assert!(
+        (first[5] - 32.516577262357).abs() < 1e-7 * 100.0,
+        "{first:?}"
+    );
+    assert!((first[8] - 34.0845590181).abs() < 1e-7 * 100.0, "{first:?}");
+}
+
+#[test]
+fn covariance_image_factoring_is_the_correlation_analysis_scaled() {
+    let cor = on_scales("FACTOR VARIABLES=x1 TO x5 /EXTRACTION=IMAGE /ROTATION=NOROTATE.");
+    let cov = on_scales(
+        "FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /EXTRACTION=IMAGE /ROTATION=NOROTATE.",
+    );
+    let (a, b) = (find(&cor, "Factor Matrix"), find(&cov, "Factor Matrix"));
+    let sd = [
+        0.971051282051_f64.sqrt(),
+        7.383583333333_f64.sqrt(),
+        129.742948717949_f64.sqrt(),
+        0.212097179487_f64.sqrt(),
+        765.002564102564_f64.sqrt(),
+    ];
+    for (i, name) in ["x1", "x2", "x3", "x4", "x5"].iter().enumerate() {
+        let want = row(a, name);
+        let got = row(b, name);
+        let k = want.len();
+        check(
+            &got[k..],
+            &want,
+            1e-9,
+            "rescaled equals the correlation loadings",
+        );
+        let scaled: Vec<f64> = want.iter().map(|v| v * sd[i]).collect();
+        check(
+            &got[..k],
+            &scaled,
+            1e-9,
+            "raw is the standard deviation times those",
+        );
+    }
+}
+
+#[test]
+fn covariance_varimax_rotates_the_rescaled_loadings() {
+    let tables = on_scales(
+        "FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /PRINT=EXTRACTION ROTATION \
+         /CRITERIA=FACTORS(2) RCONVERGE(0.0000000001) ITERATE(1000) /ROTATION=VARIMAX.",
+    );
+    let rotated = find(&tables, "Rotated Component Matrix");
+    let raw = [
+        [0.208514880320, 0.160537923887],
+        [0.742118221006, 0.421003362553],
+        [2.812245571603, 11.037517243630],
+        [0.189944203759, 0.124111312068],
+        [27.443737560937, 3.440872105230],
+    ];
+    let rescaled = [
+        [0.211600149467, 0.162913306895],
+        [0.273111196196, 0.154935869643],
+        [0.246894468249, 0.969012798232],
+        [0.412437930266, 0.269490785500],
+        [0.992228762699, 0.124404785026],
+    ];
+    for (i, name) in ["x1", "x2", "x3", "x4", "x5"].iter().enumerate() {
+        let got = row(rotated, name);
+        check(&got[..2], &raw[i], 2e-5, "raw rotated");
+        check(&got[2..], &rescaled[i], 2e-5, "rescaled rotated");
+    }
+    let t = find(&tables, "Component Transformation Matrix");
+    check(
+        &row(t, "1"),
+        &[0.981884280815, 0.189481553428],
+        2e-5,
+        "T row 1",
+    );
+    // the rotation sums of squares: raw as a percent of the total variance, rescaled of 5
+    let v = find(&tables, "Total Variance Explained");
+    let first = row(v, "1");
+    check(
+        &first[6..9],
+        &[761.697753178, 84.3227530368, 84.3227530368],
+        2e-5,
+        "rotation raw",
+    );
+    check(
+        &first[9..12],
+        &[1.33494419104, 26.6988838208, 26.6988838208],
+        2e-5,
+        "rotation rescaled",
+    );
+}
+
+#[test]
+fn covariance_component_scores_are_those_of_the_raw_data() {
+    let rows = |t: &Table| -> Vec<Vec<f64>> {
+        ["x1", "x2", "x3", "x4", "x5"]
+            .iter()
+            .map(|n| row(t, n))
+            .collect()
+    };
+    let plain = on_scales(
+        "FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /PRINT=FSCORE \
+         /CRITERIA=FACTORS(2) /ROTATION=NOROTATE /SAVE=REG(ALL).",
+    );
+    let w = rows(find(&plain, "Component Score Coefficient Matrix"));
+    let want = [
+        [0.000294825716908, 0.001062017675508],
+        [0.002794938727951, 0.006762385366482],
+        [0.070325559982098, 1.070938445289255],
+        [0.000123059610571, 0.000360833280136],
+        [0.971192185339212, -0.459683065174019],
+    ];
+    for (a, e) in w.iter().zip(&want) {
+        check(a, e, 1e-8, "unrotated coefficients");
+    }
+    let rotated = on_scales(
+        "FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /PRINT=FSCORE \
+         /CRITERIA=FACTORS(2) RCONVERGE(0.0000000001) ITERATE(1000) /ROTATION=VARIMAX.",
+    );
+    let w = rows(find(&rotated, "Component Score Coefficient Matrix"));
+    let want = [
+        [8.82519780888e-05, 0.001098642496358],
+        [1.46295911870e-03, 0.007169469224066],
+        [-1.33871518353e-01, 1.064863021500544],
+        [5.24590467738e-05, 0.000377614051936],
+        [1.04069980171e+00, -0.267332571896198],
+    ];
+    for (a, e) in w.iter().zip(&want) {
+        check(a, e, 2e-5, "rotated coefficients");
+    }
+}
+
+#[test]
+fn covariance_det_and_inverse_describe_the_covariance_matrix() {
+    let tables = on_scales(
+        "FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /PRINT=DET INV /CRITERIA=FACTORS(1).",
+    );
+    let d = find(&tables, "Covariance Matrix");
+    check(
+        &[number(&d.rows[0][0])],
+        &[54769.1555518],
+        1e-9,
+        "determinant",
+    );
+    let inv = find(&tables, "Inverse of Covariance Matrix");
+    check(
+        &[row(inv, "x1")[0], row(inv, "x3")[2], row(inv, "x5")[4]],
+        &[1.67062464807521, 0.00974760570114, 0.00185643530656],
+        1e-9,
+        "inverse diagonal",
+    );
+}
+
+#[test]
+fn covariance_needs_a_method_that_works_on_covariances() {
+    for method in ["ML", "GLS", "ULS", "ALPHA"] {
+        let (commands, errors) = parse(&format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /EXTRACTION={method}."
+        ));
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut engine = Engine::default();
+        let mut failure = None;
+        for c in &commands {
+            if let Err(e) = engine.execute(&c.command) {
+                failure = Some(e.to_string());
+            }
+        }
+        let message = failure.unwrap_or_else(|| panic!("{method} ran"));
+        assert!(
+            message.contains("METHOD=COVARIANCE works with PC, PAF and IMAGE"),
+            "{message}"
+        );
+    }
+    // a correlation matrix with no standard deviations has no covariances
+    let matrix = "DATA LIST LIST /ROWTYPE_ (A8) VARNAME_ (A8) a b.\nBEGIN DATA.\nN '' 30 30\n\
+                  CORR a 1 0.4\nCORR b 0.4 1\nEND DATA.\n";
+    let (commands, errors) = parse(&format!(
+        "{matrix}FACTOR MATRIX=IN(COR=*) /METHOD=COVARIANCE."
+    ));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut message = String::new();
+    for c in &commands {
+        if let Err(e) = engine.execute(&c.command) {
+            message = e.to_string();
+        }
+    }
+    assert!(message.contains("standard deviations"), "{message}");
+}

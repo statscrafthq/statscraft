@@ -107,14 +107,27 @@ fn factor_subcommand_order_rules() {
 }
 
 #[test]
+fn factor_method_covariance() {
+    assert_eq!(
+        factor("FACTOR VARIABLES=a b.").method,
+        MatrixKind::Correlation
+    );
+    let f = factor("FACTOR VARIABLES=a b /METHOD=COVARIANCE /EXTRACTION=PAF.");
+    assert_eq!(f.method, MatrixKind::Covariance);
+    // the last METHOD counts, and it may stand after the extraction
+    let f = factor("FACTOR VARIABLES=a b /METHOD=COVARIANCE /EXTRACTION=PC /METHOD=CORRELATION.");
+    assert_eq!(f.method, MatrixKind::Correlation);
+}
+
+#[test]
 fn factor_errors() {
     assert_eq!(
         err("FACTOR VARIABLES=a b /ANALYSIS=a /MISSING=PAIRWISE."),
         "MISSING must come before ANALYSIS"
     );
     assert_eq!(
-        err("FACTOR VARIABLES=a b /METHOD=COVARIANCE."),
-        "COVARIANCE in FACTOR /METHOD is not supported yet"
+        err("FACTOR VARIABLES=a b /METHOD=SPEARMAN."),
+        "unexpected word SPEARMAN"
     );
     assert!(err("FACTOR VARIABLES=a b /ROTATION=OBLIMIN(1).").contains("at most 0.8"));
     assert!(err("FACTOR VARIABLES=a b /ROTATION=PROMAX(1).").contains("above 1"));

@@ -495,6 +495,13 @@ impl Engine {
     }
 }
 
+fn determinant_caption(det: f64) -> String {
+    match det.abs() >= 0.001 {
+        true => format!("Determinant = {det:.3}"),
+        false => format!("Determinant = {det:.3E}"),
+    }
+}
+
 /// The squared multiple correlations, or the largest absolute correlation of each variable
 /// when R is singular.
 fn initial_communalities(r: &Matrix, inv: Option<&Matrix>) -> Vec<f64> {
@@ -510,6 +517,26 @@ fn initial_communalities(r: &Matrix, inv: Option<&Matrix>) -> Vec<f64> {
             })
             .collect(),
     }
+}
+
+/// Loadings divided row by row by the standard deviations (the rescaled loadings of an analysis
+/// of covariances); with ones they stay as they are.
+fn rescaled(mut loadings: Matrix, scale: &[f64]) -> Matrix {
+    for (row, s) in loadings.iter_mut().zip(scale) {
+        for v in row.iter_mut() {
+            *v /= s;
+        }
+    }
+    loadings
+}
+
+/// Loadings multiplied row by row by the standard deviations: the raw loadings.
+fn raw(loadings: &Matrix, scale: &[f64]) -> Matrix {
+    loadings
+        .iter()
+        .zip(scale)
+        .map(|(row, s)| row.iter().map(|v| v * s).collect())
+        .collect()
 }
 
 /// Flips the sign of every column whose sum is negative.
@@ -553,8 +580,12 @@ struct Extracted {
     fit: Option<(f64, f64)>,
 }
 
+/// Principal axis factoring of `r`, a correlation matrix or (with the variances in `var`) a
+/// covariance matrix: `h` holds the communalities on the scale of the matrix, and the change
+/// that ECONVERGE tests is that of the rescaled communalities h / var.
 fn principal_axis(
     r: &Matrix,
+    var: &[f64],
     m: usize,
     mut h: Vec<f64>,
     c: &FactorCriteria,
@@ -573,7 +604,9 @@ fn principal_axis(
         let pairs = symmetric_eigen(&reduced);
         loadings = eigen_loadings(&pairs, m);
         let next = row_sums_of_squares(&loadings);
-        change = (0..p).map(|i| (next[i] - h[i]).abs()).fold(0.0, f64::max);
+        change = (0..p)
+            .map(|i| (next[i] - h[i]).abs() / var[i])
+            .fold(0.0, f64::max);
         h = next;
     }
     if change >= c.econverge {
@@ -1470,6 +1503,51 @@ fn loading_table(
     t
 }
 
+/// `loading_table` for an analysis of covariances: the raw loadings (the rescaled ones times
+/// the standard deviations) beside the rescaled loadings, in the order the rescaled ones sort
+/// into. Without a scale it is `loading_table`.
+fn loading_tables(
+    title: &str,
+    word: &str,
+    names: &[String],
+    values: &Matrix,
+    scale: Option<&[f64]>,
+    (sort, blank): (bool, Option<f64>),
+    caption: String,
+) -> Table {
+    let Some(scale) = scale else {
+        return loading_table(title, word, names, values, sort, blank, caption);
+    };
+    let m = values.first().map_or(0, Vec::len);
+    let order: Vec<usize> = match sort {
+        true => sorted_rows(values),
+        false => (0..values.len()).collect(),
+    };
+    let cell = |v: f64| match blank {
+        Some(b) if v.abs() < b => Cell::Empty,
+        _ => number(Some(v)),
+    };
+    let rows = order
+        .iter()
+        .map(|&i| {
+            let mut row = vec![label(names, i)];
+            row.extend(values[i].iter().map(|v| cell(v * scale[i])));
+            row.extend(values[i].iter().map(|v| cell(*v)));
+            row
+        })
+        .collect();
+    let columns: Vec<String> = (1..=m).map(|j| j.to_string()).collect();
+    let (raw_group, rescaled_group) = (format!("Raw {word}"), format!("Rescaled {word}"));
+    let mut t = table(
+        title,
+        1,
+        &[(&raw_group, columns.clone()), (&rescaled_group, columns)],
+        rows,
+    );
+    t.caption = Some(caption);
+    t
+}
+
 /// A square matrix with one row and column per variable, in blocks under `blocks` labels.
 fn square_table(title: &str, names: &[String], blocks: &[(&str, Matrix, bool)]) -> Table {
     let rows = blocks
@@ -1557,6 +1635,43 @@ impl Engine {
         }
         let r = &input.r;
         let print = command.print;
+        let covariance = command.method == MatrixKind::Covariance;
+        if covariance {
+            if !matches!(
+                command.extraction,
+                Extraction::PrincipalComponents | Extraction::PrincipalAxis | Extraction::Image
+            ) {
+                return Err(Error(format!(
+                    "FACTOR /METHOD=COVARIANCE works with PC, PAF and IMAGE extraction only, not {}",
+                    method_name(command.extraction)
+                )));
+            }
+            if input.cov.is_none() {
+                return Err(Error(
+                    "FACTOR /METHOD=COVARIANCE needs the standard deviations (STDDEV or SD rows) in a correlation matrix file".into(),
+                ));
+            }
+        }
+        // the analysis matrix, the variances and the scale that turns rescaled loadings into
+        // raw ones (1 for a correlation matrix)
+        let sigma: &Matrix = match (&input.cov, covariance) {
+            (Some(cov), true) => cov,
+            _ => r,
+        };
+        let var: Vec<f64> = (0..p).map(|i| sigma[i][i]).collect();
+        // the factors of image factoring are the same for covariances and correlations, so
+        // its initial eigenvalues are those of R
+        let image = command.extraction == Extraction::Image;
+        let on_sigma = covariance && !image;
+        // raw = rescaled times `scale`, with the variances `var_scale` for communalities
+        let scale: Vec<f64> = match covariance {
+            true => var.iter().map(|v| v.sqrt()).collect(),
+            false => vec![1.0; p],
+        };
+        let var_scale: Vec<f64> = scale.iter().map(|s| s * s).collect();
+        let trace: f64 = var.iter().sum();
+        // what a percent of variance is a percent of: the total variance of the raw solution
+        let total_variance = if on_sigma { trace } else { p as f64 };
         let pc = command.extraction == Extraction::PrincipalComponents;
         let word = if pc { "Component" } else { "Factor" };
         let inv = inverse(r);
@@ -1565,6 +1680,15 @@ impl Engine {
             None => 0.0,
         };
         let inv = inv.map(|(inv, _)| inv);
+        // DET and INV describe the matrix that METHOD names; KMO and the anti-image matrices
+        // stay on the correlations
+        let (det_shown, inv_shown) = match covariance {
+            true => match inverse(sigma) {
+                Some((inv, det)) => (det, Some(inv)),
+                None => (0.0, None),
+            },
+            false => (det, inv.clone()),
+        };
         let mut tables = Vec::new();
 
         if print.univariate {
@@ -1594,7 +1718,7 @@ impl Engine {
                     .push("FACTOR: the matrix file has no means or counts for UNIVARIATE".into()),
             }
         }
-        if print.correlation || print.sig || print.det {
+        if print.correlation || print.sig || (print.det && !covariance) {
             let mut blocks = Vec::new();
             if print.correlation {
                 blocks.push(("Correlation", r.clone(), false));
@@ -1620,10 +1744,7 @@ impl Engine {
                 }
                 _ => {}
             }
-            let caption = match det.abs() >= 0.001 {
-                true => format!("Determinant = {det:.3}"),
-                false => format!("Determinant = {det:.3E}"),
-            };
+            let caption = determinant_caption(det);
             if blocks.is_empty() {
                 let mut t = table(
                     "Correlation Matrix",
@@ -1641,13 +1762,26 @@ impl Engine {
                 tables.push(t);
             }
         }
-        if print.covariance {
+        if print.covariance || (print.det && covariance) {
             match &input.cov {
-                Some(cov) => tables.push(square_table(
-                    "Covariance Matrix",
-                    names,
-                    &[("", cov.clone(), false)],
-                )),
+                Some(cov) if print.covariance => {
+                    let mut t =
+                        square_table("Covariance Matrix", names, &[("", cov.clone(), false)]);
+                    if print.det && covariance {
+                        t.caption = Some(determinant_caption(det_shown));
+                    }
+                    tables.push(t);
+                }
+                Some(_) => {
+                    let mut t = table(
+                        "Covariance Matrix",
+                        0,
+                        &[plain(&["Determinant"])],
+                        vec![vec![number(Some(det_shown))]],
+                    );
+                    t.caption = None;
+                    tables.push(t);
+                }
                 None => warnings.push(
                     "FACTOR: a correlation matrix without standard deviations has no covariances"
                         .into(),
@@ -1655,14 +1789,27 @@ impl Engine {
             }
         }
         if print.inv {
-            match &inv {
+            let which = if covariance {
+                "covariance"
+            } else {
+                "correlation"
+            };
+            match &inv_shown {
                 Some(inv) => tables.push(square_table(
-                    "Inverse of Correlation Matrix",
+                    &format!(
+                        "Inverse of {} Matrix",
+                        if covariance {
+                            "Covariance"
+                        } else {
+                            "Correlation"
+                        }
+                    ),
                     names,
                     &[("", inv.clone(), false)],
                 )),
-                None => warnings
-                    .push("FACTOR: the correlation matrix is singular and has no inverse".into()),
+                None => warnings.push(format!(
+                    "FACTOR: the {which} matrix is singular and has no inverse"
+                )),
             }
         }
         if print.kmo || print.aic {
@@ -1744,12 +1891,18 @@ impl Engine {
         }
 
         // the extraction
-        let initial_pairs = symmetric_eigen(r);
+        let initial_pairs = symmetric_eigen(if on_sigma { sigma } else { r });
         let eigenvalues: Vec<f64> = initial_pairs.iter().map(|p| p.0).collect();
         let c = &command.extraction_criteria;
+        // with covariances MINEIGEN(n) is n times the mean variance
+        let threshold = if on_sigma {
+            c.min_eigen * trace / p as f64
+        } else {
+            c.min_eigen
+        };
         let mut m = c
             .factors
-            .unwrap_or_else(|| eigenvalues.iter().filter(|v| **v > c.min_eigen).count());
+            .unwrap_or_else(|| eigenvalues.iter().filter(|v| **v > threshold).count());
         let limit = match command.extraction {
             Extraction::PrincipalComponents | Extraction::Image => p,
             _ => p - 1,
@@ -1781,7 +1934,7 @@ impl Engine {
         } else {
             Some(match command.extraction {
                 Extraction::PrincipalComponents => Extracted {
-                    loadings: eigen_loadings(&initial_pairs, m),
+                    loadings: rescaled(eigen_loadings(&initial_pairs, m), &scale),
                     initial: vec![1.0; p],
                     pc_values: Some(eigenvalues[..m].to_vec()),
                     iterations: None,
@@ -1798,10 +1951,12 @@ impl Engine {
                         }
                         None => smc.clone(),
                     };
+                    let on_scale: Vec<f64> =
+                        initial.iter().zip(&var_scale).map(|(h, v)| h * v).collect();
                     let (loadings, iterations) =
-                        principal_axis(r, m, initial.clone(), c, &mut warnings);
+                        principal_axis(sigma, &var_scale, m, on_scale, c, &mut warnings);
                     Extracted {
-                        loadings,
+                        loadings: rescaled(loadings, &scale),
                         initial,
                         pc_values: None,
                         iterations: Some(iterations),
@@ -1869,7 +2024,11 @@ impl Engine {
                 }
             })
         };
-        let extraction_caption = format!("Extraction Method: {}.", method_name(command.extraction));
+        let mut extraction_caption =
+            format!("Extraction Method: {}.", method_name(command.extraction));
+        if covariance {
+            extraction_caption.push_str(" Analysis of the covariance matrix.");
+        }
         let mut extracted = extracted;
         if let Some(e) = extracted.as_mut() {
             let m = e.loadings[0].len();
@@ -1915,30 +2074,43 @@ impl Engine {
             if print.extraction && communalities.is_some() {
                 columns.push("Extraction");
             }
+            // an analysis of covariances shows the raw communalities (on the scale of the
+            // variances) and the rescaled ones (their share of each variance)
+            let scales: Vec<&[f64]> = match covariance {
+                true => vec![var_scale.as_slice(), &[]],
+                false => vec![&[]],
+            };
             let rows = (0..p)
                 .map(|i| {
                     let mut row = vec![label(names, i)];
-                    if print.initial {
-                        row.push(number(Some(initial[i])));
-                    }
-                    if let (true, Some(h)) = (print.extraction, &communalities) {
-                        row.push(number(Some(h[i])));
+                    for by in &scales {
+                        let k = by.get(i).copied().unwrap_or(1.0);
+                        if print.initial {
+                            row.push(number(Some(initial[i] * k)));
+                        }
+                        if let (true, Some(h)) = (print.extraction, &communalities) {
+                            row.push(number(Some(h[i] * k)));
+                        }
                     }
                     row
                 })
                 .collect();
-            let mut t = table("Communalities", 1, &[plain(&columns)], rows);
+            let groups = match covariance {
+                true => vec![("Raw", plain(&columns).1), ("Rescaled", plain(&columns).1)],
+                false => vec![plain(&columns)],
+            };
+            let mut t = table("Communalities", 1, &groups, rows);
             t.caption = Some(extraction_caption.clone());
             tables.push(t);
 
             // Total Variance Explained
             let three = ["Total", "% of Variance", "Cumulative %"];
-            let block = |values: &[f64], rows: &mut Vec<Vec<Cell>>| {
+            let block = |values: &[f64], total: f64, rows: &mut Vec<Vec<Cell>>| {
                 let mut cumulative = 0.0;
                 for (k, row) in rows.iter_mut().enumerate() {
                     match values.get(k) {
                         Some(v) => {
-                            let percent = 100.0 * v / p as f64;
+                            let percent = 100.0 * v / total;
                             cumulative += percent;
                             row.extend([
                                 number(Some(*v)),
@@ -1955,32 +2127,75 @@ impl Engine {
                 (1..=count).map(|k| vec![Cell::Number(k as f64)]).collect();
             let mut groups = Vec::new();
             let three_names = || three.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+            // the raw solution's percents are of the total variance, the rescaled solution's of p
+            let raw_total = if covariance { trace } else { p as f64 };
             if print.initial {
-                block(&eigenvalues, &mut rows);
-                groups.push(("Initial Eigenvalues", three_names()));
+                block(&eigenvalues, total_variance, &mut rows);
+                groups.push(("Initial Eigenvalues".to_string(), three_names()));
             }
             if let (true, Some(e)) = (print.extraction, &extracted) {
-                block(&column_sums_of_squares(&e.loadings, m), &mut rows);
-                groups.push(("Extraction Sums of Squared Loadings", three_names()));
+                block(
+                    &column_sums_of_squares(&raw(&e.loadings, &scale), m),
+                    raw_total,
+                    &mut rows,
+                );
+                groups.push((
+                    "Extraction Sums of Squared Loadings".to_string(),
+                    three_names(),
+                ));
+                if covariance {
+                    block(&column_sums_of_squares(&e.loadings, m), p as f64, &mut rows);
+                    groups.push((
+                        "Extraction Sums of Squared Loadings (Rescaled)".to_string(),
+                        three_names(),
+                    ));
+                }
             }
             let mut oblique_note = false;
             if let (true, Some(rot)) = (print.rotation, &rotated) {
-                match &rot.phi {
-                    None => {
-                        block(&column_sums_of_squares(&rot.pattern, m), &mut rows);
-                        groups.push(("Rotation Sums of Squared Loadings", three_names()));
-                    }
-                    Some(phi) => {
-                        let structure = multiply(&rot.pattern, phi);
-                        let ss = column_sums_of_squares(&structure, m);
-                        for (k, row) in rows.iter_mut().enumerate() {
-                            row.push(ss.get(k).map_or(Cell::Empty, |v| number(Some(*v))));
+                let scales: Vec<(&[f64], &str)> = match covariance {
+                    true => vec![(scale.as_slice(), ""), (&[], " (Rescaled)")],
+                    false => vec![(&[], "")],
+                };
+                for (by, suffix) in scales {
+                    let by: Vec<f64> = match by.is_empty() {
+                        true => vec![1.0; p],
+                        false => by.to_vec(),
+                    };
+                    let total = if by.iter().all(|s| *s == 1.0) {
+                        p as f64
+                    } else {
+                        raw_total
+                    };
+                    let name = match suffix {
+                        "" => "Rotation Sums of Squared Loadings".to_string(),
+                        s => format!("Rotation Sums of Squared Loadings{s}"),
+                    };
+                    match &rot.phi {
+                        None => {
+                            block(
+                                &column_sums_of_squares(&raw(&rot.pattern, &by), m),
+                                total,
+                                &mut rows,
+                            );
+                            groups.push((name, three_names()));
                         }
-                        groups.push(("Rotation Sums of Squared Loadings", vec!["Total".into()]));
-                        oblique_note = true;
+                        Some(phi) => {
+                            let structure = raw(&multiply(&rot.pattern, phi), &by);
+                            let ss = column_sums_of_squares(&structure, m);
+                            for (k, row) in rows.iter_mut().enumerate() {
+                                row.push(ss.get(k).map_or(Cell::Empty, |v| number(Some(*v))));
+                            }
+                            groups.push((name, vec!["Total".into()]));
+                            oblique_note = true;
+                        }
                     }
                 }
             }
+            let groups: Vec<(&str, Vec<String>)> = groups
+                .iter()
+                .map(|(n, c)| (n.as_str(), c.clone()))
+                .collect();
             let mut t = table("Total Variance Explained", 1, &groups, rows);
             t.columns[0] = word.to_string();
             t.caption = Some(match oblique_note {
@@ -2018,13 +2233,13 @@ impl Engine {
             if let Some(iterations) = extracted.iterations {
                 caption.push_str(&format!(" {iterations} iterations required."));
             }
-            tables.push(loading_table(
+            tables.push(loading_tables(
                 &format!("{word} Matrix"),
                 word,
                 names,
                 loadings,
-                command.sort,
-                command.blank,
+                covariance.then_some(scale.as_slice()),
+                (command.sort, command.blank),
                 caption,
             ));
             if let Some((chi, df)) = extracted.fit {
@@ -2073,32 +2288,32 @@ impl Engine {
                 rot.iterations
             );
             match &rot.phi {
-                None => tables.push(loading_table(
+                None => tables.push(loading_tables(
                     &format!("Rotated {word} Matrix"),
                     word,
                     names,
                     &rot.pattern,
-                    command.sort,
-                    command.blank,
+                    covariance.then_some(scale.as_slice()),
+                    (command.sort, command.blank),
                     caption,
                 )),
                 Some(phi) => {
-                    tables.push(loading_table(
+                    tables.push(loading_tables(
                         "Pattern Matrix",
                         word,
                         names,
                         &rot.pattern,
-                        command.sort,
-                        command.blank,
+                        covariance.then_some(scale.as_slice()),
+                        (command.sort, command.blank),
                         caption,
                     ));
-                    tables.push(loading_table(
+                    tables.push(loading_tables(
                         "Structure Matrix",
                         word,
                         names,
                         &multiply(&rot.pattern, phi),
-                        command.sort,
-                        command.blank,
+                        covariance.then_some(scale.as_slice()),
+                        (command.sort, command.blank),
                         rotation_caption.clone(),
                     ));
                 }
@@ -2137,10 +2352,10 @@ impl Engine {
                 method,
                 r,
                 inv.as_ref(),
-                pattern,
-                structure.as_ref(),
+                (pattern, structure.as_ref()),
                 &extracted,
                 rotated.is_some(),
+                covariance.then_some(var_scale.as_slice()),
             );
             match coefficients {
                 None => warnings.push(
@@ -2279,14 +2494,27 @@ fn score_coefficients(
     method: ScoreMethod,
     r: &Matrix,
     inv: Option<&Matrix>,
-    pattern: &Matrix,
-    structure: Option<&Matrix>,
+    (pattern, structure): (&Matrix, Option<&Matrix>),
     extracted: &Extracted,
     rotated: bool,
+    variances: Option<&[f64]>,
 ) -> Option<Matrix> {
     let p = r.len();
     let m = pattern[0].len();
     match method {
+        // principal components of the covariance matrix: the scores of the centered raw data
+        // on the raw loadings, x' L (L'L)^-1, as coefficients of the z-scores: D P (P' D P)^-1
+        // with the rescaled pattern P and the variances D
+        ScoreMethod::Regression if extracted.pc_values.is_some() && variances.is_some() => {
+            let var = variances?;
+            let weighted: Matrix = pattern
+                .iter()
+                .zip(var)
+                .map(|(row, v)| row.iter().map(|x| x * v).collect())
+                .collect();
+            let (inner_inv, _) = inverse(&multiply(&transpose(pattern), &weighted))?;
+            Some(multiply(&weighted, &inner_inv))
+        }
         ScoreMethod::Regression => match (&extracted.pc_values, rotated) {
             (Some(values), false) => {
                 if values.iter().any(|v| v.abs() <= 1e-8) {

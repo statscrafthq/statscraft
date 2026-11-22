@@ -2,7 +2,8 @@
 //!
 //! FACTOR, rules from the Command Syntax Reference:
 //! - VARIABLES (abbreviated VAR or VARS) comes first, or MATRIX=IN(COR=...) or IN(COV=...)
-//!   in its place; METHOD and SELECT may stand anywhere; MISSING must come before ANALYSIS.
+//!   in its place; METHOD (CORRELATION, or COVARIANCE) and SELECT may stand anywhere; MISSING
+//!   must come before ANALYSIS. The last METHOD counts.
 //! - A later ANALYSIS cancels the PRINT, PLOT, DIAGONAL, EXTRACTION, ROTATION and SAVE given
 //!   before it; a later EXTRACTION cancels ROTATION and SAVE before it; a later ROTATION
 //!   cancels SAVE before it. The last of each subcommand counts.
@@ -148,6 +149,8 @@ pub struct Factor {
     pub include: bool,
     /// `/SELECT=var(value)`
     pub select: Option<(String, Value)>,
+    /// `/METHOD`: the matrix analyzed, the correlations (the default) or the covariances.
+    pub method: MatrixKind,
     pub analysis: Option<Vec<VarItem>>,
     pub print: FactorPrint,
     /// `/PLOT`: the scree plot and the loading plots; None without one.
@@ -553,6 +556,7 @@ pub(crate) fn factor(p: &mut Parser) -> PResult<Command> {
         missing: FactorMissing::Listwise,
         include: false,
         select: None,
+        method: MatrixKind::Correlation,
         analysis: None,
         print: FactorPrint::DEFAULT,
         plot: None,
@@ -611,14 +615,13 @@ pub(crate) fn factor(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("METHOD") {
             p.eat(Punct::Eq);
-            if !p.eat_keyword("CORRELATION") {
-                return Err(keyword_error(
-                    p,
-                    "FACTOR /METHOD",
-                    &["COVARIANCE"],
-                    &["CORRELATION"],
-                ));
-            }
+            command.method = if p.eat_keyword("CORRELATION") {
+                MatrixKind::Correlation
+            } else if p.eat_keyword("COVARIANCE") {
+                MatrixKind::Covariance
+            } else {
+                return Err(p.unexpected(&["CORRELATION", "COVARIANCE"]));
+            };
         } else if p.eat_keyword("SELECT") {
             p.eat(Punct::Eq);
             let name = p.name("a variable name")?;

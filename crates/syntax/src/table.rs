@@ -2374,7 +2374,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Factor analysis: principal components and six factoring methods, rotations, factor scores.",
         syntax: "FACTOR VARIABLES=varlist | MATRIX=IN(COR=* | 'file' | COV=* | 'file')\n\
                  \x20      [/MISSING=[LISTWISE | PAIRWISE | MEANSUB] [INCLUDE]] [/SELECT=var(value)]\n\
-                 \x20      [/ANALYSIS=varlist] [/METHOD=CORRELATION]\n\
+                 \x20      [/ANALYSIS=varlist] [/METHOD=CORRELATION | COVARIANCE]\n\
                  \x20      [/PRINT=[DEFAULT] [INITIAL] [EXTRACTION] [ROTATION] [UNIVARIATE] [CORRELATION] [COVARIANCE]\n\
                  \x20              [SIG] [DET] [INV] [REPR] [AIC] [KMO] [FSCORE] [ALL]]\n\
                  \x20      [/FORMAT=[SORT] [BLANK(n)] [DEFAULT]] [/DIAGONAL=values | DEFAULT]\n\
@@ -2401,10 +2401,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  n in absolute value. SAVE adds scores by regression, Bartlett or Anderson-Rubin, named FAC1_1,\n\
                  FAC2_1 and so on, or rootname1, rootname2. MATRIX=IN reads a matrix file (ROWTYPE_ N, MEAN,\n\
                  STDDEV, CORR or COV, VARNAME_) from the active dataset or a file. Weighted when a weight variable\n\
-                 is set. PLOT gives chart data: EIGEN the scree plot, every eigenvalue of the correlation matrix\n\
+                 is set. PLOT gives chart data: EIGEN the scree plot, every eigenvalue of the matrix analyzed\n\
                  against its number; ROTATION the loading plot, each variable at its loadings (rotated when there\n\
                  is a rotation) on the first two factors, with the third as depth when there are three or more, or\n\
-                 one plot per pair given. Not supported yet: METHOD=COVARIANCE, MATRIX=OUT, MATRIX=IN(FAC=...).",
+                 one plot per pair given. METHOD=COVARIANCE analyzes the covariance matrix (with PC, PAF or IMAGE\n\
+                 only; it needs the standard deviations in a correlation matrix file): the tables show the raw\n\
+                 loadings and communalities beside the rescaled ones, and MINEIGEN(n) counts in mean variances.\n\
+                 Not supported yet: MATRIX=OUT, MATRIX=IN(FAC=...).",
         example: "FACTOR VARIABLES=q1 TO q10 /PRINT=INITIAL EXTRACTION ROTATION KMO /FORMAT=SORT BLANK(.3) /CRITERIA=MINEIGEN(1) /EXTRACTION=PC /ROTATION=VARIMAX /SAVE=REG(ALL).",
         parse: factor::factor,
     },

@@ -1041,6 +1041,9 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 
 ### FACTOR
 
+- METHOD=COVARIANCE works with PC, PAF and IMAGE, as the manual says; ALPHA, ULS, GLS and ML stop with an error, and so does a correlation matrix file without standard deviations. Raw loadings come from the covariance matrix as the Algorithms manual gives it (the eigenvectors times the root of the eigenvalues; for PAF the communalities on the diagonal, started at each variance times its squared multiple correlation and tested for convergence on their share of the variance). Rescaled loadings are the raw ones divided by the standard deviations. IMAGE gives the same factors as for correlations (the matrix the eigenvalues come from is the same), so its rescaled loadings equal the correlation ones and its raw loadings are those times the standard deviations.
+- With covariances, rotation, the loading plots, REPR and the factor scores work on the rescaled loadings and the correlation matrix, and the raw tables follow from them by the standard deviations; the manual does not say which loadings a rotation turns, and with Kaiser normalization (the default) the two choices give the same transformation. Component scores of PC are those of the centered raw data on the raw loadings; the other scores are scale-free. MINEIGEN(n) is n times the mean variance, and the scree plot shows the eigenvalues of the matrix analyzed. DET and INV describe the covariance matrix, KMO and the anti-image matrices the correlations.
+- The tables show the raw solution and the rescaled one side by side (Communalities, the loading matrices, and the extraction and rotation sums of squares, whose percents are of the total variance and of the number of variables). The initial eigenvalues come once, since they are the same for both. The manual does not give this layout.
 - Standard deviations and covariances divide by W - 1. LISTWISE leaves out a case missing on any variable of VARIABLES, also one that is not on ANALYSIS. EXTRACTION without ROTATION leaves the factors unrotated. The default power of PROMAX is 4. Rotated factors are ordered by their sums of squared loadings (GNU PSPP differs).
 - **Beyond the documentation:** /CRITERIA takes DELTA(n) and KAPPA(n), the delta of OBLIMIN and the power of PROMAX when ROTATION gives none, as older versions of the syntax had them.
 - Unrotated and oblique factors are reflected so that each column of loadings sums to a positive number, as the manual does for orthogonal rotations. Oblique factors keep the order of the extraction.
@@ -1883,7 +1886,7 @@ Where the documentation is silent:
   - UNIANOVA and GLM have no RANDOM, OUTFILE or MEASURE, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
   - GENLINMIXED has no model with neither RANDOM nor REPEATED_MEASURES, no spatial or Kronecker residual structures, no GROUPING and no Pearson residuals of a multinomial target.
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
-  - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
+  - FACTOR has no MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
   - TWOSTEP CLUSTER has no INFILE and writes no OUTFILE model or tree; DETECTANOMALY writes no OUTFILE model.
   - MVA has no OUTFILE under SPLIT FILE.
