@@ -697,6 +697,19 @@ fn correlation_list(p: &mut Parser) -> PResult<(Vec<VarItem>, Option<Vec<VarItem
     Ok((rows, columns))
 }
 
+/// MATRIX of CORRELATIONS and NONPAR CORR, which only write: `OUT(file | dataset | *)`.
+fn matrix_out_only(p: &mut Parser, io: &mut crate::matrix_io::MatrixIo, who: &str) -> PResult<()> {
+    let start = p.pos;
+    crate::matrix_io::matrix_io(p, io, who, false, false)?;
+    if io.input.is_some() {
+        return Err(SyntaxError::new(
+            p.span_from(start),
+            format!("{who} /MATRIX writes a matrix file: give OUT(...), not IN"),
+        ));
+    }
+    Ok(())
+}
+
 const CORRELATIONS_SUBCOMMANDS: [&str; 6] = [
     "VARIABLES",
     "MISSING",
@@ -716,6 +729,7 @@ pub(crate) fn correlations(p: &mut Parser) -> PResult<Command> {
         xprod: false,
         listwise: false,
         include: false,
+        matrix: crate::matrix_io::MatrixIo::default(),
     };
     p.eat(Punct::Slash);
     let mut more = true;
@@ -727,6 +741,9 @@ pub(crate) fn correlations(p: &mut Parser) -> PResult<Command> {
         if p.eat_keyword("VARIABLES") {
             p.expect(Punct::Eq)?;
             command.lists.push(correlation_list(p)?);
+        } else if p.at_keyword("MATRIX") {
+            p.pos += 1;
+            matrix_out_only(p, &mut command.matrix, "CORRELATIONS")?;
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
             const CHOICES: [(&str, &[u8]); 4] = [
@@ -784,7 +801,7 @@ pub(crate) fn correlations(p: &mut Parser) -> PResult<Command> {
             // another variable list after a slash, without the VARIABLES keyword
             command.lists.push(correlation_list(p)?);
         } else {
-            return Err(p.subcommand_error("CORRELATIONS", &["MATRIX", "CI"]));
+            return Err(p.subcommand_error("CORRELATIONS", &["CI"]));
         }
         more = p.eat(Punct::Slash);
     }
@@ -808,6 +825,7 @@ pub(crate) fn nonpar_corr(p: &mut Parser) -> PResult<Command> {
         layout: CorrelationsLayout::Full,
         listwise: false,
         include: false,
+        matrix: crate::matrix_io::MatrixIo::default(),
     };
     p.eat(Punct::Slash);
     let mut more = true;
@@ -819,6 +837,9 @@ pub(crate) fn nonpar_corr(p: &mut Parser) -> PResult<Command> {
         if p.eat_keyword("VARIABLES") {
             p.expect(Punct::Eq)?;
             command.lists.push(correlation_list(p)?);
+        } else if p.at_keyword("MATRIX") {
+            p.pos += 1;
+            matrix_out_only(p, &mut command.matrix, "NONPAR CORR")?;
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
             const CHOICES: [(&str, &[u8]); 3] =
@@ -868,7 +889,7 @@ pub(crate) fn nonpar_corr(p: &mut Parser) -> PResult<Command> {
             // another variable list after a slash, without the VARIABLES keyword
             command.lists.push(correlation_list(p)?);
         } else {
-            return Err(p.subcommand_error("NONPAR CORR", &["MATRIX", "CI"]));
+            return Err(p.subcommand_error("NONPAR CORR", &["CI"]));
         }
         more = p.eat(Punct::Slash);
     }

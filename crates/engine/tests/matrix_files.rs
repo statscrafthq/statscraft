@@ -759,3 +759,192 @@ ONEWAY y BY g /MATRIX=IN(*).",
     );
     assert!(error.contains("no STDDEV records"), "{error}");
 }
+
+const GAPS: &str = "DATA LIST FREE /a b c d.
+BEGIN DATA
+-0.77 1.68 8.5 -0.96
+-0.82 -0.31 3.9 1.58
+-0.14 . 3.28 1.13
+-0.28 0.17 5.1 -1.02
+0.44 0.56 . -0.26
+-1.19 -1.45 2.79 0.69
+1.19 0.46 5.48 -1.24
+-0.02 0.83 5.76 -0.18
+-0.25 -0.02 . 1.31
+-0.36 -0.19 7.4 -1.08
+1.28 -0.04 5.56 0.23
+-0.47 0.02 2.59 .
+0.07 -0.61 5.93 -0.49
+-0.27 0.13 5.7 -1.67
+1.85 1.18 3.82 0.37
+-0.84 -1.15 3.29 0.11
+-0.08 -1.66 4.51 -0.05
+-2.62 -2.16 8.08 -0.08
+0.89 0.84 6.09 0.39
+-0.71 0.96 8.13 -0.82
+1.76 0.89 5.5 -0.61
+0.18 -0.69 1.08 -0.4
+-0.27 -1.21 3.38 1.29
+0.93 -0.24 4 -1.39
+-0.69 -0.87 5.61 0.8
+END DATA.
+";
+
+fn column(engine: &Engine, name: &str) -> Vec<Option<f64>> {
+    let rows = texts(engine, "ROWTYPE_").len();
+    (0..rows).map(|k| value(engine, name, k)).collect()
+}
+
+fn near(got: Option<f64>, want: f64, what: &str) {
+    let got = got.unwrap_or(f64::NAN);
+    assert!(
+        (got - want).abs() <= 1e-9 * want.abs().max(1.0),
+        "{what}: {got} against {want}"
+    );
+}
+
+// The numbers are those of cor(), colMeans() and sd() in R with pairwise (or complete) cases.
+#[test]
+fn correlations_matrix_out_pairwise_and_listwise() {
+    let mut engine = Engine::default();
+    let _ = run(
+        &mut engine,
+        &format!("{GAPS}CORRELATIONS VARIABLES=a b c d /MATRIX=OUT(*)."),
+    );
+    let kinds = texts(&engine, "ROWTYPE_");
+    assert_eq!(
+        kinds,
+        [
+            "MEAN", "STDDEV", "N", "N", "N", "N", "CORR", "CORR", "CORR", "CORR"
+        ]
+    );
+    assert_eq!(texts(&engine, "VARNAME_")[2..6], ["a", "b", "c", "d"]);
+    near(value(&engine, "c", 0), 5.02086956522, "mean of c");
+    near(value(&engine, "b", 1), 0.9703428350, "sd of b");
+    // the counts of the pairs
+    near(value(&engine, "c", 3), 22.0, "n of b and c");
+    near(value(&engine, "a", 2), 25.0, "n of a");
+    near(value(&engine, "d", 5), 24.0, "n of d");
+    // the correlations, the diagonal 1
+    near(value(&engine, "b", 6), 0.5511196874, "r a b");
+    near(value(&engine, "d", 8), -0.4197183028, "r c d");
+    near(value(&engine, "c", 9), -0.4197183028, "r d c");
+    near(value(&engine, "d", 9), 1.0, "r d d");
+    let _ = run(
+        &mut engine,
+        &format!("{GAPS}CORRELATIONS VARIABLES=a b c d /MISSING=LISTWISE /MATRIX=OUT(*)."),
+    );
+    assert_eq!(
+        texts(&engine, "ROWTYPE_"),
+        ["MEAN", "STDDEV", "N", "CORR", "CORR", "CORR", "CORR"]
+    );
+    // one N for every variable, over the 21 cases with no gap; the means over those cases too
+    assert!(column(&engine, "d")[2] == Some(21.0));
+    near(value(&engine, "b", 0), -0.16380952381, "listwise mean of b");
+    near(value(&engine, "c", 1), 1.8737595262, "listwise sd of c");
+    near(value(&engine, "d", 5), -0.3781847540, "listwise r c d");
+}
+
+// Only the last list without WITH is written; the active dataset is untouched without `*`.
+#[test]
+fn correlations_matrix_out_takes_the_last_square_list_and_can_go_to_a_file() {
+    let mut engine = Engine::default();
+    let _ = run(
+        &mut engine,
+        &format!("{GAPS}CORRELATIONS VARIABLES=a b /a WITH c d /b c d /MATRIX=OUT(*)."),
+    );
+    let names = texts(&engine, "VARNAME_");
+    assert_eq!(names[names.len() - 3..], ["b", "c", "d"]);
+    assert!(engine.dataset().unwrap().variable("a").is_err());
+    let path = std::env::temp_dir().join("statscraft_corr_matrix_test.sav");
+    let _ = std::fs::remove_file(&path);
+    let mut engine = Engine::default();
+    let _ = run(
+        &mut engine,
+        &format!(
+            "{GAPS}CORRELATIONS VARIABLES=a b c d /MATRIX=OUT('{}').",
+            path.display()
+        ),
+    );
+    // the data stay, the file holds the matrix
+    assert!(engine.dataset().unwrap().variable("a").is_ok());
+    let t = run(&mut engine, &format!("GET FILE='{}'.", path.display()));
+    let _ = t;
+    assert_eq!(texts(&engine, "ROWTYPE_")[0], "MEAN");
+    let _ = std::fs::remove_file(&path);
+    // only OUT is accepted
+    let (_, errors) = parse("CORRELATIONS VARIABLES=a b /MATRIX=IN(*).");
+    assert!(errors[0].to_string().contains("OUT"));
+}
+
+// NONPAR CORR writes N and RHO, or N and TAUB with KENDALL alone; BOTH writes Spearman's only.
+#[test]
+fn nonpar_corr_matrix_out_writes_rho_or_taub() {
+    let mut engine = Engine::default();
+    let _ = run(
+        &mut engine,
+        &format!("{GAPS}NONPAR CORR VARIABLES=a b c d /MATRIX=OUT(*)."),
+    );
+    assert_eq!(
+        texts(&engine, "ROWTYPE_"),
+        ["N", "N", "N", "N", "RHO", "RHO", "RHO", "RHO"]
+    );
+    near(value(&engine, "b", 4), 0.4179169483, "rho a b");
+    near(value(&engine, "d", 6), -0.4229249012, "rho c d");
+    near(value(&engine, "c", 1), 22.0, "n b c");
+    near(value(&engine, "d", 7), 1.0, "rho d d");
+    let _ = run(
+        &mut engine,
+        &format!("{GAPS}NONPAR CORR VARIABLES=a b c d /PRINT=KENDALL /MATRIX=OUT(*)."),
+    );
+    assert_eq!(texts(&engine, "ROWTYPE_")[4], "TAUB");
+    near(value(&engine, "b", 4), 0.3230495338, "tau a b");
+    near(value(&engine, "d", 6), -0.2640692641, "tau c d");
+    let _ = run(
+        &mut engine,
+        &format!("{GAPS}NONPAR CORR VARIABLES=a b c d /PRINT=BOTH /MATRIX=OUT(*)."),
+    );
+    assert_eq!(texts(&engine, "ROWTYPE_")[4], "RHO");
+}
+
+// A matrix written by CORRELATIONS is read by the procedures that read a correlation matrix.
+#[test]
+fn a_correlations_matrix_feeds_regression_and_partial_corr() {
+    let direct = run(
+        &mut Engine::default(),
+        &format!("{PAY}REGRESSION /VARIABLES=y x1 x2 /DEPENDENT=y /METHOD=ENTER x1 x2."),
+    );
+    let mut engine = Engine::default();
+    let _ = run(
+        &mut engine,
+        &format!("{PAY}CORRELATIONS VARIABLES=y x1 x2 /MATRIX=OUT(*)."),
+    );
+    let again = run(
+        &mut engine,
+        "REGRESSION MATRIX IN(*) /VARIABLES=y x1 x2 /DEPENDENT=y /METHOD=ENTER x1 x2.",
+    );
+    for title in ["Model Summary", "ANOVA", "Coefficients"] {
+        same(&direct, &again, title);
+    }
+}
+
+// Under SPLIT FILE a full set of records is written for every group.
+#[test]
+fn correlations_matrix_out_under_split_file_writes_a_set_per_group() {
+    let mut engine = Engine::default();
+    let _ = run(
+        &mut engine,
+        &format!(
+            "{PAY}SORT CASES BY g.\nSPLIT FILE BY g.\nCORRELATIONS VARIABLES=y x1 x2 /MATRIX=OUT(*)."
+        ),
+    );
+    let kinds = texts(&engine, "ROWTYPE_");
+    assert_eq!(kinds.iter().filter(|k| *k == "CORR").count(), 6);
+    assert_eq!(kinds.iter().filter(|k| *k == "MEAN").count(), 2);
+    near(value(&engine, "g", 0), 1.0, "first split value");
+    near(
+        value(&engine, "g", kinds.len() - 1),
+        2.0,
+        "last split value",
+    );
+}

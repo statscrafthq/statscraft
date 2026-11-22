@@ -1471,7 +1471,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Pearson correlations with significance and case counts.",
         syntax: "CORRELATIONS [/VARIABLES=]varlist [WITH varlist] [/varlist ...]\n\
                  \x20            [/PRINT=TWOTAIL | ONETAIL  SIG | NOSIG  FULL | LOWER | LNODIAG]\n\
-                 \x20            [/STATISTICS=DESCRIPTIVES XPROD ALL] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]].\n\
+                 \x20            [/STATISTICS=DESCRIPTIVES XPROD ALL] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]]\n\
+                 \x20            [/MATRIX=OUT(* | 'file' | dataset)].\n\
+                 MATRIX writes the last list without WITH as a matrix data file (ROWTYPE_ MEAN, STDDEV, N and CORR,\n\
+                 VARNAME_; N is one record under LISTWISE, a record per variable under PAIRWISE unless every pair has\n\
+                 the same count; one set per SPLIT FILE group); the tables are still shown, and with * the file\n\
+                 replaces the active dataset.\n\
                  A list alone gives a square matrix, WITH a rectangular one (left variables in rows). NOSIG marks\n\
                  coefficients significant at 0.05 with * and at 0.01 with **. XPROD adds cross-products and\n\
                  covariances; DESCRIPTIVES a table of means, standard deviations and counts. PAIRWISE (default)\n\
@@ -1485,14 +1490,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Spearman's rho and Kendall's tau-b rank correlations with significance.",
         syntax: "NONPAR CORR [/VARIABLES=]varlist [WITH varlist] [/varlist ...]\n\
                  \x20           [/PRINT=SPEARMAN | KENDALL | BOTH  TWOTAIL | ONETAIL  SIG | NOSIG\n\
-                 \x20                   FULL | LOWER | LNODIAG] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]] [/SAMPLE].\n\
+                 \x20                   FULL | LOWER | LNODIAG] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]] [/SAMPLE]\n\
+                 \x20           [/MATRIX=OUT(* | 'file' | dataset)].\n\
+                 MATRIX writes the last list without WITH: the records N (as in CORRELATIONS) and RHO, or TAUB\n\
+                 when only KENDALL is asked (BOTH writes rho alone), with VARNAME_ and one set per SPLIT FILE group.\n\
                  A list alone gives a square matrix, WITH a rectangular one (left variables in rows). Ties get\n\
                  their average rank; rho is tested with t on N - 2 df, tau-b with the normal approximation and\n\
                  the tie-corrected variance. NOSIG marks coefficients significant at 0.05 with * and at 0.01\n\
                  with **. PAIRWISE (default) uses the cases valid on both variables of a pair; LISTWISE the\n\
                  cases valid on every variable of the list, each list on its own. A weight variable repeats\n\
                  each case as often as its weight rounded to a whole number. SAMPLE changes nothing.\n\
-                 Not supported yet: MATRIX, CI.",
+                 Not supported yet: CI.",
         example: "NONPAR CORR /VARIABLES=satisfaction recommend WITH age /PRINT=BOTH NOSIG.",
         parse: stats::nonpar_corr,
     },

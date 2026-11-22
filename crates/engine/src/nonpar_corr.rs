@@ -161,6 +161,56 @@ impl Engine {
             methods.push((false, "Spearman's rho"));
         }
         let mut out = Vec::new();
+        let mut matrix_file = None;
+        // MATRIX=OUT: the last list without WITH, with the N of every pair and the coefficient
+        // (Spearman's unless only KENDALL is asked)
+        if command.matrix.output.is_some()
+            && let Some((names, _, _)) = lists.iter().rev().find(|(_, _, square)| *square)
+        {
+            let mut variables = Vec::new();
+            for name in names {
+                let variable = data.variable(name)?;
+                if variable.is_string() {
+                    return Err(Error(format!(
+                        "NONPAR CORR needs numeric variables, but {name} is a string variable"
+                    )));
+                }
+                variables.push(variable);
+            }
+            let kendall = command.kendall && !command.spearman;
+            let complete: Vec<usize> = cases
+                .iter()
+                .copied()
+                .filter(|&c| variables.iter().all(|v| valid(v, c)))
+                .collect();
+            let labels = variables
+                .iter()
+                .map(|v| v.label().map(str::to_string))
+                .collect();
+            let mut file = crate::matrix_file::MatrixRows::new(names.clone(), labels);
+            let mut r = Vec::new();
+            let mut n = Vec::new();
+            for (i, x) in variables.iter().enumerate() {
+                let mut r_row = Vec::new();
+                let mut n_row = Vec::new();
+                for (j, y) in variables.iter().enumerate() {
+                    let used: Vec<(f64, f64, f64)> =
+                        if command.listwise { &complete } else { &cases }
+                            .iter()
+                            .filter(|&&c| valid(x, c) && valid(y, c))
+                            .map(|&c| (value(x, c), value(y, c), weight(c)))
+                            .collect();
+                    let [rho, _, count] = coefficient(&used, kendall);
+                    r_row.push(if i == j && rho.is_finite() { 1.0 } else { rho });
+                    n_row.push(count);
+                }
+                r.push(r_row);
+                n.push(n_row);
+            }
+            file.counts(&n);
+            file.matrix(if kendall { "TAUB" } else { "RHO" }, &r);
+            matrix_file = Some(self.matrix_part("NONPAR CORR", &file)?);
+        }
         for (rows, columns, square) in &lists {
             let mut variables = Vec::new();
             for name in rows.iter().chain(columns) {
@@ -266,6 +316,9 @@ impl Engine {
                 caption: (!captions.is_empty()).then(|| captions.join(" ")),
                 ..Table::default()
             });
+        }
+        if let Some(part) = matrix_file {
+            self.matrix_parts.1.push(part);
         }
         Ok(out)
     }

@@ -1331,6 +1331,8 @@ pub struct Correlations {
     pub listwise: bool,
     /// `/MISSING=INCLUDE`
     pub include: bool,
+    /// `/MATRIX=OUT(...)`: the matrix data file of the last list without WITH.
+    pub matrix: crate::matrix_io::MatrixIo,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1350,6 +1352,8 @@ pub struct NonparCorr {
     pub listwise: bool,
     /// `/MISSING=INCLUDE`
     pub include: bool,
+    /// `/MATRIX=OUT(...)`: the matrix data file of the last list without WITH.
+    pub matrix: crate::matrix_io::MatrixIo,
 }
 
 #[derive(Debug, Clone, PartialEq)]

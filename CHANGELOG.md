@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CORRELATIONS /MATRIX=OUT and NONPAR CORR /MATRIX=OUT write the matrix data file of the last list without WITH (MEAN, STDDEV, N and CORR; N and RHO or TAUB), per split group.
 - GENLIN /CRITERIA CITYPE=PROFILE: profile likelihood confidence intervals for the regression parameters (and Exp(B)) instead of Wald ones, for the models other than the ordinal multinomial and REPEATED.
 - UNIANOVA and GLM PRINT=MBP, BP, F and WHITE with MBPDESIGN, BPDESIGN and FDESIGN: the Breusch-Pagan, modified Breusch-Pagan, F and White tests for heteroskedasticity.
 

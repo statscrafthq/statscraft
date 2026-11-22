@@ -463,6 +463,7 @@ This page lists, by topic and command:
 ### CORRELATIONS
 
 - A coefficient marked by NOSIG shows 3 decimals and stars, explained in a caption.
+- MATRIX=OUT writes the last list without WITH (rectangular matrices are not written, as the manual says): the records MEAN, STDDEV, N and CORR over its variables, one set for each SPLIT FILE group, the tables shown as usual. N is one record under LISTWISE (the cases valid on every variable of every list, over which the means and standard deviations are taken too) and under PAIRWISE a record when every pair has the same count, else a matrix of records, with the means and standard deviations of each variable's own cases. Only OUT is read: the manual's CORRELATIONS MATRIX has no IN. NONPAR CORR writes N and RHO, or TAUB when only KENDALL is asked, and only Spearman's when BOTH is; the manual says to recode RHO or TAUB to CORR before another procedure reads it. The values were checked against cor() in R with pairwise and complete cases.
 
 ### PARTIAL CORR
 
@@ -1868,7 +1869,7 @@ Where the documentation is silent:
 - **Commands.** The commands of the language that Statscraft recognizes but does not run are listed at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
 - **Subcommands.** Every command page lists what it accepts. Notably:
   - ONEWAY has no WALLER.
-  - NONPAR CORR has no MATRIX or CI. PARTIAL CORR has no MATRIX.
+  - CORRELATIONS and NONPAR CORR have no CI.
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
   - REGRESSION has no MATRIX or OUTFILE.
   - RELIABILITY has no MATRIX.

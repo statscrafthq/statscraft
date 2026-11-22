@@ -1307,6 +1307,14 @@ impl Engine {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);
             }
+            Command::Correlations(c) if c.matrix.output.is_some() => {
+                let target = c.matrix.output.clone().expect("checked");
+                return self.procedure_with_matrix_out(command, &target);
+            }
+            Command::NonparCorr(c) if c.matrix.output.is_some() => {
+                let target = c.matrix.output.clone().expect("checked");
+                return self.procedure_with_matrix_out(command, &target);
+            }
             Command::PartialCorr(c) if c.matrix.output.is_some() => {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);
