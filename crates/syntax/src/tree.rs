@@ -7,7 +7,10 @@
 //! are refused as not supported yet; settings that only apply to CRT and QUEST are ignored with
 //! a warning, as the manual says.
 
-use crate::ast::{Command, Level, Tree, TreeCategory, TreePrint, TreeSave, Value, VarItem};
+use crate::ast::{
+    Command, Level, Tree, TreeCategory, TreeImpurity, TreePrint, TreePriors, TreeSave, Value,
+    VarItem,
+};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
@@ -244,9 +247,10 @@ fn print(p: &mut Parser, command: &mut Tree) -> PResult<()> {
             print.case_summary = true;
         } else if p.eat_keyword("TREETABLE") {
             print.tree_table = true;
-        } else if p.eat_keyword("IMPORTANCE") || p.eat_keyword("SURROGATES") {
-            let message = "PRINT IMPORTANCE and SURROGATES apply to CRT and QUEST only; ignored";
-            command.ignored.push(message.into());
+        } else if p.eat_keyword("IMPORTANCE") {
+            command.print_importance = true;
+        } else if p.eat_keyword("SURROGATES") {
+            command.print_surrogates = true;
         } else if p.eat_keyword("CATEGORYSPECS") {
             let message = "PRINT CATEGORYSPECS is not shown yet; costs are equal and the scores are \
                            the ones /SCORES gives";
@@ -338,8 +342,7 @@ fn plot(p: &mut Parser, command: &mut Tree) -> PResult<()> {
             let message = "PLOT PROFIT and ROI need profits, which are not supported yet; ignored";
             command.ignored.push(message.into());
         } else if p.eat_keyword("IMPORTANCE") {
-            let message = "PLOT IMPORTANCE applies to CRT trees only; ignored";
-            command.ignored.push(message.into());
+            command.plot_importance = true;
         } else if p.eat_keyword("INCREMENT") {
             let n = number(p, "INCREMENT", 1.0, 100.0)?;
             if [1.0, 2.0, 5.0, 10.0, 20.0, 25.0].contains(&n) {
@@ -403,25 +406,31 @@ fn method(p: &mut Parser, command: &mut Tree) -> PResult<()> {
             match choice(p, &["CHAID", "EXHAUSTIVECHAID", "CRT", "QUEST"])? {
                 0 => command.exhaustive = false,
                 1 => command.exhaustive = true,
-                2 => return Err(not_supported(p, start, "METHOD TYPE=CRT")),
+                2 => command.crt = true,
                 _ => return Err(not_supported(p, start, "METHOD TYPE=QUEST")),
             }
         } else if p.eat_keyword("MAXSURROGATES") {
             p.eat(Punct::Eq);
-            if !p.eat_keyword("AUTO") {
-                number(p, "MAXSURROGATES", 0.0, f64::MAX)?;
-            }
-            let message = "METHOD MAXSURROGATES applies to CRT and QUEST only; ignored";
-            command.ignored.push(message.into());
+            command.max_surrogates = if p.eat_keyword("AUTO") {
+                None
+            } else {
+                let start = p.pos;
+                let n = number(p, "MAXSURROGATES", 0.0, f64::MAX)?;
+                if n.fract() != 0.0 {
+                    let message = "MAXSURROGATES must be a whole number";
+                    return Err(SyntaxError::new(p.span_from(start), message));
+                }
+                Some(n as usize)
+            };
         } else if p.eat_keyword("PRUNE") {
             p.eat(Punct::Eq);
             if p.eat_keyword("SE") {
+                let mut times = 1.0;
                 if p.eat(Punct::LParen) {
-                    number(p, "SE", 0.0, f64::MAX)?;
+                    times = number(p, "SE", 0.0, f64::MAX)?;
                     p.expect(Punct::RParen)?;
                 }
-                let message = "METHOD PRUNE applies to CRT and QUEST only; ignored";
-                command.ignored.push(message.into());
+                command.prune = Some(times);
             } else if !p.eat_keyword("NONE") {
                 return Err(p.unexpected(&["NONE", "SE"]));
             }
@@ -446,9 +455,7 @@ fn growth_limit(p: &mut Parser, command: &mut Tree) -> PResult<()> {
         } else if p.eat_keyword("MINCHILDSIZE") {
             command.min_child = count(p, "MINCHILDSIZE", f64::MAX)? as f64;
         } else if p.eat_keyword("MINIMPROVEMENT") {
-            number(p, "MINIMPROVEMENT", 0.0, f64::MAX)?;
-            let message = "GROWTHLIMIT MINIMPROVEMENT applies to CRT only; ignored";
-            command.ignored.push(message.into());
+            command.min_improvement = Some(positive(p, "MINIMPROVEMENT")?);
         } else {
             return Err(p.unexpected(&[
                 "MAXDEPTH",
@@ -456,6 +463,75 @@ fn growth_limit(p: &mut Parser, command: &mut Tree) -> PResult<()> {
                 "MINCHILDSIZE",
                 "MINIMPROVEMENT",
             ]));
+        }
+    }
+    Ok(())
+}
+
+/// A number above 0 after an optional '='.
+fn positive(p: &mut Parser, what: &str) -> PResult<f64> {
+    let start = p.pos;
+    let n = number(p, what, 0.0, f64::MAX)?;
+    if n <= 0.0 {
+        let message = format!("{what} must be above 0");
+        return Err(SyntaxError::new(p.span_from(start), message));
+    }
+    Ok(n)
+}
+
+fn crt(p: &mut Parser, command: &mut Tree) -> PResult<()> {
+    while !at_end(p) {
+        if p.eat_keyword("IMPURITY") {
+            command.impurity = match choice(p, &["GINI", "TWOING", "ORDEREDTWOING"])? {
+                0 => TreeImpurity::Gini,
+                1 => TreeImpurity::Twoing,
+                _ => TreeImpurity::OrderedTwoing,
+            };
+        } else if p.eat_keyword("MINIMPROVEMENT") {
+            command.min_improvement = Some(positive(p, "MINIMPROVEMENT")?);
+        } else {
+            return Err(p.unexpected(&["IMPURITY", "MINIMPROVEMENT"]));
+        }
+    }
+    Ok(())
+}
+
+fn priors(p: &mut Parser, command: &mut Tree) -> PResult<()> {
+    while !at_end(p) {
+        if p.eat_keyword("ADJUST") {
+            // with equal costs, which are all there is, the adjusted priors are the priors
+            yes(p)?;
+        } else if p.eat_keyword("FROMDATA") {
+            command.priors = TreePriors::FromData;
+        } else if p.eat_keyword("EQUAL") {
+            command.priors = TreePriors::Equal;
+        } else if p.eat_keyword("CUSTOM") {
+            p.eat(Punct::Eq);
+            let mut given: Vec<(Value, f64)> = Vec::new();
+            while !at_end(p) && !p.at_keyword("ADJUST") {
+                let Some(value) = p.value() else {
+                    return Err(p.unexpected(&["a value"]));
+                };
+                p.expect(Punct::LBracket)?;
+                let start = p.pos;
+                let Some(prior) = p.number() else {
+                    return Err(p.unexpected(&["a prior probability"]));
+                };
+                if prior < 0.0 {
+                    let message = "a prior probability cannot be negative";
+                    return Err(SyntaxError::new(p.span_from(start), message));
+                }
+                p.expect(Punct::RBracket)?;
+                // the last value of a category wins
+                given.retain(|(v, _)| *v != value);
+                given.push((value, prior));
+            }
+            if given.is_empty() {
+                return Err(p.unexpected(&["a value"]));
+            }
+            command.priors = TreePriors::Custom(given);
+        } else {
+            return Err(p.unexpected(&["FROMDATA", "EQUAL", "CUSTOM", "ADJUST"]));
         }
     }
     Ok(())
@@ -595,6 +671,15 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         variable_intervals: Vec::new(),
         scores: None,
         nominal_missing_valid: false,
+        crt: false,
+        impurity: TreeImpurity::Gini,
+        min_improvement: None,
+        priors: TreePriors::FromData,
+        max_surrogates: None,
+        prune: None,
+        print_importance: false,
+        print_surrogates: false,
+        plot_importance: false,
         ignored: Vec::new(),
     };
     model(p, &mut command)?;
@@ -637,10 +722,12 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             "GROWTHLIMIT" => growth_limit(p, &mut command)?,
             "VALIDATION" => validation(p)?,
             "CHAID" => chaid(p, &mut command)?,
-            "CRT" | "QUEST" | "PRIORS" => {
+            "CRT" => crt(p, &mut command)?,
+            "PRIORS" => priors(p, &mut command)?,
+            "QUEST" => {
                 skip(p);
-                let message = format!("{name} applies to CRT and QUEST trees only; ignored");
-                command.ignored.push(message);
+                let message = "QUEST applies to QUEST trees only; ignored";
+                command.ignored.push(message.into());
             }
             "COSTS" => {
                 p.eat(Punct::Eq);
@@ -675,6 +762,40 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         }
     }
     p.finish(&["'/'"])?;
+    if !command.crt {
+        for (given, what) in [
+            (seen.contains(&"CRT"), "CRT"),
+            (seen.contains(&"PRIORS"), "PRIORS"),
+            (command.print_importance, "PRINT IMPORTANCE"),
+            (command.print_surrogates, "PRINT SURROGATES"),
+            (command.plot_importance, "PLOT IMPORTANCE"),
+            (command.max_surrogates.is_some(), "METHOD MAXSURROGATES"),
+            (command.prune.is_some(), "METHOD PRUNE"),
+        ] {
+            if given {
+                let message = format!("{what} applies to CRT and QUEST trees only; ignored");
+                command.ignored.push(message);
+            }
+        }
+        if command.min_improvement.is_some() && !seen.contains(&"CRT") {
+            let message = "MINIMPROVEMENT applies to CRT only; ignored";
+            command.ignored.push(message.into());
+        }
+    } else {
+        if seen.contains(&"CHAID") {
+            command
+                .ignored
+                .push("CHAID applies to CHAID trees only; ignored".into());
+        }
+        if seen.contains(&"SCORES") {
+            command
+                .ignored
+                .push("SCORES applies to CHAID trees only; ignored".into());
+        }
+        if command.prune.is_some() {
+            return Err(not_supported(p, 0, "METHOD PRUNE=SE"));
+        }
+    }
     if command.min_child >= command.min_parent {
         let message = "GROWTHLIMIT MINCHILDSIZE must be less than MINPARENTSIZE";
         return Err(SyntaxError::new(p.span(), message));

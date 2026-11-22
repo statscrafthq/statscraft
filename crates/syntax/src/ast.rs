@@ -1398,6 +1398,22 @@ pub struct Tree {
     pub force: Option<(String, Option<Level>)>,
     /// `/METHOD TYPE=EXHAUSTIVECHAID`; CHAID otherwise.
     pub exhaustive: bool,
+    /// `/METHOD TYPE=CRT`
+    pub crt: bool,
+    /// `/CRT IMPURITY`
+    pub impurity: TreeImpurity,
+    /// `/CRT MINIMPROVEMENT` or `/GROWTHLIMIT MINIMPROVEMENT`
+    pub min_improvement: Option<f64>,
+    /// `/METHOD PRUNE=SE(n)`: the number of standard errors.
+    pub prune: Option<f64>,
+    /// `/PRIORS`
+    pub priors: TreePriors,
+    /// `/METHOD MAXSURROGATES`; None is AUTO.
+    pub max_surrogates: Option<usize>,
+    /// `/PRINT IMPORTANCE`, `/PRINT SURROGATES` and `/PLOT IMPORTANCE`
+    pub print_importance: bool,
+    pub print_surrogates: bool,
+    pub plot_importance: bool,
     /// `/TREE DISPLAY`: false for NONE.
     pub display: bool,
     /// `/TREE BRANCHSTATISTICS`
@@ -1444,6 +1460,21 @@ pub struct Tree {
     pub nominal_missing_valid: bool,
     /// What the command accepts but does not use, each said in a warning when it runs.
     pub ignored: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeImpurity {
+    Gini,
+    Twoing,
+    OrderedTwoing,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TreePriors {
+    FromData,
+    Equal,
+    /// Category and weight; the weights are normalized when the tree is grown.
+    Custom(Vec<(Value, f64)>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

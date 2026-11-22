@@ -385,8 +385,8 @@ fn what_is_not_supported_says_so() {
     let mut engine = engine_with(DATA1);
     let message = error(&mut engine, "TREE y [s] BY a [n] /PRINT NONE.");
     assert!(message.contains("scale dependent variable"), "{message}");
-    let (_, errors) = parse("TREE y BY a /METHOD TYPE=CRT.");
-    assert_eq!(errors[0].message, "METHOD TYPE=CRT is not supported yet");
+    let (_, errors) = parse("TREE y BY a /METHOD TYPE=QUEST.");
+    assert_eq!(errors[0].message, "METHOD TYPE=QUEST is not supported yet");
     // user-missing values of a nominal predictor are categories of their own with VALID
     let tables = run(
         &mut engine,

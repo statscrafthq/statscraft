@@ -36,6 +36,8 @@
 //! - Gains per target class: node size, target count and percent of all target cases, response
 //!   (target share in the node) and index (response over the overall share).
 
+mod crt;
+
 use crate::crosstabs::Key;
 use crate::descriptives::case_weights;
 use crate::dist::chi_square_p;
@@ -44,7 +46,7 @@ use crate::pass::default_measure;
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value, Values, Variable};
-use statscraft_syntax::{Level, Tree, TreeCategory, TreeSave, VarItem};
+use statscraft_syntax::{Level, Tree, TreeCategory, TreeImpurity, TreePriors, TreeSave, VarItem};
 use std::collections::VecDeque;
 
 /// One predictor, its categories coded per analysis case; `missing` (= the number of
@@ -103,6 +105,8 @@ struct Split {
     statistic: f64,
     df: f64,
     sig: f64,
+    /// The decrease in impurity of a CRT split; CHAID has the three above instead.
+    improvement: Option<f64>,
 }
 
 struct Node {
@@ -110,6 +114,9 @@ struct Node {
     depth: usize,
     cases: Vec<usize>,
     counts: Vec<f64>,
+    /// The probability of each class in the node, up to a factor all classes share: the count
+    /// times prior over class total. For CHAID it is the count.
+    assign: Vec<f64>,
     n: f64,
     /// The predictor and its categories that define the node.
     definition: Option<(usize, Vec<usize>)>,
@@ -118,15 +125,46 @@ struct Node {
 }
 
 impl Node {
-    /// The assigned class: the largest count, the first on ties.
+    /// The assigned class: the most probable one, the first among those present on ties.
     fn predicted(&self) -> usize {
-        let mut best = 0;
-        for (j, &count) in self.counts.iter().enumerate() {
-            if count > self.counts[best] {
+        let mut best = self.counts.iter().position(|&c| c > 0.0).unwrap_or(0);
+        for (j, &score) in self.assign.iter().enumerate() {
+            if self.counts[j] > 0.0 && score > self.assign[best] {
                 best = j;
             }
         }
         best
+    }
+
+    /// The probability of class `j` in the node.
+    fn probability(&self, j: usize) -> f64 {
+        self.assign[j] / self.assign.iter().sum::<f64>()
+    }
+}
+
+/// A node holding `cases`; `factor` turns a class count into the probability's numerator.
+fn make_node(
+    cases: Vec<usize>,
+    parent: Option<usize>,
+    depth: usize,
+    definition: Option<(usize, Vec<usize>)>,
+    sample: (&[usize], &[f64]),
+    factor: &[f64],
+) -> Node {
+    let mut counts = vec![0.0; factor.len()];
+    for &i in &cases {
+        counts[sample.0[i]] += sample.1[i];
+    }
+    Node {
+        parent,
+        depth,
+        n: counts.iter().sum(),
+        assign: counts.iter().zip(factor).map(|(c, f)| c * f).collect(),
+        cases,
+        counts,
+        definition,
+        split: None,
+        children: Vec::new(),
     }
 }
 
@@ -570,6 +608,26 @@ impl Engine {
             }
         }
         let ordinal = dependent_level == Level::Ordinal;
+        if command.crt {
+            if command.impurity == TreeImpurity::OrderedTwoing && !ordinal {
+                return Err(Error(format!(
+                    "IMPURITY=ORDEREDTWOING needs an ordinal dependent variable; {} is not",
+                    dependent.name()
+                )));
+            }
+            if command.force.is_some() {
+                warnings.push("FORCE applies to CHAID trees only; ignored".into());
+            }
+            for (given, what) in [
+                (command.print_importance, "PRINT IMPORTANCE"),
+                (command.print_surrogates, "PRINT SURROGATES"),
+                (command.plot_importance, "PLOT IMPORTANCE"),
+            ] {
+                if given {
+                    warnings.push(format!("{what} is not shown yet; ignored"));
+                }
+            }
+        }
         let weight_name = data.weight_variable().map(str::to_string);
 
         // the predictors: the last level written for a variable holds, FORCE's first
@@ -797,7 +855,29 @@ impl Engine {
                     }
                 })
                 .collect();
-            let predictor = if *level == Level::Scale {
+            let predictor = if *level == Level::Scale && command.crt {
+                // every distinct value is a candidate cut, so each is a category of its own
+                let keys = sorted_unique(values.iter().flatten().cloned().collect());
+                let codes = values
+                    .iter()
+                    .map(|v| match v {
+                        Some(k) => keys.iter().position(|x| x == k).expect("a key of the data"),
+                        None => keys.len(),
+                    })
+                    .collect();
+                let cuts: Vec<String> = keys
+                    .iter()
+                    .take(keys.len().saturating_sub(1))
+                    .map(|k| shown.value(variable, k))
+                    .collect();
+                Predictor {
+                    name: shown.variable(variable),
+                    nominal: false,
+                    labels: vec![String::new(); keys.len()],
+                    breaks: Some(cuts),
+                    codes,
+                }
+            } else if *level == Level::Scale {
                 let k = intervals
                     .iter()
                     .find(|(n, _)| n.eq_ignore_ascii_case(variable.name()))
@@ -856,98 +936,133 @@ impl Engine {
             };
             coded.push(predictor);
         }
+        if command.crt
+            && command.max_surrogates != Some(0)
+            && coded
+                .iter()
+                .any(|p| p.codes.iter().any(|&c| c == p.missing()))
+        {
+            warnings.push(
+                "surrogate splits are not built yet: a case with no value of the split variable \
+                 goes to the child with more cases (METHOD MAXSURROGATES=0 says the same)"
+                    .into(),
+            );
+        }
         let case_weight: Vec<f64> = cases.iter().map(|&(c, _)| weight(c)).collect();
         let case_class: Vec<usize> = cases.iter().map(|&(_, k)| k).collect();
 
-        // growing
-        let merging = Merging {
-            tester: Tester {
-                scores: ordinal.then_some(&scores[..]),
-                likelihood_ratio: command.likelihood_ratio,
-                converge: command.converge,
-                max_iterations: command.max_iterations,
-            },
-            exhaustive: command.exhaustive,
-            alpha_merge: command.alpha_merge,
-            min_child: command.min_child,
-            bonferroni: command.bonferroni,
-        };
-        let max_depth = command.max_depth.unwrap_or(3);
-        let node_of = |cases: Vec<usize>, parent, depth, definition| {
-            let mut counts = vec![0.0; classes.len()];
-            for &i in &cases {
-                counts[case_class[i]] += case_weight[i];
+        let nodes = if command.crt {
+            let priors = crt_priors(
+                command,
+                &classes,
+                &case_class,
+                &case_weight,
+                &labels,
+                &dependent,
+                &mut warnings,
+            )?;
+            crt::Growth {
+                predictors: &coded,
+                case_class: &case_class,
+                case_weight: &case_weight,
+                classes: classes.len(),
+                priors: &priors,
+                impurity: command.impurity,
+                min_improvement: command.min_improvement.unwrap_or(0.0001),
+                min_parent: command.min_parent,
+                min_child: command.min_child,
+                max_depth: depth_limit(command),
             }
-            Node {
-                parent,
-                depth,
-                n: counts.iter().sum(),
-                cases,
-                counts,
-                definition,
-                split: None,
-                children: Vec::new(),
-            }
-        };
-        let mut nodes = vec![node_of((0..cases.len()).collect(), None, 0, None)];
-        let mut queue = VecDeque::from([0]);
-        while let Some(id) = queue.pop_front() {
-            let node = &nodes[id];
-            let pure = node.counts.iter().filter(|&&n| n > 0.0).count() < 2;
-            if node.depth >= max_depth || node.n < command.min_parent || pure {
-                continue;
-            }
-            let mut best: Option<Split> = None;
-            for (p, predictor) in coded.iter().enumerate() {
-                if id == 0 && command.force.is_some() && p != 0 {
+            .grow()?
+        } else {
+            let merging = Merging {
+                tester: Tester {
+                    scores: ordinal.then_some(&scores[..]),
+                    likelihood_ratio: command.likelihood_ratio,
+                    converge: command.converge,
+                    max_iterations: command.max_iterations,
+                },
+                exhaustive: command.exhaustive,
+                alpha_merge: command.alpha_merge,
+                min_child: command.min_child,
+                bonferroni: command.bonferroni,
+            };
+            let max_depth = depth_limit(command);
+            let ones = vec![1.0; classes.len()];
+            let node_of = |cases: Vec<usize>, parent, depth, definition| {
+                make_node(
+                    cases,
+                    parent,
+                    depth,
+                    definition,
+                    (&case_class, &case_weight),
+                    &ones,
+                )
+            };
+            let mut nodes = vec![node_of((0..cases.len()).collect(), None, 0, None)];
+            let mut queue = VecDeque::from([0]);
+            while let Some(id) = queue.pop_front() {
+                let node = &nodes[id];
+                let pure = node.counts.iter().filter(|&&n| n > 0.0).count() < 2;
+                if node.depth >= max_depth || node.n < command.min_parent || pure {
                     continue;
                 }
-                let mut table = vec![vec![0.0; classes.len()]; predictor.labels.len() + 1];
-                for &i in &node.cases {
-                    table[predictor.codes[i]][case_class[i]] += case_weight[i];
+                let mut best: Option<Split> = None;
+                for (p, predictor) in coded.iter().enumerate() {
+                    if id == 0 && command.force.is_some() && p != 0 {
+                        continue;
+                    }
+                    let mut table = vec![vec![0.0; classes.len()]; predictor.labels.len() + 1];
+                    for &i in &node.cases {
+                        table[predictor.codes[i]][case_class[i]] += case_weight[i];
+                    }
+                    let Some((groups, statistic, df, sig)) = merging.merge(predictor, &table)
+                    else {
+                        continue;
+                    };
+                    if best.as_ref().is_none_or(|b| sig < b.sig) {
+                        best = Some(Split {
+                            predictor: p,
+                            groups,
+                            statistic,
+                            df,
+                            sig,
+                            improvement: None,
+                        });
+                    }
                 }
-                let Some((groups, statistic, df, sig)) = merging.merge(predictor, &table) else {
+                let forced = id == 0 && command.force.is_some();
+                let Some(split) = best.filter(|s| forced || s.sig <= command.alpha_split) else {
                     continue;
                 };
-                if best.as_ref().is_none_or(|b| sig < b.sig) {
-                    best = Some(Split {
-                        predictor: p,
-                        groups,
-                        statistic,
-                        df,
-                        sig,
-                    });
+                let predictor = &coded[split.predictor];
+                let mut children = Vec::new();
+                for group in &split.groups {
+                    let members: Vec<usize> = nodes[id]
+                        .cases
+                        .iter()
+                        .copied()
+                        .filter(|&i| group.contains(&predictor.codes[i]))
+                        .collect();
+                    let depth = nodes[id].depth + 1;
+                    children.push(node_of(
+                        members,
+                        Some(id),
+                        depth,
+                        Some((split.predictor, group.clone())),
+                    ));
                 }
+                for child in children {
+                    let next = nodes.len();
+                    nodes[id].children.push(next);
+                    queue.push_back(nodes.len());
+                    nodes.push(child);
+                }
+                nodes[id].split = Some(split);
             }
-            let forced = id == 0 && command.force.is_some();
-            let Some(split) = best.filter(|s| forced || s.sig <= command.alpha_split) else {
-                continue;
-            };
-            let predictor = &coded[split.predictor];
-            let mut children = Vec::new();
-            for group in &split.groups {
-                let members: Vec<usize> = nodes[id]
-                    .cases
-                    .iter()
-                    .copied()
-                    .filter(|&i| group.contains(&predictor.codes[i]))
-                    .collect();
-                let depth = nodes[id].depth + 1;
-                children.push(node_of(
-                    members,
-                    Some(id),
-                    depth,
-                    Some((split.predictor, group.clone())),
-                ));
-            }
-            for child in children {
-                let next = nodes.len();
-                nodes[id].children.push(next);
-                queue.push_back(nodes.len());
-                nodes.push(child);
-            }
-            nodes[id].split = Some(split);
-        }
+
+            nodes
+        };
 
         let mut charts = Vec::new();
         let mut tables =
@@ -1085,7 +1200,7 @@ impl Engine {
                             let mut values = vec![None; case_count];
                             for (i, &c) in case_numbers.iter().enumerate() {
                                 let node = &nodes[terminal_of[i]];
-                                values[c] = Some(node.counts[j] / node.n);
+                                values[c] = Some(node.probability(j));
                             }
                             data.set_numeric_values(&name, values)?;
                             let label = format!(
@@ -1132,11 +1247,7 @@ impl Engine {
                 list.map(|p| p.name.clone()).collect::<Vec<_>>().join(", ")
             };
             let depth = nodes.iter().map(|n| n.depth).max().unwrap_or(0);
-            let method = if command.exhaustive {
-                "Exhaustive CHAID"
-            } else {
-                "CHAID"
-            };
+            let method = method_name(command);
             let row = |group: &str, name: &str, value: Cell| vec![text(group), text(name), value];
             let mut rows = vec![
                 row("Specifications", "Growing Method", text(method)),
@@ -1147,15 +1258,40 @@ impl Engine {
                     text(names(&mut predictors.iter())),
                 ),
             ];
-            if command.force.is_some() {
+            if command.force.is_some() && !command.crt {
                 rows.push(row("", "Forced Variable", text(&predictors[0].name)));
+            }
+            if command.crt {
+                rows.push(row(
+                    "",
+                    "Impurity Measure",
+                    text(match command.impurity {
+                        TreeImpurity::Gini => "Gini",
+                        TreeImpurity::Twoing => "Twoing",
+                        TreeImpurity::OrderedTwoing => "Ordered Twoing",
+                    }),
+                ));
+                rows.push(row(
+                    "",
+                    "Prior Probabilities",
+                    text(match command.priors {
+                        TreePriors::FromData => "From data",
+                        TreePriors::Equal => "Equal",
+                        TreePriors::Custom(_) => "Custom",
+                    }),
+                ));
+                rows.push(row(
+                    "",
+                    "Minimum Change in Improvement",
+                    Cell::Number(command.min_improvement.unwrap_or(0.0001)),
+                ));
             }
             rows.extend([
                 row("", "Validation", text("None")),
                 row(
                     "",
                     "Maximum Tree Depth",
-                    Cell::Number(command.max_depth.unwrap_or(3) as f64),
+                    Cell::Number(depth_limit(command) as f64),
                 ),
                 row(
                     "",
@@ -1216,9 +1352,13 @@ impl Engine {
             push("", "Predicted Category");
             if command.branch_statistics {
                 push("Split", "Variable");
-                push("Split", "Adj. Sig.");
-                push("Split", "Chi-Square");
-                push("Split", "df");
+                if command.crt {
+                    push("Split", "Improvement");
+                } else {
+                    push("Split", "Adj. Sig.");
+                    push("Split", "Chi-Square");
+                    push("Split", "df");
+                }
             }
             let mut order = Vec::new();
             if indent {
@@ -1264,11 +1404,19 @@ impl Engine {
                     match &node.split {
                         Some(split) => {
                             row.push(text(&predictors[split.predictor].name));
-                            row.push(Cell::Number(split.sig));
-                            row.push(Cell::Number(split.statistic));
-                            row.push(Cell::Number(split.df));
+                            match split.improvement {
+                                Some(gain) => row.push(Cell::Number(gain)),
+                                None => row.extend([
+                                    Cell::Number(split.sig),
+                                    Cell::Number(split.statistic),
+                                    Cell::Number(split.df),
+                                ]),
+                            }
                         }
-                        None => row.extend([Cell::Empty, Cell::Empty, Cell::Empty, Cell::Empty]),
+                        None => {
+                            let width = if command.crt { 2 } else { 4 };
+                            row.extend(vec![Cell::Empty; width]);
+                        }
                     }
                 }
                 rows.push(row);
@@ -1278,6 +1426,7 @@ impl Engine {
                 .map(|c| match c.as_str() {
                     "Percent" => "F5.1".to_string(),
                     "Adj. Sig." => "F5.3".to_string(),
+                    "Improvement" => "F8.5".to_string(),
                     "Chi-Square" => "F8.3".to_string(),
                     "N" | "df" => "F8.0".to_string(),
                     _ => String::new(),
@@ -1317,9 +1466,14 @@ impl Engine {
                 statistics.push(("Predicted".into(), text(&class_labels[node.predicted()])));
                 if let Some(split) = &node.split {
                     statistics.push(("Split by".into(), text(&predictors[split.predictor].name)));
-                    statistics.push(("Adj. Sig.".into(), Cell::Number(split.sig)));
-                    statistics.push(("Chi-Square".into(), Cell::Number(split.statistic)));
-                    statistics.push(("df".into(), Cell::Number(split.df)));
+                    match split.improvement {
+                        Some(gain) => statistics.push(("Improvement".into(), Cell::Number(gain))),
+                        None => {
+                            statistics.push(("Adj. Sig.".into(), Cell::Number(split.sig)));
+                            statistics.push(("Chi-Square".into(), Cell::Number(split.statistic)));
+                            statistics.push(("df".into(), Cell::Number(split.df)));
+                        }
+                    }
                 }
                 diagram.push(crate::plot::TreeNode {
                     id,
@@ -1358,25 +1512,38 @@ impl Engine {
             }
         }
         let correct: f64 = (0..classes.len()).map(|j| confusion[j][j]).sum();
-        let risk = 1.0 - correct / root_n;
+        // with the priors the data give, the share misclassified; otherwise each class's share
+        // misclassified, weighted by its prior
+        let root = &nodes[0];
+        let prior_total: f64 = root.assign.iter().sum();
+        let from_data = (0..classes.len())
+            .all(|j| (root.assign[j] / prior_total - root.counts[j] / root_n).abs() < 1e-12);
+        let (risk, risk_variance) = if from_data {
+            let risk = 1.0 - correct / root_n;
+            (risk, risk * (1.0 - risk) / root_n)
+        } else {
+            let (mut risk, mut variance) = (0.0, 0.0);
+            for (j, row) in confusion.iter().enumerate() {
+                let (total, wrong) = (row.iter().sum::<f64>(), row.iter().sum::<f64>() - row[j]);
+                if total > 0.0 {
+                    let prior = root.assign[j] / prior_total;
+                    risk += prior * wrong / total;
+                    variance += (prior / total).powi(2) * (wrong - wrong * wrong / total);
+                }
+            }
+            (risk, variance)
+        };
         if command.print.risk {
             out.push(Table {
                 title: "Risk".into(),
                 row_headers: 0,
                 columns: vec!["Estimate".into(), "Std. Error".into()],
                 column_groups: vec![Vec::new(); 2],
-                rows: vec![vec![
-                    Cell::Number(risk),
-                    Cell::Number((risk * (1.0 - risk) / root_n).sqrt()),
-                ]],
+                rows: vec![vec![Cell::Number(risk), Cell::Number(risk_variance.sqrt())]],
                 formats: vec![vec!["F8.3".into(), "F8.3".into()]],
                 caption: Some(format!(
                     "Growing Method: {}. Dependent Variable: {}.",
-                    if command.exhaustive {
-                        "Exhaustive CHAID"
-                    } else {
-                        "CHAID"
-                    },
+                    method_name(command),
                     shown.variable(dependent)
                 )),
                 outline: None,
@@ -1600,6 +1767,69 @@ impl Engine {
 
 /// The terminal nodes in the order of the gain tables: by the index of target class `j`,
 /// highest first unless `ascending`.
+fn method_name(command: &Tree) -> &'static str {
+    match (command.crt, command.exhaustive) {
+        (true, _) => "CRT",
+        (false, true) => "Exhaustive CHAID",
+        (false, false) => "CHAID",
+    }
+}
+
+/// The depth limit: AUTO is three levels for CHAID and five for CRT.
+fn depth_limit(command: &Tree) -> usize {
+    command.max_depth.unwrap_or(if command.crt { 5 } else { 3 })
+}
+
+/// The prior probabilities of the classes, summing to 1.
+fn crt_priors(
+    command: &Tree,
+    classes: &[Key],
+    case_class: &[usize],
+    case_weight: &[f64],
+    labels: &Shown,
+    dependent: &Variable,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<f64>, Error> {
+    let priors: Vec<f64> = match &command.priors {
+        TreePriors::FromData => {
+            let mut counts = vec![0.0; classes.len()];
+            for (&j, &w) in case_class.iter().zip(case_weight) {
+                counts[j] += w;
+            }
+            counts
+        }
+        TreePriors::Equal => vec![1.0; classes.len()],
+        TreePriors::Custom(given) => {
+            let mut priors = Vec::new();
+            for class in classes {
+                match given.iter().find(|(v, _)| key_of(v) == *class) {
+                    Some((_, p)) => priors.push(*p),
+                    None => {
+                        return Err(Error(format!(
+                            "PRIORS CUSTOM gives no probability for category {}",
+                            labels.value(dependent, class)
+                        )));
+                    }
+                }
+            }
+            for (value, _) in given {
+                if !classes.contains(&key_of(value)) {
+                    warnings.push(format!(
+                        "PRIORS CUSTOM names a category of {} that is not in the analysis; ignored",
+                        dependent.name()
+                    ));
+                }
+            }
+            priors
+        }
+    };
+    let total: f64 = priors.iter().sum();
+    if total <= 0.0 {
+        return Err(Error("the prior probabilities sum to zero".into()));
+    }
+    Ok(priors.iter().map(|p| p / total).collect())
+}
+
 fn gain_order(nodes: &[Node], terminals: &[usize], j: usize, ascending: bool) -> Vec<usize> {
     let share = nodes[0].counts[j] / nodes[0].n;
     let index = |t: usize| match nodes[t].n > 0.0 && share > 0.0 {

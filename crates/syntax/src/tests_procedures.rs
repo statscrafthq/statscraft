@@ -1270,8 +1270,42 @@ fn tree_subcommands() {
         Some(vec![(Value::Number(1.0), 1.0), (Value::Number(2.0), 2.5)])
     );
     assert!(t.plot_gain && t.plot_index && !t.plot_response && t.plot_increment == 5);
-    // MAXSURROGATES, ASSIGNMENT, PLOT ROI and PRIORS are accepted and said to be ignored
-    assert_eq!(t.ignored.len(), 4);
+    // ASSIGNMENT, PLOT ROI and PRIORS are accepted and said to be ignored (MAXSURROGATES=AUTO is
+    // the default and says nothing)
+    assert_eq!(t.ignored.len(), 3);
+}
+
+#[test]
+fn tree_crt_settings() {
+    let t = tree_of(
+        "TREE y BY x /CRT IMPURITY=TWOING MINIMPROVEMENT=.01 /PRIORS CUSTOM=1 [3] 'b' [1] ADJUST=YES \
+         /METHOD TYPE=CRT MAXSURROGATES=2 /PRINT IMPORTANCE SURROGATES /PLOT IMPORTANCE.",
+    );
+    assert!(t.crt && t.print_importance && t.print_surrogates && t.plot_importance);
+    assert_eq!(t.impurity, TreeImpurity::Twoing);
+    assert_eq!((t.min_improvement, t.max_surrogates), (Some(0.01), Some(2)));
+    assert_eq!(
+        t.priors,
+        TreePriors::Custom(vec![
+            (Value::Number(1.0), 3.0),
+            (Value::String("b".into()), 1.0)
+        ])
+    );
+    // CRT uses what it was given, and says nothing about it
+    assert!(t.ignored.is_empty(), "{:?}", t.ignored);
+    // another method ignores the same settings, with a warning for each
+    let t = tree_of("TREE y BY x /CRT IMPURITY=GINI /PRIORS EQUAL /GROWTHLIMIT MINIMPROVEMENT=.1.");
+    assert!(!t.crt);
+    assert_eq!(t.ignored.len(), 2, "{:?}", t.ignored);
+    // MINIMPROVEMENT in GROWTHLIMIT counts for CRT as well
+    let t = tree_of("TREE y BY x /METHOD TYPE=CRT /GROWTHLIMIT MINIMPROVEMENT=.1.");
+    assert_eq!(t.min_improvement, Some(0.1));
+    assert_eq!(t.impurity, TreeImpurity::Gini);
+    assert_eq!(t.priors, TreePriors::FromData);
+    let message = err("TREE y BY x /METHOD TYPE=CRT /CRT MINIMPROVEMENT=0.").message;
+    assert_eq!(message, "MINIMPROVEMENT must be above 0");
+    let message = err("TREE y BY x /METHOD TYPE=CRT /PRIORS CUSTOM=1 [-1].").message;
+    assert_eq!(message, "a prior probability cannot be negative");
 }
 
 #[test]
