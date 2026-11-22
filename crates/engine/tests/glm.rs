@@ -1829,3 +1829,27 @@ fn heteroskedasticity_tests_of_each_dependent_and_their_refusals() {
     ));
     assert!(message.contains("nosuch"), "{message}");
 }
+
+// Without an intercept the auxiliary model of DESIGN and White's still carry the constant the
+// formulas assume (the manual: the auxiliary model always has an intercept).
+#[test]
+fn heteroskedasticity_tests_add_the_constant_to_a_model_without_one() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{ROBUST_DATA}UNIANOVA y WITH x /INTERCEPT=EXCLUDE /PRINT=MBP BP WHITE /MBPDESIGN /BPDESIGN /DESIGN=x."
+        ),
+    );
+    assert!(close(het(&t, "Modified Breusch-Pagan Test", "df"), 1.0));
+    assert!(close(
+        het(&t, "Modified Breusch-Pagan Test", "Statistic"),
+        2.506791501
+    ));
+    assert!(close(
+        het(&t, "Breusch-Pagan Test", "Statistic"),
+        1.389287108
+    ));
+    assert!(close(het(&t, "White's Test", "df"), 1.0));
+    assert!(close(het(&t, "White's Test", "Statistic"), 4.662785395));
+}

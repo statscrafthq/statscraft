@@ -3219,9 +3219,14 @@ fn heteroskedasticity_tests(
                 fitted.iter().map(|&y| vec![1.0, y, y * y]).collect(),
                 "Intercept + predicted values + squared predicted values".to_string(),
             )),
-            Some(terms) if terms.is_empty() => {
-                Ok((fit.x.clone(), "the model of DESIGN".to_string()))
-            }
+            // a constant joins the model of DESIGN (a duplicate falls out with the rank)
+            Some(terms) if terms.is_empty() => Ok((
+                fit.x
+                    .iter()
+                    .map(|row| std::iter::once(1.0).chain(row.iter().copied()).collect())
+                    .collect(),
+                "the model of DESIGN".to_string(),
+            )),
             Some(terms) => {
                 let mut terms = terms.clone();
                 if !terms.iter().any(|t| t.variables.is_empty()) {
@@ -3315,9 +3320,13 @@ fn heteroskedasticity_tests(
             .x
             .iter()
             .map(|row| {
-                (0..p)
-                    .flat_map(|a| (a..p).map(move |b| (a, b)))
-                    .map(|(a, b)| row[a] * row[b])
+                // the constant is in Z also when the model has none
+                std::iter::once(1.0)
+                    .chain(
+                        (0..p)
+                            .flat_map(|a| (a..p).map(move |b| (a, b)))
+                            .map(|(a, b)| row[a] * row[b]),
+                    )
                     .collect()
             })
             .collect();
