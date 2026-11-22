@@ -1120,12 +1120,29 @@ fn profile_interval(setup: &Profile, j: usize, b: &[f64], se: f64) -> (Option<f6
         start = fit.beta.clone();
         Some(2.0 * (ll_max - fit.ll) - z2)
     };
+    profile_limits(b[j], se, tolerance, &mut drop)
+}
+
+/// The two values of a parameter, one each side of its estimate `center`, where `drop` (twice
+/// the fall of the log likelihood less the chi-square quantile; negative inside) reaches 0: the
+/// search steps out from the estimate by `step`, doubling it, until `drop` is positive, then
+/// bisects. A side that never gets there, or where `drop` has no value, is None.
+fn profile_limits(
+    center: f64,
+    step: f64,
+    tolerance: f64,
+    drop: &mut dyn FnMut(f64) -> Option<f64>,
+) -> (Option<f64>, Option<f64>) {
     let mut bound = |direction: f64| -> Option<f64> {
         let mut inside = 0.0;
-        let mut step = if se.is_finite() && se > 0.0 { se } else { 1.0 };
+        let mut step = if step.is_finite() && step > 0.0 {
+            step
+        } else {
+            1.0
+        };
         let mut outside = None;
         for _ in 0..60 {
-            let g = drop(b[j] + direction * (inside + step))?;
+            let g = drop(center + direction * (inside + step))?;
             if g > 0.0 {
                 outside = Some(inside + step);
                 break;
@@ -1137,15 +1154,15 @@ fn profile_interval(setup: &Profile, j: usize, b: &[f64], se: f64) -> (Option<f6
         let mut lo = inside;
         for _ in 0..200 {
             let mid = 0.5 * (lo + hi);
-            if (hi - lo).abs() <= tolerance * 1e-4 * (1.0 + (b[j] + direction * mid).abs()) {
+            if (hi - lo).abs() <= tolerance * 1e-4 * (1.0 + (center + direction * mid).abs()) {
                 break;
             }
-            match drop(b[j] + direction * mid) {
+            match drop(center + direction * mid) {
                 Some(g) if g <= 0.0 => lo = mid,
                 _ => hi = mid,
             }
         }
-        Some(b[j] + direction * 0.5 * (lo + hi))
+        Some(center + direction * 0.5 * (lo + hi))
     };
     (bound(-1.0), bound(1.0))
 }
@@ -3506,6 +3523,9 @@ impl Engine {
         let level = percent_title(1.0 - crit.cilevel / 100.0);
         let mut profiles: Vec<Option<(Option<f64>, Option<f64>)>> = vec![None; parameters.len()];
         let mut profiled = false;
+        // the profile intervals of the scale and of an estimated NEGBIN k
+        let mut scale_limits: Option<(Option<f64>, Option<f64>)> = None;
+        let mut k_limits: Option<(Option<f64>, Option<f64>)> = None;
         if print.solution
             && let (Some(tolerance), false, None) = (crit.profile, multinomial, repeated)
         {
@@ -3530,6 +3550,48 @@ impl Engine {
                     if let Some(i) = par.at {
                         let se = result.cov[i][i].sqrt();
                         profiles[pi] = Some(profile_interval(&setup, i, &result.b, se));
+                    }
+                }
+                // ln of the scale (or of k) is the parameter: hold a value, refit the coefficients
+                let z2 = z * z;
+                let tolerance_of_limits = tolerance;
+                let ancillary_limits = |centre: f64, variance: f64, hold_k: bool| {
+                    let mut start = result.b.clone();
+                    let mut drop = |t: f64| -> Option<f64> {
+                        let held = if hold_k {
+                            Spec {
+                                k: Some(t.exp()),
+                                ..profile_spec
+                            }
+                        } else {
+                            Spec {
+                                scale: ScaleMode::Fixed(t.exp()),
+                                ..profile_spec
+                            }
+                        };
+                        let fit = fit_glm(&c, &x, &held, Some(&start))?;
+                        if !fit.converged {
+                            return None;
+                        }
+                        start = fit.beta.clone();
+                        Some(2.0 * (full.ll - fit.ll) - z2)
+                    };
+                    let (lower, upper) = profile_limits(
+                        centre.ln(),
+                        variance.sqrt(),
+                        tolerance_of_limits,
+                        &mut drop,
+                    );
+                    (lower.map(f64::exp), upper.map(f64::exp))
+                };
+                if scale == ScaleMode::Mle && family != Family::NegBin && !multinomial {
+                    if let Some(lv) = result.log_variance.filter(|v| *v > 0.0) {
+                        scale_limits = Some(ancillary_limits(phi, lv, false));
+                    }
+                }
+                if family == Family::NegBin && k_estimated {
+                    if let Some(lv) = result.log_variance.filter(|v| *v > 0.0) {
+                        k_limits = Some(ancillary_limits(result.k, lv, true));
                     }
                 }
                 profiled = true;
@@ -3612,25 +3674,34 @@ impl Engine {
             if any_redundant {
                 notes.push("A parameter of 0 without a standard error is set to zero because it is redundant.".into());
             }
-            let ancillary = |name: &str, value: f64, log_variance: Option<f64>| {
-                let mut row = vec![text(name), Cell::Number(value)];
-                match log_variance.filter(|v| *v > 0.0) {
-                    Some(lv) => {
-                        let s = lv.sqrt();
-                        for v in [value * s, value * (-z * s).exp(), value * (z * s).exp()] {
-                            // an estimate at the boundary of its range can have no finite bound
-                            row.push(if v.is_finite() {
-                                Cell::Number(v)
-                            } else {
-                                Cell::Empty
-                            });
+            let ancillary =
+                |name: &str,
+                 value: f64,
+                 log_variance: Option<f64>,
+                 limits: Option<(Option<f64>, Option<f64>)>| {
+                    let mut row = vec![text(name), Cell::Number(value)];
+                    match log_variance.filter(|v| *v > 0.0) {
+                        Some(lv) => {
+                            let s = lv.sqrt();
+                            let (lower, upper) = limits.unwrap_or((
+                                Some(value * (-z * s).exp()),
+                                Some(value * (z * s).exp()),
+                            ));
+                            for v in [Some(value * s), lower, upper].map(|v| v.unwrap_or(f64::NAN))
+                            {
+                                // an estimate at the boundary of its range can have no finite bound
+                                row.push(if v.is_finite() {
+                                    Cell::Number(v)
+                                } else {
+                                    Cell::Empty
+                                });
+                            }
                         }
+                        None => row.extend([Cell::Empty, Cell::Empty, Cell::Empty]),
                     }
-                    None => row.extend([Cell::Empty, Cell::Empty, Cell::Empty]),
-                }
-                row.resize(width, Cell::Empty);
-                row
-            };
+                    row.resize(width, Cell::Empty);
+                    row
+                };
             out.push(ancillary(
                 "(Scale)",
                 phi,
@@ -3639,6 +3710,7 @@ impl Engine {
                 } else {
                     None
                 },
+                scale_limits,
             ));
             notes.push(match scale {
                 ScaleMode::Mle if gee => {
@@ -3667,6 +3739,7 @@ impl Engine {
                     } else {
                         None
                     },
+                    k_limits,
                 ));
                 notes.push(if k_estimated && gee {
                     "(Negative binomial) is the maximum likelihood estimate of the generalized linear model that gives the start values, held there.".into()

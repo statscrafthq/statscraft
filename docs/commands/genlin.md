@@ -50,7 +50,7 @@ GEF gives the general estimable function and LMATRIX the L' matrix of each effec
 
 INITIAL gives the starting values of all parameters in the order of the Parameter Estimates table, redundant ones included (a count that differs is an error); it is ignored with a warning for the normal distribution with the identity link and for the ordinal model, and a file or dataset is not read.
 
-CITYPE=PROFILE gives the profile likelihood interval of each regression parameter (the values the likelihood ratio test does not reject, the other parameters refitted, a scale estimated by maximum likelihood or an estimated NEGBIN k re-estimated, a scale from DEVIANCE or PEARSON held at the full fit's) in place of the Wald one, and for Exp(B); the interval of the scale itself stays Wald, and the ordinal model and REPEATED keep Wald intervals with a warning. The tolerance only sets how closely the limits are solved. A limit the profile never reaches is left empty.
+CITYPE=PROFILE gives the profile likelihood interval of each regression parameter (the values the likelihood ratio test does not reject, the other parameters refitted, a scale estimated by maximum likelihood or an estimated NEGBIN k re-estimated, a scale from DEVIANCE or PEARSON held at the full fit's) in place of the Wald one, and for Exp(B); the interval of an estimated scale or NEGBIN k is its profile too (the coefficients refitted at each value), and the ordinal model and REPEATED keep Wald intervals with a warning. The tolerance only sets how closely the limits are solved. A limit the profile never reaches is left empty.
 
 Not supported yet: OUTFILE, TWEEDIE, INITIAL from a file, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
 

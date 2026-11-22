@@ -4605,7 +4605,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  CITYPE=PROFILE gives the profile likelihood interval of each regression parameter (the values the\n\
                  likelihood ratio test does not reject, the other parameters refitted, a scale estimated by maximum\n\
                  likelihood or an estimated NEGBIN k re-estimated, a scale from DEVIANCE or PEARSON held at the\n\
-                 full fit's) in place of the Wald one, and for Exp(B); the interval of the scale itself stays Wald,\n\
+                 full fit's) in place of the Wald one, and for Exp(B); the interval of an estimated scale or NEGBIN k is\n\
+                 its profile too (the coefficients refitted at each value),\n\
                  and the ordinal model and REPEATED keep Wald intervals with a warning. The tolerance only sets how\n\
                  closely the limits are solved. A limit the profile never reaches is left empty.\n\
                  Not supported yet: OUTFILE, TWEEDIE, INITIAL from a file, and with REPEATED the multinomial distribution and generalized score tests\n\
