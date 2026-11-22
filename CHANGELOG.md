@@ -4,6 +4,7 @@
 
 - TREE /METHOD TYPE=CRT grows a binary classification tree for a nominal or ordinal dependent: every cut of a scale or ordinal predictor and every subset of a nominal one is tried; /CRT IMPURITY=GINI, TWOING or ORDEREDTWOING, MINIMPROVEMENT, /PRIORS FROMDATA, EQUAL or CUSTOM, and the prior probabilities drive each node's category, the risk and the saved probabilities.
 - TREE CRT PRINT IMPORTANCE and PLOT IMPORTANCE: the importance of each predictor (the improvements of its splits as main splitter or surrogate, relative to the largest).
+- TREE CRT takes a scale dependent (least squares deviation): node means and standard deviations, the mean squared deviation as risk with its standard error, a gain summary by node, SAVE NODEID and PREDVAL; surrogates, pruning and importance work the same way.
 - TREE CRT /METHOD PRUNE=SE(b): cost-complexity pruning, keeping the smallest subtree within b standard errors of the lowest risk (resubstitution).
 - TREE CRT surrogate splits (METHOD MAXSURROGATES) route cases with a missing split value; PRINT SURROGATES lists each node's surrogates with their association.
 - GENLIN CITYPE=PROFILE also gives the profile likelihood interval of an estimated scale and of an estimated negative binomial k.

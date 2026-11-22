@@ -52,6 +52,8 @@ pub(super) struct Growth<'a> {
     pub predictors: &'a [Predictor],
     pub case_class: &'a [usize],
     pub case_weight: &'a [f64],
+    /// A scale dependent's values; the classes are then the one class of all cases.
+    pub values: Option<&'a [f64]>,
     pub classes: usize,
     pub priors: &'a [f64],
     pub impurity: TreeImpurity,
@@ -69,6 +71,38 @@ fn weighted(counts: &[f64], factor: &[f64]) -> Vec<f64> {
 }
 
 impl Growth<'_> {
+    /// The length of the statistics a node adds up: the class weights, or for a scale dependent
+    /// the weight, the sum of the values and of their squares.
+    fn dim(&self) -> usize {
+        if self.values.is_some() {
+            3
+        } else {
+            self.classes
+        }
+    }
+
+    /// Adds case `i` to a node's statistics.
+    fn add(&self, into: &mut [f64], i: usize) {
+        let w = self.case_weight[i];
+        match self.values {
+            Some(y) => {
+                into[0] += w;
+                into[1] += w * y[i];
+                into[2] += w * y[i] * y[i];
+            }
+            None => into[self.case_class[i]] += w,
+        }
+    }
+
+    /// The weight of the cases in statistics.
+    fn size(&self, stats: &[f64]) -> f64 {
+        if self.values.is_some() {
+            stats[0]
+        } else {
+            stats.iter().sum()
+        }
+    }
+
     /// The factor that turns a class count into p(j, t): prior over the class total.
     fn factor(&self, totals: &[f64]) -> Vec<f64> {
         totals
@@ -80,6 +114,16 @@ impl Growth<'_> {
 
     /// The improvement of sending `left` and `right` (class counts) to the two children.
     fn improvement(&self, left: &[f64], right: &[f64], factor: &[f64]) -> f64 {
+        if self.values.is_some() {
+            // least squares deviation: the drop in the sum of squares over the weight of the
+            // root cases that have a value of the predictor
+            let squares = |a: &[f64]| a[2] - a[1] * a[1] / a[0];
+            if left[0] <= 0.0 || right[0] <= 0.0 {
+                return 0.0;
+            }
+            let parent = [left[0] + right[0], left[1] + right[1], left[2] + right[2]];
+            return factor[0] * (squares(&parent) - squares(left) - squares(right));
+        }
         let (l, r) = (weighted(left, factor), weighted(right, factor));
         let (pl, pr) = (l.iter().sum::<f64>(), r.iter().sum::<f64>());
         let total = pl + pr;
@@ -114,28 +158,28 @@ impl Growth<'_> {
     fn best_split(&self, p: usize, node: &Node, root_valid: &[f64]) -> Result<Option<Cut>, Error> {
         let predictor = &self.predictors[p];
         let missing = predictor.missing();
-        let mut table = vec![vec![0.0; self.classes]; missing];
+        let mut table = vec![vec![0.0; self.dim()]; missing];
         for &i in &node.cases {
             let code = predictor.codes[i];
             if code != missing {
-                table[code][self.case_class[i]] += self.case_weight[i];
+                self.add(&mut table[code], i);
             }
         }
         let present: Vec<usize> = (0..missing)
-            .filter(|&c| table[c].iter().sum::<f64>() > 0.0)
+            .filter(|&c| self.size(&table[c]) > 0.0)
             .collect();
         if present.len() < 2 {
             return Ok(None);
         }
         let factor = self.factor(root_valid);
-        let mut total = vec![0.0; self.classes];
+        let mut total = vec![0.0; self.dim()];
         for &c in &present {
             for (t, n) in total.iter_mut().zip(&table[c]) {
                 *t += n;
             }
         }
         let sum = |codes: &[usize]| {
-            let mut counts = vec![0.0; self.classes];
+            let mut counts = vec![0.0; self.dim()];
             for &c in codes {
                 for (t, n) in counts.iter_mut().zip(&table[c]) {
                     *t += n;
@@ -148,7 +192,7 @@ impl Growth<'_> {
         let mut offer = |left: Vec<usize>| {
             let l = sum(&left);
             let r: Vec<f64> = total.iter().zip(&l).map(|(t, a)| t - a).collect();
-            let (nl, nr) = (l.iter().sum::<f64>(), r.iter().sum::<f64>());
+            let (nl, nr) = (self.size(&l), self.size(&r));
             if nl < self.min_child || nr < self.min_child {
                 return;
             }
@@ -163,6 +207,14 @@ impl Growth<'_> {
         if !predictor.nominal {
             for k in 1..present.len() {
                 offer(present[..k].to_vec());
+            }
+        } else if self.values.is_some() {
+            // the categories ordered by their mean give the best subset
+            let mean = |c: usize| table[c][1] / table[c][0];
+            let mut order = present.clone();
+            order.sort_by(|&a, &b| mean(a).total_cmp(&mean(b)));
+            for k in 1..order.len() {
+                offer(order[..k].to_vec());
             }
         } else if self.classes == 2 {
             let share = |c: usize| {
@@ -319,7 +371,7 @@ impl Growth<'_> {
             let association = (smaller - (1.0 - agreement / all)) / smaller;
             if association > 1e-12 {
                 // the improvement of the surrogate as a split of the node's cases with a value
-                let (mut l, mut r) = (vec![0.0; self.classes], vec![0.0; self.classes]);
+                let (mut l, mut r) = (vec![0.0; self.dim()], vec![0.0; self.dim()]);
                 for &i in node
                     .cases
                     .iter()
@@ -330,7 +382,7 @@ impl Growth<'_> {
                     } else {
                         &mut r
                     };
-                    side[self.case_class[i]] += self.case_weight[i];
+                    self.add(side, i);
                 }
                 let improvement = self.improvement(&l, &r, &self.factor(&valid[q]));
                 found.push(Surrogate {
@@ -367,12 +419,18 @@ impl Growth<'_> {
                 counts
             })
             .collect();
-        let sample = (self.case_class, self.case_weight);
+        let sample = (self.case_class, self.case_weight, self.values);
         let mut nodes = vec![make_node((0..n).collect(), None, 0, None, sample, &factor)];
         let mut queue = VecDeque::from([0]);
         while let Some(id) = queue.pop_front() {
             let node = &nodes[id];
-            let pure = node.counts.iter().filter(|&&c| c > 0.0).count() < 2;
+            let pure = if self.values.is_some() {
+                // every value alike, up to rounding
+                let [w, s, q] = [node.counts[0], node.counts[1], node.counts[2]];
+                q * w - s * s <= 1e-12 * q * w
+            } else {
+                node.counts.iter().filter(|&&c| c > 0.0).count() < 2
+            };
             if node.depth >= self.max_depth || node.n < self.min_parent || pure {
                 continue;
             }
@@ -443,6 +501,9 @@ impl Growth<'_> {
 
 /// The node's own risk: the weight of the classes it does not assign.
 fn node_risk(node: &Node) -> f64 {
+    if node.scale {
+        return node.assign[0];
+    }
     node.assign.iter().sum::<f64>() - node.assign[node.predicted()]
 }
 

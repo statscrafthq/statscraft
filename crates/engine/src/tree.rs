@@ -37,6 +37,7 @@
 //!   (target share in the node) and index (response over the overall share).
 
 mod crt;
+mod scale;
 
 use crate::crosstabs::Key;
 use crate::descriptives::case_weights;
@@ -129,6 +130,11 @@ struct Node {
     /// The probability of each class in the node, up to a factor all classes share: the count
     /// times prior over class total. For CHAID it is the count.
     assign: Vec<f64>,
+    /// A scale dependent's node: `counts` are then the weight, the sum of the values and the sum
+    /// of their squares, and `assign` is the node's risk.
+    scale: bool,
+    /// The weighted sum of the fourth powers of the deviations from the mean, for the risk's error.
+    fourth: f64,
     n: f64,
     /// The predictor and its categories that define the node.
     definition: Option<(usize, Vec<usize>)>,
@@ -154,24 +160,53 @@ impl Node {
     }
 }
 
-/// A node holding `cases`; `factor` turns a class count into the probability's numerator.
+/// A node holding `cases`; `factor` turns a class count into the probability's numerator. The
+/// sample is the class and weight of each case, and the values of a scale dependent, whose node
+/// holds the weight, the sum of the values and of their squares in place of class counts.
 fn make_node(
     cases: Vec<usize>,
     parent: Option<usize>,
     depth: usize,
     definition: Option<(usize, Vec<usize>)>,
-    sample: (&[usize], &[f64]),
+    sample: (&[usize], &[f64], Option<&[f64]>),
     factor: &[f64],
 ) -> Node {
-    let mut counts = vec![0.0; factor.len()];
+    let (class, weight, values) = sample;
+    let mut counts = vec![0.0; if values.is_some() { 3 } else { factor.len() }];
     for &i in &cases {
-        counts[sample.0[i]] += sample.1[i];
+        match values {
+            Some(y) => {
+                counts[0] += weight[i];
+                counts[1] += weight[i] * y[i];
+                counts[2] += weight[i] * y[i] * y[i];
+            }
+            None => counts[class[i]] += weight[i],
+        }
     }
+    let (n, assign, fourth) = match values {
+        Some(y) => {
+            let mean = counts[1] / counts[0];
+            let fourth = cases
+                .iter()
+                .map(|&i| weight[i] * (y[i] - mean).powi(4))
+                .sum();
+            // the node's risk: its sum of squares over the weight of all cases
+            let squares = counts[2] - counts[1] * counts[1] / counts[0];
+            (counts[0], vec![squares.max(0.0) * factor[0]], fourth)
+        }
+        None => (
+            counts.iter().sum(),
+            counts.iter().zip(factor).map(|(c, f)| c * f).collect(),
+            0.0,
+        ),
+    };
     Node {
         parent,
         depth,
-        n: counts.iter().sum(),
-        assign: counts.iter().zip(factor).map(|(c, f)| c * f).collect(),
+        n,
+        assign,
+        scale: values.is_some(),
+        fourth,
         cases,
         counts,
         definition,
@@ -609,9 +644,9 @@ impl Engine {
                     "the string variable {} cannot be scale; it is nominal",
                     dependent.name()
                 ));
-            } else {
+            } else if !command.crt {
                 return Err(Error(format!(
-                    "TREE with a scale dependent variable ({}) is not supported yet: give it a \
+                    "TREE with a scale dependent variable ({}) needs METHOD TYPE=CRT; or give it a \
                      level, as in {} [n] or {} [o]",
                     dependent.name(),
                     dependent.name(),
@@ -619,6 +654,7 @@ impl Engine {
                 )));
             }
         }
+        let scale_dep = dependent_level == Level::Scale && !dependent.is_string();
         let ordinal = dependent_level == Level::Ordinal;
         if command.crt {
             if command.impurity == TreeImpurity::OrderedTwoing && !ordinal {
@@ -705,45 +741,50 @@ impl Engine {
             }
         }
         let (valid, user_missing) = (sorted_unique(valid), sorted_unique(user_missing));
-        let classes: Vec<Key> = match &command.use_values {
-            None => valid.clone(),
-            Some(list) => {
-                let mut chosen = Vec::new();
-                for item in list {
-                    match item {
-                        TreeCategory::Valid => chosen.extend(valid.iter().cloned()),
-                        TreeCategory::Missing if ordinal => warnings.push(
-                            "user-missing values of an ordinal dependent are left out".into(),
-                        ),
-                        TreeCategory::Missing => chosen.extend(user_missing.iter().cloned()),
-                        TreeCategory::Value(value) => {
-                            let key = key_of(value);
-                            if valid.contains(&key) {
-                                chosen.push(key);
-                            } else if user_missing.contains(&key) {
-                                if ordinal {
-                                    warnings.push(format!(
-                                        "{} is user-missing and the dependent is ordinal; \
-                                         it is left out",
-                                        labels.value(&dependent, &key)
-                                    ));
-                                } else {
+        let classes: Vec<Key> = if scale_dep {
+            // one class of all cases; the dependent's values are used as they are
+            vec![Key::Number(0.0)]
+        } else {
+            match &command.use_values {
+                None => valid.clone(),
+                Some(list) => {
+                    let mut chosen = Vec::new();
+                    for item in list {
+                        match item {
+                            TreeCategory::Valid => chosen.extend(valid.iter().cloned()),
+                            TreeCategory::Missing if ordinal => warnings.push(
+                                "user-missing values of an ordinal dependent are left out".into(),
+                            ),
+                            TreeCategory::Missing => chosen.extend(user_missing.iter().cloned()),
+                            TreeCategory::Value(value) => {
+                                let key = key_of(value);
+                                if valid.contains(&key) {
                                     chosen.push(key);
+                                } else if user_missing.contains(&key) {
+                                    if ordinal {
+                                        warnings.push(format!(
+                                            "{} is user-missing and the dependent is ordinal; \
+                                         it is left out",
+                                            labels.value(&dependent, &key)
+                                        ));
+                                    } else {
+                                        chosen.push(key);
+                                    }
+                                } else {
+                                    warnings.push(format!(
+                                        "category {} of {} does not occur in the data",
+                                        labels.value(&dependent, &key),
+                                        dependent.name()
+                                    ));
                                 }
-                            } else {
-                                warnings.push(format!(
-                                    "category {} of {} does not occur in the data",
-                                    labels.value(&dependent, &key),
-                                    dependent.name()
-                                ));
                             }
                         }
                     }
+                    sorted_unique(chosen)
                 }
-                sorted_unique(chosen)
             }
         };
-        if classes.len() < 2 {
+        if classes.len() < 2 && !scale_dep {
             return Err(Error(format!(
                 "the dependent variable {} has fewer than two categories in the analysis",
                 dependent.name()
@@ -755,7 +796,27 @@ impl Engine {
                 dependent.name()
             )));
         }
-        for target in &command.targets {
+        if scale_dep {
+            let message =
+                |what: &str| format!("{what} needs a categorical dependent variable; ignored");
+            if !command.targets.is_empty() {
+                warnings.push(message("DEPCATEGORIES TARGET"));
+            }
+            if command.priors != TreePriors::FromData {
+                warnings.push(message("PRIORS"));
+            }
+            if command.plot_gain || command.plot_response || command.plot_index {
+                warnings.push(message("PLOT GAIN, RESPONSE and INDEX"));
+            }
+            if command
+                .save
+                .iter()
+                .any(|(what, _)| *what == TreeSave::PredictedProbability)
+            {
+                warnings.push(message("SAVE PREDPROB"));
+            }
+        }
+        for target in command.targets.iter().filter(|_| !scale_dep) {
             let key = key_of(target);
             if !classes.contains(&key) {
                 warnings.push(format!(
@@ -765,13 +826,15 @@ impl Engine {
             }
         }
         let charted = command.plot_gain || command.plot_response || command.plot_index;
-        if charted && !command.targets.iter().any(|t| classes.contains(&key_of(t))) {
+        if charted && !scale_dep && !command.targets.iter().any(|t| classes.contains(&key_of(t))) {
             warnings.push(
                 "PLOT GAIN, RESPONSE and INDEX need target categories (DEPCATEGORIES TARGET); no chart is made"
                     .into(),
             );
         }
         let class_of = |c: usize| match raw(&dependent, c) {
+            Raw::Valid(_) if scale_dep => Some(0),
+            Raw::UserMissing(_) if scale_dep => None,
             Raw::Valid(key) | Raw::UserMissing(key) => classes.iter().position(|k| *k == key),
             Raw::SysMissing => None,
         };
@@ -942,20 +1005,34 @@ impl Engine {
         let case_weight: Vec<f64> = cases.iter().map(|&(c, _)| weight(c)).collect();
         let case_class: Vec<usize> = cases.iter().map(|&(_, k)| k).collect();
 
+        let dep_values: Option<Vec<f64>> = scale_dep.then(|| {
+            cases
+                .iter()
+                .map(|&(c, _)| match raw(&dependent, c) {
+                    Raw::Valid(Key::Number(x)) => x,
+                    _ => f64::NAN,
+                })
+                .collect()
+        });
         let nodes = if command.crt {
-            let priors = crt_priors(
-                command,
-                &classes,
-                &case_class,
-                &case_weight,
-                &labels,
-                &dependent,
-                &mut warnings,
-            )?;
+            let priors = if scale_dep {
+                vec![1.0]
+            } else {
+                crt_priors(
+                    command,
+                    &classes,
+                    &case_class,
+                    &case_weight,
+                    &labels,
+                    &dependent,
+                    &mut warnings,
+                )?
+            };
             let grown = crt::Growth {
                 predictors: &coded,
                 case_class: &case_class,
                 case_weight: &case_weight,
+                values: dep_values.as_deref(),
                 classes: classes.len(),
                 priors: &priors,
                 impurity: command.impurity,
@@ -991,7 +1068,7 @@ impl Engine {
                     parent,
                     depth,
                     definition,
-                    (&case_class, &case_weight),
+                    (&case_class, &case_weight, None),
                     &ones,
                 )
             };
@@ -1158,6 +1235,21 @@ impl Engine {
                         data.set_format(&name, "F8.0")?;
                         data.set_measure(&name, Measure::Nominal)?;
                     }
+                    TreeSave::PredictedValue if scale_dep => {
+                        // the mean of the dependent in the case's terminal node
+                        let name = fresh(data, given, "PredictedValue")?;
+                        let mut values = vec![None; case_count];
+                        for (i, &c) in case_numbers.iter().enumerate() {
+                            let node = &nodes[terminal_of[i]];
+                            values[c] = Some(node.counts[1] / node.counts[0]);
+                        }
+                        data.set_numeric_values(&name, values)?;
+                        data.set_format(&name, "F8.3")?;
+                        let label = format!("Predicted value of {dependent_name}");
+                        data.set_variable_label(&name, Some(&label))?;
+                        data.set_measure(&name, Measure::Scale)?;
+                    }
+                    TreeSave::PredictedProbability if scale_dep => {}
                     TreeSave::PredictedValue => {
                         let name = fresh(data, given, "PredictedValue")?;
                         let predicted: Vec<&Key> = terminal_of
@@ -1215,6 +1307,124 @@ impl Engine {
         Ok(tables)
     }
 
+    /// The importance and surrogate tables of a CRT tree.
+    fn crt_tables(
+        &self,
+        command: &Tree,
+        nodes: &[Node],
+        predictors: &[Predictor],
+        dependent: &Variable,
+        (out, charts): (&mut Vec<Table>, &mut Vec<crate::Chart>),
+    ) {
+        let shown = self.shown();
+        if command.crt && (command.print_importance || command.plot_importance) {
+            // the sum of the improvements of the splits where a predictor is the main one or a
+            // surrogate, relative to the largest
+            let mut total = vec![0.0; predictors.len()];
+            for split in nodes.iter().filter_map(|n| n.split.as_ref()) {
+                total[split.predictor] += split.improvement.unwrap_or(0.0);
+                for found in &split.surrogates {
+                    total[found.predictor] += found.improvement;
+                }
+            }
+            let mut order: Vec<usize> = (0..predictors.len()).filter(|&p| total[p] > 0.0).collect();
+            order.sort_by(|&a, &b| total[b].total_cmp(&total[a]));
+            let largest = order.first().map_or(1.0, |&p| total[p]);
+            if command.print_importance {
+                let rows: Vec<Vec<Cell>> = order
+                    .iter()
+                    .map(|&p| {
+                        vec![
+                            text(&predictors[p].name),
+                            Cell::Number(total[p]),
+                            percent(total[p], largest),
+                        ]
+                    })
+                    .collect();
+                let formats = vec![vec![String::new(), "F8.5".into(), "PCT6.1".into()]; rows.len()];
+                out.push(Table {
+                    title: "Independent Variable Importance".into(),
+                    row_headers: 1,
+                    columns: vec![
+                        "Independent Variable".into(),
+                        "Importance".into(),
+                        "Normalized Importance".into(),
+                    ],
+                    column_groups: vec![Vec::new(); 3],
+                    rows,
+                    formats,
+                    ..Table::default()
+                });
+            }
+            if command.plot_importance && !order.is_empty() {
+                let categories = order
+                    .iter()
+                    .map(|&p| crate::chart::Category {
+                        label: predictors[p].name.clone(),
+                        value: text(&predictors[p].name),
+                        missing: false,
+                        bin: None,
+                    })
+                    .collect();
+                let series = vec![crate::chart::Series {
+                    name: "Normalized importance".into(),
+                    statistic: crate::chart::Statistic::Value,
+                    variable: None,
+                    value: Cell::Empty,
+                    values: order.iter().map(|&p| 100.0 * total[p] / largest).collect(),
+                }];
+                let mut chart = crate::Chart::lines(
+                    format!(
+                        "Independent variable importance for {}",
+                        shown.variable(dependent)
+                    ),
+                    crate::chart::Axis::titled("Independent variable"),
+                    crate::chart::Axis::titled("Normalized importance"),
+                    categories,
+                    series,
+                );
+                chart.kind = crate::chart::ChartKind::Bar;
+                chart.grouping = Some(crate::chart::Grouping::Clustered);
+                chart.orientation = Some(crate::chart::Orientation::Horizontal);
+                charts.push(chart);
+            }
+        }
+        if command.crt && command.print_surrogates {
+            let mut rows = Vec::new();
+            for (id, node) in nodes.iter().enumerate() {
+                let Some(split) = &node.split else { continue };
+                for found in &split.surrogates {
+                    let other = &predictors[found.predictor];
+                    rows.push(vec![
+                        Cell::Number(id as f64),
+                        text(&predictors[split.predictor].name),
+                        text(format!("{} = {}", other.name, other.describe(&found.left))),
+                        Cell::Number(found.association),
+                    ]);
+                }
+            }
+            let formats =
+                vec![vec![String::new(), String::new(), String::new(), "F8.5".into()]; rows.len()];
+            out.push(Table {
+                title: "Surrogates".into(),
+                row_headers: 1,
+                columns: vec![
+                    "Node".into(),
+                    "Split Variable".into(),
+                    "Surrogate".into(),
+                    "Association".into(),
+                ],
+                column_groups: vec![Vec::new(); 4],
+                rows,
+                formats,
+                caption: Some(
+                    "Each surrogate sends its listed categories to the left child.".into(),
+                ),
+                ..Table::default()
+            });
+        }
+    }
+
     /// The tables of a grown tree.
     fn tree_output(
         &self,
@@ -1225,6 +1435,9 @@ impl Engine {
         dependent: &Variable,
         charts: &mut Vec<crate::Chart>,
     ) -> Result<Vec<Table>, Error> {
+        if nodes[0].scale {
+            return Ok(self.scale_output(command, nodes, predictors, dependent, charts));
+        }
         let shown = self.shown();
         let class_labels: Vec<String> = classes.iter().map(|k| shown.value(dependent, k)).collect();
         let root_n = nodes[0].n;
@@ -1507,112 +1720,7 @@ impl Engine {
         if command.print.tree_table {
             out.push(node_table("Tree Table", false));
         }
-        if command.crt && (command.print_importance || command.plot_importance) {
-            // the sum of the improvements of the splits where a predictor is the main one or a
-            // surrogate, relative to the largest
-            let mut total = vec![0.0; predictors.len()];
-            for split in nodes.iter().filter_map(|n| n.split.as_ref()) {
-                total[split.predictor] += split.improvement.unwrap_or(0.0);
-                for found in &split.surrogates {
-                    total[found.predictor] += found.improvement;
-                }
-            }
-            let mut order: Vec<usize> = (0..predictors.len()).filter(|&p| total[p] > 0.0).collect();
-            order.sort_by(|&a, &b| total[b].total_cmp(&total[a]));
-            let largest = order.first().map_or(1.0, |&p| total[p]);
-            if command.print_importance {
-                let rows: Vec<Vec<Cell>> = order
-                    .iter()
-                    .map(|&p| {
-                        vec![
-                            text(&predictors[p].name),
-                            Cell::Number(total[p]),
-                            percent(total[p], largest),
-                        ]
-                    })
-                    .collect();
-                let formats = vec![vec![String::new(), "F8.5".into(), "PCT6.1".into()]; rows.len()];
-                out.push(Table {
-                    title: "Independent Variable Importance".into(),
-                    row_headers: 1,
-                    columns: vec![
-                        "Independent Variable".into(),
-                        "Importance".into(),
-                        "Normalized Importance".into(),
-                    ],
-                    column_groups: vec![Vec::new(); 3],
-                    rows,
-                    formats,
-                    ..Table::default()
-                });
-            }
-            if command.plot_importance && !order.is_empty() {
-                let categories = order
-                    .iter()
-                    .map(|&p| crate::chart::Category {
-                        label: predictors[p].name.clone(),
-                        value: text(&predictors[p].name),
-                        missing: false,
-                        bin: None,
-                    })
-                    .collect();
-                let series = vec![crate::chart::Series {
-                    name: "Normalized importance".into(),
-                    statistic: crate::chart::Statistic::Value,
-                    variable: None,
-                    value: Cell::Empty,
-                    values: order.iter().map(|&p| 100.0 * total[p] / largest).collect(),
-                }];
-                let mut chart = crate::Chart::lines(
-                    format!(
-                        "Independent variable importance for {}",
-                        shown.variable(dependent)
-                    ),
-                    crate::chart::Axis::titled("Independent variable"),
-                    crate::chart::Axis::titled("Normalized importance"),
-                    categories,
-                    series,
-                );
-                chart.kind = crate::chart::ChartKind::Bar;
-                chart.grouping = Some(crate::chart::Grouping::Clustered);
-                chart.orientation = Some(crate::chart::Orientation::Horizontal);
-                charts.push(chart);
-            }
-        }
-        if command.crt && command.print_surrogates {
-            let mut rows = Vec::new();
-            for (id, node) in nodes.iter().enumerate() {
-                let Some(split) = &node.split else { continue };
-                for found in &split.surrogates {
-                    let other = &predictors[found.predictor];
-                    rows.push(vec![
-                        Cell::Number(id as f64),
-                        text(&predictors[split.predictor].name),
-                        text(format!("{} = {}", other.name, other.describe(&found.left))),
-                        Cell::Number(found.association),
-                    ]);
-                }
-            }
-            let formats =
-                vec![vec![String::new(), String::new(), String::new(), "F8.5".into()]; rows.len()];
-            out.push(Table {
-                title: "Surrogates".into(),
-                row_headers: 1,
-                columns: vec![
-                    "Node".into(),
-                    "Split Variable".into(),
-                    "Surrogate".into(),
-                    "Association".into(),
-                ],
-                column_groups: vec![Vec::new(); 4],
-                rows,
-                formats,
-                caption: Some(
-                    "Each surrogate sends its listed categories to the left child.".into(),
-                ),
-                ..Table::default()
-            });
-        }
+        self.crt_tables(command, nodes, predictors, dependent, (&mut out, charts));
 
         // misclassification
         let mut confusion = vec![vec![0.0; classes.len()]; classes.len()];
@@ -1870,6 +1978,20 @@ fn method_name(command: &Tree) -> &'static str {
 /// With the priors the data give it is the share misclassified; otherwise each class's share
 /// misclassified, weighted by its prior.
 fn risk_estimate<'a>(terminals: impl Iterator<Item = &'a Node>, root: &Node) -> (f64, f64) {
+    if root.scale {
+        // the sum of squares about the node means over the weight, and its error from the
+        // fourth moments of the cases
+        let (mut squares, mut fourth) = (0.0, 0.0);
+        for node in terminals {
+            squares += node.counts[2] - node.counts[1] * node.counts[1] / node.counts[0];
+            fourth += node.fourth;
+        }
+        let risk = squares / root.n;
+        return (
+            risk,
+            ((fourth - root.n * risk * risk) / (root.n * root.n)).max(0.0),
+        );
+    }
     let classes = root.counts.len();
     let mut wrong = vec![0.0; classes];
     for node in terminals {
