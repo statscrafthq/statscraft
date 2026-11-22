@@ -601,6 +601,86 @@ fn smooth_runs_as_ordinal_and_says_so() {
     assert_eq!(format!("{smooth:?}"), format!("{ordinal:?}"));
 }
 
+#[test]
+fn the_default_row_condition_reports_the_penalized_stress_of_its_own_tables() {
+    // This checks the measures against the tables printed beside them (the ROW solution itself
+    // has no outside oracle; the other conditions above do). R, from the printed distances d,
+    // transformed proximities t and the data p: the mean over the eight row lists of
+    // sum((t - d)^2) / sum(t^2), its square root (LAMBDA = 0.5), times the mean over the lists
+    // of 1 + cv(p)^2 / cv(t)^2 (OMEGA = 1), cv being the coefficient of variation; the divisor
+    // of the deviations cancels in that ratio.
+    let tables = run(
+        TASTE,
+        "PREFSCAL c1 TO c5 /PRINT=MEASURES COMMON DISTANCES TRANSFORMATIONS.",
+    );
+    let rows = |title: &str| -> Vec<Vec<f64>> {
+        table(&tables, title)
+            .rows
+            .iter()
+            .map(|r| r[1..].iter().map(number).collect())
+            .collect()
+    };
+    let (d, t) = (rows("Distances"), rows("Transformed Proximities"));
+    let p: Vec<Vec<f64>> = TASTE
+        .lines()
+        .filter(|l| l.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .map(|l| l.split_whitespace().map(|v| v.parse().unwrap()).collect())
+        .collect();
+    assert_eq!((p.len(), d.len(), t.len()), (8, 8, 8));
+    let ss = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(x, y)| (x - y).powi(2)).sum::<f64>();
+    let spread = |x: &[f64]| {
+        let m = x.iter().sum::<f64>() / x.len() as f64;
+        x.iter().map(|v| (v - m).powi(2)).sum::<f64>() / x.len() as f64 / (m * m)
+    };
+    let mean = |x: Vec<f64>| x.iter().sum::<f64>() / x.len() as f64;
+    let stress = mean(
+        (0..8)
+            .map(|i| ss(&t[i], &d[i]) / ss(&t[i], &[0.0; 5]))
+            .collect(),
+    );
+    let penalty = mean(
+        (0..8)
+            .map(|i| 1.0 + spread(&p[i]) / spread(&t[i]))
+            .collect(),
+    );
+    let value = |name: &str| {
+        let m = table(&tables, "Measures");
+        number(
+            &m.rows
+                .iter()
+                .find(|r| matches!(&r[0], Cell::Text(s) if s == name))
+                .unwrap()[1],
+        )
+    };
+    let close = |got: f64, want: f64, what: &str| {
+        assert!((got - want).abs() < 1e-8, "{what}: {got} against {want}");
+    };
+    close(value("Normalized Stress"), stress, "normalized stress");
+    close(value("Stress Part"), stress.sqrt(), "stress part");
+    close(value("Penalty Part"), penalty, "penalty part");
+    close(
+        value("Penalized Stress"),
+        stress.sqrt() * penalty,
+        "penalized stress",
+    );
+    // all proximities together: Kruskal's Stress-I and S-Stress-I
+    let (all_d, all_t): (Vec<f64>, Vec<f64>) = (d.concat(), t.concat());
+    close(
+        value("Kruskal's Stress-I"),
+        (ss(&all_t, &all_d) / ss(&all_t, &[0.0; 40])).sqrt(),
+        "Kruskal's Stress-I",
+    );
+    let (d2, t2): (Vec<f64>, Vec<f64>) = (
+        all_d.iter().map(|x| x * x).collect(),
+        all_t.iter().map(|x| x * x).collect(),
+    );
+    close(
+        value("Young's S-Stress-I"),
+        (ss(&t2, &d2) / ss(&t2, &[0.0; 40])).sqrt(),
+        "Young's S-Stress-I",
+    );
+}
+
 /// A folder for the coordinate files of one test.
 fn folder(name: &str) -> std::path::PathBuf {
     let dir =
