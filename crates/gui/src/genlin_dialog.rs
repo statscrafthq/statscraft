@@ -370,6 +370,12 @@ impl GeneralizedLinear {
         self.kind() != D::Multinomial
     }
 
+    /// Profile likelihood intervals are offered: repeated measures and the ordinal multinomial
+    /// distribution have Wald intervals only.
+    pub fn profile_offered(&self) -> bool {
+        !self.repeated && self.kind() != D::Multinomial
+    }
+
     /// The distribution with its k, checked.
     fn distribution_value(&self) -> Result<D, String> {
         match self.kind() {
@@ -818,8 +824,7 @@ impl GeneralizedLinear {
         if level != c.cilevel {
             out.push(format!("CILEVEL={}", number(level)));
         }
-        // under repeated measures the intervals are Wald ones
-        if self.profile && !self.repeated {
+        if self.profile && self.profile_offered() {
             let tolerance = match self.profile_tolerance.trim() {
                 "" => 1e-4,
                 given => parse(given, "the tolerance of the profile likelihood")?,
@@ -1333,6 +1338,9 @@ mod tests {
         };
         d.set_distribution(6);
         assert!(!d.intercept_optional());
+        // the ordinal model has Wald intervals only, so a profile choice left on writes nothing
+        d.profile = true;
+        assert!(!d.profile_offered());
         let syntax = d.syntax(false).unwrap();
         assert_eq!(
             syntax,

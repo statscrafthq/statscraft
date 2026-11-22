@@ -146,8 +146,7 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
             });
         });
         field(ui, "Confidence interval %", &mut d.ci_level, 50.0);
-        // under repeated measures the intervals are Wald ones
-        ui.add_enabled_ui(!d.repeated, |ui| {
+        ui.add_enabled_ui(d.profile_offered(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("Confidence interval type");
                 ui.radio_value(&mut d.profile, false, "Wald");
