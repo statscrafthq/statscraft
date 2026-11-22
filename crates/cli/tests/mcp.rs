@@ -1152,12 +1152,17 @@ fn apply_plan_previews_then_applies_in_place_to_a_sqlite_dataset() {
     );
     assert_eq!(audit_rows(), 1);
 
-    // a password in a URL is refused before anything connects
-    let password = client.call(
-        "apply_plan",
-        json!({ "syntax": syntax, "database": "postgres", "dataset": "survey",
-            "location": "postgres://ana:secret@localhost/study" }),
-    );
-    assert_eq!(password["isError"], true);
-    assert!(!password.to_string().contains("secret"), "{password}");
+    // a password in a URL, in the user part or as a parameter, is refused before anything connects
+    for location in [
+        "postgres://ana:secret@localhost/study",
+        "postgres://ana@localhost/study?Password=secret",
+    ] {
+        let password = client.call(
+            "apply_plan",
+            json!({ "syntax": syntax, "database": "postgres", "dataset": "survey",
+                "location": location }),
+        );
+        assert_eq!(password["isError"], true);
+        assert!(!password.to_string().contains("secret"), "{password}");
+    }
 }

@@ -729,9 +729,11 @@ fn window_call(request: Request) -> CallToolResult {
 /// Whether a database URL carries a password: a colon before the first @ after the scheme.
 /// It errs on the side of refusing.
 fn has_password(url: &str) -> bool {
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-    rest.split_once('@')
-        .is_some_and(|(user, _)| user.contains(':'))
+    let lower = url.to_ascii_lowercase();
+    let rest = lower.split_once("://").map_or(lower.as_str(), |(_, r)| r);
+    let authority = rest.split(['/', '?']).next().unwrap_or("");
+    let user = authority.rsplit_once('@').map(|(user, _)| user);
+    user.is_some_and(|u| u.contains(':')) || lower.contains("password=")
 }
 
 /// Previews or applies a plan as `statscraft plan` with a database and --name does, and replies
