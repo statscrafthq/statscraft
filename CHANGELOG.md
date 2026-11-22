@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- GENLIN /CRITERIA INITIAL=numbers: the starting values of the coefficients (all parameters, redundant ones included).
 - NPAR TESTS /METHOD=EXACT gives the exact significance of the two-sample Kolmogorov-Smirnov test (with its point probability), the median test of several groups, the Kruskal-Wallis and the Jonckheere-Terpstra tests.
 - NPAR TESTS /METHOD=EXACT gives the exact significance (and point probability) of the Friedman, Kendall's W and Cochran tests.
 - CORRELATIONS /CI (Fisher's interval, BIAS, CILEVEL) and NONPAR CORR /CI (Spearman's rho with the FHP, CC or BW standard error): lower and upper limits under each coefficient.

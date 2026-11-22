@@ -2098,6 +2098,33 @@ impl Engine {
         let has_intercept = command.intercept && !multinomial;
         let n_total: f64 = c.f.iter().sum();
         let mut warnings: Vec<String> = Vec::new();
+        // INITIAL: a start value for every parameter, redundant ones too; the fit takes those
+        // of the kept columns
+        let start_values: Option<Vec<f64>> = match &command.initial {
+            Some(_) if multinomial => {
+                warnings.push(
+                    "GENLIN: INITIAL is not used for the ordinal multinomial model; the initial values are computed".into(),
+                );
+                None
+            }
+            Some(_) if family == Family::Normal && command.link == GenlinLink::Identity => {
+                warnings.push(
+                    "GENLIN: INITIAL is ignored for the normal distribution with the identity link, which needs no iteration".into(),
+                );
+                None
+            }
+            Some(values) => {
+                if values.len() != design.p {
+                    return Err(Error(format!(
+                        "GENLIN: INITIAL gives {} values and the model has {} parameters (redundant ones included)",
+                        values.len(),
+                        design.p
+                    )));
+                }
+                Some(kept.iter().map(|&j| values[j]).collect())
+            }
+            None => None,
+        };
         // the subjects of the estimating equations; the keys of each row of the fit
         let row_keys = |keys: &[Vec<Option<Key>>]| -> Vec<Vec<Key>> {
             rows.iter()
@@ -2279,7 +2306,7 @@ impl Engine {
             ordinal_fit = Some(f);
             r
         } else {
-            let f = fit_glm(&c, &x, &spec, None).ok_or_else(failed)?;
+            let f = fit_glm(&c, &x, &spec, start_values.as_deref()).ok_or_else(failed)?;
             if !f.converged {
                 warnings.push(not_converged(crit, f.halving_failed));
             } else if !f.hessian_ok {

@@ -178,7 +178,11 @@ fn genlin_criteria() {
     assert!(err("GENLIN y /CRITERIA CILEVEL=100.").contains("below 100"));
     assert!(err("GENLIN y /MODEL DISTRIBUTION=POISSON /CRITERIA SCALE=MLE.").contains("SCALE=MLE"));
     assert!(err("GENLIN y /CRITERIA CITYPE=PROFILE(0).").contains("above 0"));
-    assert!(err("GENLIN y /CRITERIA INITIAL=1 2.").contains("not supported yet"));
+    assert_eq!(
+        genlin("GENLIN y /CRITERIA INITIAL=1 -2.5, 3 MAXITERATIONS=7.").initial,
+        Some(vec![1.0, -2.5, 3.0])
+    );
+    assert!(err("GENLIN y /CRITERIA INITIAL='est.sav'.").contains("file or dataset"));
 }
 
 #[test]

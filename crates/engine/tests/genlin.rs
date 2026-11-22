@@ -3084,3 +3084,36 @@ fn profile_intervals_fall_back_to_wald_with_a_warning_for_the_ordinal_model() {
             .any(|w| w.contains("CITYPE=PROFILE"))
     );
 }
+
+// INITIAL gives the start of the fit for every parameter, a redundant one included, and the
+// iteration history starts there; the log likelihood of the start is that of the Poisson model
+// at those coefficients in a general statistics package, and the fit still ends at the same
+// estimates.
+#[test]
+fn initial_values_start_the_fit_and_every_parameter_needs_one() {
+    let source = |criteria: &str| {
+        format!(
+            "{PROFILE_DATA}GENLIN cnt BY g WITH x /MODEL g x DISTRIBUTION=POISSON LINK=LOG {criteria} /PRINT SOLUTION HISTORY(1)."
+        )
+    };
+    let from_start = tables_of(&source("/CRITERIA INITIAL=0.1 0.2, 0.3 0 0.5"));
+    let history = find(&from_start, "Iteration History");
+    assert_eq!(history.rows[0][0], Cell::Text("0".into()));
+    near_cell(&history.rows[0][1], -66.19012726, 1e-8);
+    for (i, want) in [0.1, 0.2, 0.3, 0.5].into_iter().enumerate() {
+        near_cell(&history.rows[0][2 + i], want, 1e-12);
+    }
+    let plain = tables_of(&source(""));
+    let (a, b) = (
+        get(&from_start, "Parameter Estimates", "x", "B"),
+        get(&plain, "Parameter Estimates", "x", "B"),
+    );
+    close(a, b, 1e-6, "same estimate from another start");
+    // too few values, and the normal distribution with the identity link ignores them
+    let message = run_error(&source("/CRITERIA INITIAL=0.1 0.2"));
+    assert!(message.contains("INITIAL gives 2 values"), "{message}");
+}
+
+fn near_cell(cell: &Cell, want: f64, tolerance: f64) {
+    close(number(cell), want, tolerance, "cell");
+}

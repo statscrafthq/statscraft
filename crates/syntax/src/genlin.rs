@@ -363,6 +363,9 @@ pub struct Genlin {
     pub distribution: GenlinDistribution,
     pub link: GenlinLink,
     pub criteria: GenlinCriteria,
+    /// `CRITERIA INITIAL=numbers`: the starting values of all parameters, redundant ones
+    /// included.
+    pub initial: Option<Vec<f64>>,
     pub repeated: Option<GenlinRepeated>,
     pub emmeans: Vec<GenlinEmmeans>,
     /// `/MISSING CLASSMISSING=INCLUDE`
@@ -546,7 +549,7 @@ fn first_time(
     Ok(())
 }
 
-fn criteria(p: &mut Parser, c: &mut GenlinCriteria) -> PResult<()> {
+fn criteria(p: &mut Parser, c: &mut GenlinCriteria, initial: &mut Option<Vec<f64>>) -> PResult<()> {
     let mut seen = Vec::new();
     let mut any = false;
     while !at_end(p) {
@@ -628,10 +631,21 @@ fn criteria(p: &mut Parser, c: &mut GenlinCriteria) -> PResult<()> {
             "LCONVERGE" => c.lconverge = tolerance(p, "LCONVERGE")?,
             "PCONVERGE" => c.pconverge = tolerance(p, "PCONVERGE")?,
             "INITIAL" => {
-                return Err(SyntaxError::new(
-                    p.span_from(start),
-                    "INITIAL of GENLIN is not supported yet; the initial values are computed",
-                ));
+                if matches!(p.peek(), Some(TokenKind::Str(_)) | Some(TokenKind::Word(_))) {
+                    return Err(SyntaxError::new(
+                        p.span(),
+                        "INITIAL from a file or dataset is not supported yet; give the numbers",
+                    ));
+                }
+                let mut values = vec![number(p, "a number")?];
+                loop {
+                    p.eat(Punct::Comma);
+                    match p.number() {
+                        Some(v) => values.push(v),
+                        None => break,
+                    }
+                }
+                *initial = Some(values);
             }
             "LIKELIHOOD" => c.kernel = choice(p, &[("FULL", false), ("KERNEL", true)])?,
             "MAXITERATIONS" => c.maxiterations = whole(p, "MAXITERATIONS", 0.0)?,
@@ -1320,6 +1334,7 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
     let mut spec = ModelSpec::default();
     let mut model_span = p.span();
     let mut criteria_spec = GenlinCriteria::default();
+    let mut initial: Option<Vec<f64>> = None;
     let mut emmeans_list = Vec::new();
     let mut include = false;
     let mut print_spec = None;
@@ -1343,7 +1358,7 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
                 spec = model(p)?;
                 model_span = p.span_from(start);
             }
-            "CRITERIA" => criteria(p, &mut criteria_spec)?,
+            "CRITERIA" => criteria(p, &mut criteria_spec, &mut initial)?,
             "REPEATED" => repeated_spec = Some(repeated(p)?),
             "OUTFILE" => {
                 return Err(SyntaxError::new(
@@ -1416,6 +1431,7 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
         distribution,
         link,
         criteria: criteria_spec,
+        initial,
         repeated: repeated_spec,
         emmeans: emmeans_list,
         include,

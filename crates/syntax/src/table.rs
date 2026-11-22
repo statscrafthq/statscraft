@@ -4518,7 +4518,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20          [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | IGAUSS | POISSON | NEGBIN[(k | MLE)] | MULTINOMIAL]\n\
                  \x20          [LINK=IDENTITY | LOG | LOGIT | PROBIT | CLOGLOG | NLOGLOG | LOGC | NEGBIN | POWER(a) |\n\
                  \x20                ODDSPOWER(a) | CUMLOGIT | CUMPROBIT | CUMCLOGLOG | CUMNLOGLOG | CUMCAUCHIT]]\n\
-                 \x20  [/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]]\n\
+                 \x20  [/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]] [INITIAL=numbers]\n\
                  \x20             [COVB=MODEL | ROBUST] [HCONVERGE=0] [LCONVERGE=0] [PCONVERGE=1E-6] (each [(ABSOLUTE | RELATIVE)])\n\
                  \x20             [LIKELIHOOD=FULL | KERNEL] [MAXITERATIONS=100] [MAXSTEPHALVING=5]\n\
                  \x20             [METHOD=FISHER[(n)] | NEWTON] [SCALE=MLE | DEVIANCE | PEARSON | value] [SINGULAR=1E-12]]\n\
@@ -4588,13 +4588,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the log likelihood, then the last gradient and Hessian.\n\
                  GEF gives the general estimable function and LMATRIX the L' matrix of each effect's test (and of each\n\
                  estimated marginal mean), not for the ordinal model.\n\
+                 INITIAL gives the starting values of all parameters in the order of the Parameter Estimates table,\n\
+                 redundant ones included (a count that differs is an error); it is ignored with a warning for the normal\n\
+                 distribution with the identity link and for the ordinal model, and a file or dataset is not read.\n\
                  CITYPE=PROFILE gives the profile likelihood interval of each regression parameter (the values the\n\
                  likelihood ratio test does not reject, the other parameters refitted, a scale estimated by maximum\n\
                  likelihood or an estimated NEGBIN k re-estimated, a scale from DEVIANCE or PEARSON held at the\n\
                  full fit's) in place of the Wald one, and for Exp(B); the interval of the scale itself stays Wald,\n\
                  and the ordinal model and REPEATED keep Wald intervals with a warning. The tolerance only sets how\n\
                  closely the limits are solved. A limit the profile never reaches is left empty.\n\
-                 Not supported yet: OUTFILE, TWEEDIE, INITIAL, and with REPEATED the multinomial distribution and generalized score tests\n\
+                 Not supported yet: OUTFILE, TWEEDIE, INITIAL from a file, and with REPEATED the multinomial distribution and generalized score tests\n\
                  (ANALYSISTYPE with LR).",
         example: "GENLIN visits BY clinic WITH age /MODEL clinic age DISTRIBUTION=NEGBIN(MLE) LINK=LOG OFFSET=logdays /PRINT FIT SUMMARY SOLUTION(EXPONENTIATED) /EMMEANS TABLES=clinic COMPARE=clinic.",
         parse: genlin::genlin,
