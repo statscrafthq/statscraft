@@ -865,11 +865,10 @@ fn nonpar_corr() {
         panic!()
     };
     assert!(c.spearman && !c.kendall);
-    assert!(
-        err("NONPAR CORR a b /CI METHOD(FHP).")
-            .message
-            .contains("CI of NONPAR CORR is not supported yet")
-    );
+    let Command::NonparCorr(c) = one("NONPAR CORR a b /CI METHOD(FHP).") else {
+        panic!()
+    };
+    assert!(c.ci.is_some());
 }
 
 #[test]
