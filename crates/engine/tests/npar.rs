@@ -354,9 +354,8 @@ fn method_exact_adds_exact_significances() {
     let runs = nth(&tables, "Runs Test", 0);
     near(num(runs, 7, 1), 1.0, 12);
     near(num(runs, 8, 1), 0.2545454545454545, 12);
-    assert!(warnings.iter().any(|w| {
-        w.contains("exact significance of the marginal homogeneity test is not computed")
-    }));
+    // every test now has an exact significance, so none is left out with a warning
+    assert!(warnings.iter().all(|w| !w.contains("is not computed")));
 }
 
 #[test]
@@ -751,4 +750,30 @@ NPAR TESTS /J-T=x BY g(1,3) /METHOD=EXACT.");
     near(num(t, 0, column("Exact Sig. (1-tailed)")), 0.1539967969, 9);
     near(num(t, 0, column("Point Probability")), 0.0118690833, 9);
     assert!(warnings.iter().all(|w| !w.contains("Jonckheere")));
+}
+
+// The exact marginal homogeneity test: given the unordered pairs of the cases off the diagonal,
+// each case puts either value of its pair first with probability one half; the 2^14 swaps of
+// this data are enumerated in a general statistics package.
+#[test]
+fn method_exact_of_marginal_homogeneity_enumerates_the_swaps() {
+    let (tables, warnings) = run("DATA LIST FREE /a b.
+BEGIN DATA
+1 2  1 3  2 1  3 1  2 3  3 2  1 1  4 2  2 4  4 1  3 4  1 2  2 2  4 3  3 4  1 4
+END DATA.
+NPAR TESTS /MH=a b /METHOD=EXACT.");
+    let t = nth(&tables, "Marginal Homogeneity Test", 0);
+    let row = |name: &str| (0..t.rows.len()).find(|&i| label(t, i, 0) == name).unwrap();
+    near(num(t, row("Exact Sig. (2-tailed)"), 1), 0.8811035156, 9);
+    near(num(t, row("Exact Sig. (1-tailed)"), 1), 0.4405517578, 9);
+    near(num(t, row("Point Probability"), 1), 0.1140136719, 9);
+    assert!(warnings.iter().all(|w| !w.contains("marginal")));
+    // without METHOD the table has no exact rows
+    let (tables, _) = run("DATA LIST FREE /a b.
+BEGIN DATA
+1 2  1 3  2 1  3 1  2 3  3 2
+END DATA.
+NPAR TESTS /MH=a b.");
+    let t = nth(&tables, "Marginal Homogeneity Test", 0);
+    assert!((0..t.rows.len()).all(|i| label(t, i, 0) != "Exact Sig. (2-tailed)"));
 }

@@ -405,6 +405,62 @@ pub(crate) fn jonckheere_tail(
     Some(((two / all).min(1.0), (one / all).min(1.0), point / all))
 }
 
+/// The exact tail of the marginal homogeneity test. Each case off the diagonal is a pair of
+/// values (first, second); the statistic is the sum of the first values (the scores are the
+/// values) and, given the unordered pairs, each case puts either value of its pair first with
+/// probability 1/2. `groups` holds each unordered pair (a, b) with how many cases have it.
+/// Returns the two-sided share (a distance from the mean at least the observed one), the share
+/// on the observed side and the share equal to the observed sum. None when the sums of
+/// possible values pass `budget` steps.
+pub(crate) fn marginal_tail(
+    groups: &[(f64, f64, u64)],
+    observed: f64,
+    budget: f64,
+) -> Option<(f64, f64, f64)> {
+    // sums are kept as whole millionths so equal sums meet in one entry
+    let key = |v: f64| (v * 1e6).round() as i64;
+    let mut sums: HashMap<i64, f64> = HashMap::new();
+    sums.insert(0, 1.0);
+    let mut work = 0.0;
+    let mut mean = 0.0;
+    for &(a, b, m) in groups {
+        mean += m as f64 * (a + b) / 2.0;
+        let mut choose = vec![1.0_f64; m as usize + 1];
+        for x in 1..=m as usize {
+            choose[x] = choose[x - 1] * (m as usize - x + 1) as f64 / x as f64;
+        }
+        let half = 0.5_f64.powi(m as i32);
+        work += sums.len() as f64 * (m as f64 + 1.0);
+        if work > budget {
+            return None;
+        }
+        let mut next: HashMap<i64, f64> = HashMap::with_capacity(sums.len() * 2);
+        for (&t, &p) in &sums {
+            for (x, c) in choose.iter().enumerate() {
+                let moved = t + key(a) * x as i64 + key(b) * (m as i64 - x as i64);
+                *next.entry(moved).or_insert(0.0) += p * c * half;
+            }
+        }
+        sums = next;
+    }
+    let target = key(observed);
+    let centre = key(mean);
+    let distance = (target - centre).abs();
+    let (mut two, mut one, mut point) = (0.0, 0.0, 0.0);
+    for (&t, &p) in &sums {
+        if (t - centre).abs() >= distance {
+            two += p;
+        }
+        if (target >= centre && t >= target) || (target < centre && t <= target) {
+            one += p;
+        }
+        if t == target {
+            point += p;
+        }
+    }
+    Some((two.min(1.0), one.min(1.0), point))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,6 +499,16 @@ mod tests {
         assert!((one - 1.0 / 90.0).abs() < 1e-12 && (point - 1.0 / 90.0).abs() < 1e-12);
         // the reversed order is as far from the mean on the other side
         assert!((two - 2.0 / 90.0).abs() < 1e-12, "{two}");
+    }
+
+    #[test]
+    fn marginal_tail_of_one_pair_is_a_binomial() {
+        // 4 cases of the pair (1, 3): the sum of first scores is 4 + 2 x, x ~ Bin(4, 1/2) of
+        // the cases that put 1 first; the observed 6 + 6 = 12 (all first scores 3) is the
+        // maximum, probability 1/16, and mirrors the minimum 4
+        let (two, one, point) = marginal_tail(&[(1.0, 3.0, 4)], 12.0, 1e9).unwrap();
+        assert!((one - 1.0 / 16.0).abs() < 1e-12 && (point - 1.0 / 16.0).abs() < 1e-12);
+        assert!((two - 2.0 / 16.0).abs() < 1e-12, "{two}");
     }
 
     #[test]

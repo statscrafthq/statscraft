@@ -87,16 +87,6 @@ impl Run<'_> {
     pub fn label(&self, variable: &Variable, value: f64) -> String {
         self.shown.number(variable, value)
     }
-
-    /// Warns once that METHOD gives no exact significance for `test`.
-    pub fn no_exact(&mut self, test: &str) {
-        let message = format!(
-            "/METHOD: the exact significance of the {test} is not computed; the asymptotic one is shown"
-        );
-        if self.exact && !self.warnings.contains(&message) {
-            self.warnings.push(message);
-        }
-    }
 }
 
 /// ln of n choose k.
@@ -1538,7 +1528,6 @@ pub(crate) fn marginal_statistic(cases: &[(f64, f64, f64)]) -> [f64; 4] {
 }
 
 fn marginal_homogeneity(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
-    run.no_exact("marginal homogeneity test");
     let mut names = Vec::new();
     let mut two_valued = Vec::new();
     let mut stats: Vec<(String, Vec<Option<f64>>)> = [
@@ -1549,6 +1538,9 @@ fn marginal_homogeneity(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Ta
         "Std. Deviation of MH Statistic",
         "Std. MH Statistic",
         "Asymp. Sig. (2-tailed)",
+        "Exact Sig. (2-tailed)",
+        "Exact Sig. (1-tailed)",
+        "Point Probability",
     ]
     .iter()
     .map(|r| (r.to_string(), Vec::new()))
@@ -1567,6 +1559,32 @@ fn marginal_homogeneity(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Ta
         }
         let [observed, mean, sd, off] = marginal_statistic(&cases);
         let z = (sd > 0.0).then(|| (observed - mean) / sd);
+        // METHOD: each off-diagonal case puts either value of its pair first with probability
+        // one half, given the pairs
+        let exact = if run.exact && sd > 0.0 {
+            let mut groups: Vec<(f64, f64, u64)> = Vec::new();
+            for &(u, v, w) in &cases {
+                if u == v {
+                    continue;
+                }
+                let (a, b) = (u.min(v), u.max(v));
+                match groups.iter_mut().find(|g| g.0 == a && g.1 == b) {
+                    Some(g) => g.2 += w as u64,
+                    None => groups.push((a, b, w as u64)),
+                }
+            }
+            let tail = crate::npar_exact::marginal_tail(&groups, observed, 3e7);
+            if tail.is_none() {
+                run.warnings.push(format!(
+                    "/METHOD: the exact significance of the marginal homogeneity test of {} and {} needs too many steps; the asymptotic one is shown",
+                    run.shown.variable(x),
+                    run.shown.variable(y)
+                ));
+            }
+            tail
+        } else {
+            None
+        };
         let values = [
             Some(distinct as f64),
             Some(off),
@@ -1575,6 +1593,9 @@ fn marginal_homogeneity(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Ta
             Some(sd),
             z,
             z.map(normal_p),
+            exact.map(|t| t.0),
+            exact.map(|t| t.1),
+            exact.map(|t| t.2),
         ];
         for (row, value) in stats.iter_mut().zip(values) {
             row.1.push(value);
@@ -1586,6 +1607,9 @@ fn marginal_homogeneity(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Ta
         ));
     }
     let mut out = Vec::new();
+    if !run.exact {
+        stats.truncate(7);
+    }
     if !names.is_empty() {
         out.push(statistics_table("Marginal Homogeneity Test", &names, stats));
     }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- NPAR TESTS /METHOD=EXACT gives the exact significance of the marginal homogeneity test (two-sided, one-sided and point probability).
+
 ## 0.27.0 (2026-11-22)
 
 - GENLIN /CRITERIA INITIAL=numbers: the starting values of the coefficients (all parameters, redundant ones included).
