@@ -3217,6 +3217,301 @@ fn emmeans_tables(
     Ok(out)
 }
 
+/// A linear combination of the cell means of a repeated measures model: terms (coefficient,
+/// l over the between-subjects parameters, c over the dependent variables) of l' B c.
+type Combination = Vec<(f64, Vec<f64>, Vec<f64>)>;
+
+/// The value of a combination and its standard error: the covariance of vec(B) is G (x)
+/// Sigma, so the variance is the sum over pairs of terms of the coefficients times (l G l') (c
+/// Sigma c'), Sigma being the error covariance of the dependents. None when an l is not
+/// estimable.
+fn combination_value(fit: &Fit, h: &Matrix, terms: &Combination) -> Option<(f64, f64)> {
+    if !terms.iter().all(|(_, l, _)| fit.estimable(l, h)) {
+        return None;
+    }
+    let dfe = fit.df_error();
+    let sigma: Matrix = fit
+        .s
+        .iter()
+        .map(|row| row.iter().map(|v| v / dfe).collect())
+        .collect();
+    let quad = |a: &[f64], m: &Matrix, b: &[f64]| -> f64 {
+        a.iter()
+            .enumerate()
+            .map(|(i, ai)| ai * m[i].iter().zip(b).map(|(mij, bj)| mij * bj).sum::<f64>())
+            .sum()
+    };
+    let mean: f64 = terms
+        .iter()
+        .map(|(a, l, c)| {
+            a * l
+                .iter()
+                .enumerate()
+                .map(|(i, li)| li * fit.b[i].iter().zip(c).map(|(b, cj)| b * cj).sum::<f64>())
+                .sum::<f64>()
+        })
+        .sum();
+    let mut var = 0.0;
+    for (a, la, ca) in terms {
+        for (b, lb, cb) in terms {
+            var += a * b * quad(la, &fit.ginv, lb) * quad(ca, &sigma, cb);
+        }
+    }
+    Some((mean, var.max(0.0).sqrt()))
+}
+
+/// EMMEANS of a repeated measures model: the estimated marginal means of the dependent variables
+/// for between-subjects and within-subjects factors and their crossings, each averaged with
+/// equal weights over the factors not named, and with COMPARE the pairwise comparisons of one
+/// factor's levels (the difference of two means has its own variance, since the dependents of a
+/// subject are correlated).
+#[allow(clippy::too_many_arguments)]
+fn rm_emmeans_tables(
+    command: &Glm,
+    d: &Data,
+    fit: &Fit,
+    ws: &[statscraft_syntax::WsFactor],
+    e: &Emmeans,
+    label_of: &dyn Fn(usize, usize) -> String,
+) -> Result<Vec<Table>, Error> {
+    #[derive(Clone, Copy)]
+    enum Which {
+        Between(usize),
+        Within(usize),
+    }
+    let find = |name: &str| -> Result<Which, Error> {
+        if let Some(f) = d.factors.iter().position(|v| v.eq_ignore_ascii_case(name)) {
+            Ok(Which::Between(f))
+        } else if let Some(k) = ws.iter().position(|w| w.name.eq_ignore_ascii_case(name)) {
+            Ok(Which::Within(k))
+        } else {
+            Err(Error(format!(
+                "EMMEANS names {name}, which is neither a between-subjects nor a within-subjects factor"
+            )))
+        }
+    };
+    let which: Vec<Which> = e
+        .factors
+        .iter()
+        .map(|n| find(n))
+        .collect::<Result<_, _>>()?;
+    let size = |w: &Which| match *w {
+        Which::Between(f) => d.values[f].len(),
+        Which::Within(k) => ws[k].levels,
+    };
+    let name_of = |w: &Which| match *w {
+        Which::Between(f) => d.factor_texts[f].clone(),
+        Which::Within(k) => ws[k].name.clone(),
+    };
+    let level_of = |w: &Which, lv: usize| match *w {
+        Which::Between(f) => label_of(f, lv),
+        Which::Within(_) => (lv + 1).to_string(),
+    };
+    let with = covariate_values(d, &e.with, "EMMEANS")?;
+    let h = fit.h();
+    let dfe = fit.df_error();
+    let tc = t_quantile(command.alpha / 2.0, dfe);
+    let level = percent_title(command.alpha);
+    let cells = combinations(&ws.iter().map(|w| w.levels).collect::<Vec<_>>());
+    // l and c of the mean at the given levels of the factors of TABLES
+    let at = |combo: &[usize]| -> (Vec<f64>, Vec<f64>) {
+        let mut fixed = Vec::new();
+        let mut within = vec![None; ws.len()];
+        for (w, &lv) in which.iter().zip(combo) {
+            match *w {
+                Which::Between(f) => fixed.push((f, lv)),
+                Which::Within(k) => within[k] = Some(lv),
+            }
+        }
+        let l = emmeans_l(d, fit, &fixed, &with);
+        let matches: Vec<bool> = cells
+            .iter()
+            .map(|cell| {
+                within
+                    .iter()
+                    .zip(cell)
+                    .all(|(w, &lv)| w.is_none_or(|x| x == lv))
+            })
+            .collect();
+        let n = matches.iter().filter(|m| **m).count() as f64;
+        let c = matches
+            .iter()
+            .map(|&m| if m { 1.0 / n } else { 0.0 })
+            .collect();
+        (l, c)
+    };
+    let combos = combinations(&which.iter().map(size).collect::<Vec<_>>());
+    let means: Vec<Combination> = combos
+        .iter()
+        .map(|combo| {
+            let (l, c) = at(combo);
+            vec![(1.0, l, c)]
+        })
+        .collect();
+    let mut columns: Vec<(String, String)> =
+        which.iter().map(|w| (String::new(), name_of(w))).collect();
+    columns.extend(plain(&["Mean", "Std. Error"]));
+    let group = format!("{level} Confidence Interval");
+    columns.push((group.clone(), "Lower Bound".into()));
+    columns.push((group, "Upper Bound".into()));
+    let mut rows = Vec::new();
+    let mut not_estimable = false;
+    for (combo, terms) in combos.iter().zip(&means) {
+        let mut row: Vec<Cell> = which
+            .iter()
+            .zip(combo)
+            .enumerate()
+            .map(|(k, (w, &lv))| {
+                if rows.is_empty() || combo[k + 1..].iter().all(|&x| x == 0) {
+                    text(level_of(w, lv))
+                } else {
+                    Cell::Empty
+                }
+            })
+            .collect();
+        match combination_value(fit, &h, terms) {
+            Some((m, se)) => row.extend([
+                number(Some(m)),
+                number(Some(se)),
+                number(Some(m - tc * se)),
+                number(Some(m + tc * se)),
+            ]),
+            None => {
+                not_estimable = true;
+                row.extend(std::iter::repeat_n(Cell::Empty, 4));
+            }
+        }
+        rows.push(row);
+    }
+    let mut caption = format!(
+        "Means of the dependent variables averaged over the cells of the factors not named.{}",
+        covariate_note(d, &with)
+    );
+    if not_estimable {
+        caption.push_str(" A mean without a value is not estimable.");
+    }
+    let mut out = Vec::new();
+    if which.is_empty() {
+        let mut cols = plain(&["Mean", "Std. Error"]);
+        let group = format!("{level} Confidence Interval");
+        cols.push((group.clone(), "Lower Bound".into()));
+        cols.push((group, "Upper Bound".into()));
+        out.push(table(
+            "Estimated Marginal Means: Grand Mean",
+            0,
+            cols,
+            rows,
+            Some(caption),
+        ));
+    } else {
+        out.push(table(
+            &format!("Estimated Marginal Means: {}", e.factors.join(" * ")),
+            which.len(),
+            columns,
+            rows,
+            Some(caption),
+        ));
+    }
+    let Some(compare) = &e.compare else {
+        return Ok(out);
+    };
+    let compared = match compare {
+        Some(n) => Some(find(n)?),
+        None => which.first().copied(),
+    };
+    let position = compared.and_then(|c| {
+        which.iter().position(|w| match (w, &c) {
+            (Which::Between(a), Which::Between(b)) | (Which::Within(a), Which::Within(b)) => a == b,
+            _ => false,
+        })
+    });
+    let (Some(compared), Some(pos)) = (compared, position) else {
+        return Err(Error("COMPARE names a factor that is not in TABLES".into()));
+    };
+    let k = size(&compared);
+    let m = (k * (k - 1) / 2) as f64;
+    let others: Vec<usize> = (0..which.len()).filter(|&i| i != pos).collect();
+    let other_combos = combinations(&others.iter().map(|&i| size(&which[i])).collect::<Vec<_>>());
+    let index_of = |other: &[usize], lv: usize| -> usize {
+        let mut combo = vec![0; which.len()];
+        for (o, &i) in other.iter().zip(&others) {
+            combo[i] = *o;
+        }
+        combo[pos] = lv;
+        combos
+            .iter()
+            .position(|c| *c == combo)
+            .expect("a combination")
+    };
+    let tcrit = adjusted_t(command.alpha, m, dfe, e.adjustment);
+    let mut columns: Vec<(String, String)> = others
+        .iter()
+        .map(|&i| (String::new(), name_of(&which[i])))
+        .collect();
+    let name = name_of(&compared);
+    columns.push((String::new(), format!("(I) {name}")));
+    columns.push((String::new(), format!("(J) {name}")));
+    columns.extend(plain(&["Mean Difference (I-J)", "Std. Error", "Sig."]));
+    let group = format!("{level} Confidence Interval for Difference");
+    columns.push((group.clone(), "Lower Bound".into()));
+    columns.push((group, "Upper Bound".into()));
+    let mut rows = Vec::new();
+    for other in &other_combos {
+        for i in 0..k {
+            for j in (0..k).filter(|&j| j != i) {
+                let mut row: Vec<Cell> = others
+                    .iter()
+                    .zip(other)
+                    .map(|(&o, &lv)| {
+                        if i == 0 && j == 1 {
+                            text(level_of(&which[o], lv))
+                        } else {
+                            Cell::Empty
+                        }
+                    })
+                    .collect();
+                row.push(if j == usize::from(i == 0) {
+                    text(level_of(&compared, i))
+                } else {
+                    Cell::Empty
+                });
+                row.push(text(level_of(&compared, j)));
+                let mut diff = means[index_of(other, i)].clone();
+                diff.extend(
+                    means[index_of(other, j)]
+                        .iter()
+                        .map(|(a, l, c)| (-a, l.clone(), c.clone())),
+                );
+                match combination_value(fit, &h, &diff) {
+                    Some((md, se)) => {
+                        let p = adjusted(t_p(md / se, dfe), m, e.adjustment);
+                        row.extend([
+                            number(Some(md)),
+                            number(Some(se)),
+                            number(Some(p)),
+                            number(Some(md - tcrit * se)),
+                            number(Some(md + tcrit * se)),
+                        ]);
+                    }
+                    None => row.extend(std::iter::repeat_n(Cell::Empty, 5)),
+                }
+                rows.push(row);
+            }
+        }
+    }
+    out.push(table(
+        "Pairwise Comparisons",
+        others.len() + 2,
+        columns,
+        rows,
+        Some(format!(
+            "Based on estimated marginal means. Adjustment for multiple comparisons: {}. The test of the effect itself (the Univariate and Multivariate Tests of COMPARE) is not given with WSFACTOR.",
+            adjustment_name(e.adjustment)
+        )),
+    ));
+    Ok(out)
+}
+
 /// The regression of the squared weighted residuals on the columns `z` (with frequencies as
 /// replicated cases): the explained sum of squares u'Z(Z'Z)^-Z'u and the rank of Z.
 fn auxiliary_fit(z: &[Vec<f64>], f: &[f64], u: &[f64]) -> (f64, usize) {
@@ -4133,6 +4428,20 @@ impl Engine {
                 out.push(merge(tables, &names, by_source, "Measure"));
             }
         }
+        // the means of each measure, side by side
+        let titles: Vec<String> = taken[0]
+            .iter()
+            .filter(|t| {
+                t.title.starts_with("Estimated Marginal Means") || t.title == "Pairwise Comparisons"
+            })
+            .map(|t| t.title.clone())
+            .collect();
+        for title in titles {
+            let tables = find(&title);
+            if tables.len() == m {
+                out.push(merge(tables, &names, false, "Measure"));
+            }
+        }
         out.extend(original_dependent_tables(
             command, d, &effects, dependents, warnings,
         ));
@@ -4739,8 +5048,8 @@ impl Engine {
             dependents,
             warnings,
         ));
-        if !command.emmeans.is_empty() {
-            warnings.push("EMMEANS with WSFACTOR is not supported yet; it is left out".into());
+        for e in &command.emmeans {
+            out.extend(rm_emmeans_tables(command, d, &fit, ws, e, label_of)?);
         }
         Ok(out)
     }

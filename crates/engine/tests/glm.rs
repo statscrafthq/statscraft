@@ -2447,3 +2447,112 @@ fn repeated_measures_matrix_tables_agree_with_the_multivariate_model() {
         assert_eq!(same.map(|t| &t.rows), Some(&table.rows), "{}", table.title);
     }
 }
+
+#[test]
+fn estimated_means_of_each_measure_are_those_of_its_own_cells() {
+    let mut engine = Engine::default();
+    let both = run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 b1 b2 b3 BY g /WSFACTOR=time 3 /MEASURE=A B /EMMEANS=TABLES(time)."
+        ),
+    );
+    let one = run(
+        &mut engine,
+        "GLM b1 b2 b3 BY g /WSFACTOR=time 3 /EMMEANS=TABLES(time).",
+    );
+    for level in ["1", "2", "3"] {
+        for column in ["Mean", "Std. Error"] {
+            let title = "Estimated Marginal Means: time";
+            let got = number(cell(&both, title, &format!("B / {level}"), column));
+            let want = number(cell(&one, title, level, column));
+            assert!(close(got, want), "{level} {column}: {got} vs {want}");
+        }
+    }
+}
+
+#[test]
+fn repeated_measures_estimated_means_follow_the_covariance_of_the_dependents() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 BY g /WSFACTOR=time 3 /EMMEANS=TABLES(time) COMPARE ADJ(BONFERRONI) \
+             /EMMEANS=TABLES(g*time) COMPARE(time)."
+        ),
+    );
+    // R: the cell means of each dependent, averaged with equal weights; the variance of a
+    // combination of means l'B c is (l'Gl)(c'Sigma c) with the error covariance Sigma
+    let get = |title: &str, row: &str, column: &str| number(cell(&tables, title, row, column));
+    let check = |title: &str, row: &str, column: &str, want: f64| {
+        let got = get(title, row, column);
+        assert!(
+            (got - want).abs() <= 1e-7 * want.abs().max(1e-3),
+            "{title} / {row} / {column}: {got} vs {want}"
+        );
+    };
+    for (row, mean, se, lower, upper) in [
+        ("1", 9.29428571, 0.37619718, 8.47462247, 10.11394896),
+        ("2", 11.08928571, 0.27842548, 10.48264870, 11.69592272),
+        ("3", 12.67500000, 0.25679540, 12.11549089, 13.23450911),
+    ] {
+        let title = "Estimated Marginal Means: time";
+        check(title, row, "Mean", mean);
+        check(title, row, "Std. Error", se);
+        check(title, row, "95% Confidence Interval / Lower Bound", lower);
+        check(title, row, "95% Confidence Interval / Upper Bound", upper);
+    }
+    for (row, diff, se, sig) in [
+        ("1 / 2", -1.795, 0.31909257, 0.00033467589),
+        ("1 / 3", -3.38071429, 0.32046177, 6.0096942e-07),
+        ("3 / 2", 1.58571429, 0.25541549, 0.00013587212),
+    ] {
+        check("Pairwise Comparisons", row, "Mean Difference (I-J)", diff);
+        check("Pairwise Comparisons", row, "Std. Error", se);
+        check("Pairwise Comparisons", row, "Sig.", sig);
+    }
+    for (row, mean, se) in [
+        ("1 / 1", 9.15857143, 0.53202316),
+        ("1 / 3", 12.29857143, 0.36316354),
+        ("2 / 2", 11.44857143, 0.39375309),
+    ] {
+        check("Estimated Marginal Means: g * time", row, "Mean", mean);
+        check("Estimated Marginal Means: g * time", row, "Std. Error", se);
+    }
+    // the difference of times 1 and 2 within group 1, unadjusted (a single comparison group
+    // of three levels, so Bonferroni would multiply by 3: the table uses LSD here)
+    check(
+        "Pairwise Comparisons",
+        "1 / 1 / 2",
+        "Mean Difference (I-J)",
+        -1.57142857,
+    );
+    check(
+        "Pairwise Comparisons",
+        "1 / 1 / 2",
+        "Std. Error",
+        0.45126504,
+    );
+    check("Pairwise Comparisons", "1 / 1 / 2", "Sig.", 0.0045273498);
+    let tables = run(
+        &mut engine,
+        "GLM a1 a2 a3 BY g /WSFACTOR=time 3 /EMMEANS=TABLES(g) COMPARE.",
+    );
+    let check = |title: &str, row: &str, column: &str, want: f64| {
+        let got = number(cell(&tables, title, row, column));
+        assert!(
+            (got - want).abs() <= 1e-7 * want.abs().max(1e-3),
+            "{title} / {row} / {column}: {got} vs {want}"
+        );
+    };
+    check("Estimated Marginal Means: g", "1", "Mean", 10.72904762);
+    check("Estimated Marginal Means: g", "2", "Std. Error", 0.36062105);
+    check(
+        "Pairwise Comparisons",
+        "1 / 2",
+        "Mean Difference (I-J)",
+        -0.58095238,
+    );
+    check("Pairwise Comparisons", "1 / 2", "Std. Error", 0.50999518);
+    check("Pairwise Comparisons", "1 / 2", "Sig.", 0.2768772);
+}

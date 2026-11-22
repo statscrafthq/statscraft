@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- GLM with WSFACTOR takes EMMEANS: estimated marginal means of between-subjects and within-subjects factors and their crossings, with pairwise comparisons (COMPARE, ADJ) that use the covariance of the dependent variables.
 - GLM with WSFACTOR takes PRINT HOMOGENEITY, PARAMETER, LOF, RSSCP, TEST(SSCP), TEST(LMATRIX) and GEF: the tables of the original dependent variables under the between-subjects design (Box's M and Levene's tests, parameter estimates, lack of fit, design and SSCP matrices), as the multivariate model prints them.
 
 ## 0.29.0 (2026-11-23)
