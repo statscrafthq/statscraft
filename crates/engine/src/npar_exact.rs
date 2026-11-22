@@ -424,6 +424,10 @@ pub(crate) fn marginal_tail(
     let mut work = 0.0;
     let mut mean = 0.0;
     for &(a, b, m) in groups {
+        // 0.5^m and C(m, x) leave the range of a float far beyond what the walk can do anyway
+        if m > 1000 {
+            return None;
+        }
         mean += m as f64 * (a + b) / 2.0;
         let mut choose = vec![1.0_f64; m as usize + 1];
         for x in 1..=m as usize {
