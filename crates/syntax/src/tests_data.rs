@@ -493,3 +493,50 @@ fn export_import_and_get_translate() {
             .contains("range names are not supported")
     );
 }
+
+#[test]
+fn get_data_from_an_openstatspec_database() {
+    let Command::GetData(get) = one(
+        "GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE 'panel/waves.db' /DATASET=wave_2 \
+         /ALLOWLOSS=YES.",
+    ) else {
+        panic!("not GET DATA");
+    };
+    let source = get.database.expect("a database source");
+    assert_eq!(source.kind, DatabaseKind::Sqlite);
+    assert_eq!(source.location, "panel/waves.db");
+    assert_eq!(source.dataset, "wave_2");
+    assert!(source.allow_loss);
+    let Command::GetData(get) = one("GET DATA /TYPE=OPENSTATSPEC /DATASET='wave_2' \
+         /DATABASE=DOLT 'mysql://analyst@db.example:3306/panel'.")
+    else {
+        panic!("not GET DATA");
+    };
+    let source = get.database.unwrap();
+    assert_eq!(source.kind, DatabaseKind::Dolt);
+    assert!(!source.allow_loss);
+
+    for url in [
+        "postgres://analyst:hunter2@db.example/panel",
+        "postgres://db.example/panel?user=analyst&password=hunter2",
+    ] {
+        let e = err(&format!(
+            "GET DATA /TYPE=OPENSTATSPEC /DATABASE=POSTGRES '{url}' /DATASET=wave_2."
+        ));
+        assert!(
+            e.message.contains("STATSCRAFT_DB_PASSWORD"),
+            "{}",
+            e.message
+        );
+    }
+    let e = err("GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE 'a.db' /DATASET=w /FILE='x.csv'.");
+    assert!(e.message.contains("FILE does not apply"), "{}", e.message);
+    let e = err("GET DATA /TYPE=TXT /FILE='x.csv' /DATASET=w /VARIABLES=a F1.");
+    assert!(
+        e.message.contains("DATASET does not apply"),
+        "{}",
+        e.message
+    );
+    let e = err("GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE 'a.db'.");
+    assert!(e.message.contains("/DATASET"), "{}", e.message);
+}

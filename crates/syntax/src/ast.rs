@@ -440,6 +440,28 @@ pub struct GetData {
     pub variables: Vec<GetDataVariable>,
     /// TYPE=XLS, XLSX or XLSM; None is TYPE=TXT.
     pub spreadsheet: Option<Spreadsheet>,
+    /// TYPE=OPENSTATSPEC; the fields above are then unused.
+    pub database: Option<DatabaseSource>,
+}
+
+/// GET DATA /TYPE=OPENSTATSPEC: a dataset in an OpenStatSpec database.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DatabaseSource {
+    pub kind: DatabaseKind,
+    /// The SQLite file, or the server URL (never with a password).
+    pub location: String,
+    pub dataset: String,
+    /// ALLOWLOSS=YES
+    pub allow_loss: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatabaseKind {
+    Sqlite,
+    Postgres,
+    /// MySQL or MariaDB.
+    Mysql,
+    Dolt,
 }
 
 /// The settings of GET DATA for a workbook.

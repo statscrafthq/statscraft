@@ -107,3 +107,5 @@ The window accepts syntax only from programs of the same user on the same comput
 - When the window closes, it removes its file.
 
 What this means in practice: any program running as you can drive the window, just as it could run `statscraft` itself. Syntax sent to the window can do what syntax can do: read files, and write files with `SAVE` or `AGGREGATE OUTFILE`. The same connection lets a program read and change the text of your syntax windows, open .sps files in new ones, and save a syntax window to a file; saving does not replace another existing file unless the request says so. Treat an agent that can use `-s gui` like an agent that can run commands in your shell.
+
+Syntax can also read a dataset from an OpenStatSpec database with `GET DATA /TYPE=OPENSTATSPEC`, a server included. An agent can then read any dataset the database account can read. The password never appears in the syntax, so it never lands in the Agent syntax window or a trail: a URL with one is refused, and Statscraft takes it from the `STATSCRAFT_DB_PASSWORD` environment variable of the window or the server. Give the agent an account that may only read when reading is all it needs.

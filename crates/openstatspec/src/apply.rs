@@ -99,11 +99,24 @@ pub fn apply_plan(
     result
 }
 
-/// The session's branch and HEAD, and a clean working set, before the first change.
-fn check_dolt_context(db: &mut dyn Db, expected: &DoltContext) -> Result<()> {
+/// The active branch and HEAD commit of a Dolt session, as an apply later expects them.
+pub fn dolt_context(db: &mut dyn Db) -> Result<DoltContext> {
     let row = first(db, "SELECT active_branch(), HASHOF('HEAD')", &[])?
         .ok_or_else(|| DbError::new("dolt_context_required", "no Dolt session context"))?;
-    let (branch, head) = (row[0].text()?, row[1].text()?);
+    Ok(DoltContext {
+        branch: row[0].text()?,
+        head: row[1].text()?,
+    })
+}
+
+/// The tables with uncommitted changes in a Dolt session's working set.
+pub fn dolt_uncommitted(db: &mut dyn Db) -> Result<i64> {
+    first(db, "SELECT count(*) FROM dolt_status", &[])?.map_or(Ok(0), |r| r[0].int())
+}
+
+/// The session's branch and HEAD, and a clean working set, before the first change.
+fn check_dolt_context(db: &mut dyn Db, expected: &DoltContext) -> Result<()> {
+    let DoltContext { branch, head } = dolt_context(db)?;
     if branch != expected.branch {
         return Err(DbError::new(
             "dolt_branch_mismatch",
@@ -116,8 +129,7 @@ fn check_dolt_context(db: &mut dyn Db, expected: &DoltContext) -> Result<()> {
             format!("HEAD is {head}, not {}", expected.head),
         ));
     }
-    let changes =
-        first(db, "SELECT count(*) FROM dolt_status", &[])?.map_or(Ok(0), |r| r[0].int())?;
+    let changes = dolt_uncommitted(db)?;
     if changes != 0 {
         return Err(DbError::new(
             "dolt_working_set_dirty",

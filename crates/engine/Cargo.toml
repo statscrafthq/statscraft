@@ -25,6 +25,8 @@ statscraft-syntax = { path = "../syntax" }
 statscraft-dist = { path = "../dist" }
 # downloads plugin updates over https and checks their SHA-256
 statscraft-update = { path = "../update" }
+# GET DATA /TYPE=OPENSTATSPEC reads a dataset from a database
+statscraft-openstatspec = { path = "../openstatspec" }
 serde = { version = "1", features = ["derive"] }
 # preserve_order: the output file (.scout) keeps its keys in a fixed order; float_roundtrip:
 # its numbers read back exactly (both already built for the data crate)

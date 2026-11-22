@@ -2,7 +2,7 @@
 
 # GET DATA
 
-Read a text data file or a sheet of a workbook as the active dataset.
+Read a text data file, a sheet of a workbook or a dataset of an OpenStatSpec database as the active dataset.
 
 ## Syntax
 
@@ -16,6 +16,8 @@ GET DATA /TYPE=XLSX | XLSM | XLS /FILE='path' [/SHEET=INDEX n | NAME 'name']
          [/CELLRANGE=FULL | RANGE 'A1:K14'] [/READNAMES=ON | OFF] [/ASSUMEDSTRWIDTH=n]
          [/HIDDEN IGNORE=NO | YES] [/LEADINGSPACES IGNORE=NO | YES]
          [/TRAILINGSPACES IGNORE=NO | YES] [/DATATYPEMIN PERCENTAGE=n].
+GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE | POSTGRES | MYSQL | DOLT 'file or URL'
+         /DATASET=name [/ALLOWLOSS=NO | YES].
 ```
 
 Text files. FIXED: /VARIABLES=\[/record\] name first-last format ..., columns counted from 0.
@@ -26,6 +28,10 @@ Workbooks (XLSX and XLSM from Excel 2007 on, XLS from Excel 95 to 2003). The fir
 
 Empty rows and empty columns without a name are left out; error cells are empty. HIDDEN IGNORE=YES leaves out hidden rows and columns (XLSX only). ASSUMEDSTRWIDTH cuts longer strings (XLS: 255 by default). LEADINGSPACES IGNORE=YES removes leading blanks of strings; TRAILINGSPACES IGNORE=YES leaves trailing blanks out of the width.
 
+Databases. OPENSTATSPEC reads a dataset that statscraft db export stored. SQLITE takes a file, the others a server URL written as for statscraft db (MYSQL also serves MariaDB).
+
+Syntax never holds a password: a URL with one is refused, and the password comes from the STATSCRAFT\_DB\_PASSWORD environment variable. ALLOWLOSS=YES goes on when the catalog holds items the dataset cannot keep, with a warning for each. The read is logged in the catalog, as for statscraft db import, except on DOLT, where nothing is written and a table names the branch and HEAD commit that were read; uncommitted changes there give a warning.
+
 ODBC and OLEDB are not supported yet.
 
 ## Example
@@ -34,6 +40,7 @@ ODBC and OLEDB are not supported yet.
 GET DATA /TYPE=TXT /FILE='wave2.csv' /DELIMITERS="," /QUALIFIER='"' /FIRSTCASE=2
   /VARIABLES=id F5 name A20 born SDATE10.
 GET DATA /TYPE=XLSX /FILE='wave3.xlsx' /SHEET=NAME 'Answers' /CELLRANGE=RANGE 'A1:F200'.
+GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE 'panel.db' /DATASET=wave_4.
 ```
 
 `statscraft help GET DATA` prints the same text in the terminal. [All commands](README.md)

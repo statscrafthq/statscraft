@@ -732,6 +732,33 @@ pub fn uuid() -> String {
     )
 }
 
+/// Where the password comes from when a server URL has none.
+pub const PASSWORD_VARIABLE: &str = "STATSCRAFT_DB_PASSWORD";
+
+/// A database to open: a SQLite file, or the URL of a server.
+#[derive(Clone, Copy, Debug)]
+pub enum Location<'a> {
+    Sqlite(&'a std::path::Path),
+    Postgres(&'a str),
+    /// MySQL or MariaDB.
+    Mysql(&'a str),
+    Dolt(&'a str),
+}
+
+/// Opens the database; `create` installs the catalog into an empty one. A URL without a
+/// password takes it from STATSCRAFT_DB_PASSWORD.
+pub fn open(location: Location, create: bool) -> Result<Box<dyn Db>> {
+    use crate::{mysql, postgres, sqlite};
+    let password = std::env::var(PASSWORD_VARIABLE).ok();
+    let password = password.as_deref();
+    Ok(match location {
+        Location::Sqlite(path) => Box::new(sqlite::open(path, create)?),
+        Location::Postgres(url) => Box::new(postgres::open(url, password, create)?),
+        Location::Mysql(url) => Box::new(mysql::open(url, password, create)?),
+        Location::Dolt(url) => Box::new(mysql::open_dolt(url, password, create)?),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1070,21 +1070,9 @@ pub fn read_dataset(
     name: &str,
     allow_loss: bool,
 ) -> Result<(Dataset, Vec<String>)> {
-    let fidelity = |losses: &[String]| {
-        let mut e = DbError::new(
-            "export_fidelity_loss",
-            format!("the dataset model cannot hold: {}", losses.join(", ")),
-        );
-        e.detail = Some(Box::new(json!({"losses": losses})));
-        e
-    };
     let dialect = db.dialect();
     if dialect.read_only_export {
-        let (dataset, losses, _) = load(db, name)?;
-        if !losses.is_empty() && !allow_loss {
-            return Err(fidelity(&losses));
-        }
-        return Ok((dataset, losses));
+        return read_dataset_unrecorded(db, name, allow_loss);
     }
     let operation = uuid();
     let result = (|| {
@@ -1127,6 +1115,29 @@ pub fn read_dataset(
         rollback(db);
         record_failure(db, &operation, "export", None, e)
     })
+}
+
+/// Reads like [`read_dataset`] but writes nothing on any dialect: no operation and no events.
+/// For a syntax check, which must leave the database as it was.
+pub fn read_dataset_unrecorded(
+    db: &mut dyn Db,
+    name: &str,
+    allow_loss: bool,
+) -> Result<(Dataset, Vec<String>)> {
+    let (dataset, losses, _) = load(db, name)?;
+    if !losses.is_empty() && !allow_loss {
+        return Err(fidelity(&losses));
+    }
+    Ok((dataset, losses))
+}
+
+fn fidelity(losses: &[String]) -> DbError {
+    let mut e = DbError::new(
+        "export_fidelity_loss",
+        format!("the dataset model cannot hold: {}", losses.join(", ")),
+    );
+    e.detail = Some(Box::new(json!({"losses": losses})));
+    e
 }
 
 /// Attribute rows in insertion order: the catalog has no ordinal for attribute names, and

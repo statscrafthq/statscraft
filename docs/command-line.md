@@ -733,6 +733,17 @@ statscraft db import --sqlite study.db --name survey_basic --out back.sav
 statscraft db import --sqlite study.db --name work -s fromdb
 ```
 
+### Reading from syntax
+
+Syntax reads a stored dataset as the active dataset with [GET DATA /TYPE=OPENSTATSPEC](commands/get-data.md), so `run`, the window and the MCP server reach the same databases:
+
+```
+GET DATA /TYPE=OPENSTATSPEC /DATABASE=SQLITE 'study.db' /DATASET=survey_basic.
+GET DATA /TYPE=OPENSTATSPEC /DATABASE=POSTGRES 'postgres://analyst@db.example.org/study' /DATASET=survey_basic.
+```
+
+It reads like `db import`: `/ALLOWLOSS=YES` stands for `--allow-loss`, and the read is logged in the catalog's operation table, except on Dolt. On Dolt a table shows the branch and the HEAD commit that were read, the values `plan --apply` later expects, and a warning says when the working set holds uncommitted changes. Syntax is kept in trails and syntax windows, so a URL with a password in it is refused; set `STATSCRAFT_DB_PASSWORD` in the environment of the program that runs the syntax. `statscraft check` and the MCP tool `check_syntax` read without logging.
+
 ### Writing and reading
 
 - Before writing, a preflight checks the column limit, identifiers, value sizes and the row size against the profile and the server's settings. SQLite refuses NaN and negative zero, which it cannot keep.

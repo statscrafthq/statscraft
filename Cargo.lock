@@ -4474,6 +4474,7 @@ dependencies = [
  "skrifa 0.49.0",
  "statscraft-data",
  "statscraft-dist",
+ "statscraft-openstatspec",
  "statscraft-syntax",
  "statscraft-update",
  "subsetter",

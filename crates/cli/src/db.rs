@@ -11,9 +11,6 @@ use statscraft_openstatspec::db::{Db, DbError};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-/// Where the password comes from when a URL has none.
-pub const PASSWORD_VARIABLE: &str = "STATSCRAFT_DB_PASSWORD";
-
 /// The database: exactly one of these.
 #[derive(Args)]
 pub struct Target {
@@ -45,23 +42,20 @@ impl Target {
     /// Opens the database; `create` installs the catalog into an empty one. A URL without a
     /// password takes it from STATSCRAFT_DB_PASSWORD.
     pub fn open(&self, create: bool) -> Result<Box<dyn Db>, DbError> {
-        let password = std::env::var(PASSWORD_VARIABLE).ok();
-        let password = password.as_deref();
-        use statscraft_openstatspec::{mysql, postgres, sqlite};
-        Ok(
-            match (&self.sqlite, &self.postgres, &self.mysql, &self.dolt) {
-                (Some(path), ..) => Box::new(sqlite::open(path, create)?),
-                (_, Some(url), ..) => Box::new(postgres::open(url, password, create)?),
-                (_, _, Some(url), _) => Box::new(mysql::open(url, password, create)?),
-                (.., Some(url)) => Box::new(mysql::open_dolt(url, password, create)?),
-                _ => {
-                    return Err(DbError::new(
-                        "usage",
-                        "give --sqlite DB, --postgres URL, --mysql URL or --dolt URL",
-                    ));
-                }
-            },
-        )
+        use statscraft_openstatspec::db::Location;
+        let location = match (&self.sqlite, &self.postgres, &self.mysql, &self.dolt) {
+            (Some(path), ..) => Location::Sqlite(path),
+            (_, Some(url), ..) => Location::Postgres(url),
+            (_, _, Some(url), _) => Location::Mysql(url),
+            (.., Some(url)) => Location::Dolt(url),
+            _ => {
+                return Err(DbError::new(
+                    "usage",
+                    "give --sqlite DB, --postgres URL, --mysql URL or --dolt URL",
+                ));
+            }
+        };
+        statscraft_openstatspec::db::open(location, create)
     }
 }
 
