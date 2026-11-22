@@ -83,7 +83,7 @@ pub(crate) fn random_tables(
     let mse = fit.s[0][0] / dfe;
     let randoms: Vec<usize> = (0..fit.effects.len()).filter(|&e| random[e]).collect();
     let mut terms: Vec<Term> = Vec::new();
-    for e in 0..fit.effects.len() {
+    for (e, (ss_matrix, rank_df)) in sscp.iter().enumerate() {
         let l = match command.sstype {
             1 => fit.type1(e),
             2 => fit.type2(e),
@@ -92,7 +92,7 @@ pub(crate) fn random_tables(
         if l.is_empty() {
             continue;
         }
-        let (ss, df) = (&sscp[e].0[0][0], sscp[e].1 as f64);
+        let (ss, df) = (&ss_matrix[0][0], *rank_df as f64);
         if df <= 0.0 {
             continue;
         }
