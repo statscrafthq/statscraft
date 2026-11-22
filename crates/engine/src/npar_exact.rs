@@ -150,6 +150,81 @@ pub(crate) fn smirnov_exact(blocks: &[(u64, u64)], gap: i64) -> (f64, f64) {
     )
 }
 
+/// The exact tail of the k-sample median test: the groups of sizes `sizes`, `above` of the
+/// cases above the median in total split between them in every way (hypergeometric, the
+/// totals fixed), ordered by Pearson's chi-square of the 2 x k table. The share of splits whose
+/// chi-square is at least the observed one (equal within 1e-7 relative counts as equal) and the
+/// share equal to it; None when there are more than `budget` splits.
+pub(crate) fn median_tail(sizes: &[u64], observed: &[u64], budget: f64) -> Option<(f64, f64)> {
+    let total: u64 = sizes.iter().sum();
+    let above: u64 = observed.iter().sum();
+    let below = total - above;
+    let chi = |counts: &[u64]| -> f64 {
+        sizes
+            .iter()
+            .zip(counts)
+            .map(|(&n, &a)| {
+                let e1 = n as f64 * above as f64 / total as f64;
+                let e2 = n as f64 * below as f64 / total as f64;
+                (a as f64 - e1).powi(2) / e1 + ((n - a) as f64 - e2).powi(2) / e2
+            })
+            .sum()
+    };
+    let choose = |n: u64, k: u64| -> f64 {
+        let k = k.min(n - k);
+        (0..k).fold(1.0, |c, i| c * (n - i) as f64 / (i + 1) as f64)
+    };
+    let splits: f64 = sizes.iter().map(|&n| (n + 1) as f64).product();
+    if splits > budget {
+        return None;
+    }
+    let target = chi(observed);
+    let all = choose(total, above);
+    let (mut significance, mut point) = (0.0, 0.0);
+    fn walk(
+        sizes: &[u64],
+        left: u64,
+        counts: &mut Vec<u64>,
+        weight: f64,
+        visit: &mut dyn FnMut(&[u64], f64),
+        choose: &dyn Fn(u64, u64) -> f64,
+    ) {
+        let g = counts.len();
+        if g + 1 == sizes.len() {
+            if left <= sizes[g] {
+                counts.push(left);
+                visit(counts, weight * choose(sizes[g], left));
+                counts.pop();
+            }
+            return;
+        }
+        for a in 0..=left.min(sizes[g]) {
+            counts.push(a);
+            walk(
+                sizes,
+                left - a,
+                counts,
+                weight * choose(sizes[g], a),
+                visit,
+                choose,
+            );
+            counts.pop();
+        }
+    }
+    let mut visit = |counts: &[u64], weight: f64| {
+        let value = chi(counts);
+        let slack = 1e-7 * target.abs().max(1e-300);
+        if value >= target - slack {
+            significance += weight / all;
+        }
+        if (value - target).abs() <= slack {
+            point += weight / all;
+        }
+    };
+    walk(sizes, above, &mut Vec::new(), 1.0, &mut visit, &choose);
+    Some((significance.min(1.0), point))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,6 +234,14 @@ mod tests {
         assert_eq!(arrangements(&[1, 2, 3]).len(), 6);
         assert_eq!(arrangements(&[0, 0, 1]).len(), 3);
         assert_eq!(arrangements(&[2, 2, 2]).len(), 1);
+    }
+
+    #[test]
+    fn median_tail_of_two_groups_is_fishers_two_sided() {
+        // groups of 3 and 3, 3 above the median: splits (3,0) (2,1) (1,2) (0,3) with
+        // probabilities 1 20 ... of C(6,3) = 20: 1, 9, 9, 1; the extreme two reach the observed
+        let (p, point) = median_tail(&[3, 3], &[3, 0], 1e9).unwrap();
+        assert!((p - 2.0 / 20.0).abs() < 1e-12 && (point - 2.0 / 20.0).abs() < 1e-12);
     }
 
     #[test]

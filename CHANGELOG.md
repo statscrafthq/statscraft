@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- NPAR TESTS /METHOD=EXACT gives the exact significance (and point probability) of the two-sample Kolmogorov-Smirnov test.
+- NPAR TESTS /METHOD=EXACT gives the exact significance of the two-sample Kolmogorov-Smirnov test (with its point probability) and of the median test of several groups.
 - NPAR TESTS /METHOD=EXACT gives the exact significance (and point probability) of the Friedman, Kendall's W and Cochran tests.
 - CORRELATIONS /CI (Fisher's interval, BIAS, CILEVEL) and NONPAR CORR /CI (Spearman's rho with the FHP, CC or BW standard error): lower and upper limits under each coefficient.
 - FACTOR /METHOD=COVARIANCE with PC, PAF and IMAGE: the analysis of the covariance matrix, with the raw and the rescaled loadings, communalities and sums of squares side by side, MINEIGEN in mean variances, and DET and INV of the covariance matrix.

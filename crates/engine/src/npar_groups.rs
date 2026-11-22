@@ -884,9 +884,6 @@ fn median(
     .map(|r| (r.to_string(), Vec::new()))
     .collect();
     let mut notes = Vec::new();
-    if ranged {
-        run.no_exact("k-sample median test");
-    }
     for (d, name) in data.iter().zip(names) {
         let pooled: Vec<(f64, f64)> = d.pooled().iter().map(|p| (p.0, p.1)).collect();
         let total: f64 = pooled.iter().map(|p| p.1).sum();
@@ -912,7 +909,20 @@ fn median(
             frequency_rows.push(row);
         }
         let k = test.groups;
-        let (chi, exact) = (test.chi, test.exact);
+        let chi = test.chi;
+        let mut exact = test.exact;
+        // k groups, METHOD=EXACT: every split of the cases above the median over the groups
+        if run.exact && ranged && chi.is_some() {
+            let filled: Vec<usize> = (0..n.len()).filter(|&g| n[g] > 0.0).collect();
+            let sizes: Vec<u64> = filled.iter().map(|&g| n[g] as u64).collect();
+            let counts: Vec<u64> = filled.iter().map(|&g| above[g] as u64).collect();
+            match crate::npar_exact::median_tail(&sizes, &counts, 5e7) {
+                Some((p, _)) => exact = Some(p),
+                None => run.warnings.push(format!(
+                    "/METHOD: the exact significance of the median test of {name} needs too many steps; the asymptotic one is shown"
+                )),
+            }
+        }
         if let Some((low, cells)) = test.sparse {
             notes.push(format!(
                 "{name}: {low} of {cells} cells have expected frequencies less than 5."

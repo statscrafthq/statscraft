@@ -656,3 +656,35 @@ NPAR TESTS /K-S=v BY h(1,2) /METHOD=EXACT.");
     near(num(unequal, 6, 2), 0.1353535353535, 12);
     assert!(warnings.iter().all(|w| !w.contains("Kolmogorov")));
 }
+
+// The exact median test of three groups: every split of the cases above the median over the
+// groups (252 252 label assignments of 14 cases), ordered by Pearson's chi-square of the 2 x 3
+// table, enumerated in a general statistics package.
+#[test]
+fn method_exact_of_the_median_test_of_several_groups_enumerates_the_splits() {
+    let (tables, warnings) = run("DATA LIST LIST /x g.
+BEGIN DATA
+3 1
+5 1
+5 2
+8 2
+2 3
+9 2
+7 1
+5 3
+6 3
+1 1
+4 2
+8 3
+12 2
+2 1
+END DATA.
+NPAR TESTS /MEDIAN=x BY g(1,3) /METHOD=EXACT.");
+    let t = nth(&tables, "Median Test", 1);
+    let at = (0..t.rows.len())
+        .find(|&i| label(t, i, 0) == "Exact Sig.")
+        .unwrap();
+    near(num(t, at, 1), 0.5337995337995, 12);
+    near(num(t, at - 1, 1), 0.4168620197, 8);
+    assert!(warnings.iter().all(|w| !w.contains("median")));
+}
