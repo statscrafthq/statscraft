@@ -3301,7 +3301,9 @@ fn simulation_dialogs(out: &Path, tag: &str, full: bool) -> [Dialog; 2] {
 fn walk(dialogs: Vec<Dialog>) {
     let mut failures = Vec::new();
     for dialog in dialogs {
+        let t_open = std::time::Instant::now();
         let mut session = open("survey_basic.sav");
+        eprintln!("OPEN {:>8.2}s", t_open.elapsed().as_secs_f64());
         // a set for Custom Tables and the deletion of sets, and a label of its own for the
         // counted value of each dichotomy, which labelling categories by that value needs
         session
@@ -3326,9 +3328,11 @@ fn walk(dialogs: Vec<Dialog>) {
             failures.push(format!("{}: parse: {e:?}\n{syntax}", dialog.title()));
             continue;
         }
+        let t0 = std::time::Instant::now();
         if let Err(e) = session.run(&syntax, None) {
             failures.push(format!("{}: run: {e:?}\n{syntax}", dialog.title()));
         }
+        eprintln!("TIMING {:>8.2}s {}", t0.elapsed().as_secs_f64(), dialog.title());
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
