@@ -82,6 +82,13 @@ pub fn factor(ui: &mut Ui, d: &mut FactorAnalysis, picked: &mut Vec<String>) {
     });
     egui::CollapsingHeader::new("Extraction").show(ui, |ui| {
         choice(ui, "Method", &FACTOR_EXTRACTIONS, &mut d.extraction);
+        ui.add_enabled_ui(d.covariance_offered(), |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Analyze");
+                ui.radio_value(&mut d.covariance, false, "Correlation matrix");
+                ui.radio_value(&mut d.covariance, true, "Covariance matrix");
+            });
+        });
         ui.horizontal(|ui| {
             ui.radio_value(&mut d.fixed, false, "Eigenvalues over");
             small_field(ui, !d.fixed, &mut d.min_eigen);

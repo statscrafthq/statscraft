@@ -68,6 +68,9 @@ pub struct FactorAnalysis {
     pub descriptives: [bool; 9],
     /// Index into `FACTOR_EXTRACTIONS`.
     pub extraction: usize,
+    /// Analyze the covariance matrix instead of the correlation matrix (principal components,
+    /// principal axis and image factoring only).
+    pub covariance: bool,
     /// A fixed number of factors instead of those with an eigenvalue over `min_eigen`.
     pub fixed: bool,
     pub min_eigen: String,
@@ -95,6 +98,7 @@ impl Default for FactorAnalysis {
             variables: Vec::new(),
             descriptives: FACTOR_DEFAULT_DESCRIPTIVES,
             extraction: 0,
+            covariance: false,
             fixed: false,
             min_eigen: "1".into(),
             factors: String::new(),
@@ -114,6 +118,15 @@ impl Default for FactorAnalysis {
 }
 
 impl FactorAnalysis {
+    /// The covariance matrix goes with principal components, principal axis and image
+    /// factoring only.
+    pub fn covariance_offered(&self) -> bool {
+        matches!(
+            FACTOR_EXTRACTIONS[self.extraction].0,
+            "PC" | "PAF" | "IMAGE"
+        )
+    }
+
     pub fn syntax(&self) -> Result<String, String> {
         if self.variables.len() < 2 {
             return Err("add at least two variables".into());
@@ -121,6 +134,9 @@ impl FactorAnalysis {
         let mut text = format!("FACTOR /VARIABLES={}", self.variables.join(" "));
         if self.missing > 0 {
             text.push_str(&format!("\n  /MISSING={}", FACTOR_MISSING[self.missing].0));
+        }
+        if self.covariance_offered() && self.covariance {
+            text.push_str("\n  /METHOD=COVARIANCE");
         }
         if self.descriptives != FACTOR_DEFAULT_DESCRIPTIVES || self.score_coefficients {
             let mut print = keywords(&FACTOR_DESCRIPTIVES, &self.descriptives);
@@ -1730,6 +1746,9 @@ mod tests {
         d.extraction = 3;
         d.rotation = 0;
         d.save = false;
+        // maximum likelihood analyzes correlations only, so the covariance choice is not written
+        d.covariance = true;
+        assert!(!d.covariance_offered());
         let syntax = d.syntax().unwrap();
         assert_eq!(
             syntax,
@@ -1742,8 +1761,9 @@ mod tests {
         d.rotation = 5;
         d.kappa = "3".into();
         let syntax = d.syntax().unwrap();
-        assert!(syntax.ends_with("q5_1\n  /ROTATION=PROMAX(3)."));
-        assert!(runs(&syntax) >= 4);
+        assert!(syntax.ends_with("q5_1\n  /METHOD=COVARIANCE\n  /ROTATION=PROMAX(3)."));
+        // the variance of monthly_spend dominates the covariances: one component, not rotated
+        assert_eq!(runs(&syntax), 3);
 
         d.kappa = "1".into();
         assert_eq!(d.syntax().unwrap_err(), "kappa must be above 1");

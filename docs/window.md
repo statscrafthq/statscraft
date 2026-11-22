@@ -500,7 +500,7 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
 
 - **Factor** (`FACTOR`):
   - Univariate descriptives, the initial solution, the correlation coefficients with their significance, the determinant, KMO and Bartlett's test, and the inverse, reproduced and anti-image matrices.
-  - Extraction by principal components, unweighted or generalized least squares, maximum likelihood, principal axis, alpha or image factoring; of the factors with eigenvalues over a value, or a fixed number of them; with the maximum iterations.
+  - Extraction by principal components, unweighted or generalized least squares, maximum likelihood, principal axis, alpha or image factoring; of the factors with eigenvalues over a value, or a fixed number of them; with the maximum iterations. Principal components, principal axis and image factoring can analyze the covariance matrix instead of the correlation matrix.
   - Rotation by varimax, direct oblimin with its delta, quartimax, equamax or promax with its kappa, or none.
   - Factor scores saved by the regression, Bartlett or Anderson-Rubin method, and the score coefficient matrix.
   - Listwise, pairwise or mean substitution of missing values, and loadings sorted by size with small ones left blank.

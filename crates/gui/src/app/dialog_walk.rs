@@ -1270,6 +1270,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             variables: v(&["q5_1", "q5_2", "q5_3", "q5_4", "q5_5", "age"]),
             descriptives: [true; 9],
             extraction: 6,
+            covariance: true,
             fixed: true,
             factors: s("2"),
             iterations: s("50"),
