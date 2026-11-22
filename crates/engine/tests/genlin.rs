@@ -3117,3 +3117,90 @@ fn initial_values_start_the_fit_and_every_parameter_needs_one() {
 fn near_cell(cell: &Cell, want: f64, tolerance: f64) {
     close(number(cell), want, tolerance, "cell");
 }
+
+const NEGBIN_DATA: &str = "DATA LIST FREE /c2 x g.
+BEGIN DATA
+3 1.83 1
+5 1.87 2
+2 0.57 3
+0 1.66 1
+4 1.28 2
+1 1.04 3
+4 1.47 1
+4 0.27 2
+1 1.31 3
+1 1.41 1
+4 0.92 2
+1 1.44 3
+2 1.87 1
+4 0.51 2
+6 0.92 3
+0 1.88 1
+14 1.96 2
+0 0.23 3
+8 0.95 1
+3 1.12 2
+5 1.81 3
+1 0.28 1
+4 1.98 2
+2 1.89 3
+2 0.16 1
+3 1.03 2
+4 0.78 3
+3 1.81 1
+0 0.89 2
+10 1.67 3
+END DATA.
+";
+
+// The scale (and an estimated k) is a parameter of its own, ln of it the one profiled: the values
+// whose fit, the coefficients refitted with that value held, loses the chi-square quantile in
+// twice the log likelihood. The limits were found in a general statistics package from the
+// log likelihood at the coefficients of the fit (gamma and normal, whose coefficients do not
+// depend on the scale) and by refitting a negative binomial model at each k.
+#[test]
+fn profile_intervals_of_the_scale_and_of_the_negative_binomial_k() {
+    let lower = "95% Profile Likelihood Confidence Interval / Lower";
+    let upper = "95% Profile Likelihood Confidence Interval / Upper";
+    let pairs = [
+        (
+            format!(
+                "{PROFILE_DATA}GENLIN yg BY g WITH x /MODEL g x DISTRIBUTION=GAMMA LINK=LOG /CRITERIA CITYPE=PROFILE /PRINT SOLUTION."
+            ),
+            "(Scale)",
+            0.08135228556,
+            0.22036696147,
+        ),
+        (
+            format!(
+                "{PROFILE_DATA}GENLIN yn BY g WITH x /MODEL g x DISTRIBUTION=NORMAL LINK=IDENTITY /CRITERIA CITYPE=PROFILE /PRINT SOLUTION."
+            ),
+            "(Scale)",
+            0.1597261512,
+            0.4426577126,
+        ),
+        (
+            format!(
+                "{NEGBIN_DATA}GENLIN c2 WITH x /MODEL x DISTRIBUTION=NEGBIN(MLE) LINK=LOG /CRITERIA CITYPE=PROFILE /PRINT SOLUTION."
+            ),
+            "(Negative binomial)",
+            0.1340288485,
+            0.9626646791,
+        ),
+    ];
+    for (source, row, low, high) in pairs {
+        let t = tables_of(&source);
+        close(
+            get(&t, "Parameter Estimates", row, lower),
+            low,
+            1e-6,
+            &format!("{row} lower"),
+        );
+        close(
+            get(&t, "Parameter Estimates", row, upper),
+            high,
+            1e-6,
+            &format!("{row} upper"),
+        );
+    }
+}
