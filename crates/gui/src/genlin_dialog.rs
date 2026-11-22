@@ -233,6 +233,9 @@ pub struct GeneralizedLinear {
     /// The parameter convergence criterion.
     pub convergence: String,
     pub kernel: bool,
+    /// Starting values of all parameters, redundant ones included, in the order of the
+    /// parameter estimates; apart by spaces. Empty for the computed ones.
+    pub initial: String,
     /// Index into `GENLIN_ANALYSES`.
     pub analysis: usize,
     /// Likelihood ratio tests of the effects instead of Wald tests.
@@ -316,6 +319,7 @@ impl Default for GeneralizedLinear {
             halvings: c.maxstephalving.to_string(),
             convergence: number(c.pconverge.value),
             kernel: false,
+            initial: String::new(),
             analysis: 0,
             likelihood_ratio: false,
             print: default_print(),
@@ -890,6 +894,15 @@ impl GeneralizedLinear {
             }
             s => out.push(format!("SCALE={}", GENLIN_SCALES[s].0)),
         }
+        // apart by spaces only, so a decimal comma is refused rather than read as two values
+        let initial = self
+            .initial
+            .split_whitespace()
+            .map(|v| parse(v, "each initial value").map(number))
+            .collect::<Result<Vec<_>, _>>()?;
+        if !initial.is_empty() {
+            out.push(format!("INITIAL={}", initial.join(" ")));
+        }
         Ok(out)
     }
 }
@@ -1035,6 +1048,7 @@ mod tests {
         d.halvings = "10".into();
         d.convergence = "0.0001".into();
         d.kernel = true;
+        d.initial = "0.1 0 0 -0.2 0.01 0 0 0".into();
         d.analysis = 2;
         d.likelihood_ratio = true;
         d.scale = 2;
@@ -1060,7 +1074,8 @@ mod tests {
             "GENLIN q5_1 (REFERENCE=FIRST) BY gender region WITH age\n  \
              /MODEL gender age gender*age DISTRIBUTION=BINOMIAL LINK=PROBIT\n  \
              /CRITERIA ANALYSISTYPE=ALL(LR) CILEVEL=90 CITYPE=PROFILE(0.001) COVB=ROBUST LIKELIHOOD=KERNEL \
-             MAXITERATIONS=50 MAXSTEPHALVING=10 METHOD=NEWTON PCONVERGE=0.0001 SCALE=PEARSON\n  \
+             MAXITERATIONS=50 MAXSTEPHALVING=10 METHOD=NEWTON PCONVERGE=0.0001 SCALE=PEARSON \
+             INITIAL=0.1 0 0 -0.2 0.01 0 0 0\n  \
              /EMMEANS CONTROL=age(40) SCALE=TRANSFORMED\n  \
              /EMMEANS TABLES=gender*region CONTROL=age(40) SCALE=TRANSFORMED COMPARE=gender \
              CONTRAST=SIMPLE PADJUST=SIDAK\n  \
@@ -1074,6 +1089,13 @@ mod tests {
         assert!(run_in(&mut session, &syntax) >= 8);
         let data = session.dataset().unwrap();
         assert!(data.variable("CooksDistance").is_ok());
+        // a decimal comma is refused, not read as two values
+        let mut comma = d.clone();
+        comma.initial = "0,1 0".into();
+        assert_eq!(
+            comma.syntax(false).unwrap_err(),
+            "each initial value must be a number"
+        );
 
         // a custom reference value, quoted for a string dependent
         d.reference = 2;

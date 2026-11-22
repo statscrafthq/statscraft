@@ -173,6 +173,12 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
             ui.radio_value(&mut d.kernel, false, "Full");
             ui.radio_value(&mut d.kernel, true, "Kernel");
         });
+        field(
+            ui,
+            "Initial values (all parameters in order; empty: computed)",
+            &mut d.initial,
+            200.0,
+        );
     });
     egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
         ui.horizontal(|ui| {
