@@ -1642,6 +1642,28 @@ pub(crate) fn friedman(rows: &[(Vec<f64>, f64)]) -> (Vec<f64>, Option<f64>) {
     (sums, chi)
 }
 
+/// The exact tail of the within-case tests, or a warning that it was too large to compute.
+fn within_case_exact(
+    run: &mut Run,
+    blocks: &[(Vec<i64>, u64)],
+    name: &str,
+) -> Option<crate::npar_exact::Tail> {
+    let k = blocks.first().map_or(0, |b| b.0.len());
+    let mut observed = vec![0_i64; k];
+    for (values, count) in blocks {
+        for (sum, v) in observed.iter_mut().zip(values) {
+            *sum += v * *count as i64;
+        }
+    }
+    let tail = crate::npar_exact::within_case_tail(blocks, &observed, 4e8);
+    if tail.is_none() {
+        run.warnings.push(format!(
+            "/METHOD: the exact significance of the {name} needs too many steps for these cases; the asymptotic one is shown"
+        ));
+    }
+    tail
+}
+
 fn related(run: &mut Run, variables: &[Variable], test: RelatedTest) -> Vec<Table> {
     let refs: Vec<&Variable> = variables.iter().collect();
     let cases = run.cases(&refs);
@@ -1705,20 +1727,25 @@ fn related(run: &mut Run, variables: &[Variable], test: RelatedTest) -> Vec<Tabl
             rows: frequency_rows,
             ..Table::default()
         };
-        let stats = one_column(vec![
+        let mut lines = vec![
             ("N", Some(n)),
             ("Cochran's Q", q),
             ("df", Some(k - 1.0)),
             ("Asymp. Sig.", q.map(|q| chi_square_p(q, k - 1.0))),
-        ]);
-        run.no_exact("Cochran test");
+        ];
+        if run.exact && q.is_some() {
+            let blocks: Vec<(Vec<i64>, u64)> = rows
+                .iter()
+                .map(|(hits, w)| (hits.iter().map(|&h| i64::from(h)).collect(), *w as u64))
+                .collect();
+            if let Some(tail) = within_case_exact(run, &blocks, "Cochran test") {
+                lines.push(("Exact Sig.", Some(tail.significance)));
+                lines.push(("Point Probability", Some(tail.point)));
+            }
+        }
+        let stats = one_column(lines);
         return vec![frequencies, stats];
     }
-    run.no_exact(if test == RelatedTest::Friedman {
-        "Friedman test"
-    } else {
-        "Kendall's W test"
-    });
     let rows: Vec<(Vec<f64>, f64)> = cases
         .iter()
         .map(|&c| {
@@ -1740,6 +1767,30 @@ fn related(run: &mut Run, variables: &[Variable], test: RelatedTest) -> Vec<Tabl
         ..Table::default()
     };
     let sig = chi.map(|c| chi_square_p(c, k - 1.0));
+    let mut exact_lines = Vec::new();
+    if run.exact && chi.is_some() {
+        // ranks within each case, doubled to whole numbers (a tie takes the half rank)
+        let blocks: Vec<(Vec<i64>, u64)> = rows
+            .iter()
+            .map(|(row, w)| {
+                let pairs: Vec<(f64, f64)> = row.iter().map(|x| (*x, 1.0)).collect();
+                let (ranks, _) = tied_ranks(&pairs);
+                (
+                    ranks.iter().map(|r| (2.0 * r).round() as i64).collect(),
+                    *w as u64,
+                )
+            })
+            .collect();
+        let name = if test == RelatedTest::Friedman {
+            "Friedman test"
+        } else {
+            "Kendall's W test"
+        };
+        if let Some(tail) = within_case_exact(run, &blocks, name) {
+            exact_lines.push(("Exact Sig.", Some(tail.significance)));
+            exact_lines.push(("Point Probability", Some(tail.point)));
+        }
+    }
     let mut rows = vec![("N", Some(n))];
     if test == RelatedTest::Kendall {
         rows.push(("Kendall's W", chi.map(|c| c / (n * (k - 1.0)))));
@@ -1749,6 +1800,7 @@ fn related(run: &mut Run, variables: &[Variable], test: RelatedTest) -> Vec<Tabl
         ("df", Some(k - 1.0)),
         ("Asymp. Sig.", sig),
     ]);
+    rows.extend(exact_lines);
     vec![ranks, one_column(rows)]
 }
 

@@ -531,3 +531,78 @@ PARTIAL CORR a b BY c /STATISTICS=BADCORR.");
     assert_eq!(label(t, 9, 0), "c");
     assert!(empty(t, 9, 4));
 }
+
+// The exact significance of the within-case tests is the share of arrangements (each case's
+// values in any column order) whose sum of squared column sums reaches the observed one; the
+// expected numbers enumerate all 6^6 and 6^8 arrangements in a general statistics package.
+#[test]
+fn method_exact_of_friedman_kendall_and_cochran_enumerates_the_arrangements() {
+    let (tables, warnings) = run("DATA LIST FREE /a b c.
+BEGIN DATA
+3.1 2.0 4.5  5 5 1  2.2 3.3 4.4  1.5 2.5 2.5  9 7 8  4 3 6
+END DATA.
+NPAR TESTS /FRIEDMAN=a b c /KENDALL=a b c /METHOD=EXACT.
+DATA LIST FREE /p q r.
+BEGIN DATA
+1 0 1  0 0 1  1 1 1  1 0 0  0 1 1  1 1 0  0 0 0  1 0 1
+END DATA.
+NPAR TESTS /COCHRAN=p q r /METHOD=EXACT.");
+    for title in ["Friedman Test", "Kendall's W Test"] {
+        let t = nth(&tables, title, 0);
+        let rows: Vec<&str> = (0..t.rows.len()).map(|i| label(t, i, 0)).collect();
+        let exact = rows.iter().position(|r| *r == "Exact Sig.").unwrap();
+        near(num(t, exact, 1), 0.4259259259259, 12);
+        near(num(t, exact + 1, 1), 0.0617283950617, 12);
+    }
+    let cochran = nth(&tables, "Cochran Test", 0);
+    let last = cochran.rows.len();
+    assert_eq!(label(cochran, last - 2, 0), "Exact Sig.");
+    near(num(cochran, last - 2, 1), 0.670781893004, 12);
+    near(num(cochran, last - 1, 1), 0.218106995885, 12);
+    assert!(
+        warnings
+            .iter()
+            .all(|w| !w.contains("Friedman") && !w.contains("Cochran"))
+    );
+}
+
+// A weight repeats the case: the exact tail is that of the written-out cases.
+#[test]
+fn method_exact_of_the_within_case_tests_counts_weights_as_repeated_cases() {
+    let exact = |source: &str| {
+        let (tables, _) = run(source);
+        let t = nth(&tables, "Friedman Test", 0);
+        let at = (0..t.rows.len())
+            .find(|&i| label(t, i, 0) == "Exact Sig.")
+            .unwrap();
+        num(t, at, 1)
+    };
+    let weighted = exact(
+        "DATA LIST FREE /a b c w.
+BEGIN DATA
+3 1 2 2  1 2 3 1  2 3 1 1
+END DATA.
+WEIGHT BY w.
+NPAR TESTS /FRIEDMAN=a b c /METHOD=EXACT.",
+    );
+    let written = exact(
+        "DATA LIST FREE /a b c.
+BEGIN DATA
+3 1 2  3 1 2  1 2 3  2 3 1
+END DATA.
+NPAR TESTS /FRIEDMAN=a b c /METHOD=EXACT.",
+    );
+    near(weighted, written, 12);
+}
+
+// Without METHOD there are no exact rows.
+#[test]
+fn method_exact_of_the_within_case_tests_is_only_on_request() {
+    let (tables, _) = run("DATA LIST FREE /a b c.
+BEGIN DATA
+3 1 2  1 2 3
+END DATA.
+NPAR TESTS /FRIEDMAN=a b c.");
+    let t = nth(&tables, "Friedman Test", 0);
+    assert!((0..t.rows.len()).all(|i| label(t, i, 0) != "Exact Sig."));
+}

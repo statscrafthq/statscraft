@@ -85,6 +85,7 @@ mod neural;
 mod neural_net;
 mod nomreg;
 mod nonpar_corr;
+mod npar_exact;
 mod npar_groups;
 mod npar_tests;
 mod nptests;

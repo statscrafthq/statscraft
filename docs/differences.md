@@ -517,7 +517,7 @@ Where the documentation is silent:
 - The exponential K-S needs values of at least 0.
 - Marginal homogeneity uses the values as scores and turns into the McNemar test with two values.
 - Wilcoxon reports Z from the smaller rank sum, which says which ranks it is based on.
-- METHOD=EXACT and METHOD=MC give exact significances for the binomial, sign, McNemar, Wilcoxon (given the tied ranks), Mann-Whitney (given the tied ranks) and runs tests, as exact results take the place of simulated ones. The other tests stay asymptotic with a warning.
+- METHOD=EXACT and METHOD=MC give exact significances for the binomial, sign, McNemar, Wilcoxon (given the tied ranks), Mann-Whitney (given the tied ranks), runs, Friedman, Kendall's W and Cochran tests, as exact results take the place of simulated ones. The other tests stay asymptotic with a warning. The Friedman, Kendall and Cochran exact significance is the probability, over every arrangement of each case's values (the tied ranks, or the 0 and 1) over the columns with all cases independent, that the sum of squared column sums is at least the observed one (the statistics are monotone in it); the Point Probability is that of the observed sum. A weight repeats the case. The walk keeps the multiset of column sums, and a problem needing more than about 4E8 steps keeps the asymptotic value with a warning. Checked against the enumeration of every arrangement in R.
 - TIMER, CIN, SAMPLES, KS_SIM and SAMPLE are accepted and change nothing.
 - A weight below 0.5 drops the case.
 - A CHISQUARE range holds at most 100 000 whole numbers.
@@ -1874,7 +1874,7 @@ Where the documentation is silent:
 - **Commands.** The commands of the language that Statscraft recognizes but does not run are listed at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
 - **Subcommands.** Every command page lists what it accepts. Notably:
   - ONEWAY has no WALLER.
-  - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
+  - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra and marginal homogeneity tests.
   - REGRESSION has no MATRIX or OUTFILE.
   - RELIABILITY has no MATRIX.
   - LOGISTIC REGRESSION has no OUTFILE.
