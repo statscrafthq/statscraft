@@ -12,9 +12,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { postgres: "17", mysql: "8.4", mariadb: "11.4" }
-          - { postgres: "18", mysql: "9.7", mariadb: "11.8" }
-          - { postgres: "18", mysql: "9.7", mariadb: "12.3" }
+          # exact patches, the tested_versions of db::capabilities(); change both together
+          - { postgres: "17.12", mysql: "8.4.13", mariadb: "11.4.13" }
+          - { postgres: "18.7", mysql: "9.7.4", mariadb: "11.8.9" }
+          - { postgres: "18.7", mysql: "9.7.4", mariadb: "12.3.3" }
     name: pg ${{ matrix.postgres }}, mysql ${{ matrix.mysql }}, mariadb ${{ matrix.mariadb }}
     runs-on: ubuntu-latest
     services:
