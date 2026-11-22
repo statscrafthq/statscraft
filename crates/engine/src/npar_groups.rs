@@ -132,11 +132,9 @@ impl Grouped {
         control
     }
 
-    /// Kruskal-Wallis: the weighted rank sum of every group and H corrected for ties, None
-    /// with fewer than two groups or no spread.
-    /// What the exact Kruskal-Wallis tail needs from the groups that have cases: the pooled
-    /// tie blocks (cases, joint rank times two), the group sizes and the observed rank sums
-    /// times two.
+    /// The exact Kruskal-Wallis tail (significance, point probability) of the groups that have
+    /// cases: the pooled tie blocks (cases, joint rank times two), the group sizes and the
+    /// observed rank sums times two go to the walk.
     pub fn kruskal_exact(&self, budget: f64) -> Option<(f64, f64)> {
         let (ranked, _) = self.ranked();
         let n = self.sizes();
@@ -170,6 +168,8 @@ impl Grouped {
         crate::npar_exact::jonckheere_tail(&blocks, &sizes, (2.0 * observed).round() as i64, budget)
     }
 
+    /// Kruskal-Wallis: the weighted rank sum of every group and H corrected for ties, None
+    /// with fewer than two groups or no spread.
     pub fn kruskal_wallis(&self) -> (Vec<f64>, Option<f64>) {
         let (ranked, ties) = self.ranked();
         let n = self.sizes();
