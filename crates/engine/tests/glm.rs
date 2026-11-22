@@ -1680,3 +1680,26 @@ fn robust_needs_one_dependent_and_a_valid_estimator() {
         "the choices are named"
     );
 }
+
+// A case alone in its cell has leverage 1 and a zero residual: it adds nothing to the sandwich,
+// so HC2 to HC4 stay finite (the estimators written out in R, with that case's term set to 0).
+#[test]
+fn robust_standard_errors_survive_a_case_alone_in_its_cell() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        "DATA LIST FREE /y a.
+BEGIN DATA
+1.2 1 2.1 1 1.7 1 2.9 2 3.4 2 3.1 2 4.2 2 5.0 3 4.4 3 6.1 4
+END DATA.
+UNIANOVA y BY a /ROBUST=HC3 /DESIGN=a.",
+    );
+    for (row, want) in [
+        ("[a=1]", 0.3188521078),
+        ("[a=2]", 0.3299831646),
+        ("[a=3]", 0.4242640687),
+    ] {
+        let got = robust_se(&t, row);
+        assert!(close(got, want), "{row}: {got} against {want}");
+    }
+}

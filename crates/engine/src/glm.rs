@@ -3169,12 +3169,17 @@ fn robust_covariance(d: &Data, fit: &Fit, hc: u8) -> Matrix {
                 .map(|a| x[a] * (0..p).map(|b| fit.ginv[a][b] * x[b]).sum::<f64>())
                 .sum::<f64>();
         let u = d.g[i] * e * e;
-        let omega = match hc {
-            0 => u,
-            1 => u * n / (n - rank),
-            2 => u / (1.0 - h),
-            3 => u / ((1.0 - h) * (1.0 - h)),
-            _ => u / (1.0 - h).powf((4.0_f64).min(n * h / rank)),
+        // a case with leverage 1 (alone in its cell) has no residual and adds nothing
+        let omega = if hc >= 2 && 1.0 - h < 1e-10 {
+            0.0
+        } else {
+            match hc {
+                0 => u,
+                1 => u * n / (n - rank),
+                2 => u / (1.0 - h),
+                3 => u / ((1.0 - h) * (1.0 - h)),
+                _ => u / (1.0 - h).powf((4.0_f64).min(n * h / rank)),
+            }
         };
         let weight = d.f[i] * d.g[i] * omega;
         for a in 0..p {
