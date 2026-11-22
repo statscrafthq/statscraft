@@ -361,7 +361,7 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
 
 **General Linear Model**
 
-- **Univariate** (`UNIANOVA`): one dependent variable by fixed factors, with covariates.
+- **Univariate** (`UNIANOVA`): one dependent variable by fixed and random factors, with covariates. A random factor makes every effect that contains it random, and each effect is tested against the error term of its expected mean squares.
   - The model: the full factorial, or a custom one of main effects and interactions picked from the factors and covariates. The type of sums of squares and the intercept.
   - Post hoc tests of chosen factors: the same tests as One-Way ANOVA.
   - Estimated marginal means overall and for each chosen factor, with main effects compared unadjusted or by Bonferroni or Sidak.

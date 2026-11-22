@@ -1136,6 +1136,8 @@ pub struct Univariate {
     pub dependent: String,
     pub dependents: Vec<String>,
     pub factors: Vec<String>,
+    /// Random factors (Univariate only), after the fixed ones on BY and named on /RANDOM.
+    pub random: Vec<String>,
     pub covariates: Vec<String>,
     /// The terms of `terms` instead of the full factorial model.
     pub custom: bool,
@@ -1199,6 +1201,7 @@ impl Default for Univariate {
             dependent: String::new(),
             dependents: Vec::new(),
             factors: Vec::new(),
+            random: Vec::new(),
             covariates: Vec::new(),
             custom: false,
             terms: Vec::new(),
@@ -1275,13 +1278,23 @@ impl Univariate {
         }
     }
 
-    /// The factors and covariates, the variables the terms of a custom model are made of.
+    /// The fixed factors, the random factors of Univariate and the covariates, the variables
+    /// the terms of a custom model are made of.
     pub fn model(&self) -> Vec<String> {
         self.factors
             .iter()
+            .chain(self.random())
             .chain(&self.covariates)
             .cloned()
             .collect()
+    }
+
+    /// The random factors, none in Multivariate.
+    fn random(&self) -> &[String] {
+        match self.multivariate {
+            true => &[],
+            false => &self.random,
+        }
     }
 
     /// The checked variables each as a term of its own (`interaction` false) or together as one.
@@ -1322,7 +1335,8 @@ impl Univariate {
             }
             ("UNIANOVA", vec![dependent.to_string()])
         };
-        if self.factors.is_empty() && self.covariates.is_empty() {
+        let random = self.random();
+        if self.factors.is_empty() && random.is_empty() && self.covariates.is_empty() {
             return Err("add a fixed factor or a covariate".into());
         }
         let model = self.model();
@@ -1333,9 +1347,16 @@ impl Univariate {
         if let Some(n) = self.factors.iter().find(|n| self.covariates.contains(n)) {
             return Err(format!("{n} is both a factor and a covariate"));
         }
+        if let Some(n) = random.iter().find(|n| self.covariates.contains(n)) {
+            return Err(format!("{n} is both a factor and a covariate"));
+        }
+        if let Some(n) = random.iter().find(|n| self.factors.contains(n)) {
+            return Err(format!("{n} is both a fixed and a random factor"));
+        }
+        let by: Vec<String> = self.factors.iter().chain(random).cloned().collect();
         let mut text = format!(
             "{command} {}",
-            by_with(&dependents.join(" "), &self.factors, &self.covariates)
+            by_with(&dependents.join(" "), &by, &self.covariates)
         );
         if !self.intercept {
             text.push_str("\n  /INTERCEPT=EXCLUDE");
@@ -1474,6 +1495,9 @@ impl Univariate {
                 terms.push(term.join("*"));
             }
             text.push_str(&format!("\n  /DESIGN={}", terms.join(" ")));
+        }
+        if !random.is_empty() {
+            text.push_str(&format!("\n  /RANDOM={}", random.join(" ")));
         }
         text.push('.');
         Ok(text)
@@ -2265,6 +2289,30 @@ mod tests {
             "{het}"
         );
         assert!(statscraft_syntax::parse(&het).1.is_empty());
+        // a random factor follows the fixed ones on BY and is named on RANDOM
+        let mut r = Univariate {
+            dependent: "monthly_spend".into(),
+            factors: v(&["region"]),
+            random: v(&["gender"]),
+            ..Default::default()
+        };
+        let syntax = r.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "UNIANOVA monthly_spend BY region gender\n  /RANDOM=gender."
+        );
+        assert!(runs(&syntax) >= 2);
+        r.factors.push("gender".into());
+        assert_eq!(
+            r.syntax().unwrap_err(),
+            "gender is both a fixed and a random factor"
+        );
+        // Multivariate has no random factors: they are left out
+        let mut m = Univariate::multivariate();
+        m.dependents = v(&["monthly_spend", "age"]);
+        m.factors = v(&["region"]);
+        m.random = v(&["gender"]);
+        assert_eq!(m.syntax().unwrap(), "GLM monthly_spend age BY region.");
         // the dialog walk with every option on runs this set (app/dialog_walk.rs), and the
         // engine's GLM tests check the saved variables
         assert!(statscraft_syntax::parse(&syntax).1.is_empty());

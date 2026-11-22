@@ -411,6 +411,9 @@ pub fn univariate(ui: &mut Ui, d: &mut Univariate, picked: &mut Vec<String>) {
         target_one(ui, "Dependent variable", &mut d.dependent, picked);
     }
     target_list(ui, "Fixed factors", &mut d.factors, picked);
+    if !d.multivariate {
+        target_list(ui, "Random factors", &mut d.random, picked);
+    }
     target_list(ui, "Covariates", &mut d.covariates, picked);
     ui.add_space(6.0);
     egui::CollapsingHeader::new("Model").show(ui, |ui| {
