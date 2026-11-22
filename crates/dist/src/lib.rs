@@ -186,8 +186,16 @@ pub fn normal_cdf(x: f64) -> f64 {
 
 /// The root of a monotone `f` that changes sign between `low` and `high`, by the Illinois
 /// variant of regula falsi, to a few units in the last place.
-pub fn solve(f: impl Fn(f64) -> f64, mut low: f64, mut high: f64) -> f64 {
-    let (mut f_low, mut f_high) = (f(low), f(high));
+pub fn solve(f: impl Fn(f64) -> f64, low: f64, high: f64) -> f64 {
+    solve_bracket(&f, (low, f(low)), (high, f(high)))
+}
+
+/// `solve` from end points whose values are known already.
+fn solve_bracket(
+    f: impl Fn(f64) -> f64,
+    (mut low, mut f_low): (f64, f64),
+    (mut high, mut f_high): (f64, f64),
+) -> f64 {
     // a function that cannot be evaluated has no root to find
     if f_low.is_nan() || f_high.is_nan() {
         return f64::NAN;
@@ -326,17 +334,51 @@ fn gauss_legendre() -> &'static [(f64, f64); 16] {
     })
 }
 
-/// The integral of `f` from `a` to `b` by 16-point Gauss-Legendre on `pieces` equal parts.
-fn integrate(f: impl Fn(f64) -> f64, a: f64, b: f64, pieces: usize) -> f64 {
+/// The points and weights of 16-point Gauss-Legendre quadrature on `pieces` equal parts of
+/// [a, b].
+fn quadrature(a: f64, b: f64, pieces: usize) -> impl Iterator<Item = (f64, f64)> {
     let width = (b - a) / pieces as f64;
-    let mut sum = 0.0;
-    for piece in 0..pieces {
+    (0..pieces).flat_map(move |piece| {
         let middle = a + width * (piece as f64 + 0.5);
-        for &(x, w) in gauss_legendre() {
-            sum += w * f(middle + x * width / 2.0);
-        }
+        gauss_legendre()
+            .iter()
+            .map(move |&(x, w)| (middle + x * width / 2.0, w * width / 2.0))
+    })
+}
+
+/// The standard normal density.
+fn normal_density(z: f64) -> f64 {
+    (-z * z / 2.0).exp() / (2.0 * std::f64::consts::PI).sqrt()
+}
+
+/// Quadrature points z over [-8.5, 8.5] for the range of `k` normals, with the weight times
+/// the normal density and Φ(z), fixed for every range so that only Φ(z - w) is left to work
+/// out. The power k - 1 sharpens the integrand, so more means take more pieces: each count
+/// keeps its sizes within 1e-14 of a fine reference.
+fn range_nodes(k: f64) -> &'static [(f64, f64, f64)] {
+    static NODES: [std::sync::OnceLock<Vec<(f64, f64, f64)>>; 3] =
+        [const { std::sync::OnceLock::new() }; 3];
+    let (nodes, pieces) = if k <= 5.0 {
+        (&NODES[0], 6)
+    } else if k <= 13.0 {
+        (&NODES[1], 8)
+    } else {
+        (&NODES[2], 12)
+    };
+    nodes.get_or_init(|| {
+        quadrature(-8.5, 8.5, pieces)
+            .map(|(z, w)| (z, w * normal_density(z), normal_cdf(z)))
+            .collect()
+    })
+}
+
+/// x^(k - 1), by multiplication for a whole k, which is the common case and much faster.
+fn power_below(x: f64, k: f64) -> f64 {
+    if k.fract() == 0.0 && (1.0..=1000.0).contains(&k) {
+        x.powi(k as i32 - 1)
+    } else {
+        x.powf(k - 1.0)
     }
-    sum * width / 2.0
 }
 
 /// P(the range of `k` standard normals < w).
@@ -344,12 +386,11 @@ fn normal_range_cdf(w: f64, k: f64) -> f64 {
     if w <= 0.0 {
         return 0.0;
     }
-    let density = |z: f64| (-z * z / 2.0).exp() / (2.0 * std::f64::consts::PI).sqrt();
-    let inner = |z: f64| {
-        let inside = (normal_cdf(z) - normal_cdf(z - w)).max(0.0);
-        density(z) * inside.powf(k - 1.0)
-    };
-    (k * integrate(inner, -8.5, 8.5, 12)).min(1.0)
+    let sum: f64 = range_nodes(k)
+        .iter()
+        .map(|&(z, weight, cdf)| weight * power_below((cdf - normal_cdf(z - w)).max(0.0), k))
+        .sum();
+    (k * sum).min(1.0)
 }
 
 /// The distribution function of the studentized range of `k` means with `df` degrees of
@@ -368,39 +409,126 @@ fn over_scale(df: f64, f: impl Fn(f64) -> f64) -> f64 {
     if df > 50_000.0 {
         return f(1.0);
     }
-    // the density of s, integrated where it is not negligible
+    // Integrated over t = ln s, where the density is a smooth hump peaking at t = 0 with spread
+    // about 1 / sqrt(2 df); over s a fractional df makes it a fractional power near 0, which
+    // quadrature handles badly. `fall` is how far its logarithm lies below the peak.
     let half = df / 2.0;
-    let log_density = |s: f64| {
-        std::f64::consts::LN_2 + half * half.ln() - ln_gamma(half) + (df - 1.0) * s.ln()
-            - half * s * s
-    };
-    let mode = ((df - 1.0).max(0.0) / df).sqrt().max(0.05);
-    let peak = log_density(mode);
-    let step = 0.05 / df.sqrt();
-    let mut high = mode;
-    while log_density(high) > peak - 40.0 {
+    let fall = |t: f64| half * ((2.0 * t).exp_m1() - 2.0 * t);
+    let spread = 1.0 / (2.0 * df).sqrt();
+    let step = spread / 4.0;
+    let mut high = 0.0;
+    while fall(high) < 40.0 {
         high += step;
     }
-    let mut low = mode;
-    while low > 0.0 && log_density(low) > peak - 40.0 {
+    let mut low = 0.0;
+    while fall(low) < 40.0 {
         low -= step;
     }
-    let low = low.max(0.0);
-    let outer = |s: f64| {
-        if s <= 0.0 {
-            0.0
+    // pieces of 4.5 spreads follow the density; the cap follows f, which turns over within a
+    // few tenths in t however few the degrees of freedom
+    let width = (4.5 * spread).min(0.7);
+    let pieces = ((high - low) / width).ceil() as usize;
+    // dividing by the quadrature of the density itself makes a constant f exact and saves the
+    // normalizing constant, whose log gamma loses digits at large df
+    let (mut sum, mut total) = (0.0, 0.0);
+    for (t, w) in quadrature(low, high, pieces) {
+        let density = w * (-fall(t)).exp();
+        total += density;
+        sum += density * f(t.exp());
+    }
+    (sum / total).clamp(0.0, 1.0)
+}
+
+/// The point exceeded with probability `upper` (below 1/2) by a positive statistic whose
+/// distribution function less 1 - `upper` is `f`. `start` gives the point exceeded with a
+/// given probability by a simpler statistic whose tail has much the same shape (a Bonferroni
+/// or Sidak bound); the ratio of the two tails at that first point, carried over, gives the
+/// second. Secant steps on the logarithm of the tail, which is nearly straight, kept inside
+/// the bracket, finish in about four more costly evaluations, where a search from a wide
+/// bracket takes about twenty.
+fn invert(f: impl Fn(f64) -> f64, upper: f64, start: impl Fn(f64) -> f64) -> f64 {
+    // ln(upper / tail): increasing, 0 at the root, infinite where the tail is used up
+    let g = |x: f64| {
+        let v = f(x);
+        if v >= upper {
+            f64::INFINITY
         } else {
-            log_density(s).exp() * f(s)
+            -(-v / upper).ln_1p()
         }
     };
-    integrate(outer, low, high, 16).clamp(0.0, 1.0)
+    let a = start(upper);
+    if !(a.is_finite() && a > 0.0) {
+        return solve(&f, 0.0, bracket(&f, 4.0));
+    }
+    // g is the relative error of the tail, so this close it is found (as for two means, where
+    // the start is exact)
+    let close = |g: f64| g.abs() <= 1e-14;
+    let ga = g(a);
+    if ga.is_nan() || close(ga) {
+        return if ga.is_nan() { f64::NAN } else { a };
+    }
+    let mut b = start(upper * ga.exp());
+    if !(b.is_finite() && b > 0.0 && b != a) {
+        b = if ga < 0.0 { a * 1.02 } else { a / 1.02 };
+    }
+    let ((mut a, mut ga), mut gb) = ((a, ga), g(b));
+    // the largest point known to lie below the root and the smallest above it; at 0 the
+    // distribution function is 0
+    let (mut below, mut above) = (0.0, f64::INFINITY);
+    for (x, gx) in [(a, ga), (b, gb)] {
+        if gx < 0.0 {
+            below = f64::max(below, x);
+        } else {
+            above = f64::min(above, x);
+        }
+    }
+    for _ in 0..100 {
+        if gb.is_nan() || close(gb) {
+            return if gb.is_nan() { f64::NAN } else { b };
+        }
+        let secant = b - gb * (b - a) / (gb - ga);
+        let next = if ga.is_finite() && secant > below && secant < above {
+            // the secant's error is about half the product of its last two relative steps, so
+            // after a step of 1e-4 one of 1e-7 leaves the next point within 1e-11, and as
+            // the steps shrink faster than that, mostly within 1e-14
+            if (secant - b).abs() <= 1e-7 * b && (b - a).abs() <= 1e-4 * b {
+                return secant;
+            }
+            secant
+        } else if above.is_finite() {
+            let middle = (below + above) / 2.0;
+            if above - below <= 1e-12 * b {
+                return middle;
+            }
+            middle
+        } else {
+            2.0 * b
+        };
+        (a, ga) = (b, gb);
+        b = next;
+        gb = g(b);
+        if gb < 0.0 {
+            below = below.max(b);
+        } else {
+            above = above.min(b);
+        }
+    }
+    b
 }
 
 /// The value of the studentized range of `k` means with `df` degrees of freedom exceeded with
 /// probability `upper`.
 pub fn studentized_range_quantile(upper: f64, k: f64, df: f64) -> f64 {
     let f = |q: f64| studentized_range_cdf(q, k, df) - (1.0 - upper);
-    solve(f, 0.0, bracket(&f, 4.0))
+    if !(upper > 0.0 && upper < 0.5 && k >= 2.0) {
+        return solve(f, 0.0, bracket(&f, 4.0));
+    }
+    // a pair's |t| with the Bonferroni share of the level bounds the range from above, and for
+    // two means is the range itself
+    let pairs = k * (k - 1.0) / 2.0;
+    invert(f, upper, |level| {
+        std::f64::consts::SQRT_2 * t_quantile((level / (2.0 * pairs)).min(0.5), df)
+    })
 }
 
 /// The distribution function of the studentized maximum modulus of `r` independent standard
@@ -416,7 +544,19 @@ pub fn maximum_modulus_cdf(m: f64, r: f64, df: f64) -> f64 {
 /// exceeded with probability `upper`.
 pub fn maximum_modulus_quantile(upper: f64, r: f64, df: f64) -> f64 {
     let f = |m: f64| maximum_modulus_cdf(m, r, df) - (1.0 - upper);
-    solve(f, 0.0, bracket(&f, 4.0))
+    if !(upper > 0.0 && upper < 0.5 && r >= 1.0) {
+        return solve(f, 0.0, bracket(&f, 4.0));
+    }
+    invert(f, upper, |level| sidak_start(level, r, df, true))
+}
+
+/// The t with `df` degrees of freedom that `count` independent statistics all stay below
+/// (in absolute value when `two_sided`) with probability 1 - `upper`: Sidak's bound, a close
+/// start for the maximum modulus and for Dunnett's statistic.
+fn sidak_start(upper: f64, count: f64, df: f64, two_sided: bool) -> f64 {
+    let level = -(-upper).ln_1p() / count;
+    let level = -(-level).exp_m1();
+    t_quantile(if two_sided { level / 2.0 } else { level }, df)
 }
 
 /// Dunnett's many-to-one distribution: P(max T_i < d), or P(max |T_i| < d) when `two_sided`,
@@ -427,25 +567,37 @@ pub fn dunnett_cdf(d: f64, lambdas: &[f64], df: f64, two_sided: bool) -> f64 {
     if two_sided && d <= 0.0 {
         return 0.0;
     }
-    let density = |z: f64| (-z * z / 2.0).exp() / (2.0 * std::f64::consts::PI).sqrt();
+    let parts: Vec<(f64, f64)> = lambdas.iter().map(|&l| (l, (1.0 - l * l).sqrt())).collect();
+    // each factor turns over within about c / lambda of z0, so the pieces follow the sharpest
+    let sharpest = parts
+        .iter()
+        .map(|&(l, c)| c / l.abs().max(1e-3))
+        .fold(1.0f64, f64::min);
+    // two-sided, each factor is even in z0, so the half above 0 counts twice
+    let (from, twice) = if two_sided { (0.0, 2.0) } else { (-8.5, 1.0) };
+    let pieces = ((8.5 - from) / (2.0 * sharpest)).ceil() as usize;
+    let nodes: Vec<(f64, f64)> = quadrature(from, 8.5, pieces.clamp(1, 400))
+        .map(|(z, w)| (z, twice * w * normal_density(z)))
+        .collect();
     let given_scale = |s: f64| {
         let x = d * s;
-        let inner = |z: f64| {
-            let product: f64 = lambdas
-                .iter()
-                .map(|&l| {
-                    let c = (1.0 - l * l).sqrt();
-                    let upper = normal_cdf((x - l * z) / c);
-                    if two_sided {
-                        (upper - normal_cdf((-x - l * z) / c)).max(0.0)
-                    } else {
-                        upper
-                    }
-                })
-                .product();
-            density(z) * product
-        };
-        integrate(inner, -8.5, 8.5, 24)
+        nodes
+            .iter()
+            .map(|&(z, weight)| {
+                let product: f64 = parts
+                    .iter()
+                    .map(|&(l, c)| {
+                        let upper = normal_cdf((x - l * z) / c);
+                        if two_sided {
+                            (upper - normal_cdf((-x - l * z) / c)).max(0.0)
+                        } else {
+                            upper
+                        }
+                    })
+                    .product();
+                weight * product
+            })
+            .sum::<f64>()
     };
     over_scale(df, given_scale)
 }
@@ -453,7 +605,12 @@ pub fn dunnett_cdf(d: f64, lambdas: &[f64], df: f64, two_sided: bool) -> f64 {
 /// The value of Dunnett's statistic (see `dunnett_cdf`) exceeded with probability `upper`.
 pub fn dunnett_quantile(upper: f64, lambdas: &[f64], df: f64, two_sided: bool) -> f64 {
     let f = |d: f64| dunnett_cdf(d, lambdas, df, two_sided) - (1.0 - upper);
-    solve(f, 0.0, bracket(&f, 4.0))
+    if !(upper > 0.0 && upper < 0.5 && !lambdas.is_empty()) {
+        return solve(f, 0.0, bracket(&f, 4.0));
+    }
+    invert(f, upper, |level| {
+        sidak_start(level, lambdas.len() as f64, df, two_sided)
+    })
 }
 
 /// The distribution function of the noncentral t with `df` degrees of freedom and
@@ -669,6 +826,55 @@ mod tests {
         for (upper, k, df, q) in REFERENCE_QTUKEY {
             let got = studentized_range_quantile(upper, k, df);
             assert!(close(got, q, 1e-9), "{upper} {k} {df}: {got} vs {q}");
+        }
+    }
+
+    #[test]
+    fn studentized_range_at_fractional_and_few_degrees_of_freedom() {
+        // Games-Howell takes a fractional df per pair; the quantile search starts from the
+        // Bonferroni bound and corrects it by the ratio of the tails
+        for (upper, k, df, q) in [
+            (0.05, 4.0, 7.3, 4.630_387_863_435_754),
+            (0.01, 5.0, 2.3, 19.314_544_885_566_42),
+            (0.01, 3.0, 1.0, 135.040_659_518_533_6),
+            // at one half the Bonferroni bound no longer holds and the wide search runs
+            (0.5, 4.0, 7.3, 2.076_012_629_456_181),
+        ] {
+            let got = studentized_range_quantile(upper, k, df);
+            assert!(close(got, q, 1e-11), "{upper} {k} {df}: {got} vs {q}");
+        }
+        // far in the tail at one df, where the range turns over close to a scale of 0
+        for (q, k, df, p) in [
+            (300.0, 20.0, 1.0, 0.990_066_756_556_023_8),
+            (2.5, 3.0, 15.7, 0.787_609_509_524_017),
+        ] {
+            let got = studentized_range_cdf(q, k, df);
+            assert!((got - p).abs() < 1e-12, "{q} {k} {df}: {got} vs {p}");
+        }
+    }
+
+    // Quantiles found from the Sidak start, against the same integrals taken on a grid about
+    // ten times finer with a 20-point rule
+    #[test]
+    fn maximum_modulus_and_dunnett_quantiles_at_fractional_df() {
+        for (upper, r, df, m) in [
+            (0.05, 6.0, 4.6, 4.073_838_711_558_140_7),
+            (0.01, 10.0, 37.5, 3.562_949_688_541_627_9),
+        ] {
+            let got = maximum_modulus_quantile(upper, r, df);
+            assert!(close(got, m, 1e-11), "{upper} {r} {df}: {got} vs {m}");
+        }
+        let unequal = [
+            0.674_199_862_463_242_04,
+            0.745_355_992_499_929_9,
+            0.804_399_666_539_843_74,
+        ];
+        for (upper, df, two, d) in [
+            (0.05, 12.5, true, 2.652_974_912_184_937_3),
+            (0.01, 30.7, false, 2.856_377_985_713_347_6),
+        ] {
+            let got = dunnett_quantile(upper, &unequal, df, two);
+            assert!(close(got, d, 1e-11), "{upper} {df} {two}: {got} vs {d}");
         }
     }
 

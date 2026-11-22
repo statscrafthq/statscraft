@@ -3,6 +3,7 @@
 ## Unreleased
 
 - NPAR TESTS /METHOD=EXACT: when the exact significance of the Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall's W, Cochran or marginal homogeneity test needs too many steps, it says so at once (from a lower bound of the steps) instead of after minutes of work; the exact walks that do fit run faster and give the same numbers on every run.
+- Post hoc tests on the studentized range, the maximum modulus and Dunnett's distribution (TUKEY, BTUKEY, GH, C, DUNNETT, GT2 and the others, in ONEWAY, UNIANOVA and GLM) run 10 to 40 times faster: the integrals take far fewer points and the critical values about 4 evaluations instead of 20. With fewer than about 5 degrees of freedom (Games-Howell between small groups) the critical values far in the tail were off, at 1 df and alpha 0.001 by as much as 80%, and significances by up to 3e-3; all three distributions are now within about 1e-12 everywhere.
 
 ## 0.28.0 (2026-11-22)
 

@@ -119,6 +119,17 @@ fn subsets(test: Posthoc, sorted: &[Group], within: f64, df: f64, alpha: f64) ->
     let s = within.sqrt();
     let harmonic = kf / sorted.iter().map(|g| 1.0 / g.w).sum::<f64>();
     let pairs = kf * (kf - 1.0) / 2.0;
+    // Tukey's b needs the studentized range quantile of each range size, the same for every
+    // range of that size, so each is worked out once
+    let quantiles: Vec<f64> = (0..=k)
+        .map(|r| {
+            if test == Posthoc::TukeyB && r >= 2 {
+                studentized_range_quantile(alpha, r as f64, df)
+            } else {
+                f64::NAN
+            }
+        })
+        .collect();
     // the significance of the range of means i..=j, None for Tukey's b, and whether the range
     // is significant
     let test_range = |i: usize, j: usize| -> (Option<f64>, bool) {
@@ -166,9 +177,7 @@ fn subsets(test: Posthoc, sorted: &[Group], within: f64, df: f64, alpha: f64) ->
                 regw(f_p(f, r - 1.0, df))
             }
             Posthoc::TukeyB => {
-                let critical = (studentized_range_quantile(alpha, r, df)
-                    + studentized_range_quantile(alpha, kf, df))
-                    / 2.0;
+                let critical = (quantiles[j - i + 1] + quantiles[k]) / 2.0;
                 return (None, q > critical);
             }
             _ => unreachable!("not a range test"),
