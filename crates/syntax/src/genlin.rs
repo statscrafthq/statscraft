@@ -157,6 +157,8 @@ pub struct GenlinCriteria {
     pub lr: bool,
     pub checksep: u32,
     pub cilevel: f64,
+    /// CITYPE=PROFILE: profile likelihood intervals instead of Wald ones, with its tolerance.
+    pub profile: Option<f64>,
     pub robust: bool,
     pub hconverge: GenlinTolerance,
     pub lconverge: GenlinTolerance,
@@ -182,6 +184,7 @@ impl Default for GenlinCriteria {
             lr: false,
             checksep: 20,
             cilevel: 95.0,
+            profile: None,
             robust: false,
             hconverge: tolerance(0.0),
             lconverge: tolerance(0.0),
@@ -607,12 +610,18 @@ fn criteria(p: &mut Parser, c: &mut GenlinCriteria) -> PResult<()> {
             }
             "CITYPE" => {
                 if word_is(p, "PROFILE") {
-                    return Err(SyntaxError::new(
-                        p.span(),
-                        "CITYPE=PROFILE of GENLIN is not supported yet; the intervals are Wald intervals",
-                    ));
+                    p.pos += 1;
+                    let mut tolerance = 1e-4;
+                    if p.eat(Punct::LParen) {
+                        tolerance = number(p, "a tolerance")?;
+                        check(p, tolerance > 0.0, "the tolerance of PROFILE is above 0")?;
+                        p.expect(Punct::RParen)?;
+                    }
+                    c.profile = Some(tolerance);
+                } else {
+                    choice(p, &[("WALD", ())])?;
+                    c.profile = None;
                 }
-                choice(p, &[("WALD", ())])?;
             }
             "COVB" => c.robust = choice(p, &[("MODEL", false), ("ROBUST", true)])?,
             "HCONVERGE" => c.hconverge = tolerance(p, "HCONVERGE")?,

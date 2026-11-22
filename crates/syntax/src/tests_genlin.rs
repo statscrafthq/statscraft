@@ -177,7 +177,7 @@ fn genlin_criteria() {
     assert!(err("GENLIN y /CRITERIA PCONVERGE=0.").contains("at least one"));
     assert!(err("GENLIN y /CRITERIA CILEVEL=100.").contains("below 100"));
     assert!(err("GENLIN y /MODEL DISTRIBUTION=POISSON /CRITERIA SCALE=MLE.").contains("SCALE=MLE"));
-    assert!(err("GENLIN y /CRITERIA CITYPE=PROFILE.").contains("not supported yet"));
+    assert!(err("GENLIN y /CRITERIA CITYPE=PROFILE(0).").contains("above 0"));
     assert!(err("GENLIN y /CRITERIA INITIAL=1 2.").contains("not supported yet"));
 }
 
@@ -358,4 +358,24 @@ fn print_gef_and_lmatrix_are_keywords() {
     let g = genlin("GENLIN y WITH x /MODEL x /PRINT GEF LMATRIX.");
     assert!(g.print.gef && g.print.lmatrix);
     assert!(!genlin("GENLIN y WITH x /MODEL x.").print.gef);
+}
+
+#[test]
+fn citype_profile_takes_a_tolerance() {
+    assert_eq!(
+        genlin("GENLIN y /CRITERIA CITYPE=WALD.").criteria.profile,
+        None
+    );
+    assert_eq!(
+        genlin("GENLIN y /CRITERIA CITYPE=PROFILE.")
+            .criteria
+            .profile,
+        Some(1e-4)
+    );
+    assert_eq!(
+        genlin("GENLIN y /CRITERIA CITYPE=PROFILE(0.001) CILEVEL=90.")
+            .criteria
+            .profile,
+        Some(0.001)
+    );
 }

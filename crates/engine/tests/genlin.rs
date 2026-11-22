@@ -2896,3 +2896,163 @@ fn lmatrix_gives_the_coefficients_of_each_estimated_marginal_mean() {
     );
     close(get(&t, title, "temp", col), 15.9, 1e-9, "temp mean");
 }
+
+const PROFILE_DATA: &str = "DATA LIST FREE /cnt yb yg yn x g.
+BEGIN DATA
+5 1 3.734 4.749 1.83 1
+7 0 1.869 4.643 1.87 2
+1 1 2.468 1.498 0.57 3
+4 1 2.859 3.987 1.66 1
+0 0 2.813 3.435 1.28 2
+4 1 1.368 2.924 1.04 3
+0 1 5.246 3.905 1.47 1
+1 1 2.207 1.273 0.27 2
+5 0 2.555 3.783 1.31 3
+3 1 2.924 4.335 1.41 1
+2 1 2.91 4.105 0.92 2
+3 1 2.691 3.428 1.44 3
+1 1 4.709 5.206 1.87 1
+6 1 1.562 3.092 0.51 2
+2 1 2.783 2.448 0.92 3
+8 1 5.778 5.31 1.88 1
+8 1 2.051 4.629 1.96 2
+2 0 1.811 0.329 0.23 3
+6 1 4.193 2.05 0.95 1
+4 1 2.508 4.172 1.12 2
+3 1 1.366 4.65 1.81 3
+1 0 0.839 1.459 0.28 1
+5 1 4.631 5.358 1.98 2
+6 1 4.738 4.753 1.89 3
+0 1 3.129 0.869 0.16 1
+4 1 1.135 3.829 1.03 2
+3 1 2.863 1.477 0.78 3
+2 1 3.759 5.313 1.81 1
+2 1 1.2 3.017 0.89 2
+4 1 3.562 5.209 1.67 3
+END DATA.
+";
+
+fn limits(source: &str, row: &str) -> (f64, f64) {
+    let t = tables_of(&format!("{PROFILE_DATA}{source}"));
+    (
+        get(
+            &t,
+            "Parameter Estimates",
+            row,
+            "95% Profile Likelihood Confidence Interval / Lower",
+        ),
+        get(
+            &t,
+            "Parameter Estimates",
+            row,
+            "95% Profile Likelihood Confidence Interval / Upper",
+        ),
+    )
+}
+
+// The profile likelihood interval is the set of values of one coefficient whose likelihood ratio
+// test is not significant, the other coefficients refitted. The expected limits are the roots of
+// that statistic found with a general statistics package's constrained fits (the coefficient
+// moved into the offset), with the scale re-estimated by maximum likelihood where it is.
+#[test]
+fn profile_likelihood_intervals_of_four_distributions() {
+    let cases = [
+        (
+            "GENLIN cnt BY g WITH x /MODEL g x DISTRIBUTION=POISSON LINK=LOG /CRITERIA CITYPE=PROFILE /PRINT SOLUTION.",
+            [
+                ("(Intercept)", -0.2713416998, 0.9512767761),
+                ("[g=1]", -0.7239019060, 0.2810880705),
+                ("[g=2]", -0.3189944478, 0.6132507320),
+                ("x", 0.2903268106, 1.0489061212),
+            ],
+        ),
+        (
+            "GENLIN yb (REFERENCE=FIRST) BY g WITH x /MODEL g x DISTRIBUTION=BINOMIAL LINK=LOGIT /CRITERIA CITYPE=PROFILE /PRINT SOLUTION.",
+            [
+                ("(Intercept)", -1.8549634516, 3.126972708),
+                ("[g=1]", -1.8345153044, 3.933594470),
+                ("[g=2]", -2.3496750509, 2.338826155),
+                ("x", -0.9215509918, 2.690566699),
+            ],
+        ),
+        (
+            "GENLIN yn BY g WITH x /MODEL g x DISTRIBUTION=NORMAL LINK=IDENTITY /CRITERIA CITYPE=PROFILE /PRINT SOLUTION.",
+            [
+                ("(Intercept)", -0.1501482649, 0.8494876113),
+                ("[g=1]", -0.1761725619, 0.7441248187),
+                ("[g=2]", 0.2090627634, 1.1229998171),
+                ("x", 1.9887532102, 2.6428597003),
+            ],
+        ),
+        (
+            "GENLIN yg BY g WITH x /MODEL g x DISTRIBUTION=GAMMA LINK=LOG /CRITERIA CITYPE=PROFILE /PRINT SOLUTION.",
+            [
+                ("(Intercept)", 0.21408766710, 0.9180477527),
+                ("[g=1]", -0.05327242781, 0.6041159454),
+                ("[g=2]", -0.47016007729, 0.1800743718),
+                ("x", 0.10544519116, 0.5691906273),
+            ],
+        ),
+        // the scale of DEVIANCE stays at the full fit's value in every refit
+        (
+            "GENLIN yg BY g WITH x /MODEL g x DISTRIBUTION=GAMMA LINK=LOG /CRITERIA CITYPE=PROFILE SCALE=DEVIANCE /PRINT SOLUTION.",
+            [
+                ("(Intercept)", 0.19659392743, 0.9375792399),
+                ("[g=1]", -0.07060842263, 0.6214629943),
+                ("[g=2]", -0.48731634747, 0.1972306969),
+                ("x", 0.09302543990, 0.5811696357),
+            ],
+        ),
+    ];
+    for (source, rows) in cases {
+        for (row, lower, upper) in rows {
+            let (lo, hi) = limits(source, row);
+            close(lo, lower, 1e-6, &format!("{source} {row} lower"));
+            close(hi, upper, 1e-6, &format!("{source} {row} upper"));
+        }
+    }
+}
+
+#[test]
+fn profile_intervals_name_themselves_and_exponentiate() {
+    let t = tables_of(&format!(
+        "{PROFILE_DATA}GENLIN cnt BY g WITH x /MODEL g x DISTRIBUTION=POISSON LINK=LOG /CRITERIA CITYPE=PROFILE(0.001) CILEVEL=90 /PRINT SOLUTION(EXPONENTIATED)."
+    ));
+    let table = find(&t, "Parameter Estimates");
+    let groups: Vec<String> = table.column_groups.iter().flatten().cloned().collect();
+    assert!(
+        groups
+            .iter()
+            .any(|g| g == "90% Profile Likelihood Confidence Interval"),
+        "{groups:?}"
+    );
+    assert!(
+        groups
+            .iter()
+            .any(|g| g == "90% Profile Likelihood Confidence Interval for Exp(B)")
+    );
+    // Exp(B) limits are the exponentiated ones
+    let row = row_keys(table).iter().position(|k| k == "x").unwrap();
+    let titles = table.column_titles();
+    let at = |name: &str| titles.iter().position(|t| t == name).unwrap();
+    let lower = number(&table.rows[row][at("90% Profile Likelihood Confidence Interval / Lower")]);
+    let exp = number(
+        &table.rows[row][at("90% Profile Likelihood Confidence Interval for Exp(B) / Lower")],
+    );
+    close(exp, lower.exp(), 1e-12, "Exp(B) lower");
+    // the Wald interval is still the default
+    let t = tables_of(&format!(
+        "{PROFILE_DATA}GENLIN cnt BY g WITH x /MODEL g x DISTRIBUTION=POISSON LINK=LOG /PRINT SOLUTION."
+    ));
+    let groups: Vec<String> = find(&t, "Parameter Estimates")
+        .column_groups
+        .iter()
+        .flatten()
+        .cloned()
+        .collect();
+    assert!(
+        groups
+            .iter()
+            .any(|g| g.contains("Wald Confidence Interval"))
+    );
+}

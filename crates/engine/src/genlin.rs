@@ -1063,6 +1063,95 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
 
 /// k of the negative binomial by maximum likelihood of the model without random effects
 /// (GENLINMIXED estimates it so and then keeps it fixed); None when the fit fails.
+/// What every profile likelihood interval of one fit shares.
+#[derive(Clone, Copy)]
+struct Profile<'a> {
+    c: &'a Cases,
+    x: &'a [Vec<f64>],
+    /// The spec of the refits: the scale of DEVIANCE or PEARSON is fixed at the full fit's.
+    spec: &'a Spec<'a>,
+    /// The log likelihood of the full fit under that spec.
+    ll_max: f64,
+    /// The chi-square quantile (one df) of the confidence level.
+    z2: f64,
+    tolerance: f64,
+}
+
+/// The profile likelihood confidence interval of coefficient `j`: the values of b_j where twice
+/// the drop of the log likelihood from `ll_max`, with the other coefficients (and an estimated
+/// scale or k) refitted, equals `z2`, the chi-square quantile of one df. Each refit moves b_j
+/// into the offset. A bound that is not found (the profile never falls far enough, or the model
+/// stops being fittable first without the profile having crossed) is None.
+fn profile_interval(setup: &Profile, j: usize, b: &[f64], se: f64) -> (Option<f64>, Option<f64>) {
+    let Profile {
+        c,
+        x,
+        spec,
+        ll_max,
+        z2,
+        tolerance,
+    } = *setup;
+    let reduced: Vec<Vec<f64>> = x
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .filter(|(i, _)| *i != j)
+                .map(|(_, v)| *v)
+                .collect()
+        })
+        .collect();
+    let mut start: Vec<f64> = b
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != j)
+        .map(|(_, v)| *v)
+        .collect();
+    let mut drop = |value: f64| -> Option<f64> {
+        let moved = Cases {
+            y: c.y.clone(),
+            m: c.m.clone(),
+            f: c.f.clone(),
+            omega: c.omega.clone(),
+            offset: (0..c.n()).map(|i| c.offset[i] + value * x[i][j]).collect(),
+        };
+        let fit = fit_glm(&moved, &reduced, spec, Some(&start))?;
+        if !fit.converged {
+            return None;
+        }
+        start = fit.beta.clone();
+        Some(2.0 * (ll_max - fit.ll) - z2)
+    };
+    let mut bound = |direction: f64| -> Option<f64> {
+        let mut inside = 0.0;
+        let mut step = if se.is_finite() && se > 0.0 { se } else { 1.0 };
+        let mut outside = None;
+        for _ in 0..60 {
+            let g = drop(b[j] + direction * (inside + step))?;
+            if g > 0.0 {
+                outside = Some(inside + step);
+                break;
+            }
+            inside += step;
+            step *= 2.0;
+        }
+        let mut hi = outside?;
+        let mut lo = inside;
+        for _ in 0..200 {
+            let mid = 0.5 * (lo + hi);
+            if (hi - lo).abs() <= tolerance * 1e-4 * (1.0 + (b[j] + direction * mid).abs()) {
+                break;
+            }
+            match drop(b[j] + direction * mid) {
+                Some(g) if g <= 0.0 => lo = mid,
+                _ => hi = mid,
+            }
+        }
+        Some(b[j] + direction * 0.5 * (lo + hi))
+    };
+    (bound(-1.0), bound(1.0))
+}
+
 pub(crate) fn negbin_k(
     y: &[f64],
     weight: &[f64],
@@ -3390,7 +3479,12 @@ impl Engine {
         let level = percent_title(1.0 - crit.cilevel / 100.0);
         if print.solution {
             let mut columns = plain(&["Parameter", "B", "Std. Error"]);
-            let ci = format!("{level} Wald Confidence Interval");
+            let kind = if crit.profile.is_some() && !multinomial && repeated.is_none() {
+                "Profile Likelihood"
+            } else {
+                "Wald"
+            };
+            let ci = format!("{level} {kind} Confidence Interval");
             columns.push((ci.clone(), "Lower".into()));
             columns.push((ci, "Upper".into()));
             for name in ["Wald Chi-Square", "df", "Sig."] {
@@ -3398,13 +3492,45 @@ impl Engine {
             }
             if print.exponentiated {
                 columns.push((String::new(), "Exp(B)".into()));
-                let ci = format!("{level} Wald Confidence Interval for Exp(B)");
+                let ci = format!("{level} {kind} Confidence Interval for Exp(B)");
                 columns.push((ci.clone(), "Lower".into()));
                 columns.push((ci, "Upper".into()));
             }
             let width = columns.len();
             let mut out = Vec::new();
             let mut any_redundant = false;
+            let mut profiles: Vec<Option<(Option<f64>, Option<f64>)>> =
+                vec![None; parameters.len()];
+            if let (Some(tolerance), false, None) = (crit.profile, multinomial, repeated) {
+                let full_scale = match scale {
+                    ScaleMode::Deviance | ScaleMode::Pearson => ScaleMode::Fixed(result.phi),
+                    other => other,
+                };
+                let profile_spec = Spec {
+                    scale: full_scale,
+                    ..spec
+                };
+                if let Some(full) = fit_glm(&c, &x, &profile_spec, None) {
+                    let setup = Profile {
+                        c: &c,
+                        x: &x,
+                        spec: &profile_spec,
+                        ll_max: full.ll,
+                        z2: z * z,
+                        tolerance,
+                    };
+                    for (pi, par) in parameters.iter().enumerate() {
+                        if let Some(i) = par.at {
+                            let se = result.cov[i][i].sqrt();
+                            profiles[pi] = Some(profile_interval(&setup, i, &result.b, se));
+                        }
+                    }
+                }
+            } else if crit.profile.is_some() {
+                warnings.push(
+                    "CITYPE=PROFILE is for the models other than the ordinal multinomial one and without REPEATED; the intervals are Wald intervals".into(),
+                );
+            }
             for (pi, par) in parameters.iter().enumerate() {
                 let head = if multinomial && pi < j_categories - 1 {
                     text(format!("Threshold {}", par.name))
@@ -3419,11 +3545,15 @@ impl Engine {
                         let ok = v > 0.0;
                         let se = v.sqrt();
                         let wald = (b / se).powi(2);
+                        let (lower, upper) = match profiles[pi] {
+                            Some(limits) => limits,
+                            None => (ok.then(|| b - z * se), ok.then(|| b + z * se)),
+                        };
                         row.extend([
                             Cell::Number(b),
                             number(ok.then_some(se)),
-                            number(ok.then_some(b - z * se)),
-                            number(ok.then_some(b + z * se)),
+                            number(lower),
+                            number(upper),
                             number(ok.then_some(wald)),
                             Cell::Number(1.0),
                             number(ok.then(|| chi_square_p(wald, 1.0))),
@@ -3431,8 +3561,8 @@ impl Engine {
                         if print.exponentiated {
                             row.extend([
                                 Cell::Number(b.exp()),
-                                number(ok.then(|| (b - z * se).exp())),
-                                number(ok.then(|| (b + z * se).exp())),
+                                number(lower.map(f64::exp)),
+                                number(upper.map(f64::exp)),
                             ]);
                         }
                     }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- GENLIN /CRITERIA CITYPE=PROFILE: profile likelihood confidence intervals for the regression parameters (and Exp(B)) instead of Wald ones, for the models other than the ordinal multinomial and REPEATED.
 - UNIANOVA and GLM PRINT=MBP, BP, F and WHITE with MBPDESIGN, BPDESIGN and FDESIGN: the Breusch-Pagan, modified Breusch-Pagan, F and White tests for heteroskedasticity.
 
 ## 0.26.0 (2026-11-22)

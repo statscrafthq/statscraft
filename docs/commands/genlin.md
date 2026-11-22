@@ -14,7 +14,7 @@ GENLIN dependent [(REFERENCE=LAST | FIRST | value)] [(ORDER=ASCENDING | DESCENDI
            [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | IGAUSS | POISSON | NEGBIN[(k | MLE)] | MULTINOMIAL]
            [LINK=IDENTITY | LOG | LOGIT | PROBIT | CLOGLOG | NLOGLOG | LOGC | NEGBIN | POWER(a) |
                  ODDSPOWER(a) | CUMLOGIT | CUMPROBIT | CUMCLOGLOG | CUMNLOGLOG | CUMCAUCHIT]]
-   [/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD]
+   [/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]]
               [COVB=MODEL | ROBUST] [HCONVERGE=0] [LCONVERGE=0] [PCONVERGE=1E-6] (each [(ABSOLUTE | RELATIVE)])
               [LIKELIHOOD=FULL | KERNEL] [MAXITERATIONS=100] [MAXSTEPHALVING=5]
               [METHOD=FISHER[(n)] | NEWTON] [SCALE=MLE | DEVIANCE | PEARSON | value] [SINGULAR=1E-12]]
@@ -48,7 +48,9 @@ HISTORY(n) lists the iterations of the last fit (every n-th from iteration 0, an
 
 GEF gives the general estimable function and LMATRIX the L' matrix of each effect's test (and of each estimated marginal mean), not for the ordinal model.
 
-Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
+CITYPE=PROFILE gives the profile likelihood interval of each regression parameter (the values the likelihood ratio test does not reject, the other parameters refitted, a scale estimated by maximum likelihood or an estimated NEGBIN k re-estimated, a scale from DEVIANCE or PEARSON held at the full fit's) in place of the Wald one, and for Exp(B); the interval of the scale itself stays Wald, and the ordinal model and REPEATED keep Wald intervals with a warning. The tolerance only sets how closely the limits are solved. A limit the profile never reaches is left empty.
+
+Not supported yet: OUTFILE, TWEEDIE, INITIAL, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
 
 ## Example
 
