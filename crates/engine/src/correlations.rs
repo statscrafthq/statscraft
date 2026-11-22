@@ -257,56 +257,56 @@ impl Engine {
         let mut matrix_file = None;
         // MATRIX=OUT: the last list without WITH; the means and standard deviations come from
         // the cases of the matrix (listwise) or of each variable alone (pairwise)
-        if command.matrix.output.is_some() {
-            if let Some((names, _)) = lists.iter().rev().find(|(_, c)| c.is_none()) {
-                let cols: Vec<usize> = names.iter().map(|n| index(n)).collect();
-                let labels = cols
+        if command.matrix.output.is_some()
+            && let Some((names, _)) = lists.iter().rev().find(|(_, c)| c.is_none())
+        {
+            let cols: Vec<usize> = names.iter().map(|n| index(n)).collect();
+            let labels = cols
+                .iter()
+                .map(|&i| variables[i].label().map(str::to_string))
+                .collect();
+            let mut file = MatrixRows::new(names.clone(), labels);
+            let mut means = Vec::new();
+            let mut sds = Vec::new();
+            for &i in &cols {
+                let v = &variables[i];
+                let used: &[usize] = if command.listwise { &listwise } else { &cases };
+                let pairs: Vec<(f64, f64)> = used
                     .iter()
-                    .map(|&i| variables[i].label().map(str::to_string))
+                    .filter(|&&c| valid(v, c))
+                    .map(|&c| (value(v, c), weight(c)))
                     .collect();
-                let mut file = MatrixRows::new(names.clone(), labels);
-                let mut means = Vec::new();
-                let mut sds = Vec::new();
-                for &i in &cols {
-                    let v = &variables[i];
-                    let used: &[usize] = if command.listwise { &listwise } else { &cases };
-                    let pairs: Vec<(f64, f64)> = used
-                        .iter()
-                        .filter(|&&c| valid(v, c))
-                        .map(|&c| (value(v, c), weight(c)))
-                        .collect();
-                    let s = crate::descriptives::summarize(&pairs);
-                    means.push(s.mean.unwrap_or(f64::NAN));
-                    sds.push(s.sd.unwrap_or(f64::NAN));
-                }
-                file.push("MEAN", "", means);
-                file.push("STDDEV", "", sds);
-                let pairs: Vec<Vec<_>> = cols
-                    .iter()
-                    .map(|&a| cols.iter().map(|&b| compute(a, b)).collect())
-                    .collect();
-                if command.listwise {
-                    file.push("N", "", vec![listwise_n; cols.len()]);
-                } else {
-                    let counts: Matrix = pairs
-                        .iter()
-                        .map(|row| row.iter().map(|p| p.w).collect())
-                        .collect();
-                    file.counts(&counts);
-                }
-                let corr: Matrix = pairs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, row)| {
-                        row.iter()
-                            .enumerate()
-                            .map(|(j, p)| if i == j && p.w > 0.0 { 1.0 } else { p.r })
-                            .collect()
-                    })
-                    .collect();
-                file.matrix("CORR", &corr);
-                matrix_file = Some(self.matrix_part("CORRELATIONS", &file)?);
+                let s = crate::descriptives::summarize(&pairs);
+                means.push(s.mean.unwrap_or(f64::NAN));
+                sds.push(s.sd.unwrap_or(f64::NAN));
             }
+            file.push("MEAN", "", means);
+            file.push("STDDEV", "", sds);
+            let pairs: Vec<Vec<_>> = cols
+                .iter()
+                .map(|&a| cols.iter().map(|&b| compute(a, b)).collect())
+                .collect();
+            if command.listwise {
+                file.push("N", "", vec![listwise_n; cols.len()]);
+            } else {
+                let counts: Matrix = pairs
+                    .iter()
+                    .map(|row| row.iter().map(|p| p.w).collect())
+                    .collect();
+                file.counts(&counts);
+            }
+            let corr: Matrix = pairs
+                .iter()
+                .enumerate()
+                .map(|(i, row)| {
+                    row.iter()
+                        .enumerate()
+                        .map(|(j, p)| if i == j && p.w > 0.0 { 1.0 } else { p.r })
+                        .collect()
+                })
+                .collect();
+            file.matrix("CORR", &corr);
+            matrix_file = Some(self.matrix_part("CORRELATIONS", &file)?);
         }
         if let Some(items) = self.pool_items.as_mut() {
             items.extend(pool);
