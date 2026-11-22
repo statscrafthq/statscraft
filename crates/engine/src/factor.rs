@@ -26,13 +26,14 @@
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, t_p};
 use crate::matrix::{Matrix, inverse, multiply, symmetric_eigen, transpose};
+use crate::matrix_file::MatrixRows;
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Values, Variable};
 use statscraft_syntax::{
-    Extraction, Factor, FactorCriteria, FactorMissing, MatrixKind, Rotation, ScoreMethod, Value,
-    VarItem,
+    Extraction, Factor, FactorCriteria, FactorMatrixOut, FactorMissing, MatrixKind, Rotation,
+    ScoreMethod, Value, VarItem,
 };
 
 fn identity(n: usize) -> Matrix {
@@ -1622,6 +1623,9 @@ impl Engine {
                 self.factor_matrix(command, *kind, source.as_ref())?
             }
         };
+        if let Some((kind, _)) = &command.matrix_out {
+            self.factor_matrix_out(*kind, &input)?;
+        }
         // the variables as tables show them (SET TVARS)
         let shown = self.shown();
         let texts: Vec<String> = match self.dataset.as_ref() {
@@ -2431,6 +2435,47 @@ impl Engine {
         }
         self.warn_all(warnings);
         Ok(tables)
+    }
+
+    /// MATRIX=OUT(COR) or OUT(COV): the means, standard deviations and counts of the analysis
+    /// and its correlation or covariance matrix, as one matrix file for MATRIX=OUT to write.
+    fn factor_matrix_out(&mut self, kind: FactorMatrixOut, input: &Input) -> Result<(), Error> {
+        let (word, matrix) = match kind {
+            FactorMatrixOut::Correlation => ("CORR", &input.r),
+            FactorMatrixOut::Covariance => match &input.cov {
+                Some(cov) => ("COV", cov),
+                None => {
+                    return Err(Error(
+                        "FACTOR /MATRIX=OUT(COV=...) needs the standard deviations (STDDEV or SD rows) in a correlation matrix file"
+                            .into(),
+                    ));
+                }
+            },
+        };
+        let labels = input
+            .names
+            .iter()
+            .map(|n| {
+                let data = self.dataset.as_ref()?;
+                data.variable(n).ok()?.label().map(str::to_string)
+            })
+            .collect();
+        let mut file = MatrixRows::new(input.names.clone(), labels);
+        if let Some(mean) = &input.mean {
+            file.push("MEAN", "", mean.clone());
+        }
+        if input.sd.iter().all(|s| s.is_finite()) {
+            file.push("STDDEV", "", input.sd.clone());
+        }
+        match (&input.pair_n, &input.n) {
+            (Some(pairs), _) => file.counts(pairs),
+            (None, Some(n)) => file.push("N", "", n.clone()),
+            (None, None) => {}
+        }
+        file.matrix(word, matrix);
+        let part = self.matrix_part("FACTOR", &file)?;
+        self.matrix_parts.1.push(part);
+        Ok(())
     }
 
     fn warn_all(&mut self, warnings: Vec<String>) {

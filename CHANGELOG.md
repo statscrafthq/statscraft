@@ -5,6 +5,7 @@
 - GENLIN /CRITERIA INITIAL=numbers: the starting values of the coefficients (all parameters, redundant ones included).
 - NPAR TESTS /METHOD=EXACT gives the exact significance of the two-sample Kolmogorov-Smirnov test (with its point probability), the median test of several groups, the Kruskal-Wallis and the Jonckheere-Terpstra tests.
 - NPAR TESTS /METHOD=EXACT gives the exact significance (and point probability) of the Friedman, Kendall's W and Cochran tests.
+- FACTOR /MATRIX=OUT(COR=...) and OUT(COV=...) write the means, standard deviations, counts and the correlation or covariance matrix of the run to a file, a dataset or the active dataset; OUT may follow VARIABLES.
 - CORRELATIONS /CI (Fisher's interval, BIAS, CILEVEL) and NONPAR CORR /CI (Spearman's rho with the FHP, CC or BW standard error): lower and upper limits under each coefficient.
 - FACTOR /METHOD=COVARIANCE with PC, PAF and IMAGE: the analysis of the covariance matrix, with the raw and the rescaled loadings, communalities and sums of squares side by side, MINEIGEN in mean variances, and DET and INV of the covariance matrix.
 - Window: Bivariate Correlations adds confidence intervals with their level, the bias adjustment for Pearson and the standard error for Spearman.

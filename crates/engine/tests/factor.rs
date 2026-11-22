@@ -1239,3 +1239,161 @@ fn covariance_needs_a_method_that_works_on_covariances() {
     }
     assert!(message.contains("standard deviations"), "{message}");
 }
+
+// ---- MATRIX=OUT ----
+
+fn texts_of(engine: &Engine, name: &str) -> Vec<String> {
+    let data = engine.dataset().expect("data");
+    match data.variable(name).expect("variable").values() {
+        Values::String(v) => (0..data.case_count())
+            .map(|k| v.get(k).trim().to_string())
+            .collect(),
+        Values::Numeric(_) => panic!("{name} is numeric"),
+    }
+}
+
+fn numbers_of(engine: &Engine, name: &str) -> Vec<f64> {
+    let data = engine.dataset().expect("data");
+    match data.variable(name).expect("variable").values() {
+        Values::Numeric(v) => (0..data.case_count())
+            .map(|k| v.get(k).unwrap_or(f64::NAN))
+            .collect(),
+        Values::String(_) => panic!("{name} is a string"),
+    }
+}
+
+#[test]
+fn matrix_out_cor_holds_the_means_deviations_counts_and_correlations() {
+    let mut engine = Engine::default();
+    let tables = run_on(
+        &mut engine,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /MATRIX=OUT(COR=*) /CRITERIA=FACTORS(2) /ROTATION=NOROTATE."
+        ),
+    );
+    // the analysis is shown as usual
+    assert!(tables.iter().any(|t| t.title == "Communalities"));
+    // the active dataset is now the matrix: records MEAN, STDDEV, N and the correlations
+    let kinds = texts_of(&engine, "ROWTYPE_");
+    assert_eq!(
+        kinds,
+        [
+            "MEAN", "STDDEV", "N", "CORR", "CORR", "CORR", "CORR", "CORR"
+        ]
+    );
+    let names = texts_of(&engine, "VARNAME_");
+    assert_eq!(&names[3..], ["x1", "x2", "x3", "x4", "x5"]);
+    // R: colMeans, sd and cor of the 40 cases
+    check(
+        &[numbers_of(&engine, "x1")[0], numbers_of(&engine, "x5")[0]],
+        &[0.2350, 6.85],
+        1e-4,
+        "means",
+    );
+    check(
+        &[numbers_of(&engine, "x3")[1], numbers_of(&engine, "x5")[1]],
+        &[11.3904762287601, 27.6586797245017],
+        1e-4,
+        "deviations",
+    );
+    assert_eq!(numbers_of(&engine, "x4")[2], 40.0);
+    let x1 = numbers_of(&engine, "x1");
+    check(
+        &x1[3..],
+        &[
+            1.0,
+            0.604063690101853,
+            0.205333424704745,
+            -0.003350437776528,
+            0.228804358095609,
+        ],
+        1e-4,
+        "correlations of x1",
+    );
+}
+
+#[test]
+fn matrix_out_cov_holds_the_covariances_and_reads_back_as_the_same_analysis() {
+    let mut engine = Engine::default();
+    let direct = run_on(
+        &mut engine,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /MATRIX=OUT(COV=*) /CRITERIA=FACTORS(2) /ROTATION=NOROTATE."
+        ),
+    );
+    let kinds = texts_of(&engine, "ROWTYPE_");
+    assert_eq!(kinds[..3], ["MEAN", "STDDEV", "N"]);
+    assert!(kinds[3..].iter().all(|k| k == "COV"));
+    let x1 = numbers_of(&engine, "x1");
+    check(
+        &x1[3..],
+        &[
+            0.971051282051282,
+            1.617474358974359,
+            2.304_743_589_743_59,
+            -0.001520512820513,
+            6.236153846153846,
+        ],
+        1e-4,
+        "covariances of x1",
+    );
+    // the written matrix, read back, is the same covariance analysis
+    let back = run_on(
+        &mut engine,
+        "FACTOR MATRIX=IN(COV=*) /METHOD=COVARIANCE /CRITERIA=FACTORS(2) /ROTATION=NOROTATE.",
+    );
+    let (a, b) = (
+        find(&direct, "Component Matrix"),
+        find(&back, "Component Matrix"),
+    );
+    for name in ["x1", "x2", "x3", "x4", "x5"] {
+        check(
+            &row(b, name),
+            &row(a, name),
+            1e-3,
+            "loadings after the round trip",
+        );
+    }
+}
+
+#[test]
+fn matrix_out_goes_to_a_file_and_leaves_the_data() {
+    let path = std::env::temp_dir().join("statscraft_factor_matrix_out_test.sav");
+    let _ = std::fs::remove_file(&path);
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /MATRIX=OUT(COR='{}') /CRITERIA=FACTORS(1).",
+            path.display().to_string().replace('\\', "/")
+        ),
+    );
+    // the data stay active; the file holds the matrix
+    assert!(engine.dataset().unwrap().variable("ROWTYPE_").is_err());
+    assert!(path.exists());
+    let back = run_on(
+        &mut engine,
+        &format!(
+            "GET FILE='{}'.\nFACTOR MATRIX=IN(COR=*) /CRITERIA=FACTORS(1) /ROTATION=NOROTATE.",
+            path.display().to_string().replace('\\', "/")
+        ),
+    );
+    assert!(back.iter().any(|t| t.title == "Component Matrix"));
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn matrix_out_cov_needs_the_deviations_of_a_correlation_matrix() {
+    let matrix = "DATA LIST LIST /ROWTYPE_ (A8) VARNAME_ (A8) a b.\nBEGIN DATA.\nN '' 30 30\n\
+                  CORR a 1 0.4\nCORR b 0.4 1\nEND DATA.\n";
+    let (commands, errors) = parse(&format!("{matrix}FACTOR MATRIX=IN(COR=*) OUT(COV=*)."));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut message = String::new();
+    for c in &commands {
+        if let Err(e) = engine.execute(&c.command) {
+            message = e.to_string();
+        }
+    }
+    assert!(message.contains("standard deviations"), "{message}");
+}

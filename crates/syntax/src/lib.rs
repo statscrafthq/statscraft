@@ -284,8 +284,8 @@ pub use discriminant::{
 pub use encoding::{decode_syntax, encoding_for, legacy_encoding};
 pub use error::{Span, SyntaxError};
 pub use factor::{
-    ClusterMethod, ClusterSave, Extraction, Factor, FactorCriteria, FactorMissing, FactorPlot,
-    FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
+    ClusterMethod, ClusterSave, Extraction, Factor, FactorCriteria, FactorMatrixOut, FactorMissing,
+    FactorPlot, FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
 };
 pub use genlin::{
     Genlin, GenlinAdjust, GenlinContrast, GenlinCorrelation, GenlinCriteria, GenlinDistribution,

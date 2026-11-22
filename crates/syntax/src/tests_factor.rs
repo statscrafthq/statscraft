@@ -107,6 +107,28 @@ fn factor_subcommand_order_rules() {
 }
 
 #[test]
+fn factor_matrix_out() {
+    use crate::factor::FactorMatrixOut::{Correlation, Covariance};
+    let f = factor("FACTOR VARIABLES=a b /MATRIX OUT(COR=*).");
+    assert_eq!(f.matrix_out, Some((Correlation, None)));
+    let f = factor("FACTOR VARIABLES=a b /MATRIX=OUT(COV='cov.sav') /PRINT=KMO.");
+    assert_eq!(f.matrix_out, Some((Covariance, Some("cov.sav".into()))));
+    // IN and OUT in either order on one subcommand, MATRIX first
+    let f = factor("FACTOR MATRIX=OUT(COV=*) IN(COR=*) /ANALYSIS=a b.");
+    assert_eq!(f.matrix_in, Some((MatrixKind::Correlation, None)));
+    assert_eq!(f.matrix_out, Some((Covariance, None)));
+    // OUT alone first, the variables after it
+    let f = factor("FACTOR MATRIX=OUT(COR=*) /VARIABLES=a b.");
+    assert_eq!(f.matrix_out, Some((Correlation, None)));
+    assert_eq!(
+        err("FACTOR VARIABLES=a b /MATRIX=OUT(COR=*) OUT(COV=*)."),
+        "FACTOR /MATRIX takes OUT only once"
+    );
+    assert!(err("FACTOR VARIABLES=a b /MATRIX=IN(COR=*).").contains("MATRIX must come first"));
+    assert!(err("FACTOR MATRIX=OUT(COR=*).").contains("unexpected"));
+}
+
+#[test]
 fn factor_method_covariance() {
     assert_eq!(
         factor("FACTOR VARIABLES=a b.").method,
@@ -135,7 +157,7 @@ fn factor_errors() {
     assert_eq!(err("FACTOR /ANALYSIS=a b."), "unexpected word ANALYSIS");
     assert_eq!(
         err("FACTOR MATRIX=IN(COR=*) OUT(FAC=*)."),
-        "OUT in FACTOR /MATRIX is not supported yet"
+        "FAC in FACTOR /MATRIX=OUT is not supported yet"
     );
 }
 

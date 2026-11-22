@@ -145,6 +145,8 @@ pub struct Factor {
     pub variables: Vec<VarItem>,
     /// `/MATRIX=IN(COR=...)` or `IN(COV=...)`: the kind and the file or dataset, None for `*`.
     pub matrix_in: Option<(MatrixKind, Option<String>)>,
+    /// `/MATRIX=OUT(COR=...)` or `OUT(COV=...)`: what is written, None for the active dataset.
+    pub matrix_out: Option<(FactorMatrixOut, Option<String>)>,
     pub missing: FactorMissing,
     pub include: bool,
     /// `/SELECT=var(value)`
@@ -508,29 +510,25 @@ fn diagonal(p: &mut Parser) -> PResult<Option<Vec<f64>>> {
     Ok(Some(values))
 }
 
-fn matrix_in(p: &mut Parser) -> PResult<(MatrixKind, Option<String>)> {
-    p.eat(Punct::Eq);
-    if p.at_keyword("OUT") {
-        return Err(SyntaxError::new(
-            p.span(),
-            "OUT in FACTOR /MATRIX is not supported yet",
-        ));
-    }
-    if !p.eat_keyword("IN") {
-        return Err(p.unexpected(&["IN"]));
-    }
+/// What FACTOR /MATRIX=OUT writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FactorMatrixOut {
+    /// `COR`: counts, means, standard deviations and the correlations.
+    Correlation,
+    /// `COV`: counts, means, standard deviations and the covariances.
+    Covariance,
+}
+
+/// `(type=file)` after IN or OUT: the type word, then the file, dataset or `*` (None).
+fn typed_source(
+    p: &mut Parser,
+    place: &str,
+    unsupported: &[&str],
+    supported: &[&str],
+) -> PResult<(String, Option<String>)> {
     p.expect(Punct::LParen)?;
-    let kind = if p.eat_keyword("COR") {
-        MatrixKind::Correlation
-    } else if p.eat_keyword("COV") {
-        MatrixKind::Covariance
-    } else {
-        return Err(keyword_error(
-            p,
-            "FACTOR /MATRIX=IN",
-            &["FAC"],
-            &["COR", "COV"],
-        ));
+    let Some(kind) = supported.iter().find(|k| p.eat_keyword(k)) else {
+        return Err(keyword_error(p, place, unsupported, supported));
     };
     p.expect(Punct::Eq)?;
     let source = if p.eat(Punct::Star) {
@@ -539,13 +537,58 @@ fn matrix_in(p: &mut Parser) -> PResult<(MatrixKind, Option<String>)> {
         Some(crate::files::dataset_or_file(p)?)
     };
     p.expect(Punct::RParen)?;
-    if !at_end(p) {
-        return Err(SyntaxError::new(
-            p.span(),
-            "OUT in FACTOR /MATRIX is not supported yet",
-        ));
+    Ok((kind.to_string(), source))
+}
+
+/// MATRIX: IN and OUT, once each and in either order. IN stands in place of VARIABLES, so it
+/// belongs to the first position; OUT may come first or after VARIABLES.
+fn matrix(p: &mut Parser, command: &mut Factor, first: bool) -> PResult<()> {
+    p.eat(Punct::Eq);
+    let mut any = false;
+    while !at_end(p) {
+        let start = p.pos;
+        if p.eat_keyword("IN") {
+            if command.matrix_in.is_some() {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "FACTOR /MATRIX takes IN only once",
+                ));
+            }
+            if !first {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "MATRIX=IN replaces VARIABLES, so MATRIX must come first",
+                ));
+            }
+            let (kind, source) = typed_source(p, "FACTOR /MATRIX=IN", &["FAC"], &["COR", "COV"])?;
+            let kind = match kind.as_str() {
+                "COR" => MatrixKind::Correlation,
+                _ => MatrixKind::Covariance,
+            };
+            command.matrix_in = Some((kind, source));
+        } else if p.eat_keyword("OUT") {
+            if command.matrix_out.is_some() {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "FACTOR /MATRIX takes OUT only once",
+                ));
+            }
+            let (kind, source) =
+                typed_source(p, "FACTOR /MATRIX=OUT", &["FAC", "FSC"], &["COR", "COV"])?;
+            let kind = match kind.as_str() {
+                "COR" => FactorMatrixOut::Correlation,
+                _ => FactorMatrixOut::Covariance,
+            };
+            command.matrix_out = Some((kind, source));
+        } else {
+            return Err(p.unexpected(&["IN", "OUT"]));
+        }
+        any = true;
     }
-    Ok((kind, source))
+    if !any {
+        return Err(p.unexpected(&["IN", "OUT"]));
+    }
+    Ok(())
 }
 
 pub(crate) fn factor(p: &mut Parser) -> PResult<Command> {
@@ -553,6 +596,7 @@ pub(crate) fn factor(p: &mut Parser) -> PResult<Command> {
     let mut command = Factor {
         variables: Vec::new(),
         matrix_in: None,
+        matrix_out: None,
         missing: FactorMissing::Listwise,
         include: false,
         select: None,
@@ -571,7 +615,17 @@ pub(crate) fn factor(p: &mut Parser) -> PResult<Command> {
         ignored: Vec::new(),
     };
     if p.eat_keyword("MATRIX") {
-        command.matrix_in = Some(matrix_in(p)?);
+        matrix(p, &mut command, true)?;
+        if command.matrix_in.is_none() {
+            // OUT alone: the variables follow
+            if !(p.eat(Punct::Slash) && (p.eat_keyword("VARIABLES") || p.eat_word("VARS"))) {
+                return Err(p
+                    .unexpected(&["VARIABLES"])
+                    .hint("MATRIX=OUT alone is followed by VARIABLES=varlist"));
+            }
+            p.eat(Punct::Eq);
+            command.variables = p.var_list()?;
+        }
     } else if p.eat_keyword("VARIABLES") || p.eat_word("VARS") {
         p.eat(Punct::Eq);
         command.variables = p.var_list()?;
@@ -591,7 +645,9 @@ pub(crate) fn factor(p: &mut Parser) -> PResult<Command> {
             break;
         }
         let start = p.pos;
-        if p.eat_keyword("MISSING") {
+        if p.eat_keyword("MATRIX") {
+            matrix(p, &mut command, false)?;
+        } else if p.eat_keyword("MISSING") {
             if analysis_seen {
                 return Err(SyntaxError::new(
                     p.span_from(start),

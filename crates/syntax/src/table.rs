@@ -2376,7 +2376,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Factor analysis: principal components and six factoring methods, rotations, factor scores.",
         syntax: "FACTOR VARIABLES=varlist | MATRIX=IN(COR=* | 'file' | COV=* | 'file')\n\
                  \x20      [/MISSING=[LISTWISE | PAIRWISE | MEANSUB] [INCLUDE]] [/SELECT=var(value)]\n\
-                 \x20      [/ANALYSIS=varlist] [/METHOD=CORRELATION | COVARIANCE]\n\
+                 \x20      [/ANALYSIS=varlist] [/METHOD=CORRELATION | COVARIANCE] [/MATRIX=OUT(COR | COV=file | *)]\n\
                  \x20      [/PRINT=[DEFAULT] [INITIAL] [EXTRACTION] [ROTATION] [UNIVARIATE] [CORRELATION] [COVARIANCE]\n\
                  \x20              [SIG] [DET] [INV] [REPR] [AIC] [KMO] [FSCORE] [ALL]]\n\
                  \x20      [/FORMAT=[SORT] [BLANK(n)] [DEFAULT]] [/DIAGONAL=values | DEFAULT]\n\
@@ -2409,7 +2409,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  one plot per pair given. METHOD=COVARIANCE analyzes the covariance matrix (with PC, PAF or IMAGE\n\
                  only; it needs the standard deviations in a correlation matrix file): the tables show the raw\n\
                  loadings and communalities beside the rescaled ones, and MINEIGEN(n) counts in mean variances.\n\
-                 Not supported yet: MATRIX=OUT, MATRIX=IN(FAC=...).",
+                 MATRIX=OUT(COR=file) or OUT(COV=file) writes the means, standard deviations, counts\n\
+                 and the matrix (a file, a dataset or * for the active dataset). Not supported yet:\n\
+                 MATRIX=OUT(FAC=...) and OUT(FSC=...), MATRIX=IN(FAC=...).",
         example: "FACTOR VARIABLES=q1 TO q10 /PRINT=INITIAL EXTRACTION ROTATION KMO /FORMAT=SORT BLANK(.3) /CRITERIA=MINEIGEN(1) /EXTRACTION=PC /ROTATION=VARIMAX /SAVE=REG(ALL).",
         parse: factor::factor,
     },
