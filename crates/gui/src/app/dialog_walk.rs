@@ -1699,6 +1699,8 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             scale: 2,
             robust: true,
             ci_level: s("90"),
+            profile: true,
+            profile_tolerance: s("0.001"),
             iterations: s("150"),
             halvings: s("10"),
             convergence: s("0.0001"),

@@ -224,6 +224,10 @@ pub struct GeneralizedLinear {
     pub scale_value: String,
     pub robust: bool,
     pub ci_level: String,
+    /// Profile likelihood intervals instead of Wald ones (not with repeated measures).
+    pub profile: bool,
+    /// How closely the limits of a profile likelihood interval are solved.
+    pub profile_tolerance: String,
     pub iterations: String,
     pub halvings: String,
     /// The parameter convergence criterion.
@@ -306,6 +310,8 @@ impl Default for GeneralizedLinear {
             scale_value: "1".into(),
             robust: false,
             ci_level: number(c.cilevel),
+            profile: false,
+            profile_tolerance: "0.0001".into(),
             iterations: c.maxiterations.to_string(),
             halvings: c.maxstephalving.to_string(),
             convergence: number(c.pconverge.value),
@@ -812,6 +818,20 @@ impl GeneralizedLinear {
         if level != c.cilevel {
             out.push(format!("CILEVEL={}", number(level)));
         }
+        // under repeated measures the intervals are Wald ones
+        if self.profile && !self.repeated {
+            let tolerance = match self.profile_tolerance.trim() {
+                "" => 1e-4,
+                given => parse(given, "the tolerance of the profile likelihood")?,
+            };
+            if tolerance <= 0.0 {
+                return Err("the tolerance of the profile likelihood must be above 0".into());
+            }
+            out.push(match tolerance == 1e-4 {
+                true => "CITYPE=PROFILE".into(),
+                false => format!("CITYPE=PROFILE({})", number(tolerance)),
+            });
+        }
         // under repeated measures the covariance is chosen there
         if self.robust && !self.repeated {
             out.push("COVB=ROBUST".into());
@@ -1004,6 +1024,8 @@ mod tests {
         d.method = 2;
         d.robust = true;
         d.ci_level = "90".into();
+        d.profile = true;
+        d.profile_tolerance = "0.001".into();
         d.iterations = "50".into();
         d.halvings = "10".into();
         d.convergence = "0.0001".into();
@@ -1032,7 +1054,7 @@ mod tests {
             syntax,
             "GENLIN q5_1 (REFERENCE=FIRST) BY gender region WITH age\n  \
              /MODEL gender age gender*age DISTRIBUTION=BINOMIAL LINK=PROBIT\n  \
-             /CRITERIA ANALYSISTYPE=ALL(LR) CILEVEL=90 COVB=ROBUST LIKELIHOOD=KERNEL \
+             /CRITERIA ANALYSISTYPE=ALL(LR) CILEVEL=90 CITYPE=PROFILE(0.001) COVB=ROBUST LIKELIHOOD=KERNEL \
              MAXITERATIONS=50 MAXSTEPHALVING=10 METHOD=NEWTON PCONVERGE=0.0001 SCALE=PEARSON\n  \
              /EMMEANS CONTROL=age(40) SCALE=TRANSFORMED\n  \
              /EMMEANS TABLES=gender*region CONTROL=age(40) SCALE=TRANSFORMED COMPARE=gender \

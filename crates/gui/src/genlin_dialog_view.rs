@@ -146,6 +146,18 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
             });
         });
         field(ui, "Confidence interval %", &mut d.ci_level, 50.0);
+        // under repeated measures the intervals are Wald ones
+        ui.add_enabled_ui(!d.repeated, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Confidence interval type");
+                ui.radio_value(&mut d.profile, false, "Wald");
+                ui.radio_value(&mut d.profile, true, "Profile likelihood");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Tolerance of the profile likelihood");
+                small_field(ui, d.profile, &mut d.profile_tolerance);
+            });
+        });
         // with repeated measures these settle the starting model only
         let (iterations, convergence) = match d.repeated {
             true => (
