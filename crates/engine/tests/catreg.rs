@@ -519,3 +519,148 @@ fn charts_files_and_errors() {
             .contains("folds")
     );
 }
+
+// ---- spline levels against the reference package ----
+
+/// Seventy-two invented cases: a response that rises and falls with x (12 bands) and rises with z.
+const SPLINE_HUMP: &str = "DATA LIST FREE /y x z.
+BEGIN DATA
+3 8 2  7 1 1  2 10 5  2 12 3  9 3 5  6 12 5
+2 10 4  7 12 6  2 9 3  5 9 6  10 4 3  8 4 3
+5 10 5  9 7 6  8 6 5  8 5 2  3 12 4  9 7 6
+8 8 7  4 10 5  11 2 6  6 7 6  10 5 6  8 6 2
+7 8 6  9 2 4  3 9 4  3 12 1  8 1 6  7 7 6
+8 2 3  6 10 7  11 4 6  9 1 6  7 1 4  3 11 5
+3 11 4  2 12 2  5 8 2  8 2 1  9 2 2  9 1 4
+5 11 3  5 9 6  3 8 2  12 5 7  10 5 5  2 9 1
+4 9 7  8 12 7  10 5 3  8 7 2  5 5 1  8 6 6
+10 3 5  4 10 4  10 3 2  9 2 5  7 11 7  3 7 1
+9 1 6  1 9 1  10 3 4  8 6 4  8 6 4  3 9 2
+8 5 1  4 7 3  9 3 6  8 6 6  5 12 6  9 4 5
+END DATA.
+";
+
+/// Seventy-two invented cases: a response that rises with x (12 bands) and with z.
+const SPLINE_RISING: &str = "DATA LIST FREE /y x z.
+BEGIN DATA
+5 2 4  7 4 3  9 11 7  5 1 4  8 10 3  10 11 6
+10 12 5  9 10 2  9 7 7  8 4 7  5 4 1  8 3 7
+8 7 1  4 1 2  7 9 1  4 5 1  8 8 1  7 9 1
+6 4 4  9 11 1  9 11 4  10 12 5  9 9 4  6 2 5
+9 12 6  6 3 5  9 10 1  5 5 2  5 1 7  3 2 1
+13 12 7  12 8 6  8 5 7  6 8 1  8 9 4  5 3 4
+8 6 5  8 11 4  4 2 3  10 9 7  9 7 6  7 4 3
+4 5 2  6 3 2  12 10 7  6 5 4  7 12 3  7 2 6
+5 1 2  7 2 3  9 10 3  10 12 3  11 9 4  8 9 1
+9 9 5  12 11 7  1 2 1  3 1 3  9 12 6  8 9 2
+9 3 7  10 5 7  11 12 4  7 5 3  4 2 2  8 11 3
+7 5 2  10 10 6  8 7 5  5 2 1  6 4 6  8 6 5
+END DATA.
+";
+
+/// The R square of the response on a predictor with a spline level and a numeric covariate.
+fn spline_r2(data: &str, level: &str) -> f64 {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{data}CATREG VARIABLES=y x z /ANALYSIS=y(LEVEL=NUME) WITH x(LEVEL={level}) z(LEVEL=NUME) \
+             /INITIAL=NUMERICAL /PRINT=R."
+        ),
+    );
+    r2(&t)
+}
+
+#[test]
+fn spline_nominal_levels_equal_the_least_squares_fit_on_a_spline_basis() {
+    // R: lm(y ~ splines::bs(x, degree, knots = quantile(x, k / (inknot + 1), type = 7),
+    //        intercept = TRUE) + z); the interior knots sit at quantiles of the cases' codes.
+    let cases = [
+        ("SPNOM DEGREE=1 INKNOT=2", 0.830759),
+        ("SPNOM DEGREE=2 INKNOT=1", 0.833721),
+        ("SPNOM DEGREE=2 INKNOT=3", 0.833876),
+        ("SPNOM DEGREE=3 INKNOT=2", 0.835156),
+        ("NOMI", 0.844672), // lm(y ~ factor(x) + z)
+        ("NUME", 0.659043), // lm(y ~ x + z)
+    ];
+    for (level, expected) in cases {
+        let got = spline_r2(SPLINE_HUMP, level);
+        assert!(
+            (got - expected).abs() < 2e-5,
+            "{level}: {got} against {expected}"
+        );
+    }
+}
+
+#[test]
+fn spline_ordinal_levels_equal_the_best_nonnegative_fit_on_the_monotone_basis() {
+    // R: every subset of the monotone spline columns fitted by lm(y ~ columns + z), the best
+    // R square among the subsets whose spline coefficients are all nonnegative (the same
+    // basis as above, each column the sum of a B-spline and all later ones).
+    let cases = [
+        ("SPORD DEGREE=1 INKNOT=2", 0.781492),
+        ("SPORD DEGREE=2 INKNOT=1", 0.780719),
+        ("SPORD DEGREE=2 INKNOT=2", 0.778847),
+        ("SPORD DEGREE=3 INKNOT=1", 0.779698),
+    ];
+    for (level, expected) in cases {
+        let got = spline_r2(SPLINE_RISING, level);
+        assert!(
+            (got - expected).abs() < 2e-5,
+            "{level}: {got} against {expected}"
+        );
+    }
+}
+
+/// Eighty invented cases: a fractional predictor x (one decimal, with ties), a covariate z in 6
+/// bands and a response that rises with both.
+const CONTINUOUS: &str = "DATA LIST FREE /y x z.
+BEGIN DATA
+7 52.6 5  4 55.8 1  4 51.1 1  5 55.3 2  3 45.6 3  3 51.5 2
+5 39.6 5  7 55.9 5  6 45.6 2  2 34.5 1  5 41.1 3  8 61.1 4
+5 59.0 1  2 19.9 6  2 13.5 3  8 50.0 5  2 45.3 2  1 29.1 1
+4 56.0 3  3 53.3 1  6 63.2 6  4 59.0 2  5 49.3 5  4 45.9 2
+6 52.7 4  6 56.6 4  6 58.2 3  3 43.4 2  2 33.6 3  5 66.8 4
+7 66.5 5  6 55.4 2  3 48.2 2  3 51.5 3  5 22.5 6  4 33.6 3
+3 47.6 1  5 50.8 4  4 51.1 2  7 53.9 4  4 51.6 1  3 29.8 2
+2 46.7 1  3 31.4 2  4 33.4 4  5 33.7 6  4 38.9 5  5 39.6 2
+7 69.9 5  3 48.1 2  3 31.1 1  7 57.5 6  5 54.0 1  4 45.2 5
+4 37.0 5  4 49.1 4  5 43.7 5  7 54.7 5  3 41.8 1  4 41.0 1
+6 48.0 6  4 48.6 3  6 44.7 6  6 53.1 2  5 36.8 6  4 34.0 4
+4 52.5 6  5 50.4 6  3 44.7 2  4 54.8 2  5 57.0 6  5 55.8 2
+4 40.3 5  4 53.6 4  4 40.1 5  6 51.7 3  6 58.9 5  6 66.6 6
+4 42.4 4  6 52.9 4
+END DATA.
+";
+
+#[test]
+fn discretization_gives_the_same_fit_as_the_recoding_written_in_r() {
+    // R: the codes of x, then lm(y ~ factor(code) + z) for the nominal level of x. Normal
+    // grouping cuts the z score at the optimal quantizer of the normal (fixed point iteration,
+    // integrate()); ranking is rank(x, ties.method = "min"); multiplying is round(10 * z score);
+    // uniform grouping fills groups to round(n / k) cases from whole values; equal intervals
+    // are floor((x - min) / width) + 1. The iterations stop at 1e-5 of the loss.
+    let cases = [
+        ("GROUPING NCAT=5 DISTR=NORMAL", 0.570862),
+        ("GROUPING NCAT=7", 0.559270),
+        ("RANKING", 0.942707),
+        ("MULTIPLYING", 0.685971),
+        ("GROUPING NCAT=5 DISTR=UNIFORM", 0.576062),
+        ("GROUPING EQINTV=5", 0.582827),
+    ];
+    for (how, expected) in cases {
+        let mut engine = Engine::default();
+        let t = run(
+            &mut engine,
+            &format!(
+                "{CONTINUOUS}CATREG VARIABLES=y x z /ANALYSIS=y(LEVEL=NUME) WITH x(LEVEL=NOMI) \
+                 z(LEVEL=NUME) /DISCRETIZATION=x({how}) /INITIAL=NUMERICAL /PRINT=R."
+            ),
+        );
+        assert!(
+            (r2(&t) - expected).abs() < 1e-4,
+            "{how}: {} against {expected}",
+            r2(&t)
+        );
+    }
+}

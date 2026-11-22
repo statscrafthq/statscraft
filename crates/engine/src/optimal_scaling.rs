@@ -84,7 +84,8 @@ pub(crate) fn normal_thresholds(k: usize) -> Vec<f64> {
     let mut t: Vec<f64> = (1..k)
         .map(|r| normal_quantile(r as f64 / k as f64))
         .collect();
-    for _ in 0..500 {
+    // the fixed point iteration converges slowly for many groups (about 3,800 steps for 36)
+    for _ in 0..200_000 {
         let bound = |r: usize| -> f64 {
             match r {
                 0 => f64::NEG_INFINITY,
@@ -110,7 +111,7 @@ pub(crate) fn normal_thresholds(k: usize) -> Vec<f64> {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0, f64::max);
         t = next;
-        if change < 1e-12 {
+        if change < 1e-14 {
             break;
         }
     }
@@ -1314,6 +1315,43 @@ mod tests {
         // the optimal quantizer of 4 levels splits at 0 and about 0.9816
         let t = normal_thresholds(4);
         assert!((t[2] - 0.9816).abs() < 1e-3, "{t:?}");
+    }
+
+    #[test]
+    fn normal_thresholds_match_the_optimal_quantizer_computed_in_r() {
+        // R: fixed point iteration of the quantizer of the unit normal (centroids of the cells
+        // from the density and the distribution function, run until the step is below 1e-15);
+        // the decision levels of the upper half, the lower half mirrors it
+        let wanted: [(usize, &[f64]); 7] = [
+            (3, &[0.6120032]),
+            (5, &[0.3822838, 1.2443575]),
+            (6, &[0.0, 0.6589112, 1.4468504]),
+            (7, &[0.2802884, 0.8743619, 1.6107581]),
+            (10, &[0.0, 0.4047402, 0.8338413, 1.3245827, 1.9682182]),
+            (
+                20,
+                &[
+                    0.0, 0.2082770, 0.4196398, 0.6375107, 0.8660879, 1.1110548, 1.3809408,
+                    1.6901958, 2.0678457, 2.5933373,
+                ],
+            ),
+            (
+                36,
+                &[
+                    0.0, 0.1176298, 0.2358063, 0.3550944, 0.4760963, 0.5994755, 0.7259850,
+                    0.8565060, 0.9921018, 1.1340963, 1.2841937, 1.4446722, 1.6187131, 1.8110058,
+                    2.0289691, 2.2855694, 2.6073093, 3.0674106,
+                ],
+            ),
+        ];
+        for (k, upper) in wanted {
+            let t = normal_thresholds(k);
+            assert_eq!(t.len(), k - 1);
+            let half = &t[t.len() - upper.len()..];
+            for (got, want) in half.iter().zip(upper) {
+                assert!((got - want).abs() < 2e-7, "{k} groups: {t:?}");
+            }
+        }
     }
 
     #[test]
