@@ -3584,15 +3584,15 @@ impl Engine {
                     );
                     (lower.map(f64::exp), upper.map(f64::exp))
                 };
-                if scale == ScaleMode::Mle && family != Family::NegBin && !multinomial {
-                    if let Some(lv) = result.log_variance.filter(|v| *v > 0.0) {
-                        scale_limits = Some(ancillary_limits(phi, lv, false));
-                    }
+                let positive = result.log_variance.filter(|v| *v > 0.0);
+                if let (true, Some(lv)) = (
+                    scale == ScaleMode::Mle && family != Family::NegBin && !multinomial,
+                    positive,
+                ) {
+                    scale_limits = Some(ancillary_limits(phi, lv, false));
                 }
-                if family == Family::NegBin && k_estimated {
-                    if let Some(lv) = result.log_variance.filter(|v| *v > 0.0) {
-                        k_limits = Some(ancillary_limits(result.k, lv, true));
-                    }
+                if let (true, Some(lv)) = (family == Family::NegBin && k_estimated, positive) {
+                    k_limits = Some(ancillary_limits(result.k, lv, true));
                 }
                 profiled = true;
             }
