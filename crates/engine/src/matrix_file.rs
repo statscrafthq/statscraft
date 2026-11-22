@@ -323,6 +323,29 @@ impl Engine {
         self.after_split_values(who, part)
     }
 
+    /// The matrix file of a factor-loading matrix (FACTOR's FAC type): ROWTYPE_ FACTOR, FACTOR_
+    /// with the number of the factor, and the variables, one record per factor.
+    pub(crate) fn loading_part(
+        &self,
+        who: &str,
+        names: &[String],
+        labels: &[Option<String>],
+        loadings: &Matrix,
+    ) -> Result<Dataset, Error> {
+        let factors = loadings.first().map_or(0, Vec::len);
+        let mut part = Dataset::new(factors);
+        part.set_string_values("ROWTYPE_", 8, vec!["FACTOR".to_string(); factors])?;
+        part.set_numeric_values("FACTOR_", (1..=factors).map(|k| Some(k as f64)).collect())?;
+        part.set_format("FACTOR_", "F8.0")?;
+        for (i, name) in names.iter().enumerate() {
+            let column = (0..factors).map(|k| Some(loadings[i][k]).filter(|v| v.is_finite()));
+            part.set_numeric_values(name, column.collect())?;
+            part.set_format(name, "F10.4")?;
+            part.set_variable_label(name, labels[i].as_deref())?;
+        }
+        self.after_split_values(who, part)
+    }
+
     /// Writes the matrices of MATRIX=OUT that the runs of the split groups left, one after
     /// the other, into the active dataset (`*`), a dataset or a file. A group with fewer
     /// variables has the others blank; strings take the widest.

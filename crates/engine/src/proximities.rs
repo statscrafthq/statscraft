@@ -85,6 +85,19 @@ fn transform(command: &Proximities, prox: &mut [Vec<f64>], mut similarity: bool)
     similarity
 }
 
+/// What a proximity matrix file depends on in the command that writes it (PROXIMITIES or
+/// CLUSTER).
+pub(crate) struct MatrixOut<'a> {
+    /// The command's name, for messages.
+    pub who: &'static str,
+    /// The items came from a matrix file, not from cases.
+    pub from_matrix: bool,
+    /// The items are the variables.
+    pub view_variables: bool,
+    /// The variable that labels the cases.
+    pub id: Option<&'a String>,
+}
+
 impl Engine {
     /// The items and proximities computed from the active dataset; also the variables when
     /// they are the items.
@@ -259,17 +272,23 @@ impl Engine {
             tables.push(table);
         }
         if command.matrix_out.is_some() {
-            let out = self.proximity_dataset(command, &items, &measure, &variables)?;
-            let out = self.after_split(command, out)?;
+            let spec = MatrixOut {
+                who: "PROXIMITIES",
+                from_matrix: command.matrix_in.is_some(),
+                view_variables: command.view_variables,
+                id: command.id.as_ref(),
+            };
+            let out = self.proximity_dataset(&spec, &items, &measure, &variables)?;
+            let out = self.after_split(&spec, out)?;
             self.matrix_parts.1.push(out);
         }
         Ok(tables)
     }
 
     /// The matrix file of one split group (or of all the data).
-    fn proximity_dataset(
+    pub(crate) fn proximity_dataset(
         &self,
-        command: &Proximities,
+        command: &MatrixOut,
         items: &Items,
         measure: &str,
         variables: &[(String, Option<String>)],
@@ -294,27 +313,28 @@ impl Engine {
             vec![(
                 Value::String("PROX".into()),
                 // a matrix read has no measure name, and its description says the old kind
-                match command.matrix_in {
-                    Some(_) => kind.to_string(),
-                    None => format!("{measure} {kind}"),
+                match command.from_matrix {
+                    true => kind.to_string(),
+                    false => format!("{measure} {kind}"),
                 },
             )],
         )?;
-        let by_case = !command.view_variables && command.matrix_in.is_none();
-        let names: Vec<String> = match (command.matrix_in.is_some(), by_case) {
+        let by_case = !command.view_variables && !command.from_matrix;
+        let names: Vec<String> = match (command.from_matrix, by_case) {
             (true, _) => items.names.clone(),
             (false, true) => (1..=n).map(|i| format!("VAR{i}")).collect(),
             (false, false) => variables.iter().map(|(name, _)| name.clone()).collect(),
         };
         if by_case {
             let data = self.active()?;
-            if let Some(id) = &command.id {
+            if let Some(id) = command.id {
                 let var = data.variable(id)?;
                 let upper = var.name().to_uppercase();
                 let item = (1..=n).any(|k| upper == format!("VAR{k}"));
                 if item || ["ROWTYPE_", "CASENO_", "VARNAME_"].contains(&upper.as_str()) {
                     return Err(Error(format!(
-                        "PROXIMITIES /MATRIX=OUT: the ID variable {} has the name of another variable of the matrix file",
+                        "{} /MATRIX=OUT: the ID variable {} has the name of another variable of the matrix file",
+                        command.who,
                         var.name()
                     )));
                 }
@@ -344,7 +364,7 @@ impl Engine {
 
     /// The matrix of one group after the values of the split variables, taken from the
     /// group's first case; the items then carry no case labels.
-    fn after_split(&self, command: &Proximities, part: Dataset) -> Result<Dataset, Error> {
+    pub(crate) fn after_split(&self, command: &MatrixOut, part: Dataset) -> Result<Dataset, Error> {
         let Some(split) = &self.matrix_parts.0 else {
             return Ok(part);
         };
@@ -355,7 +375,8 @@ impl Engine {
             .find(|name| part.variable_index(name).is_some())
         {
             return Err(Error(format!(
-                "PROXIMITIES /MATRIX=OUT: the split variable {name} has the name of a variable of the matrix file"
+                "{} /MATRIX=OUT: the split variable {name} has the name of a variable of the matrix file",
+                command.who
             )));
         }
         let n = part.case_count();

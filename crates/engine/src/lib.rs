@@ -1320,6 +1320,14 @@ impl Engine {
                 let target = c.matrix_out.clone().expect("checked").1;
                 return self.procedure_with_matrix_out(command, &target);
             }
+            Command::Cluster(c) if c.matrix_out.is_some() => {
+                let target = c.matrix_out.clone().expect("checked");
+                return self.procedure_with_matrix_out(command, &target);
+            }
+            Command::Discriminant(c) if c.matrix.output.is_some() => {
+                let target = c.matrix.output.clone().expect("checked");
+                return self.procedure_with_matrix_out(command, &target);
+            }
             Command::PartialCorr(c) if c.matrix.output.is_some() => {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);

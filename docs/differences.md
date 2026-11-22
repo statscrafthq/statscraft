@@ -1043,6 +1043,7 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 ### FACTOR
 
 - MATRIX=OUT(COR=...) and OUT(COV=...) write MEAN, STDDEV and N records and the matrix of the run (CORR or COV), through the same file layout as the other procedures (ROWTYPE_, VARNAME_, the variables with F10.4); the manual does not give the order of the records. N is one record when every pair rests on the same number of cases and a matrix of records otherwise. OUT may come after VARIABLES, as the manual's examples have it, or in the first position with IN or alone (then VARIABLES follows). With matrix input, OUT(COV) needs the standard deviations in the file. The analysis is shown as usual while the file is written.
+- MATRIX=OUT(FAC=...) writes one FACTOR record per factor (ROWTYPE_ FACTOR, FACTOR_ the number of the factor, the variables with their loadings): the pattern of a rotation, else the extracted loadings, and the rescaled loadings for an analysis of covariances, as the manual says. MATRIX=OUT(FSC=...) writes MEAN, STDDEV and an FSCOEF record per factor with VARNAME_ FACn; the manual does not say what the coefficients apply to, so they are those of the standardized variables, and for METHOD=COVARIANCE (which has no STDDEV record, as the manual says) those of the centered variables. The method of SAVE gives the coefficients (regression by default); an FSC file asks for them even without PRINT=FSCORE.
 - METHOD=COVARIANCE works with PC, PAF and IMAGE, as the manual says; ALPHA, ULS, GLS and ML stop with an error, and so does a correlation matrix file without standard deviations. Raw loadings come from the covariance matrix as the Algorithms manual gives it (the eigenvectors times the root of the eigenvalues; for PAF the communalities on the diagonal, started at each variance times its squared multiple correlation and tested for convergence on their share of the variance). Rescaled loadings are the raw ones divided by the standard deviations. IMAGE gives the same factors as for correlations (the matrix the eigenvalues come from is the same), so its rescaled loadings equal the correlation ones and its raw loadings are those times the standard deviations.
 - With covariances, rotation, the loading plots, REPR and the factor scores work on the rescaled loadings and the correlation matrix, and the raw tables follow from them by the standard deviations; the manual does not say which loadings a rotation turns, and with Kaiser normalization (the default) the two choices give the same transformation. Component scores of PC are those of the centered raw data on the raw loadings; the other scores are scale-free. MINEIGEN(n) is n times the mean variance, and the scree plot shows the eigenvalues of the matrix analyzed. DET and INV describe the covariance matrix, KMO and the anti-image matrices the correlations.
 - The tables show the raw solution and the rescaled one side by side (Communalities, the loading matrices, and the extraction and rotation sums of squares, whose percents are of the total variance and of the number of variables). The initial eigenvalues come once, since they are the same for both. The manual does not give this layout.
@@ -1072,6 +1073,7 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 
 ### CLUSTER
 
+- MATRIX=OUT writes the proximity matrix the run clustered, in the layout PROXIMITIES writes (the same code writes both): ROWTYPE_ PROX with the measure and SIMILARITY or DISSIMILARITY as its value label, the ID variable if one is given, CASENO_, VARNAME_ and a column VARn for each case. A file the run read comes out with the same layout and the label of its kind. The analysis is shown as usual while the file is written, and under SPLIT FILE every group writes its own matrix.
 - The cases are numbered in the order they are clustered, and the tables label them with their case numbers in the file.
 - When two pairs are equally similar (to 1e-10 of their size), the pair with the lowest cluster numbers joins first.
 - The clusters of a solution are numbered in the order of their first case.
@@ -1287,6 +1289,7 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 
 ### DISCRIMINANT
 
+- MATRIX=OUT writes, for the first analysis block, a record of type N (weighted cases), COUNT (unweighted cases) and MEAN for each group, then the pooled STDDEV (the root of the mean square error) and CORR (the pooled within-groups correlations), with the grouping variable between ROWTYPE_ and VARNAME_ and missing on the pooled records, as the manual describes; the order of the records is ours. The within-cell records and separate covariance matrices that BOXM, GCOV and CLASSIFY=SEPARATE call for are not written (the manual does not give their layout), and a warning says so. A later analysis block writes nothing (a warning).
 - ROTATE=COEFF and STRUCTURE rotate the functions by varimax with Kaiser normalization, as the Algorithms manual describes. Its divisor for the coefficients is printed with a plus where the squared multiple correlation it names needs a minus (1 - 1 / (w_ii w^ii), from the within-groups sums of squares and their inverse), so the correlation is used; the structure rows are divided by the root of their sum of squares. The rotation runs to a tight tolerance (1000 sweeps, 1e-10), since the manual gives none. The manual does not say how the rotated functions are signed or ordered: here each has a positive column sum in the matrix that was rotated, and they come in descending order of between-groups variance, shown as percentages under the transformation matrix. The rotated structure matrix is ordered like the plain one. The scores that SAVE writes and the classification stay unrotated, and a single function gives a warning and no rotation.
 - A group value that is not a whole number counts as out of range.
 - Each function is reflected so that its standardized coefficients sum to a positive number.
@@ -1887,11 +1890,10 @@ Where the documentation is silent:
   - UNIANOVA and GLM have no RANDOM, OUTFILE or MEASURE, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
   - GENLINMIXED has no model with neither RANDOM nor REPEATED_MEASURES, no spatial or Kronecker residual structures, no GROUPING and no Pearson residuals of a multinomial target.
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
-  - FACTOR writes only the COR and COV matrix files (no FAC or FSC) and reads no MATRIX=IN(FAC=...).
-  - CLUSTER has no MATRIX=OUT.
+  - FACTOR reads no MATRIX=IN(FAC=...).
   - TWOSTEP CLUSTER has no INFILE and writes no OUTFILE model or tree; DETECTANOMALY writes no OUTFILE model.
   - MVA has no OUTFILE under SPLIT FILE.
-  - DISCRIMINANT has no MATRIX or OUTFILE.
+  - DISCRIMINANT has no MATRIX=IN or OUTFILE.
   - USE takes case numbers only with /PERMANENT.
   - ADD FILES, MATCH FILES and UPDATE take no PASSWORD.
   - GET DATA reads no ODBC or OLEDB sources.

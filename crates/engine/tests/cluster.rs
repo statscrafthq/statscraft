@@ -514,3 +514,88 @@ fn errors_and_warnings() {
     let e = error("CLUSTER x y /SAVE=CLUSTER(2) /METHOD=SINGLE(b).");
     assert!(e.contains("already exists"), "{e}");
 }
+
+fn cell_text(engine: &Engine, name: &str, case: usize) -> String {
+    match engine.dataset().unwrap().variable(name).unwrap().values() {
+        Values::String(v) => v.get(case).trim().to_string(),
+        Values::Numeric(_) => panic!("{name} is numeric"),
+    }
+}
+
+fn cell_number(engine: &Engine, name: &str, case: usize) -> f64 {
+    match engine.dataset().unwrap().variable(name).unwrap().values() {
+        Values::Numeric(v) => v.get(case).unwrap(),
+        Values::String(_) => panic!("{name} is a string"),
+    }
+}
+
+// Distances and single-linkage heights from R: dist() and hclust(method = "single") on the
+// eleven cases with all of x, y and z.
+#[test]
+fn matrix_out_writes_the_proximity_matrix_and_clusters_the_same_when_read_back() {
+    let mut engine = Engine::default();
+    let direct = run_on(
+        &mut engine,
+        &format!("{DATA}CLUSTER x y z /MEASURE=EUCLID /ID=name /METHOD=SINGLE /MATRIX=OUT(*)."),
+    );
+    let data = engine.dataset().unwrap();
+    let names: Vec<&str> = data.variable_names().collect();
+    assert_eq!(names[..4], ["ROWTYPE_", "name", "CASENO_", "VARNAME_"]);
+    assert_eq!(names.len(), 4 + 11);
+    assert_eq!(data.case_count(), 11);
+    assert_eq!(cell_text(&engine, "ROWTYPE_", 0), "PROX");
+    // G misses z, so the seventh item is H, case number 8
+    assert_eq!(cell_text(&engine, "name", 6), "H");
+    assert_eq!(cell_number(&engine, "CASENO_", 6), 8.0);
+    assert_eq!(cell_text(&engine, "VARNAME_", 6), "VAR7");
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+    assert!(close(cell_number(&engine, "VAR2", 0), 1.568438714136));
+    assert!(close(cell_number(&engine, "VAR5", 0), 1.232882800594));
+    assert!(close(cell_number(&engine, "VAR4", 2), 1.860107523774));
+    assert!(close(cell_number(&engine, "VAR11", 1), 3.733630940519));
+    let label = engine
+        .dataset()
+        .unwrap()
+        .variable("ROWTYPE_")
+        .unwrap()
+        .value_labels()
+        .to_vec();
+    assert_eq!(label.len(), 1);
+    assert!(label[0].1.ends_with("DISSIMILARITY"), "{label:?}");
+    // the analysis is shown as usual, with the heights R finds
+    let schedule = |tables: &[Table]| -> Vec<f64> {
+        let t = tables
+            .iter()
+            .find(|t| t.title == "Agglomeration Schedule")
+            .unwrap();
+        t.rows.iter().take(3).map(|r| number(&r[3])).collect()
+    };
+    let want = [1.153256259467, 1.232882800594, 1.326649916142];
+    for (a, b) in schedule(&direct).iter().zip(want) {
+        assert!(close(*a, b), "{a} against {b}");
+    }
+    // the matrix read back is the same clustering
+    let back = run_on(&mut engine, "CLUSTER /MATRIX=IN(*) /METHOD=SINGLE.");
+    for (a, b) in schedule(&back).iter().zip(want) {
+        assert!(close(*a, b), "{a} against {b}");
+    }
+}
+
+#[test]
+fn matrix_out_without_an_id_labels_the_items_by_case() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!("{DATA}CLUSTER x y /MEASURE=EUCLID /MATRIX=OUT(*)."),
+    );
+    let data = engine.dataset().unwrap();
+    let names: Vec<&str> = data.variable_names().collect();
+    assert_eq!(names[..3], ["ROWTYPE_", "CASENO_", "VARNAME_"]);
+    assert_eq!(data.case_count(), 12);
+    // C and D: the distance between (8.1, 9.4) and (9.0, 8.2) is 1.5
+    assert!((cell_number(&engine, "VAR4", 2) - 1.5).abs() < 1e-12);
+    assert_eq!(
+        engine.dataset().unwrap().variable("VAR4").unwrap().label(),
+        Some("CASE 4")
+    );
+}

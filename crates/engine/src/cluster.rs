@@ -767,6 +767,17 @@ impl Engine {
             None => measure_name(&command.measure),
         };
         tables.push(summary_table(n, items.missing, &format!("{measure} used")));
+        if command.matrix_out.is_some() {
+            let spec = crate::proximities::MatrixOut {
+                who: "CLUSTER",
+                from_matrix: command.matrix_in.is_some(),
+                view_variables: false,
+                id: command.id.as_ref(),
+            };
+            let file = self.proximity_dataset(&spec, &items, &measure, &[])?;
+            let file = self.after_split(&spec, file)?;
+            self.matrix_parts.1.push(file);
+        }
         if command.distance {
             tables.push(proximity_table(
                 "Case",

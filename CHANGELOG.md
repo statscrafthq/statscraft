@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- DISCRIMINANT /MATRIX=OUT writes the group counts and means and the pooled deviations and correlations of the first analysis as a matrix data file.
+- CLUSTER /MATRIX=OUT writes the proximity matrix of the run (rows of type PROX, the layout PROXIMITIES writes) to a file, a dataset or the active dataset.
+- FACTOR /MATRIX=OUT(FAC=...) writes the factor loadings, one record per factor, and OUT(FSC=...) the means, standard deviations and factor score coefficients.
 - NPAR TESTS /METHOD=EXACT gives the exact significance of the marginal homogeneity test (two-sided, one-sided and point probability).
 
 ## 0.27.0 (2026-11-22)

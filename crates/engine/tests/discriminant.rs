@@ -875,3 +875,103 @@ fn rotation_of_the_structure_matches_varimax_in_r() {
     let none = run("DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /ROTATE=NONE.");
     assert!(none.iter().all(|t| !t.title.contains("Rotat")));
 }
+
+fn cells_text(engine: &Engine, name: &str) -> Vec<String> {
+    let data = engine.dataset().unwrap();
+    match data.variable(name).unwrap().values() {
+        Values::String(v) => (0..data.case_count())
+            .map(|k| v.get(k).trim().to_string())
+            .collect(),
+        Values::Numeric(_) => panic!("{name} is numeric"),
+    }
+}
+
+fn cells_number(engine: &Engine, name: &str) -> Vec<Option<f64>> {
+    let data = engine.dataset().unwrap();
+    match data.variable(name).unwrap().values() {
+        Values::Numeric(v) => (0..data.case_count()).map(|k| v.get(k)).collect(),
+        Values::String(_) => panic!("{name} is a string"),
+    }
+}
+
+// R on the 36 analysis cases: group means, and the pooled within-groups deviations
+// sqrt(diag(W) / (n - g)) and correlations cov2cor(W).
+#[test]
+fn matrix_out_holds_the_group_counts_means_and_the_pooled_deviations_and_correlations() {
+    let mut engine = Engine::default();
+    let tables = run_on(
+        &mut engine,
+        &format!("{DATA}DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /MATRIX=OUT(*)."),
+    );
+    // the analysis is shown as usual
+    assert!(
+        tables
+            .iter()
+            .any(|t| t.title == "Group Statistics" || t.title == "Wilks' Lambda")
+    );
+    let names: Vec<String> = engine
+        .dataset()
+        .unwrap()
+        .variable_names()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(names, ["ROWTYPE_", "g", "VARNAME_", "x1", "x2", "x3", "x4"]);
+    assert_eq!(
+        cells_text(&engine, "ROWTYPE_"),
+        [
+            "N", "N", "N", "COUNT", "COUNT", "COUNT", "MEAN", "MEAN", "MEAN", "STDDEV", "CORR",
+            "CORR", "CORR", "CORR"
+        ]
+    );
+    let group = cells_number(&engine, "g");
+    assert_eq!(
+        group,
+        [
+            Some(1.0),
+            Some(2.0),
+            Some(3.0),
+            Some(1.0),
+            Some(2.0),
+            Some(3.0),
+            Some(1.0),
+            Some(2.0),
+            Some(3.0),
+            None,
+            None,
+            None,
+            None,
+            None
+        ]
+    );
+    let x1 = cells_number(&engine, "x1");
+    let near = |a: Option<f64>, b: f64| (a.unwrap() - b).abs() < 1e-9;
+    assert!(near(x1[0], 12.0) && near(x1[5], 12.0));
+    assert!(near(x1[7], 7.383333333333333) && near(x1[8], 6.25));
+    assert!(near(x1[9], 1.205490385987));
+    assert!(near(x1[10], 1.0) && near(cells_number(&engine, "x2")[10], -0.1429916950971));
+    assert!(near(cells_number(&engine, "x4")[9], 1.105792827693));
+    assert!(near(cells_number(&engine, "x4")[12], 0.2071996909324));
+    assert_eq!(
+        cells_text(&engine, "VARNAME_")[10..],
+        ["x1", "x2", "x3", "x4"]
+    );
+}
+
+#[test]
+fn matrix_out_warns_when_it_cannot_hold_the_within_cell_records() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{DATA}DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /STATISTICS=BOXM /MATRIX=OUT(*)."
+        ),
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("pooled STDDEV and CORR records only")),
+        "{:?}",
+        engine.warnings()
+    );
+}

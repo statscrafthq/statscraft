@@ -1397,3 +1397,138 @@ fn matrix_out_cov_needs_the_deviations_of_a_correlation_matrix() {
     }
     assert!(message.contains("standard deviations"), "{message}");
 }
+
+#[test]
+fn matrix_out_fac_writes_one_factor_record_per_factor() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /MATRIX=OUT(FAC=*) /CRITERIA=FACTORS(2) /ROTATION=NOROTATE."
+        ),
+    );
+    let names: Vec<String> = engine
+        .dataset()
+        .unwrap()
+        .variable_names()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(names, ["ROWTYPE_", "FACTOR_", "x1", "x2", "x3", "x4", "x5"]);
+    assert_eq!(texts_of(&engine, "ROWTYPE_"), ["FACTOR", "FACTOR"]);
+    assert_eq!(numbers_of(&engine, "FACTOR_"), [1.0, 2.0]);
+    // R: the first two eigenvectors of cor(X) times the root of the eigenvalues
+    let want = [
+        [0.6328070103205, -0.6337088233055],
+        [0.6860881801322, -0.5534307221682],
+        [0.6547785269219, 0.3141657024602],
+        [0.5443975094509, 0.6477011229140],
+        [0.7293499007164, 0.3049315954161],
+    ];
+    for (i, name) in ["x1", "x2", "x3", "x4", "x5"].iter().enumerate() {
+        // a record is a factor: its values are the loadings of the variable on factors 1, 2
+        check(&numbers_of(&engine, name), &want[i], 1e-9, "loadings");
+    }
+}
+
+#[test]
+fn matrix_out_fac_of_a_covariance_analysis_is_rescaled_and_follows_the_rotation() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /MATRIX=OUT(FAC=*) /CRITERIA=FACTORS(2) /ROTATION=NOROTATE."
+        ),
+    );
+    // R: the eigenvectors of cov(X) times the root of the eigenvalues, over the deviations
+    let want = [
+        [0.2386359270444, 0.11986769014908],
+        [0.2975210797211, 0.10037956122307],
+        [0.4260318476941, 0.90467648711597],
+        [0.4560298532110, 0.18645938638711],
+        [0.9978262369870, -0.06585794443665],
+    ];
+    for (i, name) in ["x1", "x2", "x3", "x4", "x5"].iter().enumerate() {
+        check(
+            &numbers_of(&engine, name),
+            &want[i],
+            1e-9,
+            "rescaled loadings",
+        );
+    }
+    // with a rotation the file holds the rotated loadings
+    let mut rotated = Engine::default();
+    let tables = run_on(
+        &mut rotated,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /MATRIX=OUT(FAC=*) /CRITERIA=FACTORS(2) /ROTATION=VARIMAX."
+        ),
+    );
+    let shown = find(&tables, "Rotated Component Matrix");
+    for name in ["x1", "x3", "x5"] {
+        check(
+            &numbers_of(&rotated, name),
+            &row(shown, name),
+            1e-9,
+            "rotated loadings",
+        );
+    }
+}
+
+#[test]
+fn matrix_out_fsc_holds_the_means_deviations_and_score_coefficients() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /MATRIX=OUT(FSC=*) /CRITERIA=FACTORS(2) /ROTATION=NOROTATE."
+        ),
+    );
+    assert_eq!(
+        texts_of(&engine, "ROWTYPE_"),
+        ["MEAN", "STDDEV", "FSCOEF", "FSCOEF"]
+    );
+    assert_eq!(texts_of(&engine, "VARNAME_"), ["", "", "FAC1", "FAC2"]);
+    check(
+        &[numbers_of(&engine, "x1")[0], numbers_of(&engine, "x5")[1]],
+        &[0.2350, 27.6586797245017],
+        1e-9,
+        "mean and deviation",
+    );
+    // R: the loadings over the eigenvalues, the regression coefficients of the components
+    let want = [
+        [0.2973414574571, -0.4804199922330],
+        [0.3223770535053, -0.4195604881414],
+        [0.3076653676893, 0.2381716630495],
+        [0.2557998667148, 0.4910276723253],
+        [0.3427047408425, 0.2311712087853],
+    ];
+    for (i, name) in ["x1", "x2", "x3", "x4", "x5"].iter().enumerate() {
+        let column = numbers_of(&engine, name);
+        check(&column[2..], &want[i], 1e-9, "score coefficients");
+    }
+}
+
+#[test]
+fn matrix_out_fsc_of_a_covariance_analysis_is_for_the_centered_variables() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{SCALES}FACTOR VARIABLES=x1 TO x5 /METHOD=COVARIANCE /MATRIX=OUT(FSC=*) /CRITERIA=FACTORS(2) /ROTATION=NOROTATE."
+        ),
+    );
+    // no STDDEV record: the coefficients are those of the centered variables
+    assert_eq!(texts_of(&engine, "ROWTYPE_"), ["MEAN", "FSCOEF", "FSCOEF"]);
+    // R: L (L'L)^-1 with the raw loadings L of cov(X)
+    let want = [
+        [0.0002991880755408, 0.0010777317116640],
+        [0.0010285814816017, 0.0024886643452523],
+        [0.0061740667000850, 0.0940205153657418],
+        [0.0002672071591488, 0.0007835002505249],
+        [0.0351134687198706, -0.0166198484436986],
+    ];
+    for (i, name) in ["x1", "x2", "x3", "x4", "x5"].iter().enumerate() {
+        let column = numbers_of(&engine, name);
+        check(&column[1..], &want[i], 1e-8, "centered score coefficients");
+    }
+}

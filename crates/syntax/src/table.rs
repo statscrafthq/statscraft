@@ -2376,7 +2376,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Factor analysis: principal components and six factoring methods, rotations, factor scores.",
         syntax: "FACTOR VARIABLES=varlist | MATRIX=IN(COR=* | 'file' | COV=* | 'file')\n\
                  \x20      [/MISSING=[LISTWISE | PAIRWISE | MEANSUB] [INCLUDE]] [/SELECT=var(value)]\n\
-                 \x20      [/ANALYSIS=varlist] [/METHOD=CORRELATION | COVARIANCE] [/MATRIX=OUT(COR | COV=file | *)]\n\
+                 \x20      [/ANALYSIS=varlist] [/METHOD=CORRELATION | COVARIANCE] [/MATRIX=OUT(COR | COV | FAC | FSC = file | *)]\n\
                  \x20      [/PRINT=[DEFAULT] [INITIAL] [EXTRACTION] [ROTATION] [UNIVARIATE] [CORRELATION] [COVARIANCE]\n\
                  \x20              [SIG] [DET] [INV] [REPR] [AIC] [KMO] [FSCORE] [ALL]]\n\
                  \x20      [/FORMAT=[SORT] [BLANK(n)] [DEFAULT]] [/DIAGONAL=values | DEFAULT]\n\
@@ -2410,8 +2410,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  only; it needs the standard deviations in a correlation matrix file): the tables show the raw\n\
                  loadings and communalities beside the rescaled ones, and MINEIGEN(n) counts in mean variances.\n\
                  MATRIX=OUT(COR=file) or OUT(COV=file) writes the means, standard deviations, counts\n\
-                 and the matrix (a file, a dataset or * for the active dataset). Not supported yet:\n\
-                 MATRIX=OUT(FAC=...) and OUT(FSC=...), MATRIX=IN(FAC=...).",
+                 and the matrix (a file, a dataset or * for the active dataset), OUT(FAC=file) the loadings and\n\
+                 OUT(FSC=file) the means, deviations and score coefficients. Not supported yet: MATRIX=IN(FAC=...).",
         example: "FACTOR VARIABLES=q1 TO q10 /PRINT=INITIAL EXTRACTION ROTATION KMO /FORMAT=SORT BLANK(.3) /CRITERIA=MINEIGEN(1) /EXTRACTION=PC /ROTATION=VARIMAX /SAVE=REG(ALL).",
         parse: factor::factor,
     },
@@ -2757,7 +2757,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "CLUSTER",
         summary: "Hierarchical clustering of cases by one of 37 proximity measures and seven methods.",
-        syntax: "CLUSTER varlist | /MATRIX=IN('file' | dataset | *)\n\
+        syntax: "CLUSTER varlist | /MATRIX=IN('file' | dataset | *) [/MATRIX=OUT('file' | dataset | *)]\n\
                  \x20       [/MEASURE=SEUCLID | EUCLID | COSINE | CORRELATION | BLOCK | CHEBYCHEV | MINKOWSKI(p) |\n\
                  \x20                 POWER(p,r) | CHISQ | PH2 | binary[(p[,np])]]\n\
                  \x20       [/METHOD=BAVERAGE | WAVERAGE | SINGLE | COMPLETE | CENTROID | MEDIAN | WARD [(rootname)] ...]\n\
@@ -2778,7 +2778,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  vertical icicle plot unless PLOT names others. The icicle plot shows the cluster of every case at\n\
                  each number of clusters, from min to max by inc (default 1 to the number of cases minus 1). The\n\
                  dendrogram holds every join with its coefficient, rescaled from 1 at the first join to 25 at\n\
-                 the last. Not supported yet: MATRIX=OUT, SAVE with MATRIX=IN.",
+                 the last. MATRIX=OUT writes the proximity matrix of the run (rows of type PROX, the same file PROXIMITIES\n\
+                 writes: the ID variable or none, CASENO_, VARNAME_ and one VARn column per case) to a file, a\n\
+                 dataset or the active dataset. Not supported yet: SAVE with MATRIX=IN.",
         example: "CLUSTER q1 TO q5 /MEASURE=SEUCLID /METHOD=WARD /PRINT=SCHEDULE CLUSTER(2,4) /SAVE=CLUSTER(3).",
         parse: cluster::cluster,
     },
@@ -3046,7 +3048,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/ANALYSIS=... another block] [/MISSING=EXCLUDE | INCLUDE] [/HISTORY=STEP | NONE]\n\
                  \x20  [/CLASSIFY=[NONMISSING | UNSELECTED | UNCLASSIFIED] [POOLED | SEPARATE] [MEANSUB]]\n\
                  \x20  [/STATISTICS=[MEAN] [STDDEV] [UNIVF] [COV] [CORR] [FPAIR] [BOXM] [GCOV] [TCOV] [RAW] [COEFF] [TABLE]\n\
-                 \x20               [CROSSVALID] [ALL]] [/ROTATE=NONE | COEFF | STRUCTURE] [/PLOT=[COMBINED] [SEPARATE] [MAP] [CASES[(n)]] [ALL]].\n\
+                 \x20               [CROSSVALID] [ALL]] [/ROTATE=NONE | COEFF | STRUCTURE] [/MATRIX=OUT(file | dataset | *)] [/PLOT=[COMBINED] [SEPARATE] [MAP] [CASES[(n)]] [ALL]].\n\
                  The analysis uses the cases with a whole group value in the range, no missing value on VARIABLES and,\n\
                  with SELECT, the selected value; groups without cases are ignored. DIRECT enters the variables that\n\
                  pass the tolerance; the stepwise methods enter the variable with the best criterion (smallest Wilks'\n\
@@ -3073,8 +3075,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  map with one function or CLASSIFY=SEPARATE. ROTATE=COEFF or STRUCTURE adds a varimax rotation of the\n\
                  functions: the transformation matrix with the share of the between-groups variance of each rotated\n\
                  function, the rotated standardized coefficients and the rotated structure matrix; scores and\n\
-                 classification stay as they are. Not supported yet: MATRIX,\n\
-                 OUTFILE.",
+                 classification stay as they are. MATRIX=OUT writes the group counts and means with the pooled deviations and\n\
+                 correlations of the first analysis. Not supported yet: MATRIX=IN, OUTFILE.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
         parse: discriminant::discriminant,
     },

@@ -98,6 +98,8 @@ pub struct Cluster {
     pub plot: ClusterPlot,
     /// `MATRIX=IN(...)`: the file or dataset, None for `*`.
     pub matrix_in: Option<Option<String>>,
+    /// `MATRIX=OUT(...)`: the file or dataset the proximity matrix goes to, None for `*`.
+    pub matrix_out: Option<Option<String>>,
 }
 
 /// The plots of CLUSTER for each method.
@@ -348,16 +350,20 @@ fn matrix(p: &mut Parser, command: &mut Cluster) -> PResult<()> {
     p.eat(Punct::Eq);
     let mut any = false;
     while !at_end(p) {
-        if p.at_keyword("OUT") {
-            return Err(SyntaxError::new(
-                p.span(),
-                "OUT in CLUSTER /MATRIX is not supported yet",
-            ));
-        }
-        if !p.eat_keyword("IN") {
+        let start = p.pos;
+        if p.eat_keyword("OUT") {
+            if command.matrix_out.is_some() {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "CLUSTER /MATRIX takes OUT only once",
+                ));
+            }
+            command.matrix_out = Some(matrix_source(p)?);
+        } else if p.eat_keyword("IN") {
+            command.matrix_in = Some(matrix_source(p)?);
+        } else {
             return Err(p.unexpected(&["IN", "OUT"]));
         }
-        command.matrix_in = Some(matrix_source(p)?);
         any = true;
     }
     if !any {
@@ -382,6 +388,7 @@ pub(crate) fn cluster(p: &mut Parser) -> PResult<Command> {
             ..ClusterPlot::NONE
         },
         matrix_in: None,
+        matrix_out: None,
     };
     if matches!(p.peek(), Some(TokenKind::Word(_))) {
         command.variables = p.var_list()?;

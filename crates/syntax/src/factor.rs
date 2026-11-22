@@ -517,6 +517,10 @@ pub enum FactorMatrixOut {
     Correlation,
     /// `COV`: counts, means, standard deviations and the covariances.
     Covariance,
+    /// `FAC`: the factor loadings, one record per factor.
+    Loadings,
+    /// `FSC`: the means, the standard deviations and the factor score coefficients.
+    ScoreCoefficients,
 }
 
 /// `(type=file)` after IN or OUT: the type word, then the file, dataset or `*` (None).
@@ -574,10 +578,12 @@ fn matrix(p: &mut Parser, command: &mut Factor, first: bool) -> PResult<()> {
                 ));
             }
             let (kind, source) =
-                typed_source(p, "FACTOR /MATRIX=OUT", &["FAC", "FSC"], &["COR", "COV"])?;
+                typed_source(p, "FACTOR /MATRIX=OUT", &[], &["COR", "COV", "FAC", "FSC"])?;
             let kind = match kind.as_str() {
                 "COR" => FactorMatrixOut::Correlation,
-                _ => FactorMatrixOut::Covariance,
+                "COV" => FactorMatrixOut::Covariance,
+                "FAC" => FactorMatrixOut::Loadings,
+                _ => FactorMatrixOut::ScoreCoefficients,
             };
             command.matrix_out = Some((kind, source));
         } else {

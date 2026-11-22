@@ -2351,7 +2351,14 @@ impl Engine {
             .save
             .as_ref()
             .map_or(ScoreMethod::Regression, |s| s.method);
-        if print.fscore || command.save.is_some() {
+        let fsc = matches!(
+            command.matrix_out,
+            Some((FactorMatrixOut::ScoreCoefficients, _))
+        );
+        if let Some((FactorMatrixOut::Loadings, _)) = command.matrix_out {
+            self.factor_loading_matrix(&input, pattern)?;
+        }
+        if print.fscore || command.save.is_some() || fsc {
             let coefficients = score_coefficients(
                 method,
                 r,
@@ -2367,6 +2374,9 @@ impl Engine {
                         .into(),
                 ),
                 Some(w) => {
+                    if fsc {
+                        self.factor_score_matrix(&input, &w, covariance)?;
+                    }
                     let method_caption = match method {
                         ScoreMethod::Regression => "Regression",
                         ScoreMethod::Bartlett => "Bartlett",
@@ -2441,6 +2451,8 @@ impl Engine {
     /// and its correlation or covariance matrix, as one matrix file for MATRIX=OUT to write.
     fn factor_matrix_out(&mut self, kind: FactorMatrixOut, input: &Input) -> Result<(), Error> {
         let (word, matrix) = match kind {
+            // loadings and score coefficients are written when the solution is known
+            FactorMatrixOut::Loadings | FactorMatrixOut::ScoreCoefficients => return Ok(()),
             FactorMatrixOut::Correlation => ("CORR", &input.r),
             FactorMatrixOut::Covariance => match &input.cov {
                 Some(cov) => ("COV", cov),
@@ -2452,14 +2464,7 @@ impl Engine {
                 }
             },
         };
-        let labels = input
-            .names
-            .iter()
-            .map(|n| {
-                let data = self.dataset.as_ref()?;
-                data.variable(n).ok()?.label().map(str::to_string)
-            })
-            .collect();
+        let labels = self.variable_labels(&input.names);
         let mut file = MatrixRows::new(input.names.clone(), labels);
         if let Some(mean) = &input.mean {
             file.push("MEAN", "", mean.clone());
@@ -2476,6 +2481,59 @@ impl Engine {
         let part = self.matrix_part("FACTOR", &file)?;
         self.matrix_parts.1.push(part);
         Ok(())
+    }
+
+    /// MATRIX=OUT(FAC): one FACTOR record per factor with the loadings (the pattern of a
+    /// rotation; the rescaled loadings of an analysis of covariances), as a matrix file.
+    fn factor_loading_matrix(&mut self, input: &Input, pattern: &Matrix) -> Result<(), Error> {
+        let labels = self.variable_labels(&input.names);
+        let part = self.loading_part("FACTOR", &input.names, &labels, pattern)?;
+        self.matrix_parts.1.push(part);
+        Ok(())
+    }
+
+    /// MATRIX=OUT(FSC): MEAN, STDDEV (with correlations) and one FSCOEF record per factor with
+    /// its score coefficients. The coefficients apply to the standardized variables; an analysis
+    /// of covariances has no STDDEV record, so its coefficients are given for the centered
+    /// variables (divided by the standard deviations).
+    fn factor_score_matrix(
+        &mut self,
+        input: &Input,
+        coefficients: &Matrix,
+        covariance: bool,
+    ) -> Result<(), Error> {
+        let Some(mean) = &input.mean else {
+            return Err(Error(
+                "FACTOR /MATRIX=OUT(FSC=...) needs the means (MEAN row) in the matrix file".into(),
+            ));
+        };
+        let labels = self.variable_labels(&input.names);
+        let mut file = MatrixRows::new(input.names.clone(), labels);
+        file.push("MEAN", "", mean.clone());
+        if !covariance {
+            file.push("STDDEV", "", input.sd.clone());
+        }
+        for (k, factor) in transpose(coefficients).iter().enumerate() {
+            let column = factor
+                .iter()
+                .zip(&input.sd)
+                .map(|(w, sd)| if covariance { w / sd } else { *w })
+                .collect();
+            file.push("FSCOEF", &format!("FAC{}", k + 1), column);
+        }
+        let part = self.matrix_part("FACTOR", &file)?;
+        self.matrix_parts.1.push(part);
+        Ok(())
+    }
+
+    fn variable_labels(&self, names: &[String]) -> Vec<Option<String>> {
+        names
+            .iter()
+            .map(|n| {
+                let data = self.dataset.as_ref()?;
+                data.variable(n).ok()?.label().map(str::to_string)
+            })
+            .collect()
     }
 
     fn warn_all(&mut self, warnings: Vec<String>) {

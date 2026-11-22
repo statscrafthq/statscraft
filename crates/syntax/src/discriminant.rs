@@ -12,7 +12,7 @@
 //! - FIN 3.84 and FOUT 2.71 by default; PIN and POUT take their place when given. TOLERANCE
 //!   0.001, VIN 0. FUNCTIONS=n1[,n2[,n3]] keeps the earlier n2 and n3 when left out.
 //! - PRIORS=EQUAL (default) | SIZE | values, `n*c` repeating c n times.
-//! - ROTATE=COEFF | STRUCTURE | NONE (default).
+//! - ROTATE=COEFF | STRUCTURE | NONE (default). MATRIX=OUT(file | dataset | *).
 //! - SAVE=CLASS[=name] SCORES[=root] PROBS[=root] (also in parentheses).
 //! - STATISTICS without keywords is MEAN STDDEV UNIVF. HISTORY=STEP (alias END) | NONE (aliases
 //!   NOSTEP, NOEND). CLASSIFY=NONMISSING | UNSELECTED | UNCLASSIFIED, POOLED | SEPARATE, MEANSUB.
@@ -141,6 +141,8 @@ pub struct Discriminant {
     pub history: bool,
     pub classify: ClassifyCases,
     pub rotate: DiscriminantRotate,
+    /// `MATRIX=OUT(...)`: the file the matrix materials go to (IN is not supported yet).
+    pub matrix: crate::matrix_io::MatrixIo,
     pub separate: bool,
     pub meansub: bool,
     pub statistics: DiscriminantStatistics,
@@ -490,6 +492,7 @@ pub(crate) fn discriminant(p: &mut Parser) -> PResult<Command> {
         history: true,
         classify: ClassifyCases::NonMissing,
         rotate: DiscriminantRotate::None,
+        matrix: crate::matrix_io::MatrixIo::default(),
         separate: false,
         meansub: false,
         statistics: DiscriminantStatistics::default(),
@@ -688,8 +691,17 @@ pub(crate) fn discriminant(p: &mut Parser) -> PResult<Command> {
                         return Err(p.unexpected(&["COMBINED", "SEPARATE", "MAP", "CASES", "ALL"]));
                     }
                 }
+            } else if p.eat_keyword("MATRIX") {
+                let start = p.pos;
+                crate::matrix_io::matrix_io(p, &mut command.matrix, "DISCRIMINANT", false, false)?;
+                if command.matrix.input.is_some() {
+                    return Err(SyntaxError::new(
+                        p.span_from(start),
+                        "IN in DISCRIMINANT /MATRIX is not supported yet",
+                    ));
+                }
             } else {
-                return Err(p.subcommand_error("DISCRIMINANT", &["MATRIX", "OUTFILE"]));
+                return Err(p.subcommand_error("DISCRIMINANT", &["OUTFILE"]));
             }
         }
         if !at_end(p) {

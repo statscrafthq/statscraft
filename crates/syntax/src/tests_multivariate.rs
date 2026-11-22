@@ -124,11 +124,24 @@ fn cluster_abbreviations_and_method_lists() {
     assert_eq!(c.matrix_in, Some(None));
     let c = cluster("CLUSTER /MATRIX=IN('dist.sav').");
     assert_eq!(c.matrix_in, Some(Some("dist.sav".into())));
+    // OUT, alone or with IN on one or two subcommands
+    let c = cluster("CLUSTER a b /MATRIX=OUT(*).");
+    assert_eq!(c.matrix_out, Some(None));
+    let c = cluster("CLUSTER /MATRIX=IN(*) OUT('next.sav').");
+    assert_eq!(
+        (c.matrix_in, c.matrix_out),
+        (Some(None), Some(Some("next.sav".into())))
+    );
+    let c = cluster("CLUSTER /MATRIX=OUT(m) /MATRIX=IN(*).");
+    assert_eq!(
+        (c.matrix_in, c.matrix_out),
+        (Some(None), Some(Some("m".into())))
+    );
 }
 
 #[test]
 fn cluster_errors() {
-    assert!(err("CLUSTER a b /MATRIX=OUT(*).").contains("not supported yet"));
+    assert!(err("CLUSTER a b /MATRIX=OUT(*) OUT(m).").contains("OUT only once"));
     assert!(err("CLUSTER /PRINT=SCHEDULE.").contains("variable list"));
     assert!(err("CLUSTER a b /PRINT=CLUSTER(5,2).").contains("above the largest"));
     assert!(err("CLUSTER a b /MEASURE=SEUCLID EUCLID.").contains("one measure"));
@@ -267,6 +280,14 @@ fn discriminant_rotate_keywords() {
 }
 
 #[test]
+fn discriminant_matrix_out() {
+    let d = discriminant("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a b /MATRIX=OUT(*).");
+    assert_eq!(d.matrix.output, Some(None));
+    let d = discriminant("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a b /MATRIX=OUT('m.sav').");
+    assert_eq!(d.matrix.output, Some(Some("m.sav".into())));
+}
+
+#[test]
 fn discriminant_errors() {
     assert!(err("DISCRIMINANT /VARIABLES=a b.").contains("GROUPS"));
     assert!(err("DISCRIMINANT GROUPS=g(1,2).").contains("VARIABLES"));
@@ -275,8 +296,7 @@ fn discriminant_errors() {
         err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /ROTATE=VARIMAX.").contains("word VARIMAX")
     );
     assert!(
-        err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /MATRIX=OUT(*).")
-            .contains("not supported yet")
+        err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /MATRIX=IN(*).").contains("not supported yet")
     );
     assert!(
         err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /TOLERANCE=2.").contains("between 0 and 1")

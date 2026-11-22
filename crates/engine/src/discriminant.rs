@@ -24,6 +24,7 @@
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, f_p};
 use crate::matrix::{Matrix, cholesky, inverse, symmetric_eigen};
+use crate::matrix_file::MatrixRows;
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
@@ -634,6 +635,51 @@ fn rotated_tables(
     }
 }
 
+/// The matrix materials of an analysis, as MATRIX=OUT writes them: per group the weighted
+/// number of cases (N), the unweighted number (COUNT) and the MEAN, then the pooled STDDEV (the
+/// root of the mean square error) and CORR (the pooled within-groups correlations), with the
+/// grouping variable missing on the pooled records.
+fn discriminant_matrix(
+    s: &Sums,
+    group_values: &[f64],
+    names: Vec<String>,
+    labels: Vec<Option<String>>,
+    group: &str,
+) -> MatrixRows {
+    let p = names.len();
+    let mut file = MatrixRows::new(names, labels);
+    let mut by_group: Vec<Option<f64>> = Vec::new();
+    for (j, &value) in group_values.iter().enumerate() {
+        file.push("N", "", vec![s.nj[j]; p]);
+        by_group.push(Some(value));
+    }
+    for (j, &value) in group_values.iter().enumerate() {
+        file.push("COUNT", "", vec![s.count[j] as f64; p]);
+        by_group.push(Some(value));
+    }
+    for (j, &value) in group_values.iter().enumerate() {
+        file.push("MEAN", "", s.mean[j].clone());
+        by_group.push(Some(value));
+    }
+    let df = s.n - s.g as f64;
+    file.push(
+        "STDDEV",
+        "",
+        (0..p).map(|i| (s.w[i][i] / df).sqrt()).collect(),
+    );
+    by_group.push(None);
+    for i in 0..p {
+        let row = (0..p)
+            .map(|j| s.w[i][j] / (s.w[i][i] * s.w[j][j]).sqrt())
+            .collect();
+        let name = file.names[i].clone();
+        file.push("CORR", &name, row);
+        by_group.push(None);
+    }
+    file.factor = Some((group.to_string(), by_group));
+    file
+}
+
 /// A classified case: its group (None when ungrouped), the predicted group and its weight.
 type Tally = (Option<usize>, usize, f64);
 
@@ -797,6 +843,8 @@ impl Engine {
         let mut charts = Vec::new();
         let mut save_count = 0;
         let mut saves: Vec<(String, String, Vec<Option<f64>>, bool)> = Vec::new();
+        // the matrix file waits until the loop no longer borrows the engine
+        let mut matrix_files = Vec::new();
         for (number_of, options) in command.analyses.iter().enumerate() {
             let analysis_number = number_of + 1;
             // the variables of the block with their levels, in the order of ANALYSIS
@@ -849,6 +897,32 @@ impl Engine {
                 method: options.method,
             };
             self.discriminant_descriptives(command, &s, &block_names, &group_labels, &mut tables);
+            if command.matrix.output.is_some() {
+                match analysis_number {
+                    1 => {
+                        let names: Vec<String> = block
+                            .iter()
+                            .map(|&(i, _)| variables[i].name().to_string())
+                            .collect();
+                        let labels = block
+                            .iter()
+                            .map(|&(i, _)| variables[i].label().map(str::to_string))
+                            .collect();
+                        let file =
+                            discriminant_matrix(&s, &group_values, names, labels, &command.group);
+                        matrix_files.push(self.matrix_part("DISCRIMINANT", &file)?);
+                        if command.statistics.boxm || command.statistics.gcov || command.separate {
+                            warnings.push(
+                                "DISCRIMINANT: the matrix file holds the pooled STDDEV and CORR records only; the within-cell records of BOXM, GCOV and CLASSIFY=SEPARATE are not written"
+                                    .into(),
+                            );
+                        }
+                    }
+                    2 => warnings
+                        .push("DISCRIMINANT: the matrix file holds the first analysis only".into()),
+                    _ => {}
+                }
+            }
 
             // selection
             let levels: Vec<u32> = block.iter().map(|b| b.1).collect();
@@ -1684,6 +1758,7 @@ impl Engine {
         for warning in warnings {
             self.warn(warning);
         }
+        self.matrix_parts.1.extend(matrix_files);
         self.charts.extend(charts);
         if !saves.is_empty() {
             let (format, value_labels) = (class_format, class_labels);
