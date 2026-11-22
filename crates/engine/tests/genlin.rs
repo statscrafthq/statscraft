@@ -3056,3 +3056,31 @@ fn profile_intervals_name_themselves_and_exponentiate() {
             .any(|g| g.contains("Wald Confidence Interval"))
     );
 }
+
+#[test]
+fn profile_intervals_fall_back_to_wald_with_a_warning_for_the_ordinal_model() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{PROFILE_DATA}GENLIN cnt WITH x /MODEL x DISTRIBUTION=MULTINOMIAL LINK=CUMLOGIT /CRITERIA CITYPE=PROFILE /PRINT SOLUTION."
+        ),
+    );
+    let groups: Vec<String> = find(&t, "Parameter Estimates")
+        .column_groups
+        .iter()
+        .flatten()
+        .cloned()
+        .collect();
+    assert!(
+        groups
+            .iter()
+            .any(|g| g.contains("Wald Confidence Interval"))
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("CITYPE=PROFILE"))
+    );
+}

@@ -1061,8 +1061,6 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
     })
 }
 
-/// k of the negative binomial by maximum likelihood of the model without random effects
-/// (GENLINMIXED estimates it so and then keeps it fixed); None when the fit fails.
 /// What every profile likelihood interval of one fit shares.
 #[derive(Clone, Copy)]
 struct Profile<'a> {
@@ -1152,6 +1150,8 @@ fn profile_interval(setup: &Profile, j: usize, b: &[f64], se: f64) -> (Option<f6
     (bound(-1.0), bound(1.0))
 }
 
+/// k of the negative binomial by maximum likelihood of the model without random effects
+/// (GENLINMIXED estimates it so and then keeps it fixed); None when the fit fails.
 pub(crate) fn negbin_k(
     y: &[f64],
     weight: &[f64],
@@ -3477,13 +3477,49 @@ impl Engine {
         // parameter estimates
         let z = normal_quantile(0.5 + crit.cilevel / 200.0);
         let level = percent_title(1.0 - crit.cilevel / 100.0);
+        let mut profiles: Vec<Option<(Option<f64>, Option<f64>)>> = vec![None; parameters.len()];
+        let mut profiled = false;
+        if print.solution
+            && let (Some(tolerance), false, None) = (crit.profile, multinomial, repeated)
+        {
+            let full_scale = match scale {
+                ScaleMode::Deviance | ScaleMode::Pearson => ScaleMode::Fixed(result.phi),
+                other => other,
+            };
+            let profile_spec = Spec {
+                scale: full_scale,
+                ..spec
+            };
+            if let Some(full) = fit_glm(&c, &x, &profile_spec, None) {
+                let setup = Profile {
+                    c: &c,
+                    x: &x,
+                    spec: &profile_spec,
+                    ll_max: full.ll,
+                    z2: z * z,
+                    tolerance,
+                };
+                for (pi, par) in parameters.iter().enumerate() {
+                    if let Some(i) = par.at {
+                        let se = result.cov[i][i].sqrt();
+                        profiles[pi] = Some(profile_interval(&setup, i, &result.b, se));
+                    }
+                }
+                profiled = true;
+            }
+        }
+        if print.solution && crit.profile.is_some() && !profiled {
+            warnings.push(
+                "CITYPE=PROFILE is for the models other than the ordinal multinomial one and without REPEATED, and needs the model to refit; the intervals are Wald intervals".into(),
+            );
+        }
+        let kind = if profiled {
+            "Profile Likelihood"
+        } else {
+            "Wald"
+        };
         if print.solution {
             let mut columns = plain(&["Parameter", "B", "Std. Error"]);
-            let kind = if crit.profile.is_some() && !multinomial && repeated.is_none() {
-                "Profile Likelihood"
-            } else {
-                "Wald"
-            };
             let ci = format!("{level} {kind} Confidence Interval");
             columns.push((ci.clone(), "Lower".into()));
             columns.push((ci, "Upper".into()));
@@ -3499,38 +3535,6 @@ impl Engine {
             let width = columns.len();
             let mut out = Vec::new();
             let mut any_redundant = false;
-            let mut profiles: Vec<Option<(Option<f64>, Option<f64>)>> =
-                vec![None; parameters.len()];
-            if let (Some(tolerance), false, None) = (crit.profile, multinomial, repeated) {
-                let full_scale = match scale {
-                    ScaleMode::Deviance | ScaleMode::Pearson => ScaleMode::Fixed(result.phi),
-                    other => other,
-                };
-                let profile_spec = Spec {
-                    scale: full_scale,
-                    ..spec
-                };
-                if let Some(full) = fit_glm(&c, &x, &profile_spec, None) {
-                    let setup = Profile {
-                        c: &c,
-                        x: &x,
-                        spec: &profile_spec,
-                        ll_max: full.ll,
-                        z2: z * z,
-                        tolerance,
-                    };
-                    for (pi, par) in parameters.iter().enumerate() {
-                        if let Some(i) = par.at {
-                            let se = result.cov[i][i].sqrt();
-                            profiles[pi] = Some(profile_interval(&setup, i, &result.b, se));
-                        }
-                    }
-                }
-            } else if crit.profile.is_some() {
-                warnings.push(
-                    "CITYPE=PROFILE is for the models other than the ordinal multinomial one and without REPEATED; the intervals are Wald intervals".into(),
-                );
-            }
             for (pi, par) in parameters.iter().enumerate() {
                 let head = if multinomial && pi < j_categories - 1 {
                     text(format!("Threshold {}", par.name))
