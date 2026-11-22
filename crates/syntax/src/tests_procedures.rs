@@ -1337,6 +1337,20 @@ fn tree_quest_settings() {
 }
 
 #[test]
+fn tree_validation_settings() {
+    let t = tree_of("TREE y BY x /VALIDATION TYPE=SPLITSAMPLE(30) OUTPUT=TESTSAMPLE.");
+    assert_eq!(t.validation, TreeValidation::SplitPercent(30.0));
+    assert!(t.test_sample_only);
+    let t = tree_of("TREE y BY x /VALIDATION TYPE=SPLITSAMPLE.");
+    assert_eq!(t.validation, TreeValidation::SplitPercent(50.0));
+    assert!(!t.test_sample_only);
+    let t = tree_of("TREE y BY x /VALIDATION TYPE=SPLITSAMPLE(part) OUTPUT=BOTHSAMPLES.");
+    assert_eq!(t.validation, TreeValidation::SplitVariable("part".into()));
+    let t = tree_of("TREE y BY x /VALIDATION TYPE=NONE.");
+    assert_eq!(t.validation, TreeValidation::None);
+}
+
+#[test]
 fn tree_errors() {
     let message = |source: &str| err(source).message;
     assert_eq!(
@@ -1348,8 +1362,12 @@ fn tree_errors() {
         "unexpected word DEPTH"
     );
     assert_eq!(
-        message("TREE y BY x /VALIDATION TYPE=SPLITSAMPLE(50)."),
-        "VALIDATION TYPE=SPLITSAMPLE is not supported yet"
+        message("TREE y BY x /VALIDATION TYPE=CROSSVALIDATION(5)."),
+        "VALIDATION TYPE=CROSSVALIDATION is not supported yet"
+    );
+    assert_eq!(
+        message("TREE y BY x /VALIDATION TYPE=SPLITSAMPLE(100)."),
+        "SPLITSAMPLE needs a percent above 0 and below 100, or a variable"
     );
     assert_eq!(
         message("TREE y BY x /CHAID SPLITMERGED=YES."),

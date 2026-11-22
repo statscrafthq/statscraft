@@ -8,8 +8,8 @@
 //! manual says.
 
 use crate::ast::{
-    Command, Level, Tree, TreeCategory, TreeImpurity, TreePrint, TreePriors, TreeSave, Value,
-    VarItem,
+    Command, Level, Tree, TreeCategory, TreeImpurity, TreePrint, TreePriors, TreeSave,
+    TreeValidation, Value, VarItem,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -538,23 +538,43 @@ fn priors(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     Ok(())
 }
 
-fn validation(p: &mut Parser) -> PResult<()> {
+fn validation(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     while !at_end(p) {
         let start = p.pos;
         if p.eat_keyword("TYPE") {
             match choice(p, &["NONE", "SPLITSAMPLE", "CROSSVALIDATION"])? {
-                0 => {}
-                1 => return Err(not_supported(p, start, "VALIDATION TYPE=SPLITSAMPLE")),
+                0 => command.validation = TreeValidation::None,
+                1 => command.validation = split_sample(p)?,
                 _ => return Err(not_supported(p, start, "VALIDATION TYPE=CROSSVALIDATION")),
             }
         } else if p.eat_keyword("OUTPUT") {
             // applies to split-sample validation only
-            choice(p, &["BOTHSAMPLES", "TESTSAMPLE"])?;
+            command.test_sample_only = choice(p, &["BOTHSAMPLES", "TESTSAMPLE"])? == 1;
         } else {
             return Err(p.unexpected(&["TYPE", "OUTPUT"]));
         }
     }
     Ok(())
+}
+
+/// `(percent)` or `(variable)` after SPLITSAMPLE; 50 percent when there is none.
+fn split_sample(p: &mut Parser) -> PResult<TreeValidation> {
+    if !p.eat(Punct::LParen) {
+        return Ok(TreeValidation::SplitPercent(50.0));
+    }
+    let start = p.pos;
+    let found = match p.number() {
+        Some(percent) => {
+            if percent <= 0.0 || percent >= 100.0 {
+                let message = "SPLITSAMPLE needs a percent above 0 and below 100, or a variable";
+                return Err(SyntaxError::new(p.span_from(start), message));
+            }
+            TreeValidation::SplitPercent(percent)
+        }
+        None => TreeValidation::SplitVariable(p.name("a percent or a variable")?),
+    };
+    p.expect(Punct::RParen)?;
+    Ok(found)
 }
 
 const CHAID_KEYWORDS: [&str; 8] = [
@@ -673,6 +693,8 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         scores: None,
         nominal_missing_valid: false,
         crt: false,
+        validation: TreeValidation::None,
+        test_sample_only: false,
         quest: false,
         quest_alpha: 0.05,
         impurity: TreeImpurity::Gini,
@@ -723,7 +745,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             "SAVE" => save(p, &mut command)?,
             "METHOD" => method(p, &mut command)?,
             "GROWTHLIMIT" => growth_limit(p, &mut command)?,
-            "VALIDATION" => validation(p)?,
+            "VALIDATION" => validation(p, &mut command)?,
             "CHAID" => chaid(p, &mut command)?,
             "CRT" => crt(p, &mut command)?,
             "PRIORS" => priors(p, &mut command)?,

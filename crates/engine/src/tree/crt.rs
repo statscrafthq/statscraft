@@ -528,8 +528,14 @@ fn node_risk(node: &Node) -> f64 {
     node.assign.iter().sum::<f64>() - node.assign[node.predicted()]
 }
 
-/// Prunes by the standard error rule: the nodes of the kept subtree, renumbered in order.
-pub(super) fn prune(nodes: Vec<Node>, b: f64) -> Vec<Node> {
+/// Prunes by the standard error rule (on the risks of `tested`, a test sample's nodes, when there
+/// is one; `empirical` is then whether the priors come from the data): the nodes of the kept subtree, renumbered in order.
+pub(super) fn prune(
+    nodes: Vec<Node>,
+    b: f64,
+    tested: Option<&[Node]>,
+    empirical: bool,
+) -> Vec<Node> {
     let n = nodes.len();
     // cut[t]: the subtree below t is gone and t is terminal
     let mut cut = vec![false; n];
@@ -596,8 +602,14 @@ pub(super) fn prune(nodes: Vec<Node>, b: f64) -> Vec<Node> {
     let risks: Vec<(f64, f64)> = sequence
         .iter()
         .map(|c| {
-            let (risk, variance) =
-                risk_estimate(terminals(c).into_iter().map(|t| &nodes[t]), &nodes[0]);
+            let (risk, variance) = match tested {
+                Some(test) => risk_estimate(
+                    terminals(c).into_iter().map(|t| &test[t]),
+                    &test[0],
+                    Some(empirical),
+                ),
+                None => risk_estimate(terminals(c).into_iter().map(|t| &nodes[t]), &nodes[0], None),
+            };
             (risk, variance.sqrt())
         })
         .collect();

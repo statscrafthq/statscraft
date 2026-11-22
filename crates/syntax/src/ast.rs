@@ -1404,6 +1404,10 @@ pub struct Tree {
     pub quest: bool,
     /// `/QUEST ALPHASPLIT`
     pub quest_alpha: f64,
+    /// `/VALIDATION TYPE`
+    pub validation: TreeValidation,
+    /// `/VALIDATION OUTPUT=TESTSAMPLE`: output for the test sample only.
+    pub test_sample_only: bool,
     /// `/CRT IMPURITY`
     pub impurity: TreeImpurity,
     /// `/CRT MINIMPROVEMENT` or `/GROWTHLIMIT MINIMPROVEMENT`
@@ -1471,6 +1475,16 @@ impl Tree {
     pub fn binary(&self) -> bool {
         self.crt || self.quest
     }
+}
+
+/// `/VALIDATION TYPE`: how the tree is checked on cases it was not grown on.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TreeValidation {
+    None,
+    /// SPLITSAMPLE(percent): the share of the cases, in percent, that grow the tree.
+    SplitPercent(f64),
+    /// SPLITSAMPLE(variable): the cases with the value 1 grow the tree.
+    SplitVariable(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

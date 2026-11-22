@@ -225,7 +225,7 @@ impl Engine {
         }
         self.crt_tables(command, nodes, predictors, dependent, (&mut out, charts));
 
-        let (risk, variance) = risk_estimate(terminals.iter().map(|&t| &nodes[t]), &nodes[0]);
+        let (risk, variance) = risk_estimate(terminals.iter().map(|&t| &nodes[t]), &nodes[0], None);
         if command.print.risk {
             out.push(Table {
                 title: "Risk".into(),

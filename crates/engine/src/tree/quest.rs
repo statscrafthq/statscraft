@@ -419,7 +419,8 @@ pub(super) fn choose(g: &Growth, cases: &[usize], factor: &[f64], alpha: f64) ->
         .map(|p| {
             cases
                 .iter()
-                .filter(|&&i| p.codes[i] != p.missing())
+                // a case of weight 0 (a test case) takes no part
+                .filter(|&&i| p.codes[i] != p.missing() && g.case_weight[i] > 0.0)
                 .map(|&i| {
                     let code = p.codes[i];
                     let x = if p.nominal {

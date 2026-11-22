@@ -48,7 +48,9 @@ use crate::pass::default_measure;
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value, Values, Variable};
-use statscraft_syntax::{Level, Tree, TreeCategory, TreeImpurity, TreePriors, TreeSave, VarItem};
+use statscraft_syntax::{
+    Level, Tree, TreeCategory, TreeImpurity, TreePriors, TreeSave, TreeValidation, VarItem,
+};
 use std::collections::VecDeque;
 
 /// One predictor, its categories coded per analysis case; `missing` (= the number of
@@ -157,6 +159,8 @@ struct Node {
     /// The weighted sum of the fourth powers of the deviations from the mean, for the risk's error.
     fourth: f64,
     n: f64,
+    /// The class a test sample's node is assigned: the training node's.
+    predicted_as: Option<usize>,
     /// The predictor and its categories that define the node.
     definition: Option<(usize, Vec<usize>)>,
     split: Option<Split>,
@@ -166,6 +170,9 @@ struct Node {
 impl Node {
     /// The assigned class: the most probable one, the first among those present on ties.
     fn predicted(&self) -> usize {
+        if let Some(class) = self.predicted_as {
+            return class;
+        }
         let mut best = self.counts.iter().position(|&c| c > 0.0).unwrap_or(0);
         for (j, &score) in self.assign.iter().enumerate() {
             if self.counts[j] > 0.0 && score > self.assign[best] {
@@ -226,6 +233,7 @@ fn make_node(
         depth,
         n,
         assign,
+        predicted_as: None,
         scale: values.is_some(),
         shift: 0.0,
         fourth,
@@ -235,6 +243,36 @@ fn make_node(
         split: None,
         children: Vec::new(),
     }
+}
+
+/// The nodes of a tree with the cases of another sample counted in them: the structure, the
+/// assignments (the training sample's) and the prior weights are kept, the class counts are those
+/// of `weight`. A categorical dependent only.
+fn rescore(nodes: &[Node], class: &[usize], weight: &[f64]) -> Vec<Node> {
+    nodes
+        .iter()
+        .map(|node| {
+            let mut counts = vec![0.0; node.counts.len()];
+            for &i in &node.cases {
+                counts[class[i]] += weight[i];
+            }
+            Node {
+                parent: node.parent,
+                depth: node.depth,
+                cases: node.cases.clone(),
+                n: counts.iter().sum(),
+                counts,
+                assign: node.assign.clone(),
+                scale: node.scale,
+                shift: node.shift,
+                fourth: 0.0,
+                predicted_as: Some(node.predicted()),
+                definition: node.definition.clone(),
+                split: None,
+                children: node.children.clone(),
+            }
+        })
+        .collect()
 }
 
 /// What the tests of independence need.
@@ -689,6 +727,11 @@ impl Engine {
         }
         let scale_dep = dependent_level == Level::Scale && !dependent.is_string();
         let ordinal = dependent_level == Level::Ordinal;
+        if scale_dep && command.validation != TreeValidation::None {
+            return Err(Error(
+                "VALIDATION with a scale dependent variable is not supported yet".into(),
+            ));
+        }
         if command.quest && (scale_dep || ordinal) {
             return Err(Error(format!(
                 "METHOD TYPE=QUEST needs a nominal dependent variable; {} is not (give it the \
@@ -945,6 +988,40 @@ impl Engine {
         if cases.is_empty() {
             return Err(Error("no cases are left for the analysis".into()));
         }
+        // the cases that grow the tree; the others are the test sample, carried along with weight
+        // 0 so that they are routed like the rest without counting in any statistic
+        let is_train: Vec<bool> = match &command.validation {
+            TreeValidation::None => vec![true; cases.len()],
+            TreeValidation::SplitPercent(percent) => cases
+                .iter()
+                .map(|_| self.random.borrow_mut().uniform() < percent / 100.0)
+                .collect(),
+            TreeValidation::SplitVariable(name) => {
+                let split = data.variable(name)?;
+                if split.is_string() {
+                    return Err(Error(format!(
+                        "the SPLITSAMPLE variable {} must be numeric",
+                        split.name()
+                    )));
+                }
+                let taken = |other: &str| split.name().eq_ignore_ascii_case(other);
+                if taken(dependent.name())
+                    || weight_name.as_ref().is_some_and(|w| taken(w))
+                    || command.force.as_ref().is_some_and(|(f, _)| taken(f))
+                {
+                    return Err(Error(format!(
+                        "the SPLITSAMPLE variable {} cannot be the dependent, weight or forced variable",
+                        split.name()
+                    )));
+                }
+                // a value of 1 grows the tree; anything else, a missing value too, tests it
+                cases
+                    .iter()
+                    .map(|&(c, _)| matches!(raw(&split, c), Raw::Valid(Key::Number(x)) if x == 1.0))
+                    .collect()
+            }
+        };
+        let validated = command.validation != TreeValidation::None;
         let mut coded = Vec::new();
         for (variable, level) in &variables {
             let values: Vec<Option<Key>> = cases
@@ -991,8 +1068,9 @@ impl Engine {
                 let pairs: Vec<(f64, f64)> = values
                     .iter()
                     .zip(&cases)
-                    .filter_map(|(v, &(c, _))| match v {
-                        Some(Key::Number(x)) => Some((*x, weight(c))),
+                    .zip(&is_train)
+                    .filter_map(|((v, &(c, _)), &train)| match v {
+                        Some(Key::Number(x)) if train => Some((*x, weight(c))),
                         _ => None,
                     })
                     .collect();
@@ -1019,7 +1097,15 @@ impl Engine {
                     numbers: Vec::new(),
                 }
             } else {
-                let keys = sorted_unique(values.iter().flatten().cloned().collect());
+                // the categories are those of the training cases; another one is missing
+                let keys = sorted_unique(
+                    values
+                        .iter()
+                        .zip(&is_train)
+                        .filter(|(_, train)| **train)
+                        .filter_map(|(v, _)| v.clone())
+                        .collect(),
+                );
                 if command.quest && *level == Level::Nominal && keys.len() > quest::MAX_CATEGORIES {
                     return Err(Error(format!(
                         "METHOD TYPE=QUEST allows a nominal predictor at most {} categories; {} has {}",
@@ -1037,7 +1123,7 @@ impl Engine {
                 let codes = values
                     .iter()
                     .map(|v| match v {
-                        Some(k) => keys.iter().position(|x| x == k).expect("a key of the data"),
+                        Some(k) => keys.iter().position(|x| x == k).unwrap_or(keys.len()),
                         None => keys.len(),
                     })
                     .collect();
@@ -1056,8 +1142,40 @@ impl Engine {
             };
             coded.push(predictor);
         }
-        let case_weight: Vec<f64> = cases.iter().map(|&(c, _)| weight(c)).collect();
+        let all_weight: Vec<f64> = cases.iter().map(|&(c, _)| weight(c)).collect();
+        let case_weight: Vec<f64> = all_weight
+            .iter()
+            .zip(&is_train)
+            .map(|(&w, &train)| if train { w } else { 0.0 })
+            .collect();
+        let test_weight: Vec<f64> = all_weight
+            .iter()
+            .zip(&is_train)
+            .map(|(&w, &train)| if train { 0.0 } else { w })
+            .collect();
         let case_class: Vec<usize> = cases.iter().map(|&(_, k)| k).collect();
+        if validated {
+            let mut trained = vec![0.0; classes.len()];
+            for (&j, &w) in case_class.iter().zip(&case_weight) {
+                trained[j] += w;
+            }
+            if test_weight.iter().sum::<f64>() <= 0.0 {
+                return Err(Error("the test sample has no cases".into()));
+            }
+            if trained.iter().filter(|&&w| w > 0.0).count() < 2 {
+                return Err(Error(format!(
+                    "the training sample has fewer than two categories of {}",
+                    dependent.name()
+                )));
+            }
+            for (j, _) in trained.iter().enumerate().filter(|(_, w)| **w == 0.0) {
+                warnings.push(format!(
+                    "category {} of {} has no cases in the training sample",
+                    labels.value(&dependent, &classes[j]),
+                    dependent.name()
+                ));
+            }
+        }
         if command.quest {
             // a nominal predictor of more than two categories is scored once, on the whole sample
             for p in coded.iter_mut().filter(|p| p.nominal && p.labels.len() > 2) {
@@ -1128,7 +1246,16 @@ impl Engine {
             }
             .grow()?;
             match command.prune {
-                Some(b) => crt::prune(grown, b),
+                Some(b) => {
+                    // with a test sample, the subtrees' risks are the test sample's
+                    let tested = (validated).then(|| rescore(&grown, &case_class, &test_weight));
+                    crt::prune(
+                        grown,
+                        b,
+                        tested.as_deref(),
+                        command.priors == TreePriors::FromData,
+                    )
+                }
                 None => grown,
             }
         } else {
@@ -1195,22 +1322,56 @@ impl Engine {
                     continue;
                 };
                 let predictor = &coded[split.predictor];
-                let mut children = Vec::new();
-                for group in &split.groups {
-                    let members: Vec<usize> = nodes[id]
-                        .cases
-                        .iter()
-                        .copied()
-                        .filter(|&i| group.contains(&predictor.codes[i]))
-                        .collect();
-                    let depth = nodes[id].depth + 1;
-                    children.push(node_of(
-                        members,
-                        Some(id),
-                        depth,
-                        Some((split.predictor, group.clone())),
-                    ));
+                let mut members: Vec<Vec<usize>> = split
+                    .groups
+                    .iter()
+                    .map(|group| {
+                        nodes[id]
+                            .cases
+                            .iter()
+                            .copied()
+                            .filter(|&i| group.contains(&predictor.codes[i]))
+                            .collect()
+                    })
+                    .collect();
+                // a case whose category no training case of the node has (a test case) goes to
+                // the group with the nearest category of an ordered predictor, else to the group
+                // with the most weight
+                let missing = predictor.missing();
+                for &i in &nodes[id].cases {
+                    let code = predictor.codes[i];
+                    if split.groups.iter().any(|g| g.contains(&code)) {
+                        continue;
+                    }
+                    let target = if !predictor.nominal && code != missing {
+                        (0..split.groups.len()).min_by_key(|&g| {
+                            let near = split.groups[g].iter().filter(|&&c| c != missing);
+                            near.map(|&c| c.abs_diff(code)).min().unwrap_or(usize::MAX)
+                        })
+                    } else {
+                        let weight = |g: &usize| -> f64 {
+                            members[*g].iter().map(|&k| case_weight[k]).sum()
+                        };
+                        (0..split.groups.len())
+                            .reduce(|a, b| if weight(&b) > weight(&a) { b } else { a })
+                    };
+                    if let Some(g) = target {
+                        members[g].push(i);
+                    }
                 }
+                let depth = nodes[id].depth + 1;
+                let children: Vec<Node> = members
+                    .into_iter()
+                    .zip(&split.groups)
+                    .map(|(cases, group)| {
+                        node_of(
+                            cases,
+                            Some(id),
+                            depth,
+                            Some((split.predictor, group.clone())),
+                        )
+                    })
+                    .collect();
                 for child in children {
                     let next = nodes.len();
                     nodes[id].children.push(next);
@@ -1223,12 +1384,40 @@ impl Engine {
             nodes
         };
 
+        let tested = validated.then(|| rescore(&nodes, &case_class, &test_weight));
         let mut charts = Vec::new();
-        let mut tables =
-            self.tree_output(command, &nodes, &coded, &classes, &dependent, &mut charts)?;
+        let mut tables = self.tree_output(
+            command,
+            (&nodes, tested.as_deref()),
+            &coded,
+            &classes,
+            &dependent,
+            &mut charts,
+        )?;
         let total_n: f64 = in_use.iter().map(|&c| weight(c)).sum();
         if command.print.case_summary {
-            let included = nodes[0].n;
+            let included = nodes[0].n + tested.as_ref().map_or(0.0, |t| t[0].n);
+            let mut rows = vec![vec![
+                text("Included"),
+                Cell::Number(included),
+                percent(included, total_n),
+            ]];
+            if let Some(test) = &tested {
+                for (name, n) in [("Training sample", nodes[0].n), ("Test sample", test[0].n)] {
+                    rows.push(vec![text(name), Cell::Number(n), percent(n, total_n)]);
+                }
+            }
+            rows.push(vec![
+                text("Excluded"),
+                Cell::Number(total_n - included),
+                percent(total_n - included, total_n),
+            ]);
+            rows.push(vec![
+                text("Total"),
+                Cell::Number(total_n),
+                percent(total_n, total_n),
+            ]);
+            let rows_len = rows.len();
             tables.insert(
                 0,
                 Table {
@@ -1236,24 +1425,8 @@ impl Engine {
                     row_headers: 1,
                     columns: vec![String::new(), "N".into(), "Percent".into()],
                     column_groups: vec![Vec::new(); 3],
-                    rows: vec![
-                        vec![
-                            text("Included"),
-                            Cell::Number(included),
-                            percent(included, total_n),
-                        ],
-                        vec![
-                            text("Excluded"),
-                            Cell::Number(total_n - included),
-                            percent(total_n - included, total_n),
-                        ],
-                        vec![
-                            text("Total"),
-                            Cell::Number(total_n),
-                            percent(total_n, total_n),
-                        ],
-                    ],
-                    formats: vec![vec![String::new(), "F8.0".into(), "PCT6.1".into()]; 3],
+                    rows,
+                    formats: vec![vec![String::new(), "F8.0".into(), "PCT6.1".into()]; rows_len],
                     ..Table::default()
                 },
             );
@@ -1514,12 +1687,14 @@ impl Engine {
     fn tree_output(
         &self,
         command: &Tree,
-        nodes: &[Node],
+        trees: (&[Node], Option<&[Node]>),
         predictors: &[Predictor],
         classes: &[Key],
         dependent: &Variable,
         charts: &mut Vec<crate::Chart>,
     ) -> Result<Vec<Table>, Error> {
+        // the tree grown, and the same nodes counting the test sample's cases
+        let (nodes, test) = trees;
         if nodes[0].scale {
             return Ok(self.scale_output(command, nodes, predictors, dependent, charts));
         }
@@ -1602,8 +1777,26 @@ impl Engine {
                     }),
                 ));
             }
+            rows.push(row(
+                "",
+                "Validation",
+                text(match &command.validation {
+                    TreeValidation::None => "None".to_string(),
+                    TreeValidation::SplitPercent(p) => {
+                        format!("Split sample, {p}% to grow the tree")
+                    }
+                    TreeValidation::SplitVariable(v) => format!("Split sample by {v}"),
+                }),
+            ));
+            if let Some(test) = test {
+                rows.push(row(
+                    "",
+                    "Cases in Training Sample",
+                    Cell::Number(nodes[0].n),
+                ));
+                rows.push(row("", "Cases in Test Sample", Cell::Number(test[0].n)));
+            }
             rows.extend([
-                row("", "Validation", text("None")),
                 row(
                     "",
                     "Maximum Tree Depth",
@@ -1855,24 +2048,59 @@ impl Engine {
         }
         self.crt_tables(command, nodes, predictors, dependent, (&mut out, charts));
 
-        // misclassification
-        let mut confusion = vec![vec![0.0; classes.len()]; classes.len()];
-        for &t in &terminals {
-            let predicted = nodes[t].predicted();
-            for (j, &count) in nodes[t].counts.iter().enumerate() {
-                confusion[j][predicted] += count;
+        // the samples the risk, classification and gain tables describe
+        let samples: Vec<(&str, &[Node])> = match test {
+            None => vec![("", nodes)],
+            Some(test) if command.test_sample_only => vec![("Test", test)],
+            Some(test) => vec![("Training", nodes), ("Test", test)],
+        };
+        let validated = test.is_some();
+        // a test sample's risk takes M1 when the priors come from the data
+        let empirical =
+            |label: &str| (label == "Test").then(|| command.priors == TreePriors::FromData);
+        let mut confusions = Vec::new();
+        for (_, ns) in &samples {
+            let mut confusion = vec![vec![0.0; classes.len()]; classes.len()];
+            for &t in &terminals {
+                let predicted = ns[t].predicted();
+                for (j, &count) in ns[t].counts.iter().enumerate() {
+                    confusion[j][predicted] += count;
+                }
             }
+            confusions.push(confusion);
         }
-        let correct: f64 = (0..classes.len()).map(|j| confusion[j][j]).sum();
-        let (risk, risk_variance) = risk_estimate(terminals.iter().map(|&t| &nodes[t]), &nodes[0]);
         if command.print.risk {
+            let rows: Vec<Vec<Cell>> = samples
+                .iter()
+                .map(|(label, ns)| {
+                    let (risk, variance) =
+                        risk_estimate(terminals.iter().map(|&t| &ns[t]), &ns[0], empirical(label));
+                    let mut row = Vec::new();
+                    if validated {
+                        row.push(text(*label));
+                    }
+                    row.extend([Cell::Number(risk), Cell::Number(variance.sqrt())]);
+                    row
+                })
+                .collect();
+            let mut columns = vec!["Estimate".to_string(), "Std. Error".to_string()];
+            if validated {
+                columns.insert(0, "Sample".into());
+            }
+            let width = columns.len();
             out.push(Table {
                 title: "Risk".into(),
-                row_headers: 0,
-                columns: vec!["Estimate".into(), "Std. Error".into()],
-                column_groups: vec![Vec::new(); 2],
-                rows: vec![vec![Cell::Number(risk), Cell::Number(risk_variance.sqrt())]],
-                formats: vec![vec!["F8.3".into(), "F8.3".into()]],
+                row_headers: usize::from(validated),
+                column_groups: vec![Vec::new(); width],
+                columns,
+                formats: vec![
+                    vec![String::new(); width - 2]
+                        .into_iter()
+                        .chain(["F8.3".into(), "F8.3".into()])
+                        .collect();
+                    rows.len()
+                ],
+                rows,
                 caption: Some(format!(
                     "Growing Method: {}. Dependent Variable: {}.",
                     method_name(command),
@@ -1891,30 +2119,45 @@ impl Engine {
             columns.push("Percent Correct".into());
             let mut groups = vec![Vec::new()];
             groups.extend(vec![vec!["Predicted".to_string()]; classes.len() + 1]);
-            let mut rows = Vec::new();
-            for (j, row) in confusion.iter().enumerate() {
-                let total: f64 = row.iter().sum();
-                let mut cells = vec![text(&class_labels[j])];
-                cells.extend(row.iter().map(|&n| Cell::Number(n)));
-                cells.push(percent(row[j], total));
-                rows.push(cells);
+            if validated {
+                columns.insert(0, "Sample".into());
+                groups.insert(0, Vec::new());
             }
-            let mut overall = vec![text("Overall Percentage")];
-            for k in 0..classes.len() {
-                let predicted: f64 = confusion.iter().map(|r| r[k]).sum();
-                overall.push(percent(predicted, root_n));
-            }
-            overall.push(percent(correct, root_n));
             let width = columns.len();
-            let mut formats = vec![vec![String::new(); width]; rows.len()];
-            for row in formats.iter_mut() {
-                row[width - 1] = "PCT6.1".into();
+            let mut rows = Vec::new();
+            let mut formats = Vec::new();
+            for (((label, ns), confusion), _) in samples.iter().zip(&confusions).zip(0..) {
+                let sample_n = ns[0].n;
+                let correct: f64 = (0..classes.len()).map(|j| confusion[j][j]).sum();
+                let lead = |name: String| -> Vec<Cell> {
+                    if validated {
+                        vec![text(*label), text(name)]
+                    } else {
+                        vec![text(name)]
+                    }
+                };
+                for (j, row) in confusion.iter().enumerate() {
+                    let total: f64 = row.iter().sum();
+                    let mut cells = lead(class_labels[j].clone());
+                    cells.extend(row.iter().map(|&n| Cell::Number(n)));
+                    cells.push(percent(row[j], total));
+                    rows.push(cells);
+                    let mut format = vec![String::new(); width];
+                    format[width - 1] = "PCT6.1".into();
+                    formats.push(format);
+                }
+                let mut overall = lead("Overall Percentage".into());
+                for k in 0..classes.len() {
+                    let predicted: f64 = confusion.iter().map(|r| r[k]).sum();
+                    overall.push(percent(predicted, sample_n));
+                }
+                overall.push(percent(correct, sample_n));
+                rows.push(overall);
+                formats.push(vec!["PCT6.1".to_string(); width]);
             }
-            formats.push(vec!["PCT6.1".to_string(); width]);
-            rows.push(overall);
             out.push(Table {
                 title: "Classification".into(),
-                row_headers: 1,
+                row_headers: if validated { 2 } else { 1 },
                 columns,
                 column_groups: groups,
                 rows,
@@ -1930,105 +2173,113 @@ impl Engine {
 
         // gains for each target category
         if command.gain_table && !command.targets.is_empty() {
-            for target in &command.targets {
-                let key = key_of(target);
-                let Some(j) = classes.iter().position(|k| *k == key) else {
-                    continue;
-                };
-                let target_total = nodes[0].counts[j];
-                let share = target_total / root_n;
-                let index = |gain: f64, n: f64| {
-                    if n > 0.0 && share > 0.0 {
-                        Some(100.0 * gain / n / share)
-                    } else {
-                        None
-                    }
-                };
-                let order = gain_order(nodes, &terminals, j, command.gain_ascending);
-                let mut columns = vec!["Node".to_string()];
-                let mut groups: Vec<Vec<String>> = vec![Vec::new()];
-                let sets: &[&str] = if command.gain_cumulative {
-                    &["", "Cumulative"]
-                } else {
-                    &[""]
-                };
-                for set in sets {
-                    for (group, name) in [
-                        ("Node", "N"),
-                        ("Node", "Percent"),
-                        ("Gain", "N"),
-                        ("Gain", "Percent"),
-                        ("", "Response"),
-                        ("", "Index"),
-                    ] {
-                        columns.push(name.to_string());
-                        let mut path = Vec::new();
-                        if !set.is_empty() {
-                            path.push(set.to_string());
-                        }
-                        if !group.is_empty() {
-                            path.push(group.to_string());
-                        } else if !path.is_empty() {
-                            path.push(String::new());
-                        }
-                        groups.push(path);
-                    }
-                }
-                let (mut cum_n, mut cum_gain) = (0.0, 0.0);
-                let mut rows = Vec::new();
-                for &t in &order {
-                    let (n, gain) = (nodes[t].n, nodes[t].counts[j]);
-                    cum_n += n;
-                    cum_gain += gain;
-                    let mut row = vec![text(t.to_string())];
-                    let mut cells = |n: f64, gain: f64| {
-                        row.extend([
-                            Cell::Number(n),
-                            percent(n, root_n),
-                            Cell::Number(gain),
-                            percent(gain, target_total),
-                            percent(gain, n),
-                            index(gain, n).map_or(Cell::Empty, Cell::Number),
-                        ]);
+            for (label, ns) in &samples {
+                let root_n = ns[0].n;
+                for target in &command.targets {
+                    let key = key_of(target);
+                    let Some(j) = classes.iter().position(|k| *k == key) else {
+                        continue;
                     };
-                    cells(n, gain);
-                    if command.gain_cumulative {
-                        cells(cum_n, cum_gain);
+                    let target_total = ns[0].counts[j];
+                    let share = target_total / root_n;
+                    let index = |gain: f64, n: f64| {
+                        if n > 0.0 && share > 0.0 {
+                            Some(100.0 * gain / n / share)
+                        } else {
+                            None
+                        }
+                    };
+                    // the training sample's order, so that the two samples' tables line up node by node
+                    let order = gain_order(nodes, &terminals, j, command.gain_ascending);
+                    let mut columns = vec!["Node".to_string()];
+                    let mut groups: Vec<Vec<String>> = vec![Vec::new()];
+                    let sets: &[&str] = if command.gain_cumulative {
+                        &["", "Cumulative"]
+                    } else {
+                        &[""]
+                    };
+                    for set in sets {
+                        for (group, name) in [
+                            ("Node", "N"),
+                            ("Node", "Percent"),
+                            ("Gain", "N"),
+                            ("Gain", "Percent"),
+                            ("", "Response"),
+                            ("", "Index"),
+                        ] {
+                            columns.push(name.to_string());
+                            let mut path = Vec::new();
+                            if !set.is_empty() {
+                                path.push(set.to_string());
+                            }
+                            if !group.is_empty() {
+                                path.push(group.to_string());
+                            } else if !path.is_empty() {
+                                path.push(String::new());
+                            }
+                            groups.push(path);
+                        }
                     }
-                    rows.push(row);
+                    let (mut cum_n, mut cum_gain) = (0.0, 0.0);
+                    let mut rows = Vec::new();
+                    for &t in &order {
+                        let (n, gain) = (ns[t].n, ns[t].counts[j]);
+                        cum_n += n;
+                        cum_gain += gain;
+                        let mut row = vec![text(t.to_string())];
+                        let mut cells = |n: f64, gain: f64| {
+                            row.extend([
+                                Cell::Number(n),
+                                percent(n, root_n),
+                                Cell::Number(gain),
+                                percent(gain, target_total),
+                                percent(gain, n),
+                                index(gain, n).map_or(Cell::Empty, Cell::Number),
+                            ]);
+                        };
+                        cells(n, gain);
+                        if command.gain_cumulative {
+                            cells(cum_n, cum_gain);
+                        }
+                        rows.push(row);
+                    }
+                    let formats = rows
+                        .iter()
+                        .map(|row| {
+                            columns
+                                .iter()
+                                .zip(row)
+                                .map(|(c, _)| match c.as_str() {
+                                    "Percent" | "Response" | "Index" => "PCT6.1".to_string(),
+                                    "N" => "F8.0".to_string(),
+                                    _ => String::new(),
+                                })
+                                .collect()
+                        })
+                        .collect();
+                    out.push(Table {
+                        title: if validated {
+                            format!("Gain Summary for Nodes ({label} Sample)")
+                        } else {
+                            "Gain Summary for Nodes".into()
+                        },
+                        row_headers: 1,
+                        columns,
+                        column_groups: groups,
+                        rows,
+                        formats,
+                        caption: Some(format!(
+                            "Target category: {}. Dependent variable: {}.",
+                            class_labels[j],
+                            shown.variable(dependent)
+                        )),
+                        outline: None,
+                        hidden: false,
+                        cell_stats: None,
+                        decorations: Vec::new(),
+                        style: Default::default(),
+                    });
                 }
-                let formats = rows
-                    .iter()
-                    .map(|row| {
-                        columns
-                            .iter()
-                            .zip(row)
-                            .map(|(c, _)| match c.as_str() {
-                                "Percent" | "Response" | "Index" => "PCT6.1".to_string(),
-                                "N" => "F8.0".to_string(),
-                                _ => String::new(),
-                            })
-                            .collect()
-                    })
-                    .collect();
-                out.push(Table {
-                    title: "Gain Summary for Nodes".into(),
-                    row_headers: 1,
-                    columns,
-                    column_groups: groups,
-                    rows,
-                    formats,
-                    caption: Some(format!(
-                        "Target category: {}. Dependent variable: {}.",
-                        class_labels[j],
-                        shown.variable(dependent)
-                    )),
-                    outline: None,
-                    hidden: false,
-                    cell_stats: None,
-                    decorations: Vec::new(),
-                    style: Default::default(),
-                });
             }
         }
         // the gain, response and index charts over percentile groups, a line per target
@@ -2054,43 +2305,50 @@ impl Engine {
                     bin: None,
                 })
                 .collect();
-            let lines: Vec<(usize, [Vec<f64>; 3])> = targets
-                .iter()
-                .map(|&j| {
-                    let order = gain_order(nodes, &terminals, j, command.gain_ascending);
-                    (j, percentile_gains(nodes, &order, j, q))
-                })
-                .collect();
-            for (asked, name, k) in wanted {
-                if !asked {
-                    continue;
-                }
-                let series = lines
+            for (label, ns) in &samples {
+                let lines: Vec<(usize, [Vec<f64>; 3])> = targets
                     .iter()
-                    .map(|(j, values)| Series {
-                        name: class_labels[*j].clone(),
-                        statistic: Statistic::Percent,
-                        variable: Some(dependent.name().to_string()),
-                        value: Cell::Empty,
-                        values: values[k].clone(),
+                    .filter(|&&j| ns[0].counts[j] > 0.0)
+                    .map(|&j| {
+                        let order = gain_order(nodes, &terminals, j, command.gain_ascending);
+                        (j, percentile_gains(ns, &order, j, q))
                     })
                     .collect();
-                let mut chart = crate::Chart::lines(
-                    format!("{name} chart"),
-                    Axis::titled("Percentile"),
-                    Axis {
-                        format: PERCENT_FORMAT.into(),
-                        ..Axis::titled(format!("{name} (%)"))
-                    },
-                    categories.clone(),
-                    series,
-                );
-                chart.legend = Some(shown.variable(dependent));
-                chart.footnote = Some(format!(
-                    "Dependent variable: {}. Cumulative over percentile groups of {q}%",
-                    shown.variable(dependent)
-                ));
-                charts.push(chart);
+                for (asked, name, k) in wanted {
+                    if !asked {
+                        continue;
+                    }
+                    let series = lines
+                        .iter()
+                        .map(|(j, values)| Series {
+                            name: class_labels[*j].clone(),
+                            statistic: Statistic::Percent,
+                            variable: Some(dependent.name().to_string()),
+                            value: Cell::Empty,
+                            values: values[k].clone(),
+                        })
+                        .collect();
+                    let mut chart = crate::Chart::lines(
+                        if validated {
+                            format!("{name} chart ({label} Sample)")
+                        } else {
+                            format!("{name} chart")
+                        },
+                        Axis::titled("Percentile"),
+                        Axis {
+                            format: PERCENT_FORMAT.into(),
+                            ..Axis::titled(format!("{name} (%)"))
+                        },
+                        categories.clone(),
+                        series,
+                    );
+                    chart.legend = Some(shown.variable(dependent));
+                    chart.footnote = Some(format!(
+                        "Dependent variable: {}. Cumulative over percentile groups of {q}%",
+                        shown.variable(dependent)
+                    ));
+                    charts.push(chart);
+                }
             }
         }
         Ok(out)
@@ -2111,7 +2369,11 @@ fn method_name(command: &Tree) -> &'static str {
 /// The resubstitution risk of a tree and its variance, from its terminal nodes and the root.
 /// With the priors the data give it is the share misclassified; otherwise each class's share
 /// misclassified, weighted by its prior.
-fn risk_estimate<'a>(terminals: impl Iterator<Item = &'a Node>, root: &Node) -> (f64, f64) {
+fn risk_estimate<'a>(
+    terminals: impl Iterator<Item = &'a Node>,
+    root: &Node,
+    empirical: Option<bool>,
+) -> (f64, f64) {
     if root.scale {
         // the sum of squares about the node means over the weight, and its error from the
         // fourth moments of the cases
@@ -2137,8 +2399,11 @@ fn risk_estimate<'a>(terminals: impl Iterator<Item = &'a Node>, root: &Node) -> 
         }
     }
     let prior_total: f64 = root.assign.iter().sum();
-    let from_data = (0..classes)
-        .all(|j| (root.assign[j] / prior_total - root.counts[j] / root.n).abs() < 1e-12);
+    // priors from the data (M1), judged by the priors' setting for a test sample, else by whether
+    // they equal the shares of the cases
+    let from_data = empirical.unwrap_or_else(|| {
+        (0..classes).all(|j| (root.assign[j] / prior_total - root.counts[j] / root.n).abs() < 1e-12)
+    });
     if from_data {
         let risk = wrong.iter().sum::<f64>() / root.n;
         return (risk, risk * (1.0 - risk) / root.n);
@@ -2240,7 +2505,11 @@ fn percentile_gains(nodes: &[Node], order: &[usize], j: usize, q: usize) -> [Vec
             let (n, g) = (nodes[t].n, nodes[t].counts[j]);
             // the last node takes what rounding leaves at 100%
             if before_n + n >= cut * (1.0 - 1e-12) || k + 1 == order.len() {
-                gain = before_gain + (cut - before_n) / n * g;
+                gain = if n > 0.0 {
+                    before_gain + (cut - before_n) / n * g
+                } else {
+                    before_gain
+                };
                 break;
             }
             before_n += n;

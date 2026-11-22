@@ -4848,7 +4848,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20    [/PRINT=MODELSUMMARY CLASSIFICATION RISK CPS TREETABLE | NONE]\n\
                  \x20    [/GAIN CATEGORYTABLE=YES | NO  TYPE=[NODE]  SORT=DESCENDING | ASCENDING  CUMULATIVE=YES | NO]\n\
                  \x20    [/SAVE NODEID[(name)] PREDVAL[(name)] PREDPROB[(root)]]\n\
-                 \x20    [/METHOD TYPE=CHAID | EXHAUSTIVECHAID]  [/VALIDATION TYPE=NONE]\n\
+                 \x20    [/METHOD TYPE=CHAID | EXHAUSTIVECHAID]  [/VALIDATION TYPE=NONE | SPLITSAMPLE(percent | var)]\n\
+                 \x20    [OUTPUT=BOTHSAMPLES | TESTSAMPLE]\n\
                  \x20    [/GROWTHLIMIT MAXDEPTH=AUTO | n  MINPARENTSIZE=100  MINCHILDSIZE=50]\n\
                  \x20    [/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 SPLITMERGED=NO CHISQUARE=PEARSON | LR CONVERGE=.001\n\
                  \x20            MAXITERATIONS=100 ADJUST=BONFERRONI | NONE INTERVALS=10 | varlist(n) ...]\n\
@@ -4910,8 +4911,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  25 categories) and cut like a scale one, one with two categories sends one each way. The tree table\n\
                  shows the test, its\n\
                  statistic, degrees of freedom, significance and the cut. Priors, surrogates, MAXDEPTH (AUTO 5),\n\
-                 MINPARENTSIZE, MINCHILDSIZE, PRUNE and SAVE work as in CRT. Not supported yet: a scale dependent with CHAID, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
-                 SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 MINPARENTSIZE, MINCHILDSIZE, PRUNE and SAVE work as in CRT.\n\
+                 VALIDATION TYPE=SPLITSAMPLE(percent) grows the tree on that share of the cases, drawn at random (SET\n\
+                 SEED makes it repeatable; 50 when no value is given), or SPLITSAMPLE(var) on the cases where the numeric\n\
+                 variable is 1 and tests it on the rest. The priors come from the training cases, and the Risk and\n\
+                 Classification tables and the gain tables and charts are given for the training and the test sample\n\
+                 (OUTPUT=TESTSAMPLE: the test sample only); the tree and its tables are those of the training cases.\n\
+                 With PRUNE the test sample's risk picks the subtree. SAVE gives every case, test cases included, a node.\n\
+                 A scale dependent cannot be validated yet. Not supported yet: a scale dependent with CHAID, VALIDATION\n\
+                 CROSSVALIDATION, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,

@@ -385,10 +385,10 @@ fn what_is_not_supported_says_so() {
     let mut engine = engine_with(DATA1);
     let message = error(&mut engine, "TREE y [s] BY a [n] /PRINT NONE.");
     assert!(message.contains("scale dependent variable"), "{message}");
-    let (_, errors) = parse("TREE y BY a /VALIDATION TYPE=SPLITSAMPLE(50).");
+    let (_, errors) = parse("TREE y BY a /VALIDATION TYPE=CROSSVALIDATION(5).");
     assert_eq!(
         errors[0].message,
-        "VALIDATION TYPE=SPLITSAMPLE is not supported yet"
+        "VALIDATION TYPE=CROSSVALIDATION is not supported yet"
     );
     // user-missing values of a nominal predictor are categories of their own with VALID
     let tables = run(
