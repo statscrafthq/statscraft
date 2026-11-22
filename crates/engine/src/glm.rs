@@ -1051,6 +1051,11 @@ impl Engine {
             return Err(Error(format!("{name}: the design has no effects")));
         }
         let mut warnings = Vec::new();
+        if !command.random.is_empty() && !command.wsfactors.is_empty() {
+            return Err(Error(format!(
+                "{name}: RANDOM cannot be used with WSFACTOR (a model with a within-subjects factor)"
+            )));
+        }
         if !command.random.is_empty() {
             let uses: Vec<&str> = [
                 ("PRINT PARAMETER", command.print.parameter),
