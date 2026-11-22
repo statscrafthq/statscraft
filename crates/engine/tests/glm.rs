@@ -2361,3 +2361,89 @@ fn doubly_multivariate_options_reach_every_measure() {
         )) > 0.0
     );
 }
+
+#[test]
+fn repeated_measures_homogeneity_tests_are_about_the_original_dependents() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!("{DOUBLY}GLM a1 a2 a3 b1 b2 b3 BY g /WSFACTOR=time 3 /PRINT=HOMOGENEITY."),
+    );
+    // R: Box's M by its formulas on the two group covariance matrices, and Levene's F as the
+    // one-way F of the absolute deviations from the group mean of each dependent
+    let box_table = tables
+        .iter()
+        .find(|t| t.title.starts_with("Box's"))
+        .expect("Box's test");
+    let column = box_table.columns.len() - 1;
+    let value = |row: usize| number(&box_table.rows[row][column]);
+    for (row, want) in [
+        (0, 44.15005821),
+        (1, 0.905261),
+        (2, 21.0),
+        (3, 529.631765),
+        (4, 0.58449275),
+    ] {
+        assert!(
+            (value(row) - want).abs() <= 1e-6 * want.abs().max(1.0),
+            "Box row {row}: {} vs {want}",
+            value(row)
+        );
+    }
+    for (dependent, f, sig) in [
+        ("a1", 0.4954343269, 0.4949453648),
+        ("a2", 0.1581401561, 0.6978578694),
+        ("b1", 0.0024738729, 0.9611494295),
+        ("b2", 2.8569241637, 0.116768681),
+    ] {
+        let row = format!("{dependent} / Based on Mean");
+        let got = number(cell(
+            &tables,
+            "Levene's Test of Equality of Error Variances",
+            &row,
+            "Levene Statistic",
+        ));
+        assert!((got - f).abs() <= 1e-8, "{dependent}: {got} vs {f}");
+        let got = number(cell(
+            &tables,
+            "Levene's Test of Equality of Error Variances",
+            &row,
+            "Sig.",
+        ));
+        assert!((got - sig).abs() <= 1e-8, "{dependent}: {got}");
+    }
+}
+
+#[test]
+fn repeated_measures_matrix_tables_agree_with_the_multivariate_model() {
+    let mut engine = Engine::default();
+    let rm = run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 BY g /WSFACTOR=time 3 /PRINT=PARAMETER LOF RSSCP TEST(SSCP)."
+        ),
+    );
+    let mv = run(
+        &mut engine,
+        "GLM a1 a2 a3 BY g /PRINT=PARAMETER LOF RSSCP TEST(SSCP).",
+    );
+    // every table the multivariate model prints for these options is also in the repeated
+    // measures output with the same rows
+    let wanted: Vec<&Table> = mv
+        .iter()
+        .filter(|t| {
+            ["Parameter", "Lack of Fit", "SSCP", "Residual"]
+                .iter()
+                .any(|k| t.title.contains(k))
+        })
+        .collect();
+    assert!(
+        wanted.len() >= 4,
+        "{:?}",
+        mv.iter().map(|t| &t.title).collect::<Vec<_>>()
+    );
+    for table in wanted {
+        let same = rm.iter().find(|t| t.title == table.title);
+        assert_eq!(same.map(|t| &t.rows), Some(&table.rows), "{}", table.title);
+    }
+}

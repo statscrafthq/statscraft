@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- GLM with WSFACTOR takes PRINT HOMOGENEITY, PARAMETER, LOF, RSSCP, TEST(SSCP), TEST(LMATRIX) and GEF: the tables of the original dependent variables under the between-subjects design (Box's M and Levene's tests, parameter estimates, lack of fit, design and SSCP matrices), as the multivariate model prints them.
+
 ## 0.29.0 (2026-11-23)
 
 - TREE /METHOD TYPE=QUEST grows a binary tree for a nominal dependent: each node picks the predictor by an F test (scale, ordinal) or chi-square test (nominal) against the classes, with a Levene test of the spread as the second chance, and cuts at the root of the discriminant equation of two groups of classes; /QUEST ALPHASPLIT, priors, surrogates, pruning and SAVE work as in CRT. A nominal predictor (up to 25 categories) is scored by its largest discriminant coordinate and cut like a scale predictor.

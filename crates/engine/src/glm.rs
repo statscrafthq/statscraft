@@ -3933,6 +3933,90 @@ fn block_diagonal(a: &Matrix, times: usize) -> Matrix {
     out
 }
 
+/// The tables of a repeated measures model that concern the original dependent variables under
+/// the between-subjects design, as in the multivariate model: Box's M and Levene's tests
+/// (HOMOGENEITY), the parameter estimates and the lack of fit of each dependent, the design
+/// matrices (GEF, TEST(LMATRIX)) and the SSCP matrices (TEST(SSCP), RSSCP).
+fn original_dependent_tables(
+    command: &Glm,
+    d: &Data,
+    effects: &[Effect],
+    texts: &[String],
+    warnings: &mut Vec<String>,
+) -> Vec<Table> {
+    let print = &command.print;
+    let mut out = Vec::new();
+    if !(print.homogeneity
+        || print.parameter
+        || print.lof
+        || print.rsscp
+        || print.sscp
+        || print.lmatrix
+        || print.gef)
+    {
+        return out;
+    }
+    let flags = flags_of(command);
+    let fit = Fit::new(d, effects.to_vec(), &d.y, command.eps);
+    let parts: Vec<(Data, Fit)> = (0..texts.len())
+        .map(|j| {
+            let dj = d.only(j);
+            let fj = Fit::new(&dj, effects.to_vec(), &dj.y, command.eps);
+            (dj, fj)
+        })
+        .collect();
+    let dfe = fit.df_error();
+    let design = fit
+        .effects
+        .iter()
+        .map(|e| e.label.clone())
+        .collect::<Vec<_>>()
+        .join(" + ");
+    if print.homogeneity {
+        match box_m(d, &design) {
+            Some(t) => out.push(t),
+            None => warnings.push(
+                "Box's M test needs two cells or more whose covariance matrix is not singular"
+                    .into(),
+            ),
+        }
+        let tables: Option<Vec<Table>> = parts.iter().map(|(dj, fj)| levene(dj, fj)).collect();
+        match tables {
+            Some(tables) => out.push(merge(tables, texts, false, "Dependent Variable")),
+            None => warnings.push("Levene's test needs at least one factor".into()),
+        }
+    }
+    if print.parameter {
+        let tables = parts
+            .iter()
+            .zip(texts)
+            .map(|((dj, fj), dep)| {
+                parameter_table(command, dj, fj, dep, &flags, fj.s[0][0] / dfe, dfe)
+            })
+            .collect();
+        out.push(merge(tables, texts, false, "Dependent Variable"));
+    }
+    if let Some((d0, f0)) = parts.first() {
+        out.extend(design_matrix_tables(command, d0, f0));
+    }
+    if print.lof {
+        let tables = parts
+            .iter()
+            .zip(texts)
+            .map(|((dj, fj), dep)| lack_of_fit(dj, fj, dep, &flags))
+            .collect();
+        out.push(merge(tables, texts, true, "Dependent Variable"));
+    }
+    if print.sscp {
+        let sscp = effect_sscp(&fit, command.sstype);
+        out.push(sscp_table(&fit, &sscp, texts, command.sstype));
+    }
+    if print.rsscp {
+        out.extend(residual_tables(&fit, texts, &design));
+    }
+    out
+}
+
 impl Engine {
     /// A doubly multivariate model: the dependents are `m` measures each over the `r` cells of
     /// the within-subjects design, a measure's cells together, the last factor varying fastest.
@@ -3960,6 +4044,18 @@ impl Engine {
         };
         let mut single = command.clone();
         single.measures.clear();
+        // these tables are about the original dependents, made once below
+        for flag in [
+            &mut single.print.homogeneity,
+            &mut single.print.parameter,
+            &mut single.print.lof,
+            &mut single.print.rsscp,
+            &mut single.print.sscp,
+            &mut single.print.lmatrix,
+            &mut single.print.gef,
+        ] {
+            *flag = false;
+        }
         let mut taken: Vec<Vec<Table>> = Vec::new();
         for k in 0..m {
             let dk = d.columns(k * r..(k + 1) * r);
@@ -4025,7 +4121,7 @@ impl Engine {
                     .cloned(),
             );
         }
-        out.extend(self.joint_multivariate(command, d, effects, m, r)?);
+        out.extend(self.joint_multivariate(command, d, effects.clone(), m, r)?);
         for (title, by_source) in [
             ("Mauchly's Test of Sphericity", false),
             ("Tests of Within-Subjects Effects", true),
@@ -4037,6 +4133,9 @@ impl Engine {
                 out.push(merge(tables, &names, by_source, "Measure"));
             }
         }
+        out.extend(original_dependent_tables(
+            command, d, &effects, dependents, warnings,
+        ));
         Ok(out)
     }
 
@@ -4199,16 +4298,9 @@ impl Engine {
             ("CONTRAST", !command.contrasts.is_empty()),
             ("LMATRIX", !command.lmatrix.is_empty()),
             ("TEST", !command.tests.is_empty()),
-            ("PRINT LOF", command.print.lof),
-            ("PRINT PARAMETER", command.print.parameter),
-            ("PRINT HOMOGENEITY", command.print.homogeneity),
             ("MMATRIX", command.mmatrix.is_some()),
             ("KMATRIX", command.kmatrix.is_some()),
-            ("PRINT RSSCP", command.print.rsscp),
-            ("PRINT TEST(SSCP)", command.print.sscp),
             ("PRINT TEST(MMATRIX)", command.print.mmatrix),
-            ("PRINT TEST(LMATRIX)", command.print.lmatrix),
-            ("PRINT GEF", command.print.gef),
         ] {
             if given {
                 return Err(Error(format!("{what} with WSFACTOR is not supported yet")));
@@ -4640,6 +4732,13 @@ impl Engine {
         );
         between.columns[1] = format!("Type {} Sum of Squares", roman(command.sstype));
         out.push(between);
+        out.extend(original_dependent_tables(
+            command,
+            d,
+            &fit.effects,
+            dependents,
+            warnings,
+        ));
         if !command.emmeans.is_empty() {
             warnings.push("EMMEANS with WSFACTOR is not supported yet; it is left out".into());
         }
