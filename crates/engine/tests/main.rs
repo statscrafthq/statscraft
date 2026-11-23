@@ -125,6 +125,7 @@ mod tree_chaid_scale;
 mod tree_costs;
 mod tree_crt;
 mod tree_quest;
+mod tree_rules;
 mod tree_validation;
 mod ts_models;
 mod ts_more;

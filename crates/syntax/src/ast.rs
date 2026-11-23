@@ -1404,6 +1404,8 @@ pub struct Tree {
     pub quest: bool,
     /// `/QUEST ALPHASPLIT`
     pub quest_alpha: f64,
+    /// `/RULES`
+    pub rules: Option<TreeRules>,
     /// `/VALIDATION TYPE`
     pub validation: TreeValidation,
     /// `/VALIDATION OUTPUT=TESTSAMPLE`: output for the test sample only.
@@ -1488,6 +1490,42 @@ impl Tree {
     pub fn binary(&self) -> bool {
         self.crt || self.quest
     }
+}
+
+/// `/RULES NODES`: the nodes rules are written for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TreeRuleNodes {
+    None,
+    Terminal,
+    All,
+    /// The terminal nodes with the largest index values.
+    TopN(usize),
+    /// The terminal nodes holding this percent of the cases, by index value.
+    TopPercent(f64),
+    /// The terminal nodes whose index is at least this.
+    MinIndex(f64),
+}
+
+/// `/RULES SYNTAX`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeRuleSyntax {
+    Internal,
+    Sql,
+    Generic,
+}
+
+/// `/RULES`: rules that select or score cases as the tree does.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreeRules {
+    pub nodes: TreeRuleNodes,
+    pub syntax: TreeRuleSyntax,
+    /// `TYPE=SELECTION`: one rule that selects the cases of the nodes, not a rule for each.
+    pub selection: bool,
+    /// `SURROGATES=INCLUDE`
+    pub surrogates: bool,
+    /// `LABELS=YES`
+    pub labels: bool,
+    pub outfile: Option<String>,
 }
 
 /// `/VALIDATION TYPE`: how the tree is checked on cases it was not grown on.

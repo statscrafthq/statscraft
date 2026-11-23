@@ -4856,6 +4856,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20            MAXITERATIONS=100 ADJUST=BONFERRONI | NONE INTERVALS=10 | varlist(n) ...]\n\
                  \x20    [/COSTS EQUAL | CUSTOM=actual predicted [cost] ...] [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]\n\
                  \x20    [/MISSING NOMINALMISSING=MISSING | VALID]\n\
+                 \x20    [/RULES NODES=TERMINAL | ALL SYNTAX=INTERNAL | SQL | GENERIC TYPE=SCORING | SELECTION\n\
+                 \x20            SURROGATES=INCLUDE | EXCLUDE LABELS=YES | NO]\n\
                  \x20    [/PLOT GAIN RESPONSE INDEX INCREMENT=10].\n\
                  Levels: [S] scale, [O] ordinal, [N] or [C] nominal; without one the dictionary's level holds,\n\
                  and an unknown level comes from the data as in a data pass. The dependent is nominal\n\
@@ -4940,8 +4942,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  it holds; the node at a cut counts in proportion to the part of it below the cut. For a scale\n\
                  dependent the same types give the summary (SUMMARYTABLE, on by default): the nodes by mean with the\n\
                  cumulative mean and index, and the percentile groups with their mean and index; CATEGORYTABLE does not\n\
-                 apply to it. Not supported yet:\n\
-                 SPLITMERGED=YES, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 apply to it. RULES writes the tree as a table of rules for the terminal nodes (NODES=ALL: every\n\
+                 node, parents first): SYNTAX=INTERNAL gives DO IF blocks of this command language that compute NodeID,\n\
+                 PredictedValue and PredictedProbability (the mean for a scale dependent) from the predictors, SQL gives\n\
+                 CASE expressions without table names, GENERIC sentences with the labels of the variables and values\n\
+                 (LABELS=NO: names and values). TYPE=SELECTION gives one rule that selects the cases of the nodes (a\n\
+                 FILTER, a WHERE, or one sentence). The rules route a case as the tree does, a missing value or a\n\
+                 category the tree has not seen following the surrogates (SURROGATES=INCLUDE) and then the larger\n\
+                 side; without surrogates, and in generic rules, such a case belongs to no node. Not supported yet:\n\
+                 NODES=TOPN, TOPPCT and MININDEX, RULES OUTFILE, SPLITMERGED=YES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,

@@ -8,8 +8,8 @@
 //! manual says.
 
 use crate::ast::{
-    Command, Level, Tree, TreeCategory, TreeImpurity, TreePrint, TreePriors, TreeSave,
-    TreeValidation, Value, VarItem,
+    Command, Level, Tree, TreeCategory, TreeImpurity, TreePrint, TreePriors, TreeRuleNodes,
+    TreeRuleSyntax, TreeRules, TreeSave, TreeValidation, Value, VarItem,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -498,6 +498,78 @@ fn crt(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     Ok(())
 }
 
+/// `/RULES NODES SYNTAX TYPE SURROGATES LABELS OUTFILE`
+fn rules(p: &mut Parser, command: &mut Tree) -> PResult<()> {
+    let mut rules = TreeRules {
+        nodes: TreeRuleNodes::Terminal,
+        syntax: TreeRuleSyntax::Internal,
+        selection: false,
+        surrogates: true,
+        labels: true,
+        outfile: None,
+    };
+    while !at_end(p) {
+        if p.eat_keyword("NODES") {
+            p.eat(Punct::Eq);
+            rules.nodes = if p.eat_keyword("TERMINAL") {
+                TreeRuleNodes::Terminal
+            } else if p.eat_keyword("ALL") {
+                TreeRuleNodes::All
+            } else if p.eat_keyword("NONE") {
+                TreeRuleNodes::None
+            } else if p.eat_keyword("TOPN") {
+                p.expect(Punct::LParen)?;
+                let n = count(p, "TOPN", f64::MAX)?;
+                p.expect(Punct::RParen)?;
+                TreeRuleNodes::TopN(n)
+            } else if p.eat_keyword("TOPPCT") {
+                p.expect(Punct::LParen)?;
+                let start = p.pos;
+                let pct = positive(p, "TOPPCT")?;
+                if pct >= 100.0 {
+                    let message = "TOPPCT must be below 100";
+                    return Err(SyntaxError::new(p.span_from(start), message));
+                }
+                p.expect(Punct::RParen)?;
+                TreeRuleNodes::TopPercent(pct)
+            } else if p.eat_keyword("MININDEX") {
+                p.expect(Punct::LParen)?;
+                let index = positive(p, "MININDEX")?;
+                p.expect(Punct::RParen)?;
+                TreeRuleNodes::MinIndex(index)
+            } else {
+                return Err(p.unexpected(&["TERMINAL", "ALL", "TOPN", "TOPPCT", "MININDEX"]));
+            };
+        } else if p.eat_keyword("SYNTAX") {
+            rules.syntax = match choice(p, &["INTERNAL", "SQL", "GENERIC"])? {
+                0 => TreeRuleSyntax::Internal,
+                1 => TreeRuleSyntax::Sql,
+                _ => TreeRuleSyntax::Generic,
+            };
+        } else if p.eat_keyword("TYPE") {
+            rules.selection = choice(p, &["SCORING", "SELECTION"])? == 1;
+        } else if p.eat_keyword("SURROGATES") {
+            rules.surrogates = choice(p, &["EXCLUDE", "INCLUDE"])? == 1;
+        } else if p.eat_keyword("LABELS") {
+            rules.labels = yes(p)?;
+        } else if p.eat_keyword("OUTFILE") {
+            p.eat(Punct::Eq);
+            rules.outfile = Some(p.string("a file name")?);
+        } else {
+            return Err(p.unexpected(&[
+                "NODES",
+                "SYNTAX",
+                "TYPE",
+                "SURROGATES",
+                "LABELS",
+                "OUTFILE",
+            ]));
+        }
+    }
+    command.rules = Some(rules);
+    Ok(())
+}
+
 fn quest(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     while !at_end(p) {
         if p.eat_keyword("ALPHASPLIT") {
@@ -753,6 +825,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         nominal_missing_valid: false,
         crt: false,
         validation: TreeValidation::None,
+        rules: None,
         adjust_priors: false,
         costs: None,
         test_sample_only: false,
@@ -811,6 +884,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             "CRT" => crt(p, &mut command)?,
             "PRIORS" => priors(p, &mut command)?,
             "QUEST" => quest(p, &mut command)?,
+            "RULES" => rules(p, &mut command)?,
             "COSTS" => {
                 p.eat(Punct::Eq);
                 if p.eat_keyword("CUSTOM") {

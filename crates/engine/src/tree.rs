@@ -39,6 +39,7 @@
 mod crt;
 mod gain;
 mod quest;
+mod rules;
 mod scale;
 
 use crate::crosstabs::Key;
@@ -50,7 +51,8 @@ use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value, Values, Variable};
 use statscraft_syntax::{
-    Level, Tree, TreeCategory, TreeImpurity, TreePriors, TreeSave, TreeValidation, VarItem,
+    Level, Tree, TreeCategory, TreeImpurity, TreePriors, TreeRuleSyntax, TreeRules, TreeSave,
+    TreeValidation, VarItem,
 };
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -67,6 +69,8 @@ struct Predictor {
     /// The value of each category of a scale or ordinal predictor, for QUEST; the rank for a
     /// category that is no number. Empty for the others.
     numbers: Vec<f64>,
+    /// What the rules need: the variable's name, labels and the values of its categories.
+    rule: rules::RuleInfo,
 }
 
 impl Predictor {
@@ -749,6 +753,29 @@ fn key_of(value: &statscraft_syntax::Value) -> Key {
     }
 }
 
+/// What the rules need to know of a predictor: its variable's name and labels, the value of each
+/// category and, for CHAID's scale predictors, the numbers its bins are cut at.
+fn rule_info(variable: &Variable, keys: &[Key], cuts: Vec<f64>) -> rules::RuleInfo {
+    let label_of = |key: &Key| {
+        variable
+            .value_labels()
+            .iter()
+            .find(|(v, _)| match (v, key) {
+                (Value::Number(a), Key::Number(b)) => a == b,
+                (Value::String(a), Key::Text(b)) => a.trim_end() == b,
+                _ => false,
+            })
+            .map(|(_, l)| l.clone())
+    };
+    rules::RuleInfo {
+        name: variable.name().to_string(),
+        label: variable.label().map(str::to_string),
+        keys: keys.to_vec(),
+        value_labels: keys.iter().map(label_of).collect(),
+        cuts,
+    }
+}
+
 /// The value of each category of a scale or ordinal predictor: the number it is, else its rank.
 fn numbers_of(keys: &[Key]) -> Vec<f64> {
     keys.iter()
@@ -802,6 +829,20 @@ impl Engine {
     pub(crate) fn tree(&mut self, command: &Tree) -> Result<Vec<Table>, Error> {
         for message in &command.ignored {
             self.warn(message.clone());
+        }
+        if let Some(rules) = &command.rules {
+            use statscraft_syntax::TreeRuleNodes as Nodes;
+            if matches!(
+                rules.nodes,
+                Nodes::TopN(_) | Nodes::TopPercent(_) | Nodes::MinIndex(_)
+            ) {
+                return Err(Error(
+                    "RULES NODES=TOPN, TOPPCT and MININDEX are not supported yet".into(),
+                ));
+            }
+            if rules.outfile.is_some() {
+                return Err(Error("RULES OUTFILE is not supported yet".into()));
+            }
         }
         let (shown, labels) = (self.shown(), Shown::labels(self.currencies()));
         let scale_min = self.scale_min();
@@ -1208,6 +1249,7 @@ impl Engine {
                         breaks: Some(cuts),
                         codes,
                         numbers: numbers_of(&keys),
+                        rule: rule_info(variable, &keys, Vec::new()),
                     }
                 } else if *level == Level::Scale {
                     let k = intervals
@@ -1244,6 +1286,7 @@ impl Engine {
                         ),
                         codes,
                         numbers: Vec::new(),
+                        rule: rule_info(variable, &[], breaks.clone()),
                     }
                 } else {
                     // the categories are those of the training cases; another one is missing
@@ -1290,6 +1333,7 @@ impl Engine {
                         } else {
                             numbers_of(&keys)
                         },
+                        rule: rule_info(variable, &keys, Vec::new()),
                     }
                 };
                 coded.push(predictor);
@@ -1633,6 +1677,24 @@ impl Engine {
             &dependent,
             &mut charts,
         )?;
+        if let Some(spec) = &command.rules {
+            let class_names: Vec<String> = classes
+                .iter()
+                .map(|k| labels.value(&dependent, k))
+                .collect();
+            let rules = rules::Rules {
+                command,
+                rules: spec,
+                nodes: &nodes,
+                predictors: &coded,
+                weights: &case_weight,
+                classes: &classes,
+                class_labels: &class_names,
+                dependent: dependent.name(),
+                dependent_label: dependent.label(),
+            };
+            tables.extend(rules.table());
+        }
         let total_n: f64 = in_use.iter().map(|&c| weight(c)).sum();
         if command.print.case_summary {
             let included = nodes[0].n + tested.as_ref().map_or(0.0, |t| t[0].n);

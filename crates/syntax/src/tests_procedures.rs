@@ -1391,6 +1391,37 @@ fn tree_gain_types() {
 }
 
 #[test]
+fn tree_rules() {
+    let t = tree_of("TREE y BY x /RULES.");
+    let rules = t.rules.expect("rules");
+    assert_eq!(rules.nodes, TreeRuleNodes::Terminal);
+    assert_eq!(rules.syntax, TreeRuleSyntax::Internal);
+    assert!(!rules.selection && rules.surrogates && rules.labels && rules.outfile.is_none());
+    let t = tree_of(
+        "TREE y BY x /RULES NODES=ALL SYNTAX=SQL TYPE=SELECTION SURROGATES=EXCLUDE LABELS=NO OUTFILE='r.sql'.",
+    );
+    let rules = t.rules.expect("rules");
+    assert_eq!(rules.nodes, TreeRuleNodes::All);
+    assert_eq!(rules.syntax, TreeRuleSyntax::Sql);
+    assert!(rules.selection && !rules.surrogates && !rules.labels);
+    assert_eq!(rules.outfile.as_deref(), Some("r.sql"));
+    let nodes = |source: &str| tree_of(source).rules.expect("rules").nodes;
+    assert_eq!(
+        nodes("TREE y BY x /RULES NODES=TOPN(3)."),
+        TreeRuleNodes::TopN(3)
+    );
+    assert_eq!(
+        nodes("TREE y BY x /RULES NODES=TOPPCT(25)."),
+        TreeRuleNodes::TopPercent(25.0)
+    );
+    assert_eq!(
+        nodes("TREE y BY x /RULES NODES=MININDEX(120)."),
+        TreeRuleNodes::MinIndex(120.0)
+    );
+    assert_eq!(nodes("TREE y BY x /RULES NODES=NONE."), TreeRuleNodes::None);
+}
+
+#[test]
 fn tree_errors() {
     let message = |source: &str| err(source).message;
     assert_eq!(
@@ -1413,10 +1444,7 @@ fn tree_errors() {
         message("TREE y BY x /CHAID SPLITMERGED=YES."),
         "CHAID SPLITMERGED=YES is not supported yet"
     );
-    assert_eq!(
-        message("TREE y BY x /RULES NODES=ALL."),
-        "subcommand RULES of TREE is not supported yet"
-    );
+    assert!(message("TREE y BY x /RULES NODES=TOPPCT(100).").contains("below 100"));
     assert_eq!(
         message("TREE y BY x /COSTS CUSTOM=1 2 [-3]."),
         "a misclassification cost cannot be negative"
