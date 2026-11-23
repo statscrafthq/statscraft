@@ -489,5 +489,9 @@ fn help_describes_only_what_statscraft_does() {
                 .map(move |phrase| format!("{name}: \"{phrase}\""))
         })
         .collect();
-    assert!(found.is_empty(), "help text to rewrite: {}", found.join(", "));
+    assert!(
+        found.is_empty(),
+        "help text to rewrite: {}",
+        found.join(", ")
+    );
 }
