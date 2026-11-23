@@ -557,16 +557,29 @@ impl Table {
     }
 
     /// With stacked row labels, the rows that start a block and get a label row above them:
-    /// each row whose outer label is not empty and differs from the label of the row above.
-    /// Empty when the labels are not stacked.
+    /// each row whose outer label is not empty and differs from the label of the row above,
+    /// unless it is one of `inline_starts`. Empty when the labels are not stacked.
     pub fn block_starts(&self) -> Vec<usize> {
+        self.starts(false)
+    }
+
+    /// With stacked row labels, the block starts whose other row labels are all empty, such as
+    /// the mean row of a table of means: the block label is shown in that row itself, in the
+    /// first column, and no label row comes above it.
+    pub fn inline_starts(&self) -> Vec<usize> {
+        self.starts(true)
+    }
+
+    fn starts(&self, inline: bool) -> Vec<usize> {
         if !self.stacked() {
             return Vec::new();
         }
         let label = |r: usize| cell_text(self, r, 0);
+        let bare =
+            |r: usize| (1..self.row_headers).all(|c| cell_text(self, r, c).trim().is_empty());
         let starts = (0..self.rows.len()).filter(|&r| {
             let text = label(r);
-            !text.is_empty() && (r == 0 || label(r - 1) != text)
+            !text.is_empty() && (r == 0 || label(r - 1) != text) && bare(r) == inline
         });
         starts.collect()
     }

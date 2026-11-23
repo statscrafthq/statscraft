@@ -220,6 +220,7 @@ mod tests {
 
     fn setting(key: &str, presets: bool, per_file: bool) -> Setting {
         Setting {
+            choices: Vec::new(),
             key: key.into(),
             label: key.into(),
             kind: Kind::Text,

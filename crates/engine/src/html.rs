@@ -197,6 +197,7 @@ pub fn table_html(table: &Table, notes: bool) -> String {
     }
     html.push_str("</thead>\n<tbody>\n");
     let starts = table.block_starts();
+    let inline = table.inline_starts();
     let width = table.columns.len() - shift;
     for (r, spans) in row_spans(table).iter().enumerate() {
         if starts.binary_search(&r).is_ok() {
@@ -208,9 +209,14 @@ pub fn table_html(table: &Table, notes: bool) -> String {
         }
         html.push_str("<tr>");
         for c in shift..table.rows[r].len() {
-            let text = escape(&cell_text(table, r, c));
+            // a block label shown in its own first row takes that row's empty first label
+            let own = match c == shift && inline.binary_search(&r).is_ok() {
+                true => 0,
+                false => c,
+            };
+            let text = escape(&cell_text(table, r, own));
             if c < table.row_headers {
-                let more = |n| label_attributes(table, r, c, n);
+                let more = |n| label_attributes(table, r, own, n);
                 match spans.get(c).copied().unwrap_or(1) {
                     0 => {}
                     1 => html.push_str(&format!("<th{}>{text}</th>", more(1))),

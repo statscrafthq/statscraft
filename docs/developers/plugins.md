@@ -64,6 +64,9 @@ example plugin's, shortened):
 
 `kind` is `number`, `text`, `colour` (written `#rrggbb`), `bool` or `style`. A `number` or
 `text` setting may add `"presets": true` for a list of saved values in the dialog (see [Using plugins](../plugins.md#plugin-settings)).
+A `text` setting may add `"choices"`, a list of texts, and the dialog then offers those in a
+list instead of a text field. Statscraft versions before choices show the text field, so a
+plugin reads any other text as its default.
 Any setting may add `"per_file": true` when its value belongs to one data file rather than to a
 look, such as the size of the population the sample was drawn from: design templates leave it
 out, and it always comes from the data file. Any setting may add `"group"` with the heading
@@ -241,7 +244,10 @@ out. The output window ignores them.
   column 0 gets a row of its own above it, with that text in the first column and nothing to its
   right, so a long label runs on across the empty cells beside it (it is not wrapped). The rows
   of the run follow, every column moved one to the left: the category labels are in the first
-  column, under the label row. Excel freezes only the header lines then, not the label columns.
+  column, under the label row. When the first row of a run has no other row label, as the
+  mean row of a table of means whose statistic label is empty, that row holds the text itself
+  in the first column and no label row comes above it; the run's decoration of column 0 styles
+  it. Excel freezes only the header lines then, not the label columns.
   Any other value is dropped, and a table with one row label column keeps its layout.
 - `column_widths`: Excel column widths in characters, kept within 1 to 255. A width for a
   column off the table is dropped. When two tables share a sheet, the wider need of a column

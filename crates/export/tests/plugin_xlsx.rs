@@ -487,3 +487,57 @@ fn stacked_tables_on_a_web_page() {
     );
     assert!(html.contains("style=\"text-align:center;\""), "{html}");
 }
+
+/// A table of means in the stacked layout: the mean row has no statistic label, so each
+/// question sits in its mean row and only the count row (arv) follows; no label rows.
+#[test]
+fn stacked_means_keep_the_question_in_the_mean_row() {
+    let mut session = statscraft_engine::session::Session::default();
+    let source = "DATA LIST LIST /bike car group (3F1).
+BEGIN DATA
+1 1 1
+3 2 1
+2 2 2
+4 1 2
+END DATA.
+VARIABLE LABELS bike 'How often do you ride a bike to the shop' car 'Is there a car at home'.
+CTABLES /TABLE bike [S][MEAN '' F5.2, VALIDN 'arv' F5.0] + car [S][MEAN '' F5.2, VALIDN 'arv' F5.0]
+  BY group [C] /SLABELS POSITION=ROW.";
+    session.run(source, None).unwrap();
+    let items = session.output_items("Document1").unwrap();
+    let mut table = statscraft_engine::output_file::leaves(items)[0].1.shown().0;
+    let style = TableStyle {
+        plain: true,
+        row_labels: Some("stacked".into()),
+        ..TableStyle::default()
+    };
+    table.set_decorations(Vec::new(), style);
+    assert_eq!(table.inline_starts(), [0, 2]);
+    assert!(table.block_starts().is_empty());
+    let parts = written("stacked-means", &table);
+    let rows = [
+        (4, "How often do you ride a bike to the shop", "2"),
+        (5, "arv", "2"),
+        (6, "Is there a car at home", "1.5"),
+        (7, "arv", "2"),
+    ];
+    for (row, a, b) in rows {
+        assert_eq!(
+            value(&parts, &format!("A{row}")).as_deref(),
+            Some(a),
+            "A{row}"
+        );
+        assert_eq!(
+            value(&parts, &format!("B{row}")).as_deref(),
+            Some(b),
+            "B{row}"
+        );
+    }
+    assert_eq!(value(&parts, "A8"), None);
+    let html = statscraft_engine::table_html(&table, true);
+    assert!(!html.contains("colspan=\"3\">How often"), "{html}");
+    assert!(
+        html.contains("<th>How often do you ride a bike to the shop</th>"),
+        "{html}"
+    );
+}

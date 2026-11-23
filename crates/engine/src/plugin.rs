@@ -51,6 +51,10 @@ pub struct Setting {
     /// The heading of the section the window shows the setting in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// For a text setting, the values the window offers in a list instead of a text field. An
+    /// older window shows the text field, so the plugin reads any other text as its default.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -519,6 +523,20 @@ mod tests {
         assert_eq!(values["up"], "#c6efce");
         // a value that is not yes or no takes the default
         assert_eq!(values["notes"], true);
+    }
+
+    /// A text setting with choices keeps them; its stored text reaches the plugin as it is.
+    #[test]
+    fn text_settings_carry_their_choices() {
+        let description: Description = serde_json::from_str(
+            r#"{"name": "M", "version": "1", "protocol": 1, "settings": [
+                {"key": "n", "label": "Base", "kind": "text", "default": "unweighted",
+                 "choices": ["unweighted", "weighted", "effective"]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(description.settings[0].choices.len(), 3);
+        let values = description.values(|_| Some("effective".into()));
+        assert_eq!(values["n"], "effective");
     }
 
     /// A style setting reaches the plugin as its stored object, or the default when the

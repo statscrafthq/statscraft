@@ -411,6 +411,13 @@ pub(crate) fn put_table(
         }
     }
     put_row_labels(sheet, table, &body_rows, column_of, &mut formats)?;
+    // a block label shown in its own first row, written over that row's empty label cell
+    for r in table.inline_starts() {
+        let decoration = table.decoration(r, 0);
+        let label = formats.get(NUMBER, String::new(), decoration);
+        sheet.write_string_with_format(body_rows[r], left, cell_text(table, r, 0), label)?;
+        comment(sheet, body_rows[r], left, decoration)?;
+    }
     // a merged label longer than its columns widens each of them by an equal share
     for cell in spans {
         let columns = cell.first - shift..cell.first - shift + cell.span;

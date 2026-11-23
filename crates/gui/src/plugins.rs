@@ -877,7 +877,10 @@ fn setting_ui(ui: &mut Ui, f: &mut Field, description: &Description, presets: &m
             }
         });
     } else {
-        field(ui, f.setting.kind, &mut f.text);
+        match f.setting.choices.is_empty() {
+            true => field(ui, f.setting.kind, &mut f.text),
+            false => choice(ui, &f.setting.key, &f.setting.choices, &mut f.text),
+        }
     }
     if f.setting.presets && matches!(f.setting.kind, Kind::Number | Kind::Text) {
         let attribute = description.attribute(&f.setting.key);
@@ -1083,6 +1086,17 @@ fn field(ui: &mut Ui, kind: Kind, text: &mut String) {
     }
 }
 
+/// A text setting with choices: a list of them, the stored text shown even when it is none.
+fn choice(ui: &mut Ui, key: &str, choices: &[String], text: &mut String) {
+    egui::ComboBox::from_id_salt(("plugin choice", key))
+        .selected_text(text.as_str())
+        .show_ui(ui, |ui| {
+            for c in choices {
+                ui.selectable_value(text, c.clone(), c);
+            }
+        });
+}
+
 fn valid(kind: Kind, text: &str) -> bool {
     kind != Kind::Number || text.trim().parse::<f64>().is_ok()
 }
@@ -1251,6 +1265,7 @@ mod tests {
     #[test]
     fn plugin_settings_are_kept_as_data_file_attributes() {
         let setting = |key: &str, kind, default: f64| plugin::Setting {
+            choices: Vec::new(),
             key: key.into(),
             label: key.into(),
             kind,
@@ -1309,6 +1324,7 @@ mod tests {
             protocol: 1,
             updates: false,
             settings: vec![plugin::Setting {
+                choices: Vec::new(),
                 key: "limit".into(),
                 label: "Upper limit".into(),
                 kind: Kind::Number,
@@ -1390,6 +1406,7 @@ mod tests {
             protocol: 1,
             updates: false,
             settings: vec![plugin::Setting {
+                choices: Vec::new(),
                 key: "head".into(),
                 label: "Header".into(),
                 kind: Kind::Style,
@@ -1425,6 +1442,7 @@ mod tests {
     /// kept per data file.
     fn client_plugin() -> Description {
         let setting = |key: &str, kind, default: Value, presets, per_file| plugin::Setting {
+            choices: Vec::new(),
             key: key.into(),
             label: key.into(),
             kind,
@@ -1579,6 +1597,7 @@ mod tests {
     #[test]
     fn settings_are_shown_in_sections() {
         let setting = |key: &str, group: Option<&str>| plugin::Setting {
+            choices: Vec::new(),
             key: key.into(),
             label: key.into(),
             kind: Kind::Bool,
@@ -1676,6 +1695,7 @@ mod tests {
             version: "1".into(),
             protocol: 1,
             settings: vec![plugin::Setting {
+                choices: Vec::new(),
                 key: "limit".into(),
                 label: "Limit".into(),
                 kind: Kind::Text,
