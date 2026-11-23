@@ -40,6 +40,7 @@ mod discriminant;
 mod dm_aliases;
 mod engine;
 mod examine;
+mod examine_r;
 mod factor;
 mod file_handle;
 mod file_map;
