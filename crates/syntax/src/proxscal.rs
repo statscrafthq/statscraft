@@ -6,8 +6,8 @@
 //!   the proximities. With MATRIX=IN the list may be left out.
 //! - TABLE=rowid BY columnid [BY sourceid] reads one proximity per case; TABLE=sourceid tells
 //!   the stacked square matrices apart.
-//! - SHAPE=LOWER (default), UPPER or BOTH. INITIAL=SIMPLEX (default), TORGERSON or
-//!   RANDOM[(n)]. WEIGHTS=varlist, one weight variable per proximity variable.
+//! - SHAPE=LOWER (default), UPPER or BOTH. INITIAL=SIMPLEX (default), TORGERSON, RANDOM[(n)] or
+//!   (file | dataset) [varlist], the coordinates to start from. WEIGHTS=varlist, one weight variable per proximity variable.
 //! - CONDITION=MATRIX (default) or UNCONDITIONAL. TRANSFORMATION=RATIO (default), INTERVAL,
 //!   ORDINAL[(KEEPTIES | UNTIE)] or SPLINE [DEGREE=2] [INKNOT=1]; DEGREE from 1 to 3, INKNOT
 //!   from 0. PROXIMITIES=DISSIMILARITIES (default) or SIMILARITIES.
@@ -41,12 +41,14 @@ pub enum ProxShape {
     Both,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ScalingStart {
     Simplex,
     Torgerson,
     /// The number of random starts.
     Random(usize),
+    /// The coordinates of a file or dataset, one case per object.
+    File(PrefscalFile),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -525,13 +527,15 @@ pub(crate) fn proxscal(p: &mut Parser) -> PResult<Command> {
                     true => ScalingStart::Random(whole_in_parens(p, "the number of starts", 1)?),
                     false => ScalingStart::Random(1),
                 }
-            } else if p.at(Punct::LParen) || matches!(p.peek(), Some(TokenKind::Word(_))) {
-                return Err(SyntaxError::new(
-                    p.span(),
-                    "an initial configuration from a file is not supported yet",
-                ));
+            } else if p.at(Punct::LParen) {
+                let file = out_target(p)?;
+                let variables = match at_end(p) {
+                    true => Vec::new(),
+                    false => p.var_list()?,
+                };
+                ScalingStart::File(PrefscalFile { file, variables })
             } else {
-                return Err(p.unexpected(&["SIMPLEX", "TORGERSON", "RANDOM"]));
+                return Err(p.unexpected(&["SIMPLEX", "TORGERSON", "RANDOM", "(file)"]));
             };
         } else if p.eat_keyword("WEIGHTS") {
             p.eat(Punct::Eq);

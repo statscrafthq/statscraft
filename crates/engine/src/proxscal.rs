@@ -549,6 +549,23 @@ impl Engine {
             ));
             dims = vec![min_dim];
         }
+        // the coordinates to start from, when a file gives them
+        let given_start: Matrix = match &command.initial {
+            ScalingStart::File(spec) => {
+                let given = self.file_coordinates("PROXSCAL", spec, n, max_dim, "initial")?;
+                if given.iter().flatten().any(Option::is_none) {
+                    return Err(Error(format!(
+                        "PROXSCAL: {} has a missing value among the initial coordinates, which need all of them",
+                        spec.file
+                    )));
+                }
+                given
+                    .iter()
+                    .map(|r| r.iter().map(|v| v.unwrap_or(0.0)).collect())
+                    .collect()
+            }
+            _ => Matrix::new(),
+        };
         let mut solutions: Vec<(usize, Solution, Solution)> = Vec::new();
         for &p in &dims {
             // the fixed coordinates of the first p dimensions
@@ -595,10 +612,13 @@ impl Engine {
                         restriction(start).as_ref(),
                     )
                 }
-                None => match command.initial {
-                    ScalingStart::Simplex | ScalingStart::Torgerson => {
-                        let z = match command.initial {
+                None => match &command.initial {
+                    ScalingStart::Simplex | ScalingStart::Torgerson | ScalingStart::File(_) => {
+                        let z = match &command.initial {
                             ScalingStart::Simplex => mds::simplex(&problem, &start_dhat, &vinv, p),
+                            ScalingStart::File(_) => {
+                                given_start.iter().map(|r| r[..p].to_vec()).collect()
+                            }
                             _ => mds::torgerson(&problem, &start_dhat, p),
                         };
                         mds::iterate(
@@ -613,7 +633,7 @@ impl Engine {
                     }
                     ScalingStart::Random(starts) => {
                         let mut best: Option<Solution> = None;
-                        for _ in 0..starts {
+                        for _ in 0..*starts {
                             let z: Matrix = (0..n)
                                 .map(|_| (0..p).map(|_| self.random()).collect())
                                 .collect();

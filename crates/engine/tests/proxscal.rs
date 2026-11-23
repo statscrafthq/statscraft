@@ -934,3 +934,101 @@ fn variable_restrictions_check_their_file() {
     assert!(messages[3].contains("MODEL=IDENTITY only"), "{messages:?}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A start from a file: the stress at the start is that of the file's configuration, and the
+/// iterations then reach the same minimum as the other starts do (0.00606356615487, the ratio
+/// oracle above).
+#[test]
+fn a_start_from_a_file_is_used_as_given() {
+    let dir = folder("start");
+    // the common space of a converged run, rotated and stretched: the start is the same
+    // configuration up to similarity, so it starts at the minimum
+    let converged = run(
+        PLACES,
+        "PROXSCAL o1 TO o8 /INITIAL=TORGERSON /CRITERIA=MAXITER(100000) DIFFSTRESS(0) MINSTRESS(0) \
+         /PRINT=COMMON STRESS.",
+    );
+    let z = coordinates(&converged, "Final Coordinates");
+    let rows: Vec<String> = z
+        .iter()
+        .map(|p| format!("{} {}", 3.0 * p[1], -3.0 * p[0]))
+        .collect();
+    let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
+    let file = coordinate_file(&dir, "start.sav", &rows);
+    let tables = run(
+        PLACES,
+        &format!(
+            "PROXSCAL o1 TO o8 /INITIAL=('{file}') /CRITERIA=MAXITER(100000) DIFFSTRESS(0) MINSTRESS(0) \
+             /PRINT=STRESS HISTORY."
+        ),
+    );
+    let history: Vec<f64> = table(&tables, "Iteration History")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    assert!(
+        (history[0] - 0.00606356615487).abs() < 1e-7,
+        "{}",
+        history[0]
+    );
+    assert!((stress(&tables, "Stress and Fit Measures") - 0.00606356615487).abs() < 1e-9);
+    // a rough start (the places on a line and a bend) still gets there
+    let rough = coordinate_file(
+        &dir,
+        "rough.sav",
+        &["0 0", "1 3", "2 0", "3 3", "4 0", "5 3", "6 0", "7 3"],
+    );
+    let tables = run(
+        PLACES,
+        &format!(
+            "PROXSCAL o1 TO o8 /INITIAL=('{rough}') d1 d2 /CRITERIA=MAXITER(100000) DIFFSTRESS(0) \
+             MINSTRESS(0) /PRINT=STRESS HISTORY."
+        ),
+    );
+    let history: Vec<f64> = table(&tables, "Iteration History")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    assert!(history[0] > 0.1, "{}", history[0]);
+    assert!(history.windows(2).all(|w| w[1] <= w[0] + 1e-12));
+    // a start from the file goes with a smaller dimensionality too (its first column)
+    let one = run(
+        PLACES,
+        &format!("PROXSCAL o1 TO o8 /INITIAL=('{rough}') /CRITERIA=DIMENSIONS(1,2) /PRINT=STRESS."),
+    );
+    table(&one, "Stress and Fit Measures (1 Dimensions)");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_start_file_needs_every_coordinate() {
+    let dir = folder("starterr");
+    let file = coordinate_file(
+        &dir,
+        "gap.sav",
+        &["0 0", "1 3", "2 .", "3 3", "4 0", "5 3", "6 0", "7 3"],
+    );
+    let short = coordinate_file(&dir, "short.sav", &["0 0", "1 3", "2 0"]);
+    let mut engine = Engine::default();
+    let (commands, errors) = parse(&format!(
+        "{PLACES}PROXSCAL o1 TO o8 /INITIAL=('{file}').\nPROXSCAL o1 TO o8 /INITIAL=('{short}').\n"
+    ));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut messages = Vec::new();
+    for command in &commands {
+        if let Err(e) = engine.execute(&command.command) {
+            messages.push(e.to_string());
+        }
+    }
+    assert!(
+        messages[0].contains("missing value among the initial"),
+        "{messages:?}"
+    );
+    assert!(
+        messages[1].contains("3 cases") && messages[1].contains("8 objects"),
+        "{messages:?}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}

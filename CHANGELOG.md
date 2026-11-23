@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- PROXSCAL /INITIAL=('file' | dataset) [varlist]: start from the coordinates of a file, one case per object.
 - SURVIVAL /WRITE=TABLES and BOTH write the life tables to the PROCEDURE OUTPUT file in the fixed-column record layout of the manual (types 10, 20, 30, 31 and 40).
 - PROXSCAL /RESTRICTIONS=VARIABLES('file' | dataset) [ALL | FIRST(n) | varlist] [(kinds)]: the common space is a weighted sum of independent variables, each INTERVAL, NOMINAL, ORDINAL(KEEPTIES | UNTIE) or SPLINE; PRINT VARIABLES and CORRELATIONS show the transformed variables, their regression weights and their correlations with the dimensions, and OUTFILE VARIABLES writes the transformed variables. Identity model only.
 - GLM PLOT=PROFILE with WSFACTOR: profile plots of the estimated marginal means over between-subjects and within-subjects factors (error bars and the grand mean line as without WSFACTOR; a chart per measure with MEASURE).

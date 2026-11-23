@@ -621,6 +621,15 @@ fn proxscal_defaults_and_keywords() {
     assert!(!c.print.variables && !c.print.correlations);
     let c = proxscal("PROXSCAL a b c.");
     assert!(c.print.variables && c.print.correlations);
+    let ScalingStart::File(f) = proxscal("PROXSCAL a b c /INITIAL=('s.sav') u v.").initial else {
+        panic!("a file start")
+    };
+    assert_eq!((f.file.as_str(), f.variables.len()), ("s.sav", 2));
+    let ScalingStart::File(f) = proxscal("PROXSCAL a b c /INITIAL=(set).").initial else {
+        panic!("a file start")
+    };
+    assert!(f.variables.is_empty());
+    assert!(err("PROXSCAL a b c /INITIAL=CENTROIDS.").contains("word CENTROIDS"));
 }
 
 #[test]

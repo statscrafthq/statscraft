@@ -2830,7 +2830,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Multidimensional scaling of one or more proximity matrices by majorization, with optimal transformations.",
         syntax: "PROXSCAL varlist | /MATRIX=IN('file' | dataset | *)\n\
                  \x20  [/TABLE=rowvar BY colvar [BY sourcevar] | sourcevar] [/SHAPE=LOWER | UPPER | BOTH]\n\
-                 \x20  [/INITIAL=SIMPLEX | TORGERSON | RANDOM[(n)]] [/WEIGHTS=varlist] [/CONDITION=MATRIX | UNCONDITIONAL]\n\
+                 \x20  [/INITIAL=SIMPLEX | TORGERSON | RANDOM[(n)] | ('file' | dataset) [varlist]] [/WEIGHTS=varlist] [/CONDITION=MATRIX | UNCONDITIONAL]\n\
                  \x20  [/TRANSFORMATION=RATIO | INTERVAL | ORDINAL[(KEEPTIES | UNTIE)] | SPLINE [DEGREE=2] [INKNOT=1]]\n\
                  \x20  [/PROXIMITIES=DISSIMILARITIES | SIMILARITIES] [/MODEL=IDENTITY | WEIGHTED | GENERALIZED | REDUCED[(2)]]\n\
                  \x20  [/RESTRICTIONS=COORDINATES('file' | dataset) [ALL | varlist]\n\
@@ -2856,7 +2856,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  UNCONDITIONAL one for all. MODEL=WEIGHTED gives every source its own weight per dimension, GENERALIZED\n\
                  its own linear map of the common space and REDUCED(r) a map of rank r; one source always uses\n\
                  IDENTITY. The start is SIMPLEX, TORGERSON (classical scaling) or RANDOM(n): n random starts from the\n\
-                 session's generator, the best one kept. DIMENSIONS(min,max) solves from max down to min, each\n\
+                 session's generator, the best one kept; a file or dataset with one case per object gives the\n\
+                 coordinates to start from (the variables named, or its first numeric ones, one for each dimension;\n\
+                 none may be missing). DIMENSIONS(min,max) solves from max down to min, each\n\
                  solution starting from the main axes of the one before. Iterations stop after MAXITER, below\n\
                  MINSTRESS or when the stress improves by no more than DIFFSTRESS.\n\
                  Tables: Case Processing Summary; Stress and Fit Measures (normalized raw stress, Stress-I, Stress-II,\n\
@@ -2884,7 +2886,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  free. PRINT VARIABLES gives the transformed variables (centered, sum of squares n) and their\n\
                  regression weights, CORRELATIONS their correlations with the dimensions; OUTFILE VARIABLES writes the\n\
                  transformed variables as VAR_1, VAR_2, and so on. Both restrictions go with the identity model only.\n\
-                 Not supported yet: a start from a file, and the VARIABLES and CORRELATIONS keywords of PLOT.",
+                 Not supported yet: the VARIABLES and CORRELATIONS keywords of PLOT.",
         example: "PROXSCAL brand1 TO brand6 /TRANSFORMATION=ORDINAL /CRITERIA=DIMENSIONS(1,3) /PRINT=COMMON STRESS HISTORY /PLOT=COMMON STRESS.",
         parse: proxscal::proxscal,
     },
