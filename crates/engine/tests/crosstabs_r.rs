@@ -92,10 +92,10 @@ fn get(tables: &[Table], title: &str, labels: &[&str], column: &str) -> f64 {
             })
             .collect();
         let all: Vec<&str> = carried.iter().map(String::as_str).chain(own).collect();
-        if labels.iter().all(|l| all.contains(l)) {
-            if let Cell::Number(n) = row[at] {
-                return n;
-            }
+        if labels.iter().all(|l| all.contains(l))
+            && let Cell::Number(n) = row[at]
+        {
+            return n;
         }
     }
     panic!("no row {labels:?} with a number in {column} of {title}");

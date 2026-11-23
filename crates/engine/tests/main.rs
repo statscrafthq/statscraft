@@ -106,6 +106,7 @@ mod regression;
 mod regression_more;
 mod regression_r;
 mod reliability;
+mod reliability_r;
 mod report;
 mod response_rate;
 mod restructure;
