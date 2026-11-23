@@ -248,6 +248,40 @@ const EXPECTED_PB1: &[(usize, &[f64], usize, &str)] = &[
     (10, &[1.0, 2.0, 7.0], 3, ""),
 ];
 
+const EXPECTED_A1: &[Node] = &[
+    (0, &[70.0, 48.0, 32.0], 3, "x1", Some(0.130462536446)),
+    (0, &[52.0, 7.0, 1.0], 1, "o", Some(0.00907743031857)),
+    (0, &[18.0, 41.0, 31.0], 3, "g", Some(0.0326284616994)),
+    (1, &[33.0, 2.0, 0.0], 1, "g", Some(0.00366002905148)),
+    (1, &[19.0, 5.0, 1.0], 1, "", None),
+    (2, &[17.0, 23.0, 9.0], 2, "x1", Some(0.0221958007823)),
+    (2, &[1.0, 18.0, 22.0], 3, "x1", Some(0.0348837653236)),
+    (3, &[13.0, 2.0, 0.0], 1, "", None),
+    (3, &[20.0, 0.0, 0.0], 1, "", None),
+    (5, &[17.0, 16.0, 3.0], 2, "", None),
+    (5, &[0.0, 7.0, 6.0], 3, "", None),
+    (6, &[0.0, 16.0, 9.0], 2, "", None),
+    (6, &[1.0, 2.0, 13.0], 3, "", None),
+];
+const RISK_A1: (f64, f64) = (0.343525179856, 0.0441425363519);
+
+const EXPECTED_A2: &[Node] = &[
+    (0, &[70.0, 48.0, 32.0], 3, "x1", Some(0.0949257563006)),
+    (0, &[52.0, 7.0, 1.0], 1, "o", Some(0.00998744669804)),
+    (0, &[18.0, 41.0, 31.0], 3, "g", Some(0.0293262835907)),
+    (1, &[33.0, 2.0, 0.0], 1, "g", Some(0.00409025438461)),
+    (1, &[19.0, 5.0, 1.0], 1, "", None),
+    (2, &[17.0, 23.0, 9.0], 3, "x1", Some(0.0226556297579)),
+    (2, &[1.0, 18.0, 22.0], 3, "x1", Some(0.0288676393084)),
+    (3, &[13.0, 2.0, 0.0], 1, "", None),
+    (3, &[20.0, 0.0, 0.0], 1, "", None),
+    (5, &[17.0, 16.0, 3.0], 2, "", None),
+    (5, &[0.0, 7.0, 6.0], 3, "", None),
+    (6, &[0.0, 16.0, 9.0], 3, "", None),
+    (6, &[1.0, 2.0, 13.0], 3, "", None),
+];
+const RISK_A2: (f64, f64) = (0.311996336996, 0.0386510710614);
+
 fn run(engine: &mut Engine, source: &str) -> Vec<Table> {
     let (commands, errors) = parse(source);
     assert!(errors.is_empty(), "{errors:?}");
@@ -522,4 +556,50 @@ fn pruning_counts_the_cost_of_each_nodes_assignment() {
             );
         }
     }
+}
+
+#[test]
+fn adjusted_priors_fold_the_costs_into_the_priors_and_drop_the_costs() {
+    // C(j), the sum over the assigned categories of the cost of j, is 2, 4 and 7 here; the priors
+    // times that, scaled to sum to 1, grow the tree, assign its nodes and weigh the risk
+    let costs = "/COSTS CUSTOM=3 1 [5] 3 2 [2] 2 1 [3]";
+    matches_r(
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT {costs} /PRIORS ADJUST=YES {SMALL}"
+        ),
+        3,
+        EXPECTED_A1,
+        RISK_A1,
+    );
+    matches_r(
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT {costs} /PRIORS EQUAL ADJUST=YES {SMALL}"
+        ),
+        3,
+        EXPECTED_A2,
+        RISK_A2,
+    );
+}
+
+#[test]
+fn adjusting_with_equal_costs_changes_nothing_and_chaid_ignores_the_priors() {
+    let tree = "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n]";
+    for method in ["/METHOD TYPE=CRT", "/METHOD TYPE=QUEST"] {
+        let (a, _, risk_a, _) = grown(&format!("{tree} {method} {SMALL}"));
+        let (b, _, risk_b, _) = grown(&format!("{tree} {method} /PRIORS ADJUST=YES {SMALL}"));
+        assert_eq!(a, b, "{method}");
+        assert_eq!(risk_a, risk_b, "{method}");
+    }
+    // CHAID takes no priors, so the adjustment is ignored (with a warning) and the costs still
+    // decide the assignments
+    let costs = "/COSTS CUSTOM=3 1 [9] 2 1 [4]";
+    let chaid = format!("{tree} /METHOD TYPE=CHAID {costs} {SMALL}");
+    let (a, _, risk_a, _) = grown(&chaid);
+    let (b, _, risk_b, warnings) = grown(&format!("{chaid} /PRIORS ADJUST=YES"));
+    assert_eq!(a, b);
+    assert_eq!(risk_a, risk_b);
+    assert!(
+        warnings.iter().any(|w| w.contains("PRIORS")),
+        "{warnings:?}"
+    );
 }

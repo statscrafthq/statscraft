@@ -4927,7 +4927,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  there is ignored with a warning). A node is assigned the category with the least expected cost, and the\n\
                  risk and its error are the mean cost of the assignments, in every method; CRT with the Gini measure\n\
                  also counts the costs in the impurity (twoing, QUEST and CHAID do not). A scale dependent ignores\n\
-                 COSTS with a warning, and PRIORS ADJUST=YES with COSTS CUSTOM is not supported yet. Not supported yet:\n\
+                 COSTS with a warning. /PRIORS ADJUST=YES (CRT and QUEST) multiplies each category's prior by the sum of\n\
+                 its costs and scales the result to 1, then goes on as if there were no costs: the altered priors grow\n\
+                 the tree, assign its nodes and weigh the risk. Not supported yet:\n\
                  a scale dependent with CHAID, SPLITMERGED=YES, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",

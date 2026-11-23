@@ -834,12 +834,6 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             .push("CROSSVALIDATION is ignored when FORCE is given".into());
         command.validation = TreeValidation::None;
     }
-    if command.adjust_priors && command.costs.is_some() {
-        return Err(SyntaxError::new(
-            p.span(),
-            "PRIORS ADJUST=YES with COSTS CUSTOM is not supported yet",
-        ));
-    }
     let binary = command.crt || command.quest;
     if !binary {
         for (given, what) in [

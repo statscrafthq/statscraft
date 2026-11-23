@@ -1305,6 +1305,25 @@ impl Engine {
                 &mut warnings,
             )?
         };
+        // altered priors: with ADJUST=YES the costs go into the priors, C(j) times the prior of each
+        // category j over the sum of those, and the problem is then taken as one without costs
+        let (priors, costs) = match &costs {
+            Some(matrix) if command.adjust_priors && command.binary() => {
+                let altered: Vec<f64> = priors
+                    .iter()
+                    .enumerate()
+                    .map(|(j, p)| p * matrix.iter().map(|row| row[j]).sum::<f64>())
+                    .collect();
+                let total: f64 = altered.iter().sum();
+                if total <= 0.0 {
+                    return Err(Error(
+                        "the prior probabilities adjusted by the costs sum to zero".into(),
+                    ));
+                }
+                (altered.iter().map(|p| p / total).collect(), None)
+            }
+            _ => (priors, costs),
+        };
         let grow = |coded: &[Predictor],
                     weights: &[f64],
                     held_out: Option<&[f64]>|
@@ -1338,12 +1357,7 @@ impl Engine {
                         // with a test sample, the subtrees' risks are the test sample's
                         let tested = held_out
                             .map(|test| rescore(&grown, &case_class, test, dep_values.as_deref()));
-                        crt::prune(
-                            grown,
-                            b,
-                            tested.as_deref(),
-                            command.priors == TreePriors::FromData,
-                        )
+                        crt::prune(grown, b, tested.as_deref(), empirical_priors(command))
                     }
                     None => grown,
                 }
@@ -1526,7 +1540,7 @@ impl Engine {
                         &loss,
                         &loss_squared,
                         &nodes[0],
-                        Some(!command.binary() || command.priors == TreePriors::FromData),
+                        Some(empirical_priors(command)),
                     )
                 })
             }
@@ -1910,11 +1924,19 @@ impl Engine {
                 rows.push(row(
                     "",
                     "Prior Probabilities",
-                    text(match command.priors {
-                        TreePriors::FromData => "From data",
-                        TreePriors::Equal => "Equal",
-                        TreePriors::Custom(_) => "Custom",
-                    }),
+                    text(format!(
+                        "{}{}",
+                        match command.priors {
+                            TreePriors::FromData => "From data",
+                            TreePriors::Equal => "Equal",
+                            TreePriors::Custom(_) => "Custom",
+                        },
+                        if command.adjust_priors && command.costs.is_some() {
+                            ", adjusted for costs"
+                        } else {
+                            ""
+                        }
+                    )),
                 ));
             }
             if command.crt {
@@ -2214,8 +2236,7 @@ impl Engine {
         };
         let validated = test.is_some();
         // a test sample's risk takes M1 when the priors come from the data
-        let empirical =
-            |label: &str| (label == "Test").then(|| command.priors == TreePriors::FromData);
+        let empirical = |label: &str| (label == "Test").then(|| empirical_priors(command));
         let mut confusions = Vec::new();
         for (_, ns) in &samples {
             let mut confusion = vec![vec![0.0; classes.len()]; classes.len()];
@@ -2621,6 +2642,14 @@ fn depth_limit(command: &Tree) -> usize {
     command
         .max_depth
         .unwrap_or(if command.binary() { 5 } else { 3 })
+}
+
+/// Whether the priors are the data's shares (the empirical case M1 of the risk): always for CHAID,
+/// for CRT and QUEST when they come from the data and the costs have not altered them.
+fn empirical_priors(command: &Tree) -> bool {
+    !command.binary()
+        || (command.priors == TreePriors::FromData
+            && !(command.adjust_priors && command.costs.is_some()))
 }
 
 /// The cost matrix of `COSTS CUSTOM`: every cost 1 unless given, 0 on the diagonal (a nonzero one

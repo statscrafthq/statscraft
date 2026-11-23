@@ -1405,10 +1405,6 @@ fn tree_errors() {
         message("TREE y BY x /COSTS CUSTOM=1."),
         "unexpected end of command"
     );
-    assert_eq!(
-        message("TREE y BY x /COSTS CUSTOM=1 2 [3] /PRIORS ADJUST=YES."),
-        "PRIORS ADJUST=YES with COSTS CUSTOM is not supported yet"
-    );
     assert!(message("TREE y BY x /GAIN TYPE=[PTILE].").contains("PTILE"));
     assert!(message("TREE y BY x /PRINT NONE RISK.").contains("NONE"));
     assert!(message("TREE y BY x /GROWTHLIMIT MINPARENTSIZE=50.").contains("MINCHILDSIZE"));
