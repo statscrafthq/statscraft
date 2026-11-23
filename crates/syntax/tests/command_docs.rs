@@ -466,3 +466,28 @@ fn markdown_escapes_keep_the_text() {
     assert_eq!(escape("2. x"), "2\\. x");
     assert_eq!(escape("1.7 x"), "1.7 x");
 }
+
+/// The help and the pages describe what Statscraft does: no lists of what is missing and no
+/// comparisons with other programs or with the manuals (owner, 2026-11-23).
+#[test]
+fn help_describes_only_what_statscraft_does() {
+    const BANNED: [&str; 6] = [
+        "not supported yet",
+        "pspp",
+        "the manual",
+        "as documented",
+        "beyond the documentation",
+        "differences.md",
+    ];
+    let found: Vec<String> = render()
+        .iter()
+        .flat_map(|(name, text)| {
+            let lower = text.to_lowercase();
+            BANNED
+                .iter()
+                .filter(move |phrase| lower.contains(*phrase))
+                .map(move |phrase| format!("{name}: \"{phrase}\""))
+        })
+        .collect();
+    assert!(found.is_empty(), "help text to rewrite: {}", found.join(", "));
+}
