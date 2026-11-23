@@ -6,6 +6,13 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.34.0 (2026-11-23)
+
+The command pages are easier to use: even in length, with examples on the sample file and their output.
+
+- The 20 most used commands, such as [FREQUENCIES](docs/commands/frequencies.md), [CTABLES](docs/commands/ctables.md) and [COMPUTE](docs/commands/compute.md), have examples on `survey.sav` with the table they give.
+- [TREE](docs/commands/tree.md) describes all four growing methods: CHAID, exhaustive CHAID, CRT and QUEST.
+- Completion in the syntax editor offers a function with its parenthesis inside an expression.
 ## 0.33.0 (2026-11-23)
 
 The documentation is rewritten for users, with a sample file to follow along.
