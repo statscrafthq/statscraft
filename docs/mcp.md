@@ -31,12 +31,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 - `syntax` is the text of one or more commands; `file` is the absolute path of a .sps file. Give one of them.
 - `lines` limits the run to the commands within a line range, such as `"12-20"`. Line numbers stay those of the whole text.
 - `folder` is the absolute folder that relative file names in the syntax start from. Default: your home folder. Give absolute paths in the syntax to be sure.
-- `xlsx` also writes every table and chart of the run to an Excel workbook, one sheet per table; a chart as its data table with an editable chart beside it. `xlsx_one_sheet` set to true puts all tables on one sheet, one below the other. `xlsx_no_titles` set to true leaves out the title row above each table and chart, as `--xlsx-no-titles` does on the command line.
-- `plugins`, with `xlsx`, lists the absolute paths of [plugins](plugins.md) that colour, comment and lay out the custom tables in the workbook, in that order, as `--plugin` does on the command line. See [Tables with a plugin](#tables-with-a-plugin).
-- `plugin_templates`, with `plugins`, lists the absolute paths of design template files (Export in the window's Plugin Settings), one per plugin, as `--plugin-template` does: the template's settings win over the data's attributes for this run.
-- `vega_lite` set to true gives every chart also as a Vega-Lite specification, as `--vega-lite` does on the command line.
-- `encoding` names the encoding of `file`, such as `windows-1257`, as `--encoding` does on the command line. Default: UTF-8 when the file is valid UTF-8, else the system's legacy code page.
-- `charts` writes every chart of the run as a picture into that folder (made if missing; a relative path starts from `folder`), and `chart_format` picks `svg` (the default) or `png`, as `--charts` and `--chart-format` do on the command line.
+- `xlsx`, `xlsx_one_sheet`, `xlsx_no_titles`, `plugins`, `plugin_templates`, `vega_lite`, `encoding`, `charts` and `chart_format` do what the [run](command-line.md#run) flags of the same names do on the command line. Give paths as absolute paths; a relative `charts` folder starts from `folder`. [Exporting all output](window.md#exporting-all-output) describes the workbook, and [Tables with a plugin](#tables-with-a-plugin) the plugins.
 - An agent inside WSL that uses Statscraft on Windows may give Linux paths in the arguments; the server translates them. Inside the syntax, file names must be Windows paths. See [Agents inside WSL](connect.md#agents-inside-wsl).
 - `window` names a syntax window of the open window by its id or its name, as `list_syntax_windows` shows them. The syntax window tools work only while the window is open; without it they fail with "no Statscraft window is running".
 
@@ -67,7 +62,7 @@ Procedures draw their own charts. When the person wants a chart that no procedur
 
 ## Tables with a plugin
 
-A plugin decorates the CTABLES tables of a run in the workbook: colours, comments, column widths and the rest of its look. The agent asks `describe_plugin` for the plugin's settings. Each is kept in a data file attribute, such as `plugin_acme_tables_confidence`, and a run takes each setting from that attribute of the active data, else the plugin's default. To change one, the agent runs `DATAFILE ATTRIBUTE ATTRIBUTE=plugin_acme_tables_confidence('90').` before the tables (yes/no as `Yes` or `No`, a colour as `#rrggbb`, a style as JSON); SAVE keeps it with the data. Then:
+A plugin decorates the CTABLES tables of a run in the workbook: colors, comments, column widths and the rest of its look. The agent asks `describe_plugin` for the plugin's settings. Each is kept in a data file attribute, such as `plugin_acme_tables_confidence`, and a run takes each setting from that attribute of the active data, else the plugin's default. To change one, the agent runs `DATAFILE ATTRIBUTE ATTRIBUTE=plugin_acme_tables_confidence('90').` before the tables (yes/no as `Yes` or `No`, a color as `#rrggbb`, a style as JSON); SAVE keeps it with the data. Then:
 
 ```json
 { "file": "/home/anna/jobs/tables.sps", "session": "work", "xlsx": "/home/anna/jobs/tables.xlsx",

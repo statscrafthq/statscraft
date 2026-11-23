@@ -16,7 +16,7 @@ statscraft mcp        serve these tools to an AI agent over MCP
 statscraft connect    add the Statscraft MCP server to the AI agents on this computer
 ```
 
-`statscraft --version` prints the version, and `statscraft <subcommand> --help` lists the flags of a subcommand. The examples use the [sample file](getting-started.md#open-the-sample-file) `survey.sav` or a data file of your own, and `job.sps` stands for a syntax file of your own.
+`statscraft --version` prints the version, and `statscraft <subcommand> --help` lists the flags of a subcommand. The examples use the [sample file](getting-started.md#open-the-sample-file) `survey.sav` or a data file of your own, and `job.sps` stands for a syntax file of your own. `plan` and `db` have a page of their own: [Databases](databases.md).
 
 ## describe
 
@@ -74,7 +74,7 @@ statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [
 | `--xlsx FILE` | also write every table and chart of the run to an Excel workbook, one sheet per table |
 | `--xlsx-one-sheet` | with `--xlsx`, put all tables on one sheet, one below the other |
 | `--xlsx-no-titles` | with `--xlsx`, leave out the title row above each table and chart; variable labels, captions and what plugins add stay |
-| `--plugin PROGRAM` | with `--xlsx`, let a plugin colour, comment and lay out the custom tables (see [plugins](plugins.md)); its settings come from the active data's attributes, with `-s gui` those of the window's active data. Give it more than once for several plugins: they run in that order and their answers merge, the later one winning where two style the same thing |
+| `--plugin PROGRAM` | with `--xlsx`, let a plugin color, comment and lay out the custom tables (see [plugins](plugins.md)); its settings come from the active data's attributes, with `-s gui` those of the window's active data. Give it more than once for several plugins: they run in that order and their answers merge, the later one winning where two style the same thing |
 | `--plugin-template FILE` | with `--plugin`, lay a design template file, made by Export in the window's Plugin Settings ([plugins](plugins.md)), over the data's attributes for this run, as an active template does in the window. One file per plugin, each holding exactly one template of one of the `--plugin` programs |
 | `--charts DIR` | also write every chart of the run as a picture into this folder (see [Chart pictures](#chart-pictures)) |
 | `--chart-format svg\|png` | with `--charts`, the picture format; default `svg` |
@@ -159,6 +159,192 @@ error: line 1, column 1: line range 2-3 cuts through command FREQUENCIES, which 
 ```
 
 Line numbers in the output always refer to the whole file, not to the range.
+
+## Exit codes
+
+| Code | When |
+|---|---|
+| 0 | success, including runs with warnings |
+| 1 | the syntax, the run, a file or a session failed; also `plan` and `db` when they print `"ok":false` |
+| 2 | the command line itself is wrong: an unknown flag, a missing value, flags that conflict |
+| 10 | `update --check`: a newer release is published |
+
+## update
+
+```
+statscraft update --check          current and latest version; exit code 10 when an update exists
+statscraft update --check --json   the same as JSON
+statscraft update --check --plugin PROGRAM [--json]
+                                   whether a plugin offers a newer version; installs nothing
+statscraft update                  update this installation to the latest release
+```
+
+The latest release is the newest published release on the GitHub repository; drafts and prereleases do not count. `update --check` prints the running and the latest version and exits with 0 when this copy is up to date (also when no release is published yet) and with 10 when a newer one exists, so a script can ask `statscraft update --check || ...`. With `--json` it prints one line:
+
+```
+{"current":"0.1.0","latest":"0.2.0","update":true,"notes":"https://github.com/statscrafthq/statscraft/releases/tag/v0.2.0"}
+```
+
+`latest` is null when no release is published yet, and `notes` is the release page when there is an update.
+
+`update --check --plugin PROGRAM` asks a [plugin](plugins.md#updates) instead, as the window's Check in Edit > Settings > Plugins does: it prints the plugin's name, its version and, when the plugin offers a newer one, that version and its notes; exit code 10 when there is an update, else 0. With `--json`: `{"plugin":"Acme Tables","current":"0.2.1","latest":"0.2.2","update":true,"notes":"Faster tables"}`. It never installs the plugin: `--plugin` only goes with `--check`, and Update in the window's plugin settings installs it. A plugin that does not offer updates, or cannot check, is an error with its reason.
+
+`update` does what the window's **Update now** does, for the way this copy was installed: see [Updates](install.md#updates). On Debian and Ubuntu it only downloads the package and prints the command that installs it. A copy built from source, or the command line from the macOS package, is not updated: the command says how to update it instead, with exit code 1.
+
+Every download is checked against the checksums published with the release before anything is run or replaced; on a mismatch nothing changes. The check sends nothing about you or your data. Errors print as for the other subcommands, exit code 1.
+
+## connect
+
+`statscraft connect` adds an entry that starts `statscraft mcp` to every AI agent installed on this computer and says what to restart. `statscraft connect AGENT` connects one, `--list` only shows the state, `--remove [AGENT]` takes the entry out again, and `--json` prints the result as JSON. [Connect your AI agent](connect.md) lists the agents, the files it changes and how to make the same change by hand.
+
+## Excel export
+
+```
+statscraft run job.sps --xlsx tables.xlsx
+statscraft run job.sps --xlsx all.xlsx --xlsx-one-sheet
+statscraft run -s gui -e "FREQUENCIES VARIABLES=region." --xlsx region.xlsx
+```
+
+Every table and chart of the run goes into the workbook, one sheet per table, named after its title. `--xlsx-one-sheet` puts them all on one sheet `Tables`, one below the other. `--xlsx-no-titles` leaves out the title row above each table and chart, for example to stack custom tables on one sheet. The workbook looks as the window's export makes it: see [Exporting all output](window.md#exporting-all-output). The text output on the terminal is the same as without `--xlsx`.
+
+A workbook that cannot be written fails the run, and the session is then not saved.
+
+To collect the tables of several runs in one workbook, end the last run with OUTPUT EXPORT, which writes the whole output document of the session: `OUTPUT EXPORT /XLSX DOCUMENTFILE='all.xlsx'.` OUTPUT EXPORT also writes Word documents (/DOC), presentations (/PPT), web pages (/HTML) and picture files of the charts (see [Chart pictures](#chart-pictures)).
+
+## Output files
+
+OUTPUT SAVE writes an output document as a Statscraft output file (`.scout`), and OUTPUT OPEN reads one back as a new document. The window saves and opens the same files ([the window](window.md#saving-output)).
+
+```
+statscraft run -e "GET FILE='survey.sav'.
+CROSSTABS region BY gender.
+OUTPUT SAVE OUTFILE='region.scout'."
+statscraft run -e "OUTPUT OPEN FILE='region.scout'.
+OUTPUT EXPORT /XLSX DOCUMENTFILE='region.xlsx' /HTML DOCUMENTFILE='region.html'."
+```
+
+The second run converts the saved output without the data: OUTPUT OPEN makes the file's document the designated one, and OUTPUT EXPORT writes it. Tables of commands after OUTPUT OPEN join that document, so open, run and save again adds to the file.
+
+A file may come from anyone, so OUTPUT OPEN checks every table and chart before it shows it. An item that fails the checks is left out with a warning that says why, and the rest of the file opens.
+
+The file is plain JSON, one table row per line, so an agent or a script can read it directly, with no Statscraft call. Each command is an item with the syntax exactly as it ran, its warnings, and its tables and charts in the form of [the run result](#run-result). The [developer notes](https://github.com/statscrafthq/statscraft/blob/main/docs/developers/README.md#output-files) describe the layout.
+
+## Chart pictures
+
+```
+statscraft run job.sps --charts charts
+statscraft run job.sps --charts charts --chart-format png
+```
+
+Every chart of the run is written to the folder, which is made if it is missing, as `01-<title>.svg`, `02-<title>.svg` and so on: numbered in the order of the output, the title in lower case with hyphens between its words. An existing file of the same name is replaced. The pictures are 640 pixels wide on white paper (a PNG has twice the pixels, for sharp text), drawn as the window draws them: flat bars, lines, areas, dots and slices in petrol and amber, muted labels and thin rule lines, in Schibsted Grotesk with tabular figures. Drawn are bar charts in both orientations, side by side, stacked and stacked to 100%, pie, line, area and scatter charts, the scatterplot matrix, the histogram with its normal curve, boxplots, the point plots (normal Q-Q and P-P, detrended Q-Q, spread versus level, residual and loading plots) with their reference lines, the dendrogram, the icicle plot and the tree diagram. A stem-and-leaf display and a plot in three dimensions get no file; their data table is in the output. An SVG names the font and falls back to the system's sans-serif font where Schibsted Grotesk is not installed; a PNG has it built in.
+
+The text output on the terminal is the same as without `--charts`. The charts are written after the run, so a folder that cannot be written fails the command but leaves the session as the run saved it.
+
+The syntax writes pictures too. OUTPUT EXPORT with an image subcommand and no document saves every chart of the output document, numbered from 0 after IMAGEROOT:
+
+```
+OUTPUT EXPORT /PNG IMAGEROOT='charts/june'.
+OUTPUT EXPORT /JPG IMAGEROOT='charts/june' PERCENTSIZE=50 GRAYSCALE=YES.
+```
+
+The first line gives `charts/june0.png`, `charts/june1.png` and so on; the folder must exist. PERCENTSIZE=100 is the PNG of `--charts`, 1280 pixels wide; 50 halves it. PNG, JPG, BMP and TIF are written. EMF and EPS give a warning and are not written. A web page from OUTPUT EXPORT /HTML holds its charts as pictures inside the page, and /TEXT saves them beside the text file, named after it.
+
+## The live window session
+
+While `statscraft-gui` is open, the session name `gui` means the window:
+
+```
+statscraft run -s gui -e "GET FILE='survey.sav'."
+statscraft run -s gui --json job.sps
+statscraft check -s gui -e "COMPUTE x = age / 10."
+statscraft describe -s gui --json
+```
+
+- The window runs the syntax as its own Run button does: the tables appear in the designated output window, the commands in the log, and the data windows show the new data.
+- The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed what the window's session keeps (see [Sessions](#sessions-and-line-ranges)); nothing is written to disk unless the syntax says `SAVE`.
+- The window keeps the same state between runs as a file session, in memory until it closes; `describe -s gui` shows it the same way.
+- Relative paths in the syntax start from the folder where `statscraft` was started, unless a CD is in force in the window's session: a CD starts from that folder too and then stays until the next CD, as in a file session. INSERT and INCLUDE in a syntax file given to `run` start from the file's folder, as in a file session. A run leaves the caller's folder to the window's own later runs, and `describe` shows it as `directory`; a check uses it only for itself. A syntax window that an agent runs starts from its own file's folder, or from the agent's folder when it has no file. A folder that is gone makes relative files fail with their own error; nothing is read or written anywhere else.
+- Unlike a file session, the window names files in its messages by their full path, since it resolves relative names against the caller's folder.
+- One run goes at a time. A request waits while the window is busy.
+- When no window is open, `-s gui` fails with "no Statscraft window is running". With several windows open, the one started last answers.
+
+How it connects, and why it is safe: see [AI agents](ai-agents.md#safety-of-the-live-session).
+
+## export
+
+```
+statscraft export FILE [--format xlsx|html|pdf] [--one-sheet] [--selected] [--hidden]
+```
+
+Writes the output of the open `statscraft-gui` window to a file, exactly as its File > Export does (see [the window](window.md#exporting-all-output)): the designated output window, with what its plugins put on the tables.
+
+| Flag | Meaning |
+|---|---|
+| `FILE` | the file to write; a relative path starts in the current folder. An existing file is replaced |
+| `--format xlsx\|html\|pdf` | an Excel workbook, a web page or a PDF document; without it the extension of `FILE` says (`.xlsx`, `.html` or `.htm`, `.pdf`) |
+| `--one-sheet` | Excel: all tables on one sheet, one below the other, instead of one sheet per table |
+| `--selected` | only the tables selected in the output window; fails when none is selected |
+| `--hidden` | hidden items too; without it only what the output window shows |
+
+```
+statscraft run -s gui -e "FREQUENCIES region."
+statscraft export tables.xlsx --one-sheet
+```
+
+```
+output exported to /home/me/work/tables.xlsx
+```
+
+It fails when no window is open, when the window has no output, and when the file cannot be written. An export waits until the plugins have answered for the tables of the last run.
+
+## output
+
+```
+statscraft output [--document NAME] [--json]
+```
+
+Shows what an output window of the open `statscraft-gui` window holds, as the person sees it there: every command heading and every table and chart of the session in order, also those from earlier runs and other callers. Without `--document` it reads the designated output window; `NAME` is an output document as `describe -s gui` lists it. It changes nothing in the window.
+
+The first line sums up the document and says which kinds of element the window shows (Edit > Settings: command headings, titles, tables, notes, charts). Then each heading and table follows as `run` prints them, a chart as its data table; `(hidden)` marks a heading or table hidden in the output, `(selected)` a table selected in the output window.
+
+```
+statscraft run -s gui -e "FREQUENCIES region."
+statscraft output
+```
+
+```
+output document Document1: 1 commands, 1 tables, 0 charts, 0 hidden, 1 selected; the window shows titles, tables, notes, charts
+
+## FREQUENCIES
+
+### Region of residence (selected)
+...
+```
+
+With `--json` it prints the window's answer: `document`, `shows` (`headings`, `titles`, `tables`, `notes`, `charts`, each true or false) and `commands`, each with `id`, `heading`, `hidden` and `items`; an item has `id`, `hidden`, `selected` and a `table` or a `chart` in the form `run --json` gives them. It fails when no window is open, when the window has no output window, and when no output document has that name.
+
+## undo
+
+```
+statscraft undo
+```
+
+Takes back the last run that changed the data in the open `statscraft-gui` window, exactly as its Edit > Undo last change does (see [the window](window.md#syntax-is-the-only-command-layer)): the datasets are as they were before that run, the output stays, and the log marks the run as undone. It goes one step back, and an undo cannot itself be taken back. It prints the first line of the syntax it took back:
+
+```
+statscraft run -s gui -e "COMPUTE total = q1 + q2."
+statscraft undo
+```
+
+```
+undone: COMPUTE total = q1 + q2.
+```
+
+It fails when no window is open, and when no run since the last undo changed the data. File sessions have no undo.
+
+## mcp
+
+`statscraft mcp` serves describe, help, check and run as MCP tools over standard input and output, for agent apps that start local MCP servers. It runs until the app closes the connection. [The MCP server](mcp.md) lists the tools and says where their sessions live.
 
 ## JSON output
 
@@ -371,7 +557,7 @@ warning: line 1: DESCRIPTIVES: no statistics for string variables: plan
 
 ### Dictionary
 
-`statscraft describe tests/fixtures/survey_basic_phpwriter.sav --json` (shortened):
+For a weighted survey file with two multiple response sets, `statscraft describe FILE --json` prints (shortened):
 
 ```json
 {
@@ -430,333 +616,3 @@ warning: line 1: DESCRIPTIVES: no statistics for string variables: plan
 | `variables[].value_labels` | value (as text) to label |
 | `variables[].missing_values`, `missing_range` | the user-missing values: up to three values, or a `[low, high]` range |
 | `n_valid`, `n_system_missing`, `n_user_missing` | counts over all cases |
-
-## Exit codes
-
-| Code | When |
-|---|---|
-| 0 | success, including runs with warnings |
-| 1 | the syntax, the run, a file or a session failed; also `plan` and `db` when they print `"ok":false` |
-| 2 | the command line itself is wrong: an unknown flag, a missing value, flags that conflict |
-| 10 | `update --check`: a newer release is published |
-
-## update
-
-```
-statscraft update --check          current and latest version; exit code 10 when an update exists
-statscraft update --check --json   the same as JSON
-statscraft update --check --plugin PROGRAM [--json]
-                                   whether a plugin offers a newer version; installs nothing
-statscraft update                  update this installation to the latest release
-```
-
-The latest release is the newest published release on the GitHub repository; drafts and prereleases do not count. `update --check` prints the running and the latest version and exits with 0 when this copy is up to date (also when no release is published yet) and with 10 when a newer one exists, so a script can ask `statscraft update --check || ...`. With `--json` it prints one line:
-
-```
-{"current":"0.1.0","latest":"0.2.0","update":true,"notes":"https://github.com/statscrafthq/statscraft/releases/tag/v0.2.0"}
-```
-
-`latest` is null when no release is published yet, and `notes` is the release page when there is an update.
-
-`update --check --plugin PROGRAM` asks a [plugin](plugins.md#updates) instead, as the window's Check in Edit > Settings > Plugins does: it prints the plugin's name, its version and, when the plugin offers a newer one, that version and its notes; exit code 10 when there is an update, else 0. With `--json`: `{"plugin":"Acme Tables","current":"0.2.1","latest":"0.2.2","update":true,"notes":"Faster tables"}`. It never installs the plugin: `--plugin` only goes with `--check`, and Update in the window's plugin settings installs it. A plugin that does not offer updates, or cannot check, is an error with its reason.
-
-`update` does what the window's Update now does, for the way this copy was installed:
-
-| Installed with | What `update` does |
-|---|---|
-| the Windows installer | downloads the new installer and starts it silently for the same per-user installation; it closes an open window first |
-| the portable Windows .zip, with `LICENSE.txt` next to the programs | downloads the .zip and replaces `statscraft.exe` and `statscraft-gui.exe` in that folder; the old ones are renamed aside and deleted on a later start |
-| the tarball, under a prefix such as `~/.local` | downloads the tarball and replaces `statscraft` and `statscraft-gui` in its `bin` folder |
-| the .deb | downloads the package into `~/Downloads` and prints the one command that installs it, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`; it never runs sudo itself |
-| anything else (a build from source, a copy elsewhere, the command line from the macOS package) | refuses with exit code 1, says to update it the way it was installed and gives the release page |
-
-Every download is checked against the checksums published with the release before anything is run or replaced; on a mismatch nothing changes. The check sends nothing about you or your data. Errors print as for the other subcommands, exit code 1.
-
-## connect
-
-`statscraft connect` adds an entry that starts `statscraft mcp` to every AI agent installed on this computer and says what to restart. `statscraft connect AGENT` connects one, `--list` only shows the state, `--remove [AGENT]` takes the entry out again, and `--json` prints the result as JSON. [Connect your AI agent](connect.md) lists the agents, the files it changes and how to make the same change by hand.
-
-## Excel export
-
-```
-statscraft run job.sps --xlsx tables.xlsx
-statscraft run job.sps --xlsx all.xlsx --xlsx-one-sheet
-statscraft run -s gui -e "FREQUENCIES VARIABLES=gender." --xlsx gender.xlsx
-```
-
-Every table and chart of the run goes into the workbook, with or without a session, and also from the window session. With one sheet per table, each sheet is named after its table title (`Gender`, `Region of residence`, ...). With `--xlsx-one-sheet` there is one sheet `Tables` with the tables one below the other. `--xlsx-no-titles` drops the title row of every table and chart, for example to stack a set of custom tables on one sheet without a repeated title above each; each sheet keeps the name of its table, and a plugin's comments and colours stay on their cells.
-
-Each table has its title in bold, the column headers with merged cells for every level, the row labels, thin borders and its caption below. Numbers stay numbers, with a number format that shows them as the output does: a percentage cell holds 45.2 and shows 45.2%. Text such as significance letters and hidden small counts (`<5`) stays text. Dates, times and custom currency values are numbers with a date, time or currency format, so Excel can compute with them. A bar, pie, line or area chart goes in as its data table with an editable chart beside it, drawn from those cells: change a number and the chart follows. The chart sets no colors, so it takes the workbook's theme. A statistical plot, such as a histogram or a boxplot, has no editable form: its picture stands beside its data table instead. The text output on the terminal is the same as without `--xlsx`.
-
-OUTPUT EXPORT in the syntax writes the same charts into a workbook (/XLSX), a Word document (/DOC) or a presentation (/PPT), where a statistical plot is a picture; into a web page (/HTML) as pictures inside the page; and, with /PNG, /JPG, /BMP or /TIF, as one picture file per chart. See `statscraft help "OUTPUT EXPORT"` and [Chart pictures](#chart-pictures).
-
-A workbook that cannot be written fails the run, and the session is then not saved.
-
-## Output files
-
-OUTPUT SAVE writes an output document as a Statscraft output file (`.scout`), and OUTPUT OPEN reads one back as a new document. The window saves and opens the same files ([the window](window.md#saving-output)).
-
-```
-statscraft run -e "GET FILE='survey.sav'.
-CROSSTABS region BY gender.
-OUTPUT SAVE OUTFILE='region.scout'."
-statscraft run -e "OUTPUT OPEN FILE='region.scout'.
-OUTPUT EXPORT /XLSX DOCUMENTFILE='region.xlsx' /HTML DOCUMENTFILE='region.html'."
-```
-
-The second run converts the saved output without the data: OUTPUT OPEN makes the file's document the designated one, and OUTPUT EXPORT writes it. Tables of commands after OUTPUT OPEN join that document, so open, run and save again adds to the file.
-
-A file may come from anyone, so OUTPUT OPEN checks every table and chart before it shows it. An item that fails the checks is left out with a warning that says why, and the rest of the file opens.
-
-The file is plain JSON, one table row per line, so an agent or a script can read it directly, with no Statscraft call. Each command is an item with the syntax exactly as it ran, its warnings, and its tables and charts in the form of [the run result](#run-result). The [developer notes](https://github.com/statscrafthq/statscraft/blob/main/docs/developers/README.md#output-files) describe the layout.
-
-## Chart pictures
-
-```
-statscraft run job.sps --charts charts
-statscraft run job.sps --charts charts --chart-format png
-```
-
-Every chart of the run is written to the folder, which is made if it is missing, as `01-<title>.svg`, `02-<title>.svg` and so on: numbered in the order of the output, the title in lower case with hyphens between its words. An existing file of the same name is replaced. The pictures are 640 pixels wide on white paper (a PNG has twice the pixels, for sharp text), drawn as the window draws them: flat bars, lines, areas, dots and slices in petrol and amber, muted labels and thin rule lines, in Schibsted Grotesk with tabular figures. Drawn are bar charts in both orientations, side by side, stacked and stacked to 100%, pie, line, area and scatter charts, the scatterplot matrix, the histogram with its normal curve, boxplots, the point plots (normal Q-Q and P-P, detrended Q-Q, spread versus level, residual and loading plots) with their reference lines, the dendrogram, the icicle plot and the tree diagram. A stem-and-leaf display and a plot in three dimensions get no file; their data table is in the output. An SVG names the font and falls back to the system's sans-serif font where Schibsted Grotesk is not installed; a PNG has it built in.
-
-The text output on the terminal is the same as without `--charts`. The charts are written after the run, so a folder that cannot be written fails the command but leaves the session as the run saved it.
-
-The syntax writes pictures too. OUTPUT EXPORT with an image subcommand and no document saves every chart of the output document, numbered from 0 after IMAGEROOT:
-
-```
-OUTPUT EXPORT /PNG IMAGEROOT='charts/june'.
-OUTPUT EXPORT /JPG IMAGEROOT='charts/june' PERCENTSIZE=50 GRAYSCALE=YES.
-```
-
-The first line gives `charts/june0.png`, `charts/june1.png` and so on; the folder must exist. PERCENTSIZE=100 is the PNG of `--charts`, 1280 pixels wide; 50 halves it. PNG, JPG, BMP and TIF are written. EMF and EPS give a warning and are not written. A web page from OUTPUT EXPORT /HTML holds its charts as pictures inside the page, and /TEXT saves them beside the text file, named after it.
-
-## The live window session
-
-While `statscraft-gui` is open, the session name `gui` means the window:
-
-```
-statscraft run -s gui -e "GET FILE='tests/fixtures/survey_basic.sav'."
-statscraft run -s gui --json job.sps
-statscraft check -s gui -e "COMPUTE x = age / 10."
-statscraft describe -s gui --json
-```
-
-- The window runs the syntax as its own Run button does: the tables appear in the designated output window, the commands in the log, and the data windows show the new data.
-- The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed what the window's session keeps (see [Sessions](#sessions-and-line-ranges)); nothing is written to disk unless the syntax says `SAVE`.
-- The window keeps the same state between runs as a file session, in memory until it closes; `describe -s gui` shows it the same way.
-- Relative paths in the syntax start from the folder where `statscraft` was started, unless a CD is in force in the window's session: a CD starts from that folder too and then stays until the next CD, as in a file session. INSERT and INCLUDE in a syntax file given to `run` start from the file's folder, as in a file session. A run leaves the caller's folder to the window's own later runs, and `describe` shows it as `directory`; a check uses it only for itself. A syntax window that an agent runs starts from its own file's folder, or from the agent's folder when it has no file. A folder that is gone makes relative files fail with their own error; nothing is read or written anywhere else.
-- Unlike a file session, the window names files in its messages by their full path, since it resolves relative names against the caller's folder.
-- One run goes at a time. A request waits while the window is busy.
-- When no window is open, `-s gui` fails with "no Statscraft window is running". With several windows open, the one started last answers.
-
-How it connects, and why it is safe: see [AI agents](ai-agents.md#safety-of-the-live-session).
-
-## export
-
-```
-statscraft export FILE [--format xlsx|html|pdf] [--one-sheet] [--selected] [--hidden]
-```
-
-Writes the output of the open `statscraft-gui` window to a file, exactly as its File > Export does (see [the window](window.md#exporting-all-output)): the designated output window, with what its plugins put on the tables.
-
-| Flag | Meaning |
-|---|---|
-| `FILE` | the file to write; a relative path starts in the current folder. An existing file is replaced |
-| `--format xlsx\|html\|pdf` | an Excel workbook, a web page or a PDF document; without it the extension of `FILE` says (`.xlsx`, `.html` or `.htm`, `.pdf`) |
-| `--one-sheet` | Excel: all tables on one sheet, one below the other, instead of one sheet per table |
-| `--selected` | only the tables selected in the output window; fails when none is selected |
-| `--hidden` | hidden items too; without it only what the output window shows |
-
-```
-statscraft run -s gui -e "FREQUENCIES region."
-statscraft export tables.xlsx --one-sheet
-```
-
-```
-output exported to /home/me/work/tables.xlsx
-```
-
-It fails when no window is open, when the window has no output, and when the file cannot be written. An export waits until the plugins have answered for the tables of the last run.
-
-## output
-
-```
-statscraft output [--document NAME] [--json]
-```
-
-Shows what an output window of the open `statscraft-gui` window holds, as the person sees it there: every command heading and every table and chart of the session in order, also those from earlier runs and other callers. Without `--document` it reads the designated output window; `NAME` is an output document as `describe -s gui` lists it. It changes nothing in the window.
-
-The first line sums up the document and says which kinds of element the window shows (Edit > Settings: command headings, titles, tables, notes, charts). Then each heading and table follows as `run` prints them, a chart as its data table; `(hidden)` marks a heading or table hidden in the output, `(selected)` a table selected in the output window.
-
-```
-statscraft run -s gui -e "FREQUENCIES region."
-statscraft output
-```
-
-```
-output document Document1: 1 commands, 1 tables, 0 charts, 0 hidden, 1 selected; the window shows titles, tables, notes, charts
-
-## FREQUENCIES
-
-### Region of residence (selected)
-...
-```
-
-With `--json` it prints the window's answer: `document`, `shows` (`headings`, `titles`, `tables`, `notes`, `charts`, each true or false) and `commands`, each with `id`, `heading`, `hidden` and `items`; an item has `id`, `hidden`, `selected` and a `table` or a `chart` in the form `run --json` gives them. It fails when no window is open, when the window has no output window, and when no output document has that name.
-
-## undo
-
-```
-statscraft undo
-```
-
-Takes back the last run that changed the data in the open `statscraft-gui` window, exactly as its Edit > Undo last change does (see [the window](window.md#syntax-is-the-only-command-layer)): the datasets are as they were before that run, the output stays, and the log marks the run as undone. It goes one step back, and an undo cannot itself be taken back. It prints the first line of the syntax it took back:
-
-```
-statscraft run -s gui -e "COMPUTE total = q1 + q2."
-statscraft undo
-```
-
-```
-undone: COMPUTE total = q1 + q2.
-```
-
-It fails when no window is open, and when no run since the last undo changed the data. File sessions have no undo.
-
-## mcp
-
-`statscraft mcp` serves describe, help, check and run as MCP tools over standard input and output, for agent apps that start local MCP servers. It runs until the app closes the connection. [The MCP server](mcp.md) lists the tools and says where their sessions live.
-
-## plan
-
-```
-statscraft plan [FILE | - | -e TEXT] (--input-schema FILE | -s SESSION | --sqlite DB --name DATASET [--apply [--actor NAME]])
-                [--profile 0.1|0.2|0.3] [--alias NAME]
-```
-
-`plan` turns a bounded part of the language into an OpenStatSpec Transformation Plan: one line of canonical JSON with the plan, its SHA-256 `plan_hash` and the `source_hash` of the syntax, or an error with a stable `code`, `line` and `column`.
-
-| Flag | Meaning |
-|---|---|
-| `--input-schema FILE` | JSON of the form `{"variables": [{"name": "q1", "storage_kind": "numeric"}]}` |
-| `-s`, `--session NAME` | take the input schema from a session's dataset |
-| `--sqlite DB --name DATASET` | take it from a dataset in an OpenStatSpec SQLite database |
-| `--apply` | with `--sqlite`, apply the plan to that dataset in place, in one transaction with one audit row |
-| `--actor NAME` | who applies the plan, for the audit row; default `$USER` |
-| `--profile` | the frontend profile, `0.3` by default |
-| `--alias` | the name of the input dataset in the plan, `input` by default |
-
-Profile 0.1 accepts RECODE, VARIABLE LABELS and VALUE LABELS; 0.2 adds COMPUTE and IF with single values and simple comparisons, FORMATS, VARIABLE LEVEL and EXECUTE; 0.3 adds comments, TO lists, NE and NOT, LOWEST and HIGHEST ranges and ADD VALUE LABELS. Everything else is rejected, even where `run` accepts it. With `schema.json` holding `{"variables": [{"name": "q1", "storage_kind": "numeric"}, {"name": "q2", "storage_kind": "numeric"}]}`:
-
-```
-statscraft plan -e "RECODE q1 (1 = 0)." --input-schema schema.json --profile 0.1
-statscraft plan -s demo -e "RECODE q1_satisfaction (98, 99 = SYSMIS)."
-statscraft plan -e "FREQUENCIES q1." --input-schema schema.json
-```
-
-The last one prints `{"error":{...,"message":"FREQUENCIES is not supported by frontend profile 0.3",...},"ok":false,...}`, whose `code` is the profile's code for an unsupported command, and exits with 1.
-
-## db
-
-```
-statscraft db export survey.sav --sqlite study.db [--name survey]   store a dataset in SQLite
-statscraft db export survey.sav --postgres URL                      or in PostgreSQL
-statscraft db export survey.sav --mysql URL                         or in MySQL or MariaDB
-statscraft db export survey.sav --dolt URL                          or in Dolt
-statscraft db export -s work --sqlite study.db --name work          store a session's dataset
-statscraft db import --sqlite study.db --name survey --out back.sav read it back into a file
-statscraft db import --sqlite study.db --name survey -s work        or into a session
-statscraft db capabilities                                          versions and limits per database
-statscraft plan job.sps --sqlite study.db --name survey --apply     apply syntax to it in place
-```
-
-`db` stores a dataset the way OpenStatSpec's SAV/ZSAV profile 1.0 and its SQL dialect profiles specify.
-
-- One table `data_<name>` holds the cases: `__case_ordinal` (1, 2, 3, ... in case order) and one column per variable, in variable order.
-- Numbers are binary64, with system-missing as NULL. Strings are text that is never NULL. User-missing codes are kept as values, and dates as numbers.
-- The dictionary goes into the catalog tables: labels, value labels, missing values, formats, measurement level, role, display settings, attributes, documents, weight variable and multiple response sets.
-- Variable names that are not plain ASCII get generated column names (`v<position>`); the catalog maps them back.
-- The database belongs to OpenStatSpec. `export` sets up the catalog in a new or empty one and refuses one that holds anything else.
-
-| Flag | Meaning |
-|---|---|
-| `--sqlite FILE`, `--postgres URL`, `--mysql URL`, `--dolt URL` | the database; see [Databases](#databases) |
-| `--name` | the dataset name: ASCII letters, digits and `_`. For `export` it defaults to the file or session name |
-| `--out FILE` | `import` writes this .sav or .zsav file |
-| `-s`, `--session NAME` | `export` reads, or `import` replaces, this session's dataset |
-| `--allow-loss` | `import` goes on when the catalog holds items a dataset cannot keep |
-
-Each prints one line of JSON, such as `{"case_count":200,"dataset":"survey_basic","dataset_id":"...","ok":true,"table":"data_survey_basic","variable_count":19}`, or `{"ok":false,"error":{"code":...,"message":...}}` with exit code 1.
-
-```
-statscraft db export tests/fixtures/survey_basic.sav --sqlite study.db
-statscraft db export -s demo --sqlite study.db --name work
-statscraft plan -e "RECODE q1_satisfaction (98, 99 = SYSMIS)." --sqlite study.db --name survey_basic --apply --actor demo
-statscraft db import --sqlite study.db --name survey_basic --out back.sav
-statscraft db import --sqlite study.db --name work -s fromdb
-```
-
-### Writing and reading
-
-- Before writing, a preflight checks the column limit, identifiers, value sizes and the row size against the profile and the server's settings. SQLite refuses NaN and negative zero, which it cannot keep.
-- A failure leaves no table and no dataset row, only the failed operation and its diagnostic.
-- The rows go in bulk inside the same transaction:
-  - PostgreSQL takes them with `COPY` in the binary format;
-  - MySQL and MariaDB in prepared multi-row INSERTs of at most 4 MiB, each within `max_allowed_packet`;
-  - Dolt in multi-row INSERTs of literal values of at most 256 KiB, each within `max_allowed_packet`;
-  - SQLite through one prepared INSERT per case.
-- Reading streams the rows from the server into the dataset instead of holding the whole result first.
-- Reading a dataset whose catalog holds items Statscraft cannot keep (dataset attributes, variable sets, write formats other than the print format) fails unless `--allow-loss` is given. The losses are then listed in the output.
-
-### Databases
-
-| | SQLite | PostgreSQL | MySQL, MariaDB | Dolt |
-|---|---|---|---|---|
-| Option | `--sqlite FILE` | `--postgres postgres://user@host:port/db[?schema=NAME]` | `--mysql mysql://user@host:port/db` | `--dolt mysql://user@host:port/db` |
-| The catalog lives in | the whole file | schema NAME (default `openstatspec`) | database `db` | database `db`, on the session's branch |
-| Server versions | bundled SQLite | 17.x, 18.x, UTF8 encoding | MySQL 8.4.x, 9.7.x; MariaDB 11.4.x, 11.8.x, 12.3.x; 16 KiB InnoDB pages | reads 2.2.x from 2.2.2 on; writes 2.2.2 and 2.2.3 |
-| Columns, `__case_ordinal` included | 2,000 | 1,600 | 1,017 | 4,097 |
-| Numbers | REAL; NaN and negative zero refused | DOUBLE PRECISION, every bit pattern kept | DOUBLE; NaN, infinities and negative zero refused | DOUBLE; NaN, infinities and negative zero refused |
-| Text | TEXT NOT NULL | TEXT NOT NULL; U+0000 refused | TEXT NOT NULL, binary collation, at most 65,535 bytes | LONGTEXT NOT NULL |
-| Row | the length limit | a heap tuple of 8,160 bytes (NULLs are free) | the InnoDB record of 8,126 bytes: 8 per number, 41 (MySQL) or 21 (MariaDB) per string; one INSERT within `max_allowed_packet` | a table definition below 65,504 bytes: 8 per number, 20 per string |
-| Identifiers | 255 bytes | `max_identifier_length` (63 bytes) | 64 characters | 64 characters |
-| New variables in `plan --apply` | yes, in the same transaction | yes, in the same transaction | no: `schema_change_not_atomic` before any change | no: `schema_change_not_atomic` |
-
-MySQL, MariaDB and Dolt commit DDL implicitly. So `export` creates the table first, writes the rows and the catalog in one transaction, and drops the table again if that fails. A plan that would create a variable is refused before anything changes; create the column and its catalog variable in a separate step first.
-
-The product is decided by what the server says about itself, not by the protocol: `--mysql` refuses a Dolt server, and `--dolt` refuses MySQL and MariaDB.
-
-### Dolt
-
-- Statscraft never commits, branches, merges or resets.
-- `db export` leaves its changes in the working set for you to commit.
-- `db import` and the input schema of `plan` write nothing at all (OpenStatSpec's Database I/O Execution Policy v1, which `db capabilities` declares). Allowed losses are therefore reported in the output instead of in the catalog.
-- `plan --apply` needs `--expected-branch` and `--expected-head`. The session must be on that branch at that commit with a clean working set, and the branch must still point at that commit when the apply completes. The audit row records both, and the changes stay uncommitted.
-- The session's branch is the database's default branch, or the one named as `db/branch` in the URL.
-
-### Passwords and TLS
-
-A URL without a password takes it from the `STATSCRAFT_DB_PASSWORD` environment variable. Passwords are never printed.
-
-Connections use plain TCP unless the URL asks for TLS. TLS always verifies the server's certificate chain, against the CA file when one is given and otherwise against the bundled Mozilla root certificates. It also checks the host name unless the mode says otherwise. Statscraft never makes an unverified TLS connection, and refuses the modes that fall back to plain TCP (`prefer`, `allow`, `PREFERRED`).
-
-```
-statscraft db export survey.sav --postgres "postgres://analyst@db.example.org/study?sslmode=verify-full"
-statscraft db export survey.sav --postgres "postgres://analyst@10.0.0.5/study?sslmode=verify-ca&sslrootcert=/etc/ssl/study-ca.pem"
-statscraft db export survey.sav --mysql "mysql://analyst@db.example.org/study?ssl-mode=VERIFY_IDENTITY&ssl-ca=/etc/ssl/study-ca.pem"
-```
-
-| PostgreSQL `sslmode` | MySQL, MariaDB, Dolt `ssl-mode` | Connection |
-|---|---|---|
-| not given, `disable` | not given, `DISABLED` | plain TCP |
-| `verify-full`, `require` | `VERIFY_IDENTITY`, `REQUIRED` | TLS; the certificate chain and the host name are checked |
-| `verify-ca` | `VERIFY_CA` | TLS; the certificate chain is checked, the host name is not |
-
-- `sslrootcert=FILE` (PostgreSQL) or `ssl-ca=FILE` (MySQL, MariaDB, Dolt) names a PEM file of the CA certificates to trust, for a server whose certificate comes from a private CA.
-- A CA file without a mode means `verify-full`.
-- With a CA file, PostgreSQL trusts only that file; the MySQL client trusts the bundled roots as well.
-- Note that `require` and `REQUIRED` check more than in the PostgreSQL and MySQL command line clients, where they encrypt without checking the certificate.
-
-### Applying a plan in place
-
-`plan --name DATASET` with a database option takes the input schema from that dataset. With `--apply` it then applies the plan to the same table in one transaction: direct UPDATEs, `ALTER TABLE ... ADD COLUMN` for new variables, catalog updates and one audit row in `transformation_apply` (plan and source hashes, actor, operation count). Nothing is copied, and on any error nothing changes. `--actor` names who applies the plan (default `$USER`).

@@ -27,6 +27,7 @@ The documentation is online at [docs.statscraft.org](https://docs.statscraft.org
 - [Install and update](docs/install.md): every package, uninstalling and updates.
 - [The window](docs/window.md): the data editor, syntax editor, output, menus and custom tables.
 - [The command line](docs/command-line.md): every subcommand and flag, sessions, JSON output, exit codes, Excel export and the live window session.
+- [Databases](docs/databases.md): store datasets in SQLite, PostgreSQL, MySQL, MariaDB or Dolt, and recode them there.
 - [AI agents](docs/ai-agents.md): how an agent should work with Statscraft, and instructions to paste into yours.
 - [Connect your AI agent](docs/connect.md): add Statscraft to the AI agents on your computer.
 - [The MCP server](docs/mcp.md): the tools an agent app gets, sessions and safety.

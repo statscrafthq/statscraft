@@ -10,14 +10,14 @@ An agent app that runs MCP servers can use the same loop through tools instead o
 2. **Look up the syntax.** `statscraft help` lists the supported commands; `statscraft help COMMAND` gives the syntax, the rules and an example. Use only what the help shows. A command the help does not list fails with a clear error.
 3. **Write syntax to a file** (`job.sps`), one command per line or block, each ending with a period.
 4. **Check it.** `statscraft check -s NAME --json job.sps` parses every command and runs it on a copy of the session's data, so it finds unknown variables and type errors too, and writes nothing.
-5. **Run it in pieces.** `statscraft run -s NAME --json --lines FIRST-LAST job.sps` runs the commands in those lines and keeps the result in the session. The next range builds on it. Line numbers stay those of the file. The session keeps what one window would keep between runs: the data with its weight, split and filter, the named datasets, the macros (run the INCLUDE of a macro library once and call its macros in later runs), the file handles, the SET values, PRESERVE levels, the CD folder and where the random numbers stand. TEMPORARY, N OF CASES and scratch variables end with the run that gives them. `statscraft describe -s NAME --json` shows the kept state under `session`; the full list is in [the command line](command-line.md#sessions-and-line-ranges).
+5. **Run it in pieces.** `statscraft run -s NAME --json --lines FIRST-LAST job.sps` runs the commands in those lines and keeps the result in the session. The next range builds on it. Line numbers stay those of the file. The session keeps the data, settings, macros and named datasets between runs, as a window would ([sessions](command-line.md#sessions-and-line-ranges)). `statscraft describe -s NAME --json` shows the kept state under `session`.
 6. **Read the JSON.** `ok` says whether the run worked. `changes` names the variables added, changed and removed and the case counts before and after; `dataset` gives the size; `commands[].tables` holds the results with raw numbers; `commands[].charts` holds the charts a command made, each as its kind, labels and numbers; `commands[].warnings` says where a command did something other than asked.
 7. **Fix errors where they point.** On failure `errors[]` gives `kind`, `message`, `line` and, for syntax errors, `column`, `expected` and often a `hint`. Fix that line and run the same range again. A failed run saves nothing, settings included, so a retry starts from the same state.
 
 A short session:
 
 ```
-statscraft describe tests/fixtures/survey_basic.sav --json
+statscraft describe survey.sav --json
 statscraft help RECODE
 statscraft check -s work --json job.sps
 statscraft run -s work --json --lines 1-1 job.sps
@@ -52,16 +52,7 @@ Good habits:
 
 ## Working in the open window
 
-When the person has `statscraft-gui` open, the agent can work in it instead of a file session: the session name `gui` sends the syntax to the window, which runs it like its own Run button. The person sees each table appear in the output window and each command in the log, and can keep working in the window between the agent's runs.
-
-```
-statscraft run -s gui --json -e "GET FILE='tests/fixtures/survey_basic.sav'."
-statscraft describe -s gui --json
-statscraft check -s gui --json -e "COMPUTE x = age / 10."
-statscraft run -s gui --json job.sps
-```
-
-The replies are the same JSON as for a file session, with `"session": "gui"`. Relative paths in the syntax are read from the folder where the agent runs `statscraft`. When no window is open, the reply is the error "no Statscraft window is running".
+When the person has the Statscraft window open, the agent can work in it instead of a file session: the session name `gui` sends the syntax to the window, which runs it like its own Run button. The person sees each table appear in the output window and each command in the log, and can keep working in the window between the agent's runs. [The live window session](command-line.md#the-live-window-session) says how it behaves.
 
 Because the person may also change the data in the window, the agent should run `statscraft describe -s gui --json` again before it relies on names or counts it saw earlier.
 

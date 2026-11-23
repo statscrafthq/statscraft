@@ -263,14 +263,24 @@ The output of a window can be kept as a Statscraft output file (.scout) and open
 
 ### Exporting all output
 
-File > Export... opens the Export dialog for the output window; chosen in a data or syntax window, it exports the designated output window. The dialog asks for the **Format**, for an Excel workbook whether to put **One sheet per table** or **All tables on one sheet**, which **Items** (all items of the output, or only the selected tables) and whether to take **Hidden items too**. **Export...** then asks where to save. The choices stay for the next export.
+This is how your tables get to Excel, a web page or a PDF file.
 
-The command line (`statscraft export`, see [the command line](command-line.md#export)) and AI agents (the MCP tool `export_output`) export the designated output window the same way, with the same choices, while the window is open.
+1. Choose **File > Export...**. In a data or syntax window, this exports the designated output window.
+2. Choose the **Format**. For an Excel workbook, choose **One sheet per table** or **All tables on one sheet**.
+3. Under **Items**, choose all items of the output or only the selected tables, and whether to take **Hidden items too**.
+4. Click **Export...** and choose where to save. The dialog remembers your choices for the next export.
 
-- An Excel workbook is laid out as `--xlsx` does: a chart as its data table with the editable chart, or the picture of a statistical plot, beside it. Plugin comments become cell notes; a plugin's own settings decide whether it writes comments.
-- A web page holds the tables, each drawn chart as a PNG picture inside the page.
-- A PDF file has A4 pages, as OUTPUT EXPORT /PDF writes it: tables as text, charts as vector drawings, and bookmarks for the commands and their items.
-- From syntax, OUTPUT EXPORT writes the tables and charts of an output document to a workbook, a Word document, a presentation, a web page, text or a CSV file.
+**The Excel workbook**:
+
+- Each table has its title in bold, its column headers with merged cells for every level, its row labels, thin borders and its caption below. With one sheet per table, each sheet is named after its table.
+- Numbers stay numbers, with a format that shows them as the output does: a percentage cell holds the exact value and shows it as 45.2%. Dates, times and currency values are numbers with a date, time or currency format, so Excel can compute with them.
+- Significance letters and hidden small counts (such as `<5`) stay text.
+- A bar, pie, line or area chart goes in as its data table with an editable Excel chart beside it, drawn from those cells: change a number and the chart follows. The chart takes the workbook's theme. A statistical plot, such as a histogram or a boxplot, goes in as a picture beside its data table.
+- [Plugins](plugins.md) can add colors, fonts, column widths and comments, which become cell notes.
+
+**Other formats**: a web page holds the tables, with each chart as a picture inside the page. A PDF file has A4 pages, with the tables as text, the charts as drawings, and bookmarks for the commands and their items.
+
+**Without the window**: `statscraft run job.sps --xlsx tables.xlsx` writes the tables of a run to the same kind of workbook (see [Excel export](command-line.md#excel-export)). While the window is open, `statscraft export` and the MCP tool `export_output` export its output window with the same choices (see [export](command-line.md#export)). In syntax, OUTPUT EXPORT writes an output document to a workbook, a Word document, a presentation, a web page, text or a CSV file.
 
 ## Custom tables
 
@@ -342,7 +352,7 @@ A multiple response set is one question with several answers allowed, stored as 
 
 ### Custom tables in Excel
 
-Export the output with **File > Export...** and **Excel workbook** (see [Exporting all output](#exporting-all-output)). Each table keeps its header levels, labels and caption. Numbers stay numbers with the format they show in the window, so a percentage cell holds the exact number and shows it as 37.1%. Significance letters and hidden small counts stay text. To put several tables on one sheet, choose **All tables on one sheet**.
+Export the output with **File > Export...** and **Excel workbook**. Each table keeps its header levels, labels and caption, the numbers stay numbers and the significance letters stay text. To put several tables on one sheet, choose **All tables on one sheet**. [Exporting all output](#exporting-all-output) describes the workbook.
 
 [Plugins](plugins.md) can color and comment the cells of custom tables in the window and in the workbook.
 
@@ -583,24 +593,9 @@ Closing one window while others stay open asks only about its own work: the synt
 
 When a new version is out, a bar under the menu says so, with a link to the release notes, **Update now** and **Later**. **Help > Check for updates** checks at once. [Install and update](install.md#updates) says what Update now does for each kind of installation, and how to turn the daily check off.
 
-## Driving the window from the command line or an AI agent
+## Working with an AI agent
 
-While the window is open, it is a live session named `gui`:
-
-```
-statscraft run -s gui -e "GET FILE='survey.sav'."         the window opens the file
-statscraft run -s gui --json job.sps                      runs job.sps in the window
-statscraft check -s gui -e "COMPUTE x = age / 10."       validates against the window's data
-statscraft describe -s gui --json                        dictionary of the window's dataset
-```
-
-- The window runs the syntax exactly as its own Run button does. The tables appear in the designated output window, the commands in the log, and the data windows show the result.
-- The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's dataset. Nothing is written to disk unless the syntax says SAVE.
-- Relative paths in the syntax start from the folder where `statscraft` was started, unless a CD is in force in the window's session; a CD stays until the next CD. A run leaves that folder to the window's own runs.
-
-So an AI agent with a shell can work in the open window. Start `statscraft-gui`, then tell the agent to use `statscraft run -s gui --json` for every step and `statscraft help COMMAND` for the syntax. The person watching sees each table appear, and can keep working in the window between the agent's runs.
-
-Only programs that run as you on the same computer can reach the window. See [AI agents](ai-agents.md#safety-of-the-live-session) for what this means for safety.
+While the window is open, the command line and AI agents can work in it: their syntax runs here, and you see every table and command appear. See [the live window session](command-line.md#the-live-window-session), and [Statscraft for AI agents](ai-agents.md#working-in-the-open-window) for how an agent should use it.
 
 ## Fonts
 
