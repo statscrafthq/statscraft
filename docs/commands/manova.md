@@ -26,7 +26,9 @@ MANOVA dependents [BY factors (min,max) [factors (min,max) ...]] [WITH covariate
             [MINEIGEN(value)] [ALL]]
    [/DISCRIM[=[RAW] [STAN] [ESTIM] [COR] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX)]] [ALL]
              [ALPHA(value)]]]
-   [/ANALYSIS=dependents [WITH covariates]] [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]]
+   [/ANALYSIS[(CONDITIONAL | UNCONDITIONAL)]=dependents [WITH covariates]
+      | (dependents [WITH covariates] [/ ...]) [WITH covariates]]
+   [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]]
    [/DESIGN=term [term ...]] [/DESIGN ...].
 ```
 
@@ -58,7 +60,9 @@ PCOMPS, with several dependents, finds the principal components of the error mat
 
 DISCRIM describes every multivariate effect, and the covariates, by its discriminant functions: the eigenvectors of the hypothesis matrix relative to the error matrix, scaled to a variance of 1 within the error. Functions are kept in order while the dimension reduction test of a function and the ones after it has Sig. at most ALPHA (0.25 by default; 1 keeps all, 0 none). RAW gives the coefficients, STAN the coefficients times the error standard deviations, ESTIM the effect's parameter estimates (or the covariates' coefficients) times the coefficients, COR each dependent's correlation with each function within the error, ROTATE those correlations rotated when two or more functions are kept. DISCRIM alone gives RAW, STAN, ESTIM and COR; ALL also ROTATE.
 
-Not supported yet: PLOT, MATRIX, JOINT MULTIVARIATE(ROY) intervals for a term of more than one df, RESIDUALS PLOT, PMEANS PLOT, PRINT DESIGN other than OVERALL and ONEWAY, PARAMETERS(OPTIMAL), ANALYSIS with WSFACTORS, and groups of analyses on ANALYSIS.
+ANALYSIS picks which variables are dependents and which covariates (also with WSFACTORS, where its dependents are the cells and its covariates after WITH the constant ones). Several groups in parentheses separated by slashes are separate analyses, each with its own tables; CONDITIONAL makes the variables of the earlier groups covariates of the later ones, and covariates after the closing parenthesis go to every group. A variable is named once on the subcommand.
+
+Not supported yet: PLOT, MATRIX, JOINT MULTIVARIATE(ROY) intervals for a term of more than one df, RESIDUALS PLOT, PMEANS PLOT, PRINT DESIGN other than OVERALL and ONEWAY, PARAMETERS(OPTIMAL).
 
 ## Example
 

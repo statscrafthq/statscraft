@@ -1495,3 +1495,137 @@ fn discriminant_functions_of_each_effect() {
         ],
     );
 }
+
+/// The rows of the tables a run produced after its Cases table, as text, to compare runs.
+fn signature(tables: &[Table]) -> Vec<String> {
+    tables
+        .iter()
+        .skip(1)
+        .map(|t| format!("{} {:?} {:?}", t.title, t.columns, t.rows))
+        .collect()
+}
+
+/// A group of ANALYSIS is an analysis of its own: the grouped run gives the tables of the single
+/// runs one after the other. A CONDITIONAL group takes the variables of the earlier groups as
+/// covariates, and the covariates after the parentheses go to every group.
+#[test]
+fn groups_of_analyses_are_separate_analyses() {
+    let one = |analysis: &str| {
+        signature(&run(&format!(
+            "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) b(1,2) WITH x /ANALYSIS={analysis} /DESIGN."
+        )))
+    };
+    let grouped = |analysis: &str| {
+        signature(&run(&format!(
+            "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) b(1,2) WITH x /ANALYSIS{analysis} /DESIGN."
+        )))
+    };
+    let both = |first: &str, second: &str| [one(first), one(second)].concat();
+    assert_eq!(grouped("=(y1 y2 / y3)"), both("y1 y2", "y3"));
+    assert_eq!(grouped("(UNCONDITIONAL)=(y1 y2 / y3)"), both("y1 y2", "y3"));
+    assert_eq!(grouped("=(y1 / y3) WITH x"), both("y1 WITH x", "y3 WITH x"));
+    assert_eq!(
+        grouped("=(y1 WITH y2 / y3) WITH x"),
+        both("y1 WITH y2 x", "y3 WITH x")
+    );
+    assert_eq!(
+        grouped("(CONDITIONAL)=(y1 / y3 / y2)"),
+        [one("y1"), one("y3 WITH y1"), one("y2 WITH y1 y3")].concat()
+    );
+    assert_eq!(
+        grouped("(CONDITIONAL)=(y1 WITH x / y3) WITH y2"),
+        both("y1 WITH x y2", "y3 WITH y2 y1 x")
+    );
+}
+
+/// The second analysis of ANALYSIS(CONDITIONAL)=(y1 / y3) is y3 with y1 as a covariate. Base R:
+/// `drop1` of lm(y3 ~ y1 + a * b), whose error sum of squares is 43.135665042109 on 26 df.
+#[test]
+fn a_conditional_group_adjusts_for_the_earlier_ones() {
+    let t = run(&format!(
+        "{DATA}\nMANOVA y1 y3 BY a(1,3) b(1,2) /ANALYSIS(CONDITIONAL)=(y1 / y3) /DESIGN."
+    ));
+    let tables: Vec<&Table> = t.iter().filter(|t| t.title == SIG).collect();
+    assert_eq!(tables.len(), 2);
+    let second = std::slice::from_ref(tables[1]);
+    let second: Vec<Table> = second.iter().map(|t| (*t).clone()).collect();
+    check(
+        &second,
+        &[
+            (SIG, "WITHIN CELLS", "SS", 43.135665042109),
+            (SIG, "WITHIN CELLS", "DF", 26.0),
+            (SIG, "REGRESSION", "SS", 7.4140016245573),
+            (SIG, "REGRESSION", "F", 4.4687856800240),
+            (SIG, "REGRESSION", "Sig of F", 0.044268747793055),
+            (SIG, "A BY B", "SS", 12.0030199068347),
+            (SIG, "A BY B", "F", 3.6174070490515),
+            (SIG, "A BY B", "Sig of F", 0.041109408077473),
+        ],
+    );
+    // the first analysis is y1 alone: the error of y1 without covariates
+    let first: Vec<Table> = vec![tables[0].clone()];
+    check(&first, &[(SIG, "WITHIN CELLS", "SS", 217.70033333333345)]);
+}
+
+#[test]
+fn groups_of_analyses_must_not_overlap() {
+    for (analysis, words) in [
+        ("(y1 y2 / y2)", "y2 more than once"),
+        ("(y1 / y2 WITH y1)", "y1 more than once"),
+        ("(y1 / y2) WITH y1", "y1 more than once"),
+        ("(y1 / y2) WITH x x", "x more than once"),
+        ("(y1 / y9)", "y9"),
+    ] {
+        let message = run_error(&format!(
+            "{DATA}\nMANOVA y1 y2 y3 BY a(1,3) WITH x /ANALYSIS={analysis} /DESIGN."
+        ));
+        assert!(message.contains(words), "{analysis}: {message}");
+    }
+}
+
+/// ANALYSIS names the variables of a repeated measures analysis: its dependents are the cells
+/// in the order named, its covariates the constant ones named after WITH.
+#[test]
+fn analysis_with_wsfactors_names_the_cells_and_the_covariates() {
+    let kept = |t: Vec<Table>| -> Vec<String> {
+        t.iter()
+            .filter(|t| t.title.contains("Significance") || t.title.contains("Sphericity"))
+            .map(|t| format!("{} {:?} {:?}", t.title, t.columns, t.rows))
+            .collect()
+    };
+    let main = |list: &str, extra: &str| {
+        kept(run(&format!(
+            "{TIMES}\nMANOVA {list} /WSFACTORS=t(3) {extra} /DESIGN."
+        )))
+    };
+    // leaving the covariate out of ANALYSIS is the analysis without it
+    assert_eq!(
+        main("y1 y2 y3 BY g(1,2) WITH (x)", "/ANALYSIS=y1 y2 y3"),
+        main("y1 y2 y3 BY g(1,2)", "")
+    );
+    // naming it after WITH is the analysis with it
+    assert_eq!(
+        main("y1 y2 y3 BY g(1,2) WITH (x)", "/ANALYSIS=y1 y2 y3 WITH x"),
+        main("y1 y2 y3 BY g(1,2) WITH (x)", "")
+    );
+    // the order named is the order of the cells
+    assert_eq!(
+        main("y1 y2 y3 BY g(1,2)", "/ANALYSIS=y3 y2 y1"),
+        main("y3 y2 y1 BY g(1,2)", "")
+    );
+    // a group of six dependents is two analyses of three cells
+    let t = run(&format!(
+        "{TIMES}\nCOMPUTE z1=y1*2+x.\nCOMPUTE z2=y2+x*x.\nCOMPUTE z3=y3-x.\n\
+         MANOVA y1 y2 y3 z1 z2 z3 BY g(1,2) /WSFACTORS=t(3) /ANALYSIS=(y1 y2 y3 / z1 z2 z3) /DESIGN."
+    ));
+    let two = kept(t);
+    let single: Vec<String> = [
+        main("y1 y2 y3 BY g(1,2)", ""),
+        kept(run(&format!(
+            "{TIMES}\nCOMPUTE z1=y1*2+x.\nCOMPUTE z2=y2+x*x.\nCOMPUTE z3=y3-x.\n\
+             MANOVA z1 z2 z3 BY g(1,2) /WSFACTORS=t(3) /DESIGN."
+        ))),
+    ]
+    .concat();
+    assert_eq!(two, single);
+}

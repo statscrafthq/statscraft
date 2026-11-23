@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MANOVA /ANALYSIS takes several groups of analyses in parentheses ((a b / c) WITH covariates), CONDITIONAL and UNCONDITIONAL, and works with WSFACTORS: each group is an analysis of its own, its dependents the within-subjects cells.
+
 ## 0.31.0 (2026-11-23)
 
 - PROXSCAL /PLOT=CORRELATIONS VARIABLES(list | ALL): the Correlations plot of the independent variables with the dimensions (on by default with RESTRICTIONS=VARIABLES) and a Transformation Plot of each variable named.

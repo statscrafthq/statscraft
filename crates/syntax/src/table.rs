@@ -3469,7 +3469,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20           [MINEIGEN(value)] [ALL]]\n\
                  \x20  [/DISCRIM[=[RAW] [STAN] [ESTIM] [COR] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX)]] [ALL]\n\
                  \x20            [ALPHA(value)]]]\n\
-                 \x20  [/ANALYSIS=dependents [WITH covariates]] [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]]\n\
+                 \x20  [/ANALYSIS[(CONDITIONAL | UNCONDITIONAL)]=dependents [WITH covariates]\n\
+                 \x20     | (dependents [WITH covariates] [/ ...]) [WITH covariates]]\n\
+                 \x20  [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]]\n\
                  \x20  [/DESIGN=term [term ...]] [/DESIGN ...].\n\
                  term: effect [+ effect ...] [= n] [VS WITHIN | RESIDUAL | WR | n], or CONSTANT, or MUPLUS before a term;\n\
                  effect: item [BY item ...] [WITHIN item [BY item ...] ...], or MWITHIN factor(n); item: factor[(n)],\n\
@@ -3558,9 +3560,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  parameter estimates (or the covariates' coefficients) times the coefficients, COR each\n\
                  dependent's correlation with each function within the error, ROTATE those correlations rotated\n\
                  when two or more functions are kept. DISCRIM alone gives RAW, STAN, ESTIM and COR; ALL also ROTATE.\n\
+                 ANALYSIS picks which variables are dependents and which covariates (also with WSFACTORS, where its\n\
+                 dependents are the cells and its covariates after WITH the constant ones). Several groups in\n\
+                 parentheses separated by slashes are separate analyses, each with its own tables; CONDITIONAL makes the\n\
+                 variables of the earlier groups covariates of the later ones, and covariates after the closing\n\
+                 parenthesis go to every group. A variable is named once on the subcommand.\n\
                  Not supported yet: PLOT, MATRIX, JOINT MULTIVARIATE(ROY) intervals for a term of\n\
                  more than one df, RESIDUALS PLOT, PMEANS PLOT, PRINT DESIGN other than OVERALL and ONEWAY,\n\
-                 PARAMETERS(OPTIMAL), ANALYSIS with WSFACTORS, and groups of analyses on ANALYSIS.",
+                 PARAMETERS(OPTIMAL).",
         example: "MANOVA score1 score2 BY method(1,3) school(1,2) WITH pretest /PRINT=SIGNIF(EIGEN) /DESIGN.\n\
                   MANOVA t1 t2 t3 BY method(1,3) /WSFACTORS=trial(3) /PRINT=SIGNIF(GG HF) /DESIGN.",
         parse: manova::manova,

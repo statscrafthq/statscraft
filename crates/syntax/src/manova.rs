@@ -172,6 +172,54 @@ pub struct ManovaPcomps {
     pub min_eigen: f64,
 }
 
+/// What follows ANALYSIS: `[(CONDITIONAL | UNCONDITIONAL)] = deps [WITH covariates]` or
+/// `= (deps [WITH covariates] / ...) [WITH covariates]`.
+fn analysis(p: &mut Parser) -> PResult<ManovaAnalysis> {
+    let mut conditional = false;
+    let keyword = |p: &Parser| {
+        ["CONDITIONAL", "UNCONDITIONAL"]
+            .into_iter()
+            .find(|k| matches!(p.peek_at(1), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(k)))
+    };
+    if p.at(Punct::LParen)
+        && let Some(k) = keyword(p)
+    {
+        p.pos += 2;
+        conditional = k == "CONDITIONAL";
+        p.expect(Punct::RParen)?;
+    }
+    p.eat(Punct::Eq);
+    let one = |p: &mut Parser| -> PResult<(Vec<VarItem>, Vec<VarItem>)> {
+        let deps = list_until(p, &["WITH"])?;
+        let covs = match p.eat_word("WITH") {
+            true => list_until(p, &[])?,
+            false => Vec::new(),
+        };
+        Ok((deps, covs))
+    };
+    if !p.eat(Punct::LParen) {
+        return Ok(ManovaAnalysis {
+            groups: vec![one(p)?],
+            conditional,
+            covariates: Vec::new(),
+        });
+    }
+    let mut groups = vec![one(p)?];
+    while p.eat(Punct::Slash) {
+        groups.push(one(p)?);
+    }
+    p.expect(Punct::RParen)?;
+    let covariates = match p.eat_word("WITH") {
+        true => list_until(p, &[])?,
+        false => Vec::new(),
+    };
+    Ok(ManovaAnalysis {
+        groups,
+        conditional,
+        covariates,
+    })
+}
+
 /// DISCRIM: the discriminant analysis of each multivariate effect.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ManovaDiscrim {
@@ -185,6 +233,17 @@ pub struct ManovaDiscrim {
     pub alpha: f64,
 }
 
+/// ANALYSIS: one or several groups of analyses.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ManovaAnalysis {
+    /// Each group: its dependents and its covariates.
+    pub groups: Vec<(Vec<VarItem>, Vec<VarItem>)>,
+    /// CONDITIONAL: the variables of earlier groups are covariates of later ones.
+    pub conditional: bool,
+    /// The covariates after the closing parenthesis, which every group has.
+    pub covariates: Vec<VarItem>,
+}
+
 /// The settings a DESIGN uses.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ManovaDesign {
@@ -196,8 +255,8 @@ pub struct ManovaDesign {
     pub sequential: bool,
     pub constant: bool,
     pub print: ManovaPrint,
-    /// ANALYSIS: dependents and covariates by name.
-    pub analysis: Option<(Vec<VarItem>, Vec<VarItem>)>,
+    /// ANALYSIS: the groups of dependents and covariates by name.
+    pub analysis: Option<ManovaAnalysis>,
     pub pmeans: Option<ManovaPmeans>,
     /// WSDESIGN; None for the full factorial of the within-subjects factors.
     pub wsdesign: Option<Vec<ManovaTerm>>,
@@ -1130,20 +1189,7 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
             }
             d.pmeans = Some(o);
         } else if p.eat_keyword("ANALYSIS") {
-            p.eat(Punct::Eq);
-            if p.at(Punct::LParen) {
-                return Err(SyntaxError::new(
-                    p.span(),
-                    "groups of analyses and CONDITIONAL in ANALYSIS are not supported yet",
-                ));
-            }
-            let deps = list_until(p, &["WITH"])?;
-            let covs = if p.eat_word("WITH") {
-                list_until(p, &[])?
-            } else {
-                Vec::new()
-            };
-            d.analysis = Some((deps, covs));
+            d.analysis = Some(analysis(p)?);
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
             while !at_end(p) {
@@ -1190,6 +1236,38 @@ mod tests {
         let (_, mut errors) = parse(source);
         assert_eq!(errors.len(), 1, "{source}: {errors:?}");
         errors.remove(0).message
+    }
+
+    #[test]
+    fn analysis_groups_conditional_and_global_covariates() {
+        let name = |n: &str| VarItem::Name(n.to_string());
+        let m = manova("MANOVA a b c BY f(1,2) WITH d /ANALYSIS=a b WITH d /DESIGN.");
+        let an = m.designs[0].analysis.as_ref().unwrap();
+        assert_eq!(
+            an.groups,
+            vec![(vec![name("a"), name("b")], vec![name("d")])]
+        );
+        assert!(!an.conditional && an.covariates.is_empty());
+        let m = manova(
+            "MANOVA a b c d BY f(1,2) /ANALYSIS(CONDITIONAL)=(a, b WITH c / d) WITH e /DESIGN.",
+        );
+        let an = m.designs[0].analysis.as_ref().unwrap();
+        assert!(an.conditional);
+        assert_eq!(
+            an.groups,
+            vec![
+                (vec![name("a"), name("b")], vec![name("c")]),
+                (vec![name("d")], Vec::new())
+            ]
+        );
+        assert_eq!(an.covariates, vec![name("e")]);
+        let m = manova("MANOVA a b BY f(1,2) /ANALYSIS (UNCONDITIONAL) = (a / b) /DESIGN.");
+        assert!(!m.designs[0].analysis.as_ref().unwrap().conditional);
+        // one ANALYSIS stays in effect for the designs after it
+        let m = manova("MANOVA a b BY f(1,2) /ANALYSIS=(a / b) /DESIGN f /DESIGN.");
+        assert!(m.designs.iter().all(|d| d.analysis.is_some()));
+        assert!(error("MANOVA a b BY f(1,2) /ANALYSIS=(a / b.").contains("unexpected"));
+        assert!(error("MANOVA a b BY f(1,2) /ANALYSIS=(a / ) /DESIGN.").contains("unexpected"));
     }
 
     #[test]

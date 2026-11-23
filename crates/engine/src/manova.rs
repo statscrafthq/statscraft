@@ -38,8 +38,8 @@ use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::Values;
 use statscraft_syntax::{
-    Contrast, FactorCriteria, Manova, ManovaCriterion, ManovaDesign, ManovaDiscrim, ManovaEffect,
-    ManovaError, ManovaInterval, ManovaItem, ManovaPcomps, ManovaPower, ManovaPrint,
+    Contrast, FactorCriteria, Manova, ManovaAnalysis, ManovaCriterion, ManovaDesign, ManovaDiscrim,
+    ManovaEffect, ManovaError, ManovaInterval, ManovaItem, ManovaPcomps, ManovaPower, ManovaPrint,
     ManovaTransform, Rotation, VarItem,
 };
 
@@ -140,6 +140,30 @@ fn levels_text(factors: &[Factor], levels: &[usize]) -> Vec<Cell> {
         .zip(levels)
         .map(|(f, l)| text(format!("{}", f.min + *l as f64)))
         .collect()
+}
+
+/// One group of ANALYSIS: the indices of its dependents and of its covariates.
+type AnalysisGroup = (Vec<usize>, Vec<usize>);
+
+/// The caption of one analysis among several groups of ANALYSIS: its number and dependents.
+fn analysis_caption<'a>(
+    groups: usize,
+    index: usize,
+    deps: impl Iterator<Item = &'a String>,
+    caption: &str,
+) -> String {
+    if groups < 2 {
+        return caption.to_string();
+    }
+    let what = format!(
+        "Analysis {}: {}",
+        index + 1,
+        deps.map(String::as_str).collect::<Vec<_>>().join(" ")
+    );
+    match caption.is_empty() {
+        true => what,
+        false => format!("{what}; {caption}"),
+    }
 }
 
 fn find(names: &[String], name: &str) -> Option<usize> {
@@ -535,28 +559,79 @@ impl Engine {
             cases: &cases,
             ..*s
         };
-        let (dv, cv) = match &d.analysis {
-            None => (
+        let groups = match &d.analysis {
+            None => vec![(
                 (0..space.ndeps).collect(),
                 (space.ndeps..space.names.len()).collect(),
-            ),
-            Some((a, b)) => {
-                let pick = |items: &[VarItem]| -> Result<Vec<usize>, Error> {
-                    self.expand_among(items, &space.names)?
-                        .iter()
-                        .map(|n| {
-                            find(&space.names, n).ok_or_else(|| {
-                                err(format!(
-                                    "ANALYSIS names {n}, which is not a dependent variable or covariate of MANOVA"
-                                ))
-                            })
-                        })
-                        .collect()
-                };
-                (pick(a)?, pick(b)?)
-            }
+            )],
+            Some(a) => self.analysis_groups(a, &space.names)?,
         };
-        out.extend(self.manova_design(&s2, d, &dv, &cv, None, caption)?);
+        for (g, (dv, cv)) in groups.iter().enumerate() {
+            let cap = analysis_caption(
+                groups.len(),
+                g,
+                dv.iter().map(|&v| &space.names[v]),
+                caption,
+            );
+            out.extend(self.manova_design(&s2, d, dv, cv, None, &cap)?);
+        }
+        Ok(out)
+    }
+
+    /// The groups of ANALYSIS as indices into `names`: each group's dependents and covariates.
+    /// The covariates after the parentheses go to every group, and with CONDITIONAL the
+    /// variables of the earlier groups follow as covariates of a later one.
+    fn analysis_groups(
+        &self,
+        a: &ManovaAnalysis,
+        names: &[String],
+    ) -> Result<Vec<AnalysisGroup>, Error> {
+        let pick = |items: &[VarItem]| -> Result<Vec<usize>, Error> {
+            self.expand_among(items, names)?
+                .iter()
+                .map(|n| {
+                    find(names, n).ok_or_else(|| {
+                        err(format!(
+                            "ANALYSIS names {n}, which is not a dependent variable or covariate of MANOVA"
+                        ))
+                    })
+                })
+                .collect()
+        };
+        let globals = pick(&a.covariates)?;
+        let mut groups = Vec::new();
+        let mut seen: Vec<usize> = Vec::new();
+        for (deps, covs) in &a.groups {
+            let (dv, cv) = (pick(deps)?, pick(covs)?);
+            groups.push((dv, cv));
+        }
+        // a variable is named once on the whole subcommand: in one group, or among the
+        // covariates after the groups
+        for &v in groups
+            .iter()
+            .flat_map(|(d, c)| d.iter().chain(c))
+            .chain(&globals)
+        {
+            if seen.contains(&v) {
+                return Err(err(format!(
+                    "ANALYSIS names {} more than once; a variable belongs to one group, \
+                     or to the covariates after the groups",
+                    names[v]
+                )));
+            }
+            seen.push(v);
+        }
+        let mut out = Vec::new();
+        let mut earlier: Vec<usize> = Vec::new();
+        for (dv, cv) in groups {
+            let mut covs = cv.clone();
+            covs.extend(&globals);
+            if a.conditional {
+                covs.extend(&earlier);
+            }
+            earlier.extend(dv.iter().chain(&cv));
+            out.push((dv, covs));
+        }
         Ok(out)
     }
 
@@ -594,9 +669,55 @@ impl Engine {
                 "TRANSFORM cannot be used with WSFACTORS, which transforms the dependents itself",
             ));
         }
-        if d.analysis.is_some() {
-            return Err(err("ANALYSIS with WSFACTORS is not supported yet"));
+        let Some(a) = &d.analysis else {
+            return self.repeated_on(s, c, d, ndeps, nvary, caption);
+        };
+        // each group is a repeated measures analysis of its own: its dependents are the cells,
+        // its covariates the varying ones (those not in the parentheses of the variable list) in
+        // sets of one per cell, and the constant ones
+        let groups = self.analysis_groups(a, s.cont)?;
+        let mut out = Vec::new();
+        for (g, (dv, cv)) in groups.iter().enumerate() {
+            let varying: Vec<usize> = cv.iter().copied().filter(|&v| v < ndeps + nvary).collect();
+            let constant: Vec<usize> = cv.iter().copied().filter(|&v| v >= ndeps + nvary).collect();
+            let order: Vec<usize> = dv
+                .iter()
+                .chain(&varying)
+                .chain(&constant)
+                .copied()
+                .collect();
+            let names: Vec<String> = order.iter().map(|&v| s.cont[v].clone()).collect();
+            let cases: Vec<Case> = s
+                .cases
+                .iter()
+                .map(|case| Case {
+                    v: order.iter().map(|&v| case.v[v]).collect(),
+                    levels: case.levels.clone(),
+                    ..*case
+                })
+                .collect();
+            let s2 = Setup {
+                cont: &names,
+                cases: &cases,
+                ..*s
+            };
+            let cap = analysis_caption(groups.len(), g, dv.iter().map(|&v| &s.cont[v]), caption);
+            out.extend(self.repeated_on(&s2, c, d, dv.len(), varying.len(), &cap)?);
         }
+        Ok(out)
+    }
+
+    /// The repeated measures design of the variables `s` holds: the `ndeps` dependents, the
+    /// `nvary` varying covariates, then the constant ones.
+    fn repeated_on(
+        &self,
+        s: &Setup,
+        c: &Manova,
+        d: &ManovaDesign,
+        ndeps: usize,
+        nvary: usize,
+        caption: &str,
+    ) -> Result<Vec<Table>, Error> {
         let wsf: Vec<Factor> = c
             .wsfactors
             .iter()
