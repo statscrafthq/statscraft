@@ -18,10 +18,11 @@ MANOVA dependents [BY factors (min,max) [factors (min,max) ...]] [WITH covariate
          [SIGNIF(MULTIV UNIV EIGEN DIMENR HYPOTH STEPDOWN BRIEF SINGLEDF AVERF AVONLY GG HF EFSIZE)]
          [ERROR[(SSCP COV COR STDDEV)]]]
    [/OMEANS=[VARIABLES(varlist)] TABLES(factor [BY factor] | CONSTANT, ...)]
-   [/PMEANS[=[VARIABLES(dependents)] [TABLES(factor [BY factor] | CONSTANT, ...)]]]
+   [/PMEANS[=[VARIABLES(dependents)] [TABLES(factor [BY factor] | CONSTANT, ...)] [PLOT]]]
    [/CINTERVAL=[INDIVIDUAL | JOINT][(level)]
               [UNIVARIATE(SCHEFFE | BONFER) | MULTIVARIATE(ROY | PILLAI | WILKS | HOTELLING | BONFER)]]
-   [/POWER[=[F(alpha)] [T(alpha)] [APPROXIMATE | EXACT]]] [/RESIDUALS[=CASEWISE]]
+   [/POWER[=[F(alpha)] [T(alpha)] [APPROXIMATE | EXACT]]] [/RESIDUALS[=CASEWISE] [PLOT]]
+   [/PLOT=[BOXPLOTS] [CELLPLOTS] [NORMAL] [ZCORR]]
    [/PCOMPS=[COR] [COV] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX | NOROTATE)]] [NCOMP(n)]
             [MINEIGEN(value)] [ALL]]
    [/DISCRIM[=[RAW] [STAN] [ESTIM] [COR] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX)]] [ALL]
@@ -63,6 +64,8 @@ DISCRIM describes every multivariate effect, and the covariates, by its discrimi
 ANALYSIS picks which variables are dependents and which covariates (also with WSFACTORS, where its dependents are the cells and its covariates after WITH the constant ones). Several groups in parentheses separated by slashes are separate analyses, each with its own tables; CONDITIONAL makes the variables of the earlier groups covariates of the later ones, and covariates after the closing parenthesis go to every group. A variable is named once on the subcommand.
 
 MATRIX=OUT(file \| dataset \| \*) writes the cells and the pooled within-cells moments: records N (the total), N and MEAN of every non-empty cell with its factor values between ROWTYPE\_ and VARNAME\_, STDDEV (the root of the within-cells mean square) and CORR (the within-cells correlations) over the dependents and covariates. MATRIX=IN(file \| dataset \| \*) runs the analyses from such a file, with the tables the data would give. CELLINFO, HOMOGENEITY, RESIDUALS and PLOT need the cases and are refused with IN. A file CORRELATIONS wrote (N, MEAN, STDDEV, CORR) is one cell without factors.
+
+PLOT draws, once for the command and from the cases, a box for every cell of each variable (BOXPLOTS; alone it is the default), the cell means against the cell variances and standard deviations and a histogram of the cell means (CELLPLOTS), the normal and detrended normal plots of each variable's scores (NORMAL, the i-th of n at the normal quantile of i / (n + 1)) and a half-normal plot of Fisher's z of the within-cells correlations of the dependents (ZCORR). PMEANS PLOT draws the adjusted predicted mean of each cell. RESIDUALS PLOT draws, for each dependent, the standardized residuals against the observed values, the predicted values and the case numbers, and their normal and detrended normal plots; RESIDUALS=PLOT alone leaves out the casewise listing. Each design draws its own, its number in the title.
 
 ## Example
 

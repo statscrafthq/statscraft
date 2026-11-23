@@ -525,7 +525,6 @@ fn unsupported_parts_say_so() {
             "MANOVA y1 BY a(1,3) /PRINT=DESIGN(BIAS).",
             "not supported yet",
         ),
-        ("MANOVA y1 BY a(1,3) /PLOT=BOXPLOTS.", "not supported yet"),
         ("MANOVA y1 y2 /TRANSFORM=SPECIAL(1 1 1).", "square matrix"),
         ("MANOVA y1 y2 /RENAME=a.", "RENAME gives 1 names"),
     ] {
@@ -1846,4 +1845,231 @@ fn matrix_input_refuses_what_needs_the_cases() {
         assert!(message.contains(words), "{list}: {message}");
     }
     std::fs::remove_file(&path).ok();
+}
+
+fn charts_of(source: &str) -> (Vec<statscraft_engine::Chart>, Vec<Table>) {
+    let (commands, errors) = parse(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut tables = Vec::new();
+    for command in &commands {
+        tables = engine
+            .execute(&command.command)
+            .unwrap_or_else(|e| panic!("line {}: {e}", command.first_line));
+    }
+    (engine.take_charts(), tables)
+}
+
+fn chart<'a>(charts: &'a [statscraft_engine::Chart], title: &str) -> &'a statscraft_engine::Chart {
+    charts.iter().find(|c| c.title == title).unwrap_or_else(|| {
+        let titles: Vec<&str> = charts.iter().map(|c| c.title.as_str()).collect();
+        panic!("no chart {title}: {titles:?}")
+    })
+}
+
+fn points(c: &statscraft_engine::Chart) -> Vec<(f64, f64)> {
+    match c.plot.as_ref().expect("a plot") {
+        statscraft_engine::plot::Plot::Points { groups, .. } => groups
+            .iter()
+            .flat_map(|g| g.points.iter().map(|p| (p.x, p.y)))
+            .collect(),
+        other => panic!("not points: {other:?}"),
+    }
+}
+
+/// PLOT: a box of every cell for each variable (Tukey's hinges, as `fivenum` in R: cell (1, 1)
+/// of y1 has the values 15.9 16.1 16.3 17.9 19.5), the cell means against the cell variances and
+/// standard deviations (R: `aggregate` with mean and var), the normal plot (the normal quantile
+/// of i / (n + 1) against the sorted scores) and ZCORR (Fisher's z of the within-cells
+/// correlations from the residuals of lm(Y ~ a * b), absolute values in order).
+#[test]
+fn the_plots_of_the_cells_and_the_scores() {
+    let head = format!("{DATA}\nMANOVA y1 y2 y3 BY a(1,3) b(1,2) WITH x ");
+    let (charts, _) = charts_of(&format!(
+        "{head}/PLOT=BOXPLOTS CELLPLOTS NORMAL ZCORR /DESIGN."
+    ));
+    let boxes = chart(&charts, "MANOVA: boxplots of y1 by cell");
+    match boxes.plot.as_ref().unwrap() {
+        statscraft_engine::plot::Plot::Boxes { boxes } => {
+            assert_eq!(boxes.len(), 6);
+            let first = &boxes[0];
+            assert_eq!((first.label.as_str(), first.n), ("a=1 b=1", 5.0));
+            let got = [
+                first.lower_whisker,
+                first.lower_hinge,
+                first.median,
+                first.upper_hinge,
+                first.upper_whisker,
+            ];
+            for (g, w) in got.iter().zip([15.9, 16.1, 16.3, 17.9, 19.5]) {
+                assert!((g - w).abs() < 1e-12, "{got:?}");
+            }
+        }
+        other => panic!("{other:?}"),
+    }
+    for variable in ["y1", "y2", "y3", "x"] {
+        chart(&charts, &format!("MANOVA: boxplots of {variable} by cell"));
+    }
+    let variance = points(chart(
+        &charts,
+        "MANOVA: cell means of y1 against cell variances",
+    ));
+    let want = [
+        (17.14, 2.368),
+        (17.8, 13.96),
+        (20.36, 4.653),
+        (20.78, 9.192),
+        (21.7, 9.652),
+        (24.38333333333, 6.95766666667),
+    ];
+    assert_eq!(variance.len(), 6);
+    for (got, w) in variance.iter().zip(want) {
+        assert!(
+            (got.0 - w.0).abs() < 1e-8 && (got.1 - w.1).abs() < 1e-8,
+            "{got:?} {w:?}"
+        );
+    }
+    let sd = points(chart(
+        &charts,
+        "MANOVA: cell means of y1 against cell standard deviations",
+    ));
+    for (got, w) in sd.iter().zip(want) {
+        assert!((got.1 - w.1.sqrt()).abs() < 1e-8);
+    }
+    chart(&charts, "MANOVA: histogram of the cell means of y1");
+    let normal = points(chart(
+        &charts,
+        "MANOVA: normal Q-Q plot of the scores of y1",
+    ));
+    assert_eq!(normal.len(), 33);
+    for (got, w) in normal.iter().zip([
+        (13.9, -1.88950996033),
+        (15.5, -1.56472647136),
+        (15.9, -1.35170223993),
+    ]) {
+        assert!(
+            (got.0 - w.0).abs() < 1e-12 && (got.1 - w.1).abs() < 1e-8,
+            "{got:?} {w:?}"
+        );
+    }
+    chart(
+        &charts,
+        "MANOVA: detrended normal Q-Q plot of the scores of y1",
+    );
+    let z = points(chart(
+        &charts,
+        "MANOVA: half-normal plot of the within-cells correlations (Fisher's z)",
+    ));
+    assert_eq!(z.len(), 3);
+    for (got, w) in z
+        .iter()
+        .zip([0.403538014075, 0.425246611185, 0.522622427277])
+    {
+        assert!((got.1 - w).abs() < 1e-8, "{got:?} {w}");
+    }
+    // PLOT alone is BOXPLOTS
+    let (alone, _) = charts_of(&format!("{head}/PLOT /DESIGN."));
+    assert_eq!(alone.len(), 4);
+    assert!(alone.iter().all(|c| c.title.contains("boxplots")));
+}
+
+/// PMEANS PLOT draws the adjusted predicted mean of each cell, the values of the table; RESIDUALS
+/// PLOT the standardized residuals against the observed and predicted values (the casewise
+/// table's) and the case numbers, with the normal plots.
+#[test]
+fn the_plots_of_a_design() {
+    let (charts, tables) = charts_of(&format!(
+        "{DATA}\nMANOVA y1 BY a(1,3) b(1,2) WITH x /PMEANS=PLOT /RESIDUALS=CASEWISE PLOT /DESIGN."
+    ));
+    let means = points(chart(&charts, "MANOVA: predicted means of the cells"));
+    let table = tables
+        .iter()
+        .find(|t| t.title == "Observed and Predicted Means")
+        .expect("the table");
+    let adjusted: Vec<f64> = table
+        .rows
+        .iter()
+        .map(
+            |r| match &r[table.columns.iter().position(|c| c == "Adj. Mean").unwrap()] {
+                Cell::Number(n) => *n,
+                other => panic!("{other:?}"),
+            },
+        )
+        .collect();
+    assert_eq!(means.len(), adjusted.len());
+    for (i, (got, want)) in means.iter().zip(&adjusted).enumerate() {
+        assert_eq!(got.0, (i + 1) as f64);
+        assert!((got.1 - want).abs() < 1e-9, "cell {i}");
+    }
+    let listing = tables
+        .iter()
+        .find(|t| t.title == "Observed and Predicted Values for Each Case")
+        .expect("the casewise table");
+    let column = |name: &str| -> Vec<f64> {
+        let at = listing.columns.iter().position(|c| c == name).unwrap();
+        listing
+            .rows
+            .iter()
+            .map(|r| match &r[at] {
+                Cell::Number(n) => *n,
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    };
+    let (observed, predicted, std) = (
+        column("Observed"),
+        column("Predicted"),
+        column("Std. Resid."),
+    );
+    for (title, x) in [
+        (
+            "MANOVA: standardized residuals of y1 against observed values",
+            &observed,
+        ),
+        (
+            "MANOVA: standardized residuals of y1 against predicted values",
+            &predicted,
+        ),
+    ] {
+        let p = points(chart(&charts, title));
+        assert_eq!(p.len(), 33);
+        for (i, got) in p.iter().enumerate() {
+            assert!(
+                (got.0 - x[i]).abs() < 1e-9 && (got.1 - std[i]).abs() < 1e-9,
+                "{title} {i}"
+            );
+        }
+    }
+    let by_case = points(chart(
+        &charts,
+        "MANOVA: standardized residuals of y1 against case numbers",
+    ));
+    assert_eq!(by_case[4].0, 5.0);
+    chart(
+        &charts,
+        "MANOVA: normal Q-Q plot of the standardized residuals of y1",
+    );
+    chart(
+        &charts,
+        "MANOVA: detrended normal Q-Q plot of the standardized residuals of y1",
+    );
+    // RESIDUALS PLOT alone leaves out the casewise listing
+    let (_, tables) = charts_of(&format!(
+        "{DATA}\nMANOVA y1 BY a(1,3) /RESIDUALS=PLOT /DESIGN."
+    ));
+    assert!(
+        tables
+            .iter()
+            .all(|t| t.title != "Observed and Predicted Values for Each Case")
+    );
+    // several designs: the titles say which
+    let (charts, _) = charts_of(&format!(
+        "{DATA}\nMANOVA y1 BY a(1,3) b(1,2) /PMEANS=PLOT /DESIGN a b /DESIGN."
+    ));
+    let titles: Vec<&str> = charts.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(titles.len(), 2, "{titles:?}");
+    assert!(
+        titles[0].ends_with("Design 1") && titles[1].ends_with("Design 2"),
+        "{titles:?}"
+    );
 }

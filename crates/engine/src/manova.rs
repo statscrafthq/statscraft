@@ -35,12 +35,12 @@ use crate::glm::{
 use crate::matrix::{Matrix, inverse};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
-use crate::{Cell, Engine, Error, Table};
+use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{
     Contrast, FactorCriteria, Manova, ManovaAnalysis, ManovaCriterion, ManovaDesign, ManovaDiscrim,
-    ManovaEffect, ManovaError, ManovaInterval, ManovaItem, ManovaPcomps, ManovaPower, ManovaPrint,
-    ManovaTransform, Rotation, VarItem,
+    ManovaEffect, ManovaError, ManovaInterval, ManovaItem, ManovaPcomps, ManovaPlots, ManovaPower,
+    ManovaPrint, ManovaTransform, Rotation, VarItem,
 };
 
 const EPS: f64 = 1e-8;
@@ -68,6 +68,8 @@ struct Setup<'a> {
     cont: &'a [String],
     cases: &'a [Case],
     n: f64,
+    /// The charts designs draw (PMEANS PLOT, RESIDUALS PLOT), taken by the command at the end.
+    charts: &'a std::cell::RefCell<Vec<Chart>>,
 }
 
 /// A term: its columns in X, its error number and the error it is tested against.
@@ -384,6 +386,7 @@ fn rao(lambda: f64, p: f64, q: f64, ne: f64) -> (f64, f64, f64) {
 }
 
 mod matrix;
+mod plots;
 
 impl Engine {
     pub(crate) fn manova(&mut self, c: &Manova) -> Result<Vec<Table>, Error> {
@@ -515,13 +518,21 @@ impl Engine {
             ],
             None,
         )];
+        let charts = std::cell::RefCell::new(Vec::new());
         let setup = Setup {
             factors: &factors,
             cont: &cont,
             cases: &cases,
             n,
+            charts: &charts,
         };
         tables.extend(setup.cell_tables(c, deps.len())?);
+        let mut plot_warnings = Vec::new();
+        if c.plots != ManovaPlots::default() {
+            let (cell_charts, warnings) = plots::cell_charts(&setup, c, deps.len());
+            charts.borrow_mut().extend(cell_charts);
+            plot_warnings = warnings;
+        }
         if c.matrix.output.is_some() {
             let labels = cont
                 .iter()
@@ -533,7 +544,12 @@ impl Engine {
                 .collect();
             *matrix_part = Some(self.manova_matrix_out(&setup, labels)?);
         }
-        self.manova_designs(c, &setup, tables, deps.len(), nvary)
+        for warning in plot_warnings {
+            self.warn(warning);
+        }
+        let result = self.manova_designs(c, &setup, tables, deps.len(), nvary);
+        self.charts.extend(charts.into_inner());
+        result
     }
 
     /// The designs of the command on the cases `setup` holds.
@@ -1499,6 +1515,31 @@ impl Engine {
                             .collect::<Result<_, _>>()?,
                     };
                     let (design_only, design_swept) = sweep_in_order(&zwz, &all, EPS);
+                    if pm.plot {
+                        let predicted: Vec<(String, Vec<f64>)> = s
+                            .groups()
+                            .iter()
+                            .map(|g| {
+                                let i = s
+                                    .cases
+                                    .iter()
+                                    .position(|c| std::ptr::eq(c, g[0]))
+                                    .expect("a case of the cell");
+                                (
+                                    plots::cell_label(s.factors, &g[0].levels),
+                                    keep.iter()
+                                        .map(|&j| fit(&x, (&full, &swept), nx + j, i))
+                                        .collect(),
+                                )
+                            })
+                            .collect();
+                        let kept: Vec<String> = keep.iter().map(|&j| names[j].clone()).collect();
+                        let mut chart = plots::pmeans_chart(&kept, &predicted);
+                        if !caption.is_empty() {
+                            chart.title = format!("{}; {caption}", chart.title);
+                        }
+                        s.charts.borrow_mut().push(chart);
+                    }
                     out.extend(predicted_means(
                         s,
                         &x,
@@ -1512,6 +1553,24 @@ impl Engine {
                         &cov,
                         &cap(&error_name(default)),
                     )?);
+                }
+                if d.residual_plot {
+                    let rows = fitted_rows(s, &x, (&full, &swept), (nx, p), dv, cv, &cov);
+                    let mut drawn = Vec::new();
+                    for (j, name) in names.iter().enumerate() {
+                        let mine: Vec<plots::Fitted> = rows
+                            .iter()
+                            .filter(|f| f.variable == j)
+                            .map(|f| plots::Fitted { ..*f })
+                            .collect();
+                        drawn.extend(plots::residual_charts(name, &mine));
+                    }
+                    for chart in &mut drawn {
+                        if !caption.is_empty() {
+                            chart.title = format!("{}; {caption}", chart.title);
+                        }
+                    }
+                    s.charts.borrow_mut().extend(drawn);
                 }
                 if d.residuals {
                     out.push(casewise(
@@ -3269,26 +3328,23 @@ fn casewise(
     cov: &Matrix,
     caption: &str,
 ) -> Table {
+    let fitted = fitted_rows(s, x, full, (nx, p), dv, cv, cov);
     let mut rows = Vec::new();
-    for (i, c) in s.cases.iter().enumerate() {
-        for (j, name) in names.iter().enumerate() {
-            let covs: f64 = cv
-                .iter()
-                .enumerate()
-                .filter(|(k, _)| full.1[nx + p + k])
-                .map(|(k, &v)| c.v[v] * full.0[nx + j][nx + p + k])
-                .sum();
-            let pred = fit(x, full, nx + j, i) + covs;
-            let obs = c.v[dv[j]];
-            let mut row = vec![text(format!("{}", c.index + 1))];
-            if p > 1 {
-                row.push(text(name.clone()));
-            }
-            row.extend(
-                [obs, pred, obs - pred, (obs - pred) / cov[j][j].sqrt()].map(|v| number(Some(v))),
-            );
-            rows.push(row);
+    for f in &fitted {
+        let mut row = vec![text(format!("{}", f.case + 1))];
+        if p > 1 {
+            row.push(text(names[f.variable].clone()));
         }
+        row.extend(
+            [
+                f.observed,
+                f.predicted,
+                f.observed - f.predicted,
+                f.standardized,
+            ]
+            .map(|v| number(Some(v))),
+        );
+        rows.push(row);
     }
     let mut columns = plain(&["Case No."]);
     if p > 1 {
@@ -3307,6 +3363,40 @@ fn casewise(
         rows,
         Some(caption.to_string()),
     )
+}
+
+/// The observed, predicted and standardized residual of each dependent for each case, case by
+/// case and dependent by dependent.
+fn fitted_rows(
+    s: &Setup,
+    x: &[Vec<f64>],
+    full: (&Matrix, &[bool]),
+    (nx, p): (usize, usize),
+    dv: &[usize],
+    cv: &[usize],
+    cov: &Matrix,
+) -> Vec<plots::Fitted> {
+    let mut rows = Vec::new();
+    for (i, c) in s.cases.iter().enumerate() {
+        for j in 0..p {
+            let covs: f64 = cv
+                .iter()
+                .enumerate()
+                .filter(|(k, _)| full.1[nx + p + k])
+                .map(|(k, &v)| c.v[v] * full.0[nx + j][nx + p + k])
+                .sum();
+            let predicted = fit(x, full, nx + j, i) + covs;
+            let observed = c.v[dv[j]];
+            rows.push(plots::Fitted {
+                case: c.index,
+                variable: j,
+                observed,
+                predicted,
+                standardized: (observed - predicted) / cov[j][j].sqrt(),
+            });
+        }
+    }
+    rows
 }
 
 /// The weighted mean, standard deviation and N of variable `v` over `cases`.

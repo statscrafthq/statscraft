@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MANOVA /PLOT=BOXPLOTS CELLPLOTS NORMAL ZCORR, /PMEANS=PLOT and /RESIDUALS=PLOT: boxplots and cell statistics plots of every variable, normal plots of the scores, a half-normal plot of the within-cells correlations, the predicted means of the cells and the standardized residuals against the observed and predicted values and the case numbers, as chart data.
+
 ## 0.32.0 (2026-11-23)
 
 - The documentation and the help describe only what Statscraft does: the separate page of differences and limits is gone, and the command pages are easier to read on the documentation site.

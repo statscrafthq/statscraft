@@ -3454,10 +3454,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20        [SIGNIF(MULTIV UNIV EIGEN DIMENR HYPOTH STEPDOWN BRIEF SINGLEDF AVERF AVONLY GG HF EFSIZE)]\n\
                  \x20        [ERROR[(SSCP COV COR STDDEV)]]]\n\
                  \x20  [/OMEANS=[VARIABLES(varlist)] TABLES(factor [BY factor] | CONSTANT, ...)]\n\
-                 \x20  [/PMEANS[=[VARIABLES(dependents)] [TABLES(factor [BY factor] | CONSTANT, ...)]]]\n\
+                 \x20  [/PMEANS[=[VARIABLES(dependents)] [TABLES(factor [BY factor] | CONSTANT, ...)] [PLOT]]]\n\
                  \x20  [/CINTERVAL=[INDIVIDUAL | JOINT][(level)]\n\
                  \x20             [UNIVARIATE(SCHEFFE | BONFER) | MULTIVARIATE(ROY | PILLAI | WILKS | HOTELLING | BONFER)]]\n\
-                 \x20  [/POWER[=[F(alpha)] [T(alpha)] [APPROXIMATE | EXACT]]] [/RESIDUALS[=CASEWISE]]\n\
+                 \x20  [/POWER[=[F(alpha)] [T(alpha)] [APPROXIMATE | EXACT]]] [/RESIDUALS[=CASEWISE] [PLOT]]\n\
+                 \x20  [/PLOT=[BOXPLOTS] [CELLPLOTS] [NORMAL] [ZCORR]]\n\
                  \x20  [/PCOMPS=[COR] [COV] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX | NOROTATE)]] [NCOMP(n)]\n\
                  \x20           [MINEIGEN(value)] [ALL]]\n\
                  \x20  [/DISCRIM[=[RAW] [STAN] [ESTIM] [COR] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX)]] [ALL]\n\
@@ -3563,7 +3564,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  root of the within-cells mean square) and CORR (the within-cells correlations) over the dependents and\n\
                  covariates. MATRIX=IN(file | dataset | *) runs the analyses from such a file, with the tables the data\n\
                  would give. CELLINFO, HOMOGENEITY, RESIDUALS and PLOT need the cases and are refused with IN. A file\n\
-                 CORRELATIONS wrote (N, MEAN, STDDEV, CORR) is one cell without factors.",
+                 CORRELATIONS wrote (N, MEAN, STDDEV, CORR) is one cell without factors.\n\
+                 PLOT draws, once for the command and from the cases, a box for every cell of each variable (BOXPLOTS;\n\
+                 alone it is the default), the cell means against the cell variances and standard deviations and a\n\
+                 histogram of the cell means (CELLPLOTS), the normal and detrended normal plots of each variable's\n\
+                 scores (NORMAL, the i-th of n at the normal quantile of i / (n + 1)) and a half-normal plot of Fisher's z\n\
+                 of the within-cells correlations of the dependents (ZCORR). PMEANS PLOT draws the adjusted predicted\n\
+                 mean of each cell. RESIDUALS PLOT draws, for each dependent, the standardized residuals against the\n\
+                 observed values, the predicted values and the case numbers, and their normal and detrended normal plots;\n\
+                 RESIDUALS=PLOT alone leaves out the casewise listing. Each design draws its own, its number in the title.",
         example: "MANOVA score1 score2 BY method(1,3) school(1,2) WITH pretest /PRINT=SIGNIF(EIGEN) /DESIGN.\n\
                   MANOVA t1 t2 t3 BY method(1,3) /WSFACTORS=trial(3) /PRINT=SIGNIF(GG HF) /DESIGN.",
         parse: manova::manova,

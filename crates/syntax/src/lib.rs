@@ -323,7 +323,7 @@ pub use loops::{RepeatItem, command_text, substitute};
 pub use manova::{
     Manova, ManovaAnalysis, ManovaCriterion, ManovaDesign, ManovaDiscrim, ManovaEffect,
     ManovaError, ManovaFactors, ManovaInterval, ManovaItem, ManovaOmeans, ManovaPcomps,
-    ManovaPmeans, ManovaPower, ManovaPrint, ManovaTerm, ManovaTransform,
+    ManovaPlots, ManovaPmeans, ManovaPower, ManovaPrint, ManovaTerm, ManovaTransform,
     effect_label as manova_effect_label,
 };
 pub use matrix::{

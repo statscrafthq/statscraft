@@ -129,6 +129,18 @@ pub struct ManovaTransform {
 pub struct ManovaPmeans {
     pub variables: Option<Vec<VarItem>>,
     pub tables: Vec<Vec<String>>,
+    /// PLOT: a plot of the predicted means of the cells.
+    pub plot: bool,
+}
+
+/// PLOT: the plots of the whole procedure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ManovaPlots {
+    pub boxplots: bool,
+    pub cellplots: bool,
+    pub normal: bool,
+    /// A half-normal plot of the within-cells correlations of the dependents.
+    pub zcorr: bool,
 }
 
 /// CINTERVAL: the confidence level and the kind of interval.
@@ -265,6 +277,8 @@ pub struct ManovaDesign {
     pub rename: Option<Vec<Option<String>>>,
     pub cinterval: ManovaInterval,
     pub residuals: bool,
+    /// RESIDUALS PLOT.
+    pub residual_plot: bool,
     pub power: Option<ManovaPower>,
     pub pcomps: Option<ManovaPcomps>,
     pub discrim: Option<ManovaDiscrim>,
@@ -297,9 +311,10 @@ pub struct Manova {
     pub omeans: Option<ManovaOmeans>,
     /// MATRIX: the matrix data file read (IN) and written (OUT).
     pub matrix: crate::matrix_io::MatrixIo,
+    pub plots: ManovaPlots,
 }
 
-const KNOWN: [&str; 1] = ["PLOT"];
+const KNOWN: [&str; 0] = [];
 
 /// `(VARIMAX | EQUAMAX | QUARTIMAX | NOROTATE)` after ROTATE; VARIMAX when no parentheses follow.
 fn rotate(p: &mut Parser) -> PResult<Rotation> {
@@ -764,6 +779,7 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
         homogeneity: [false; 3],
         omeans: None,
         matrix: crate::matrix_io::MatrixIo::default(),
+        plots: ManovaPlots::default(),
     };
     let mut d = ManovaDesign {
         terms: None,
@@ -790,6 +806,7 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
             multivariate: None,
         },
         residuals: false,
+        residual_plot: false,
         power: None,
         pcomps: None,
         discrim: None,
@@ -1071,19 +1088,20 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
             d.discrim = Some(o);
         } else if p.eat_keyword("RESIDUALS") {
             p.eat(Punct::Eq);
+            // without a keyword the casewise listing is what RESIDUALS gives
+            let (mut casewise, mut plot) = (false, false);
             while !at_end(p) {
-                if p.at_keyword("PLOT") {
-                    return Err(SyntaxError::new(
-                        p.span(),
-                        "RESIDUALS PLOT of MANOVA is not supported yet; CASEWISE is",
-                    ));
-                }
-                if !p.eat_keyword("CASEWISE") {
-                    return Err(p.unexpected(&["CASEWISE"]));
+                if p.eat_keyword("PLOT") {
+                    plot = true;
+                } else if p.eat_keyword("CASEWISE") {
+                    casewise = true;
+                } else {
+                    return Err(p.unexpected(&["CASEWISE", "PLOT"]));
                 }
                 p.eat(Punct::Comma);
             }
-            d.residuals = true;
+            d.residuals = casewise || !plot;
+            d.residual_plot = plot;
         } else if p.eat_keyword("DESIGN") {
             p.eat(Punct::Eq);
             let terms = design_terms(p)?;
@@ -1180,19 +1198,37 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
                     p.expect(Punct::RParen)?;
                 } else if p.eat_keyword("TABLES") {
                     o.tables.extend(means_tables(p)?);
-                } else if p.at_keyword("PLOT") {
-                    return Err(SyntaxError::new(
-                        p.span(),
-                        "PMEANS PLOT of MANOVA is not supported yet; VARIABLES and TABLES are",
-                    ));
+                } else if p.eat_keyword("PLOT") {
+                    o.plot = true;
                 } else {
-                    return Err(p.unexpected(&["VARIABLES", "TABLES"]));
+                    return Err(p.unexpected(&["VARIABLES", "TABLES", "PLOT"]));
                 }
                 p.eat(Punct::Comma);
             }
             d.pmeans = Some(o);
         } else if p.eat_keyword("ANALYSIS") {
             d.analysis = Some(analysis(p)?);
+        } else if p.eat_keyword("PLOT") {
+            p.eat(Punct::Eq);
+            // PLOT alone is BOXPLOTS; the last PLOT subcommand is the one in effect
+            m.plots = ManovaPlots::default();
+            while !at_end(p) {
+                if p.eat_keyword("BOXPLOTS") {
+                    m.plots.boxplots = true;
+                } else if p.eat_keyword("CELLPLOTS") {
+                    m.plots.cellplots = true;
+                } else if p.eat_keyword("NORMAL") {
+                    m.plots.normal = true;
+                } else if p.eat_keyword("ZCORR") {
+                    m.plots.zcorr = true;
+                } else {
+                    return Err(p.unexpected(&["BOXPLOTS", "CELLPLOTS", "NORMAL", "ZCORR"]));
+                }
+                p.eat(Punct::Comma);
+            }
+            if m.plots == ManovaPlots::default() {
+                m.plots.boxplots = true;
+            }
         } else if p.eat_keyword("MATRIX") {
             crate::matrix_io::matrix_io(p, &mut m.matrix, "MANOVA", false, false)?;
         } else if p.eat_keyword("MISSING") {
@@ -1241,6 +1277,26 @@ mod tests {
         let (_, mut errors) = parse(source);
         assert_eq!(errors.len(), 1, "{source}: {errors:?}");
         errors.remove(0).message
+    }
+
+    #[test]
+    fn plots_of_the_procedure_and_of_a_design() {
+        let m = manova("MANOVA a b BY f(1,2) /PLOT=CELLPLOTS NORMAL ZCORR /DESIGN.");
+        assert!(!m.plots.boxplots && m.plots.cellplots && m.plots.normal && m.plots.zcorr);
+        // PLOT alone is BOXPLOTS, the last PLOT is the one in effect
+        let m = manova("MANOVA a b BY f(1,2) /PLOT /DESIGN.");
+        assert!(m.plots.boxplots && !m.plots.cellplots);
+        let m = manova("MANOVA a b BY f(1,2) /PLOT=NORMAL /PLOT=BOXPLOTS /DESIGN.");
+        assert!(m.plots.boxplots && !m.plots.normal);
+        let m = manova("MANOVA a BY f(1,2) /PMEANS=PLOT /RESIDUALS=PLOT /DESIGN.");
+        let d = &m.designs[0];
+        assert!(d.pmeans.as_ref().unwrap().plot && d.residual_plot && !d.residuals);
+        let m = manova("MANOVA a BY f(1,2) /RESIDUALS=CASEWISE PLOT /DESIGN.");
+        assert!(m.designs[0].residuals && m.designs[0].residual_plot);
+        // RESIDUALS alone is the casewise listing
+        let m = manova("MANOVA a BY f(1,2) /RESIDUALS /DESIGN.");
+        assert!(m.designs[0].residuals && !m.designs[0].residual_plot);
+        assert!(error("MANOVA a BY f(1,2) /PLOT=PIE /DESIGN.").contains("unexpected"));
     }
 
     #[test]
@@ -1444,7 +1500,6 @@ mod tests {
         );
         let term = &d.terms.as_ref().unwrap()[0];
         assert!(term.effects[0].crossed.is_empty() && !term.effects[0].is_constant());
-        assert!(error("MANOVA y /PMEANS PLOT.").contains("not supported yet"));
         let e = error("MANOVA y /CINTERVAL MULTIVARIATE.");
         assert!(e.contains("unexpected end of command"), "{e}");
     }

@@ -141,8 +141,13 @@ impl Engine {
                 "MATRIX=IN holds the means and the pooled variances of the cells, not their own variances, so CELLINFO and HOMOGENEITY are not available",
             ));
         }
-        if c.designs.iter().any(|d| d.residuals) {
+        if c.designs.iter().any(|d| d.residuals || d.residual_plot) {
             return Err(err("MATRIX=IN has no cases, so RESIDUALS is not available"));
+        }
+        if c.plots != ManovaPlots::default() {
+            return Err(err(
+                "MATRIX=IN has no cases, so the PLOT plots of the cases are not available",
+            ));
         }
         let m = self.matrix_materials("MANOVA", source)?;
         let groupings = m.grouping_names();
@@ -325,15 +330,19 @@ impl Engine {
             ],
             None,
         )];
+        let charts = std::cell::RefCell::new(Vec::new());
         let setup = Setup {
             factors: &factors,
             cont: &cont,
             cases: &cases,
             n,
+            charts: &charts,
         };
         if c.matrix.output.is_some() {
             *matrix_part = Some(self.manova_matrix_out(&setup, vec![None; cont.len()])?);
         }
-        self.manova_designs(c, &setup, tables, deps.len(), nvary)
+        let result = self.manova_designs(c, &setup, tables, deps.len(), nvary);
+        self.charts.extend(charts.into_inner());
+        result
     }
 }
