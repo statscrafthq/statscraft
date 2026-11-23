@@ -1628,4 +1628,16 @@ fn analysis_with_wsfactors_names_the_cells_and_the_covariates() {
     ]
     .concat();
     assert_eq!(two, single);
+    // CONDITIONAL: the first group's cells are a varying covariate set (one covariate for each
+    // cell, each analysis taking its transformation) of the second group
+    let setup = "COMPUTE z1=y1*2+x.\nCOMPUTE z2=y2+x*x.\nCOMPUTE z3=y3-x.\n";
+    let conditional = kept(run(&format!(
+        "{TIMES}\n{setup}MANOVA y1 y2 y3 z1 z2 z3 BY g(1,2) /WSFACTORS=t(3) \
+         /ANALYSIS(CONDITIONAL)=(y1 y2 y3 / z1 z2 z3) /DESIGN."
+    )));
+    let second = kept(run(&format!(
+        "{TIMES}\n{setup}MANOVA z1 z2 z3 BY g(1,2) WITH y1 y2 y3 /WSFACTORS=t(3) /DESIGN."
+    )));
+    let expected = [main("y1 y2 y3 BY g(1,2)", ""), second].concat();
+    assert_eq!(conditional, expected);
 }
