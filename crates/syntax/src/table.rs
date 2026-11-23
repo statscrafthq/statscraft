@@ -173,8 +173,9 @@ macro_rules! glm_syntax {
                  mean's confidence interval at 1 minus CRITERIA ALPHA, ERRORBAR=SE(n) n standard errors on each\n\
                  side (2 by default); YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
                  cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
-                 gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT\n\
-                 is ignored with a warning. GEF gives the general form of the estimable functions: a row per\n\
+                 gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PROFILE\n\
+                 plots the means of the dependent variables over between-subjects and within-subjects factors and\n\
+                 SPREADLEVEL and RESIDUALS are left out with a warning. GEF gives the general form of the estimable functions: a row per\n\
                  parameter, a column per free coefficient L1, L2, ... (a redundant parameter is a combination of them).\n\
                  TEST(LMATRIX) (or ESTIMABLE) gives the L' matrix of every effect of the design for the sum of\n\
                  squares type in use (a row per parameter, a column per row of L), and of every LMATRIX and\n\
