@@ -2,7 +2,10 @@
 //! spread of the dependent instead of class counts, and the risk is the mean squared deviation
 //! from the node means.
 
-use super::{Node, Predictor, Tree, depth_limit, method_name, percent, risk_estimate, text};
+use super::{
+    Checks, Node, Predictor, Tree, TreeValidation, depth_limit, method_name, percent,
+    risk_estimate, text,
+};
 use crate::{Cell, Engine, Table};
 use statscraft_data::Variable;
 
@@ -18,11 +21,12 @@ impl Engine {
     pub(super) fn scale_output(
         &self,
         command: &Tree,
-        nodes: &[Node],
+        trees: (&[Node], Checks),
         predictors: &[Predictor],
         dependent: &Variable,
         charts: &mut Vec<crate::Chart>,
     ) -> Vec<Table> {
+        let (nodes, checks) = trees;
         let shown = self.shown();
         let root_n = nodes[0].n;
         let terminals: Vec<usize> = (0..nodes.len())
@@ -72,7 +76,18 @@ impl Engine {
                         Some(b) => format!("Standard error rule, {b} standard errors"),
                     }),
                 ),
-                row("", "Validation", text("None")),
+                row(
+                    "",
+                    "Validation",
+                    text(match &command.validation {
+                        TreeValidation::None => "None".to_string(),
+                        TreeValidation::SplitPercent(p) => {
+                            format!("Split sample, {p}% to grow the tree")
+                        }
+                        TreeValidation::SplitVariable(v) => format!("Split sample by {v}"),
+                        TreeValidation::Cross(v) => format!("Cross-validation, {v} folds"),
+                    }),
+                ),
                 row(
                     "",
                     "Maximum Tree Depth",
@@ -225,15 +240,59 @@ impl Engine {
         }
         self.crt_tables(command, nodes, predictors, dependent, (&mut out, charts));
 
-        let (risk, variance) = risk_estimate(terminals.iter().map(|&t| &nodes[t]), &nodes[0], None);
+        // the samples the risk and gain tables describe
+        let test = checks.test;
+        let validated = test.is_some();
+        let samples: Vec<(&str, &[Node])> = match test {
+            None => vec![("", nodes)],
+            Some(test) if command.test_sample_only => vec![("Test", test)],
+            Some(test) => vec![("Training", nodes), ("Test", test)],
+        };
         if command.print.risk {
+            let labelled = validated || checks.cross.is_some();
+            let mut rows: Vec<Vec<Cell>> = samples
+                .iter()
+                .map(|(label, ns)| {
+                    let (risk, variance) =
+                        risk_estimate(terminals.iter().map(|&t| &ns[t]), &ns[0], None);
+                    let mut row = Vec::new();
+                    if labelled {
+                        let name = if checks.cross.is_some() {
+                            "Resubstitution"
+                        } else {
+                            label
+                        };
+                        row.push(text(name));
+                    }
+                    row.extend([Cell::Number(risk), Cell::Number(variance.sqrt())]);
+                    row
+                })
+                .collect();
+            if let Some((risk, variance)) = checks.cross {
+                rows.push(vec![
+                    text("Cross-Validation"),
+                    Cell::Number(risk),
+                    Cell::Number(variance.sqrt()),
+                ]);
+            }
+            let mut columns = vec!["Estimate".to_string(), "Std. Error".to_string()];
+            if labelled {
+                columns.insert(0, if validated { "Sample" } else { "Method" }.into());
+            }
+            let width = columns.len();
             out.push(Table {
                 title: "Risk".into(),
-                row_headers: 0,
-                columns: vec!["Estimate".into(), "Std. Error".into()],
-                column_groups: vec![Vec::new(); 2],
-                rows: vec![vec![Cell::Number(risk), Cell::Number(variance.sqrt())]],
-                formats: vec![vec!["F8.3".into(), "F8.3".into()]],
+                row_headers: usize::from(labelled),
+                column_groups: vec![Vec::new(); width],
+                formats: vec![
+                    vec![String::new(); width - 2]
+                        .into_iter()
+                        .chain(["F8.3".into(), "F8.3".into()])
+                        .collect();
+                    rows.len()
+                ],
+                columns,
+                rows,
                 caption: Some(format!(
                     "Growing Method: {}. Dependent Variable: {}.",
                     method_name(command),
@@ -244,8 +303,8 @@ impl Engine {
         }
 
         if command.gain_table {
-            // the terminal nodes by their mean, with the mean over the overall mean as the index
-            let overall = spread(&nodes[0]).0;
+            // the terminal nodes by the training sample's mean, with the mean over the overall mean
+            // as the index; the test sample's table lists them in the same order
             let mut order = terminals.clone();
             order.sort_by(|&a, &b| {
                 let (ma, mb) = (spread(&nodes[a]).0, spread(&nodes[b]).0);
@@ -255,45 +314,58 @@ impl Engine {
                     mb.total_cmp(&ma)
                 }
             });
-            let rows: Vec<Vec<Cell>> = order
-                .iter()
-                .map(|&t| {
-                    let mean = spread(&nodes[t]).0;
+            for (label, ns) in &samples {
+                let root_n = ns[0].n;
+                let overall = spread(&ns[0]).0;
+                let rows: Vec<Vec<Cell>> = order
+                    .iter()
+                    .map(|&t| {
+                        let has_cases = ns[t].n > 0.0;
+                        let mean = spread(&ns[t]).0;
+                        vec![
+                            text(format!("{t}")),
+                            Cell::Number(ns[t].n),
+                            percent(ns[t].n, root_n),
+                            if has_cases {
+                                Cell::Number(mean)
+                            } else {
+                                Cell::Empty
+                            },
+                            if overall == 0.0 || !has_cases {
+                                Cell::Empty
+                            } else {
+                                percent(mean, overall)
+                            },
+                        ]
+                    })
+                    .collect();
+                let formats = vec![
                     vec![
-                        text(format!("{t}")),
-                        Cell::Number(nodes[t].n),
-                        percent(nodes[t].n, root_n),
-                        Cell::Number(mean),
-                        if overall == 0.0 {
-                            Cell::Empty
-                        } else {
-                            percent(mean, overall)
-                        },
-                    ]
-                })
-                .collect();
-            let formats = vec![
-                vec![
-                    String::new(),
-                    "F8.0".into(),
-                    "F5.1".into(),
-                    "F8.3".into(),
-                    "F6.1".into()
+                        String::new(),
+                        "F8.0".into(),
+                        "F5.1".into(),
+                        "F8.3".into(),
+                        "F6.1".into()
+                    ];
+                    rows.len()
                 ];
-                rows.len()
-            ];
-            out.push(Table {
-                title: "Gain Summary for Nodes".into(),
-                row_headers: 1,
-                columns: ["Node", "N", "Percent", "Mean", "Index"]
-                    .map(String::from)
-                    .to_vec(),
-                column_groups: vec![Vec::new(); 5],
-                rows,
-                formats,
-                caption: Some(format!("Growing Method: {}.", method_name(command))),
-                ..Table::default()
-            });
+                out.push(Table {
+                    title: if validated {
+                        format!("Gain Summary for Nodes ({label} Sample)")
+                    } else {
+                        "Gain Summary for Nodes".into()
+                    },
+                    row_headers: 1,
+                    columns: ["Node", "N", "Percent", "Mean", "Index"]
+                        .map(String::from)
+                        .to_vec(),
+                    column_groups: vec![Vec::new(); 5],
+                    rows,
+                    formats,
+                    caption: Some(format!("Growing Method: {}.", method_name(command))),
+                    ..Table::default()
+                });
+            }
         }
         out
     }

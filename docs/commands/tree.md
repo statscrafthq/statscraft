@@ -38,7 +38,7 @@ VALIDATION TYPE=SPLITSAMPLE(percent) grows the tree on that share of the cases, 
 
 With PRUNE the test sample's risk picks the subtree. SAVE gives every case, test cases included, a node.
 
-CROSSVALIDATION(folds) (2 to 25, 10 when no number is given) deals the cases to that many folds at random, grows a tree without each fold with the same settings and scores it on the fold; the Risk table then also gives the cross-validated estimate, the pooled misses of those trees. It does not change the tree, and is ignored with a warning when FORCE is given. A scale dependent cannot be validated yet. Not supported yet: a scale dependent with CHAID, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.
+CROSSVALIDATION(folds) (2 to 25, 10 when no number is given) deals the cases to that many folds at random, grows a tree without each fold with the same settings and scores it on the fold; the Risk table then also gives the cross-validated estimate, the pooled misses of those trees. It does not change the tree, and is ignored with a warning when FORCE is given. A scale dependent is validated the same way, its risk being the mean squared deviation from the training nodes' means. Not supported yet: a scale dependent with CHAID, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.
 
 DMTREE is another name for the command.
 

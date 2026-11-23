@@ -542,11 +542,6 @@ fn what_validation_cannot_use_is_refused() {
         "TREE y [n] BY x1 [s] /VALIDATION TYPE=SPLITSAMPLE(y).",
     );
     assert!(message.contains("cannot be the dependent"), "{message}");
-    let message = error(
-        &mut engine,
-        "TREE r [s] BY x1 [s] /METHOD TYPE=CRT /VALIDATION TYPE=SPLITSAMPLE(tr).",
-    );
-    assert!(message.contains("scale dependent"), "{message}");
     run(&mut engine, "COMPUTE everyone = 1.");
     let message = error(
         &mut engine,
@@ -582,26 +577,27 @@ fn folds(seed: u32, count: usize, v: usize) -> Vec<usize> {
     fold
 }
 
+/// The data with the fold of each case as a last column.
+fn data_with_fold(fold: &[usize]) -> String {
+    let at = DATA.find("BEGIN DATA\n").expect("data") + "BEGIN DATA\n".len();
+    let end = DATA.find("END DATA.").expect("end");
+    let rows: Vec<String> = DATA[at..end]
+        .lines()
+        .zip(fold)
+        .map(|(row, f)| format!("{row} {f}"))
+        .collect();
+    format!(
+        "DATA LIST FREE / y y3 x1 x2 o g xm z r b v zv g4 gm tr w fold.\nBEGIN DATA\n{}\nEND DATA.\n",
+        rows.join("\n")
+    )
+}
+
 /// The cross-validated risk of `command` against the same trees grown fold by fold with a split
 /// sample (the fold held out as the test sample).
 fn cross_validation_equals_the_folds(command: &str, v: usize, equal_priors: bool) {
     let seed = 13579;
     let fold = folds(seed, 150, v);
-    // the fold of each case as a column of the data
-    let mut with_fold = String::from(DATA);
-    let marker = "END DATA.";
-    let at = with_fold.find("BEGIN DATA\n").expect("data") + "BEGIN DATA\n".len();
-    let end = with_fold.find(marker).expect("end");
-    let rows: Vec<String> = with_fold[at..end]
-        .lines()
-        .zip(&fold)
-        .map(|(row, f)| format!("{row} {f}"))
-        .collect();
-    with_fold = format!(
-        "{}\n{}\nEND DATA.\n",
-        "DATA LIST FREE / y y3 x1 x2 o g xm z r b v zv g4 gm tr w fold.\nBEGIN DATA",
-        rows.join("\n")
-    );
+    let with_fold = data_with_fold(&fold);
     let printing = "/PRINT RISK CLASSIFICATION TREETABLE /TREE DISPLAY=NONE";
     let mut engine = Engine::default();
     run(&mut engine, &with_fold);
@@ -701,7 +697,7 @@ fn cross_validation_of_quest_with_a_nominal_predictor() {
 }
 
 #[test]
-fn cross_validation_with_force_is_ignored_and_scale_dependents_wait() {
+fn cross_validation_with_force_is_ignored() {
     let mut engine = engine();
     let tables = run(
         &mut engine,
@@ -716,11 +712,6 @@ fn cross_validation_with_force_is_ignored_and_scale_dependents_wait() {
             .iter()
             .any(|w| w.contains("CROSSVALIDATION is ignored"))
     );
-    let message = error(
-        &mut engine,
-        "TREE r [s] BY x1 [s] /METHOD TYPE=CRT /VALIDATION TYPE=CROSSVALIDATION(5).",
-    );
-    assert!(message.contains("scale dependent"), "{message}");
 }
 
 #[test]
@@ -741,5 +732,94 @@ fn cross_validation_prunes_each_fold_tree_by_its_own_cases() {
             .rows
             .iter()
             .any(|r| matches!(&r[2], Cell::Text(t) if t == "Cross-validation, 5 folds"))
+    );
+}
+
+const SCALE_COMMAND: &str = "TREE r [s] BY xm [s] z [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT";
+
+#[test]
+fn crt_of_a_scale_dependent_with_a_test_sample_grows_the_tree_of_the_training_cases() {
+    same_as_training_alone(&format!("{SCALE_COMMAND} {SMALL}"));
+}
+
+#[test]
+fn the_test_risk_of_a_scale_dependent_is_the_mean_squared_deviation_from_the_training_means() {
+    let mut engine = engine();
+    run(&mut engine, "WEIGHT BY w.");
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{SCALE_COMMAND} {SMALL} /VALIDATION TYPE=SPLITSAMPLE(tr) /PRINT RISK MODELSUMMARY \
+             /SAVE PREDVAL(guess) /TREE DISPLAY=NONE."
+        ),
+    );
+    let (r, guess, tr, w) = (
+        values(&engine, "r"),
+        values(&engine, "guess"),
+        values(&engine, "tr"),
+        values(&engine, "w"),
+    );
+    let risk = table(&tables, "Risk");
+    assert_eq!(risk.rows.len(), 2);
+    for (k, sample) in [1.0, 0.0].into_iter().enumerate() {
+        let cases: Vec<usize> = (0..r.len()).filter(|&i| tr[i] == sample).collect();
+        let n: f64 = cases.iter().map(|&i| w[i]).sum();
+        let squares: f64 = cases
+            .iter()
+            .map(|&i| w[i] * (r[i] - guess[i]).powi(2))
+            .sum();
+        let fourth: f64 = cases
+            .iter()
+            .map(|&i| w[i] * (r[i] - guess[i]).powi(4))
+            .sum();
+        let estimate = squares / n;
+        close(number(&risk.rows[k][1]), estimate, 1e-9);
+        close(
+            number(&risk.rows[k][2]),
+            ((fourth - n * estimate * estimate) / (n * n)).sqrt(),
+            1e-6,
+        );
+    }
+}
+
+#[test]
+fn cross_validation_of_a_scale_dependent_pools_the_fold_trees_squares() {
+    let seed = 777;
+    let v = 4;
+    let fold = folds(seed, 150, v);
+    let mut engine = Engine::default();
+    run(&mut engine, &data_with_fold(&fold));
+    run(&mut engine, "WEIGHT BY w.");
+    let command = format!("{SCALE_COMMAND} {SMALL}");
+    let printing = "/PRINT RISK /TREE DISPLAY=NONE";
+    let crossed = run(
+        &mut engine,
+        &format!("SET SEED={seed}.\n{command} /VALIDATION TYPE=CROSSVALIDATION({v}) {printing}."),
+    );
+    let risk = table(&crossed, "Risk");
+    assert_eq!(risk.rows.len(), 2);
+    // each fold's tree tested on the fold: its squares and fourth powers add up
+    let w = values(&engine, "w");
+    let (mut squares, mut fourth) = (0.0, 0.0);
+    for f in 0..v {
+        run(&mut engine, &format!("COMPUTE keep = (fold <> {f})."));
+        let tables = run(
+            &mut engine,
+            &format!("{command} /VALIDATION TYPE=SPLITSAMPLE(keep) OUTPUT=TESTSAMPLE {printing}."),
+        );
+        let test = table(&tables, "Risk");
+        let n: f64 = (0..150).filter(|&i| fold[i] == f).map(|i| w[i]).sum();
+        let (rf, se) = (number(&test.rows[0][1]), number(&test.rows[0][2]));
+        squares += rf * n;
+        fourth += se * se * n * n + n * rf * rf;
+        run(&mut engine, "DELETE VARIABLES keep.");
+    }
+    let n: f64 = w.iter().sum();
+    let estimate = squares / n;
+    close(number(&risk.rows[1][1]), estimate, 1e-9);
+    close(
+        number(&risk.rows[1][2]),
+        ((fourth - n * estimate * estimate) / (n * n)).sqrt(),
+        1e-6,
     );
 }

@@ -158,6 +158,9 @@ struct Node {
     shift: f64,
     /// The weighted sum of the fourth powers of the deviations from the mean, for the risk's error.
     fourth: f64,
+    /// A test sample's node of a scale dependent: its sum of squares about the training node's
+    /// mean (the node's own mean otherwise).
+    squares_about: Option<f64>,
     n: f64,
     /// The class a test sample's node is assigned: the training node's.
     predicted_as: Option<usize>,
@@ -237,6 +240,7 @@ fn make_node(
         scale: values.is_some(),
         shift: 0.0,
         fourth,
+        squares_about: None,
         cases,
         counts,
         definition,
@@ -247,26 +251,47 @@ fn make_node(
 
 /// The nodes of a tree with the cases of another sample counted in them: the structure, the
 /// assignments (the training sample's) and the prior weights are kept, the class counts are those
-/// of `weight`. A categorical dependent only.
-fn rescore(nodes: &[Node], class: &[usize], weight: &[f64]) -> Vec<Node> {
+/// of `weight`. For a scale dependent (`values`) the node holds the weight, sum and sum of squares
+/// of the values, and the sum of squares and of fourth powers about the training node's mean.
+fn rescore(nodes: &[Node], class: &[usize], weight: &[f64], values: Option<&[f64]>) -> Vec<Node> {
     nodes
         .iter()
         .map(|node| {
             let mut counts = vec![0.0; node.counts.len()];
-            for &i in &node.cases {
-                counts[class[i]] += weight[i];
+            let (mut squares, mut fourth) = (None, 0.0);
+            if let Some(y) = values {
+                let centre = node.counts[1] / node.counts[0];
+                let (mut about, mut quartic) = (0.0, 0.0);
+                for &i in &node.cases {
+                    let (w, d) = (weight[i], y[i] - centre);
+                    counts[0] += w;
+                    counts[1] += w * y[i];
+                    counts[2] += w * y[i] * y[i];
+                    about += w * d * d;
+                    quartic += w * d.powi(4);
+                }
+                (squares, fourth) = (Some(about), quartic);
+            } else {
+                for &i in &node.cases {
+                    counts[class[i]] += weight[i];
+                }
             }
             Node {
                 parent: node.parent,
                 depth: node.depth,
                 cases: node.cases.clone(),
-                n: counts.iter().sum(),
+                n: if values.is_some() {
+                    counts[0]
+                } else {
+                    counts.iter().sum()
+                },
                 counts,
                 assign: node.assign.clone(),
                 scale: node.scale,
                 shift: node.shift,
-                fourth: 0.0,
-                predicted_as: Some(node.predicted()),
+                fourth,
+                squares_about: squares,
+                predicted_as: (values.is_none()).then(|| node.predicted()),
                 definition: node.definition.clone(),
                 split: None,
                 children: node.children.clone(),
@@ -736,11 +761,6 @@ impl Engine {
         }
         let scale_dep = dependent_level == Level::Scale && !dependent.is_string();
         let ordinal = dependent_level == Level::Ordinal;
-        if scale_dep && command.validation != TreeValidation::None {
-            return Err(Error(
-                "VALIDATION with a scale dependent variable is not supported yet".into(),
-            ));
-        }
         if command.quest && (scale_dep || ordinal) {
             return Err(Error(format!(
                 "METHOD TYPE=QUEST needs a nominal dependent variable; {} is not (give it the \
@@ -1055,13 +1075,17 @@ impl Engine {
             if test_weight.iter().sum::<f64>() <= 0.0 {
                 return Err(Error("the test sample has no cases".into()));
             }
-            if trained.iter().filter(|&&w| w > 0.0).count() < 2 {
+            if !scale_dep && trained.iter().filter(|&&w| w > 0.0).count() < 2 {
                 return Err(Error(format!(
                     "the training sample has fewer than two categories of {}",
                     dependent.name()
                 )));
             }
-            for (j, _) in trained.iter().enumerate().filter(|(_, w)| **w == 0.0) {
+            for (j, _) in trained
+                .iter()
+                .enumerate()
+                .filter(|(_, w)| **w == 0.0 && !scale_dep)
+            {
                 warnings.push(format!(
                     "category {} of {} has no cases in the training sample",
                     labels.value(&dependent, &classes[j]),
@@ -1276,7 +1300,8 @@ impl Engine {
                 match command.prune {
                     Some(b) => {
                         // with a test sample, the subtrees' risks are the test sample's
-                        let tested = held_out.map(|test| rescore(&grown, &case_class, test));
+                        let tested = held_out
+                            .map(|test| rescore(&grown, &case_class, test, dep_values.as_deref()));
                         crt::prune(
                             grown,
                             b,
@@ -1415,7 +1440,8 @@ impl Engine {
         };
         let nodes = grow(&coded, &case_weight, validated.then_some(&test_weight[..]))?;
 
-        let tested = validated.then(|| rescore(&nodes, &case_class, &test_weight));
+        let tested =
+            validated.then(|| rescore(&nodes, &case_class, &test_weight, dep_values.as_deref()));
         // cross-validation: a tree grown without each fold of the cases, scored on that fold, and
         // the weights of the cases each fold's tree misclassifies added up
         let cross = match command.validation {
@@ -1429,6 +1455,7 @@ impl Engine {
                     fold[i] = rank % folds;
                 }
                 let mut wrong = vec![0.0; classes.len()];
+                let (mut squares, mut fourth) = (0.0, 0.0);
                 for f in 0..folds {
                     let weights = |keep: bool| -> Vec<f64> {
                         case_weight
@@ -1441,8 +1468,13 @@ impl Engine {
                     let learning_cases: Vec<bool> = fold.iter().map(|&k| k != f).collect();
                     let fold_coded = code(&learning_cases, &learning)?;
                     let grown = grow(&fold_coded, &learning, None)?;
-                    let scored = rescore(&grown, &case_class, &held);
+                    let scored = rescore(&grown, &case_class, &held, dep_values.as_deref());
                     for node in scored.iter().filter(|n| n.children.is_empty()) {
+                        if scale_dep {
+                            squares += node.squares_about.unwrap_or(0.0);
+                            fourth += node.fourth;
+                            continue;
+                        }
                         for (j, &count) in node.counts.iter().enumerate() {
                             if j != node.predicted() {
                                 wrong[j] += count;
@@ -1450,11 +1482,18 @@ impl Engine {
                         }
                     }
                 }
-                Some(misclassification_risk(
-                    &wrong,
-                    &nodes[0],
-                    Some(!command.binary() || command.priors == TreePriors::FromData),
-                ))
+                Some(if scale_dep {
+                    // the mean squared deviation of each case from its fold tree's node mean
+                    let n = nodes[0].n;
+                    let risk = squares / n;
+                    (risk, ((fourth - n * risk * risk) / (n * n)).max(0.0))
+                } else {
+                    misclassification_risk(
+                        &wrong,
+                        &nodes[0],
+                        Some(!command.binary() || command.priors == TreePriors::FromData),
+                    )
+                })
             }
             _ => None,
         };
@@ -1776,7 +1815,7 @@ impl Engine {
         let (nodes, checks) = trees;
         let test = checks.test;
         if nodes[0].scale {
-            return Ok(self.scale_output(command, nodes, predictors, dependent, charts));
+            return Ok(self.scale_output(command, trees, predictors, dependent, charts));
         }
         let shown = self.shown();
         let class_labels: Vec<String> = classes.iter().map(|k| shown.value(dependent, k)).collect();
@@ -2473,7 +2512,9 @@ fn risk_estimate<'a>(
         // fourth moments of the cases
         let (mut squares, mut fourth) = (0.0, 0.0);
         for node in terminals {
-            squares += node.counts[2] - node.counts[1] * node.counts[1] / node.counts[0];
+            squares += node
+                .squares_about
+                .unwrap_or(node.counts[2] - node.counts[1] * node.counts[1] / node.counts[0]);
             fourth += node.fourth;
         }
         let risk = squares / root.n;

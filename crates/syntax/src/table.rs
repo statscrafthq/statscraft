@@ -4921,8 +4921,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  CROSSVALIDATION(folds) (2 to 25, 10 when no number is given) deals the cases to that many folds at\n\
                  random, grows a tree without each fold with the same settings and scores it on the fold; the Risk table\n\
                  then also gives the cross-validated estimate, the pooled misses of those trees. It does not change the\n\
-                 tree, and is ignored with a warning when FORCE is given. A scale dependent cannot be validated yet. Not\n\
-                 supported yet: a scale dependent with CHAID, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 tree, and is ignored with a warning when FORCE is given. A scale dependent is validated the same way,\n\
+                 its risk being the mean squared deviation from the training nodes' means. Not supported yet: a scale dependent with CHAID, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,
