@@ -551,26 +551,20 @@ Edit > Settings holds every setting of the window in one dialog, with its sectio
 - **Grids and output**
   - **Paper of the grids and the output**: the Data and Variables grids and the output tables. **Always light** (the default) keeps them dark text on a light sheet, as a spreadsheet or a document page does, while menus, panels and dialogs follow the system's dark or light theme. **Follow the system theme** draws them in the system theme too.
   - **Log under Syntax and Output** (on by default).
-  - **Show in the output**: Command headings (off by default), Titles, Tables, Notes under tables and Charts (on by default). See [What the output shows](#what-the-output-shows). Kept in `window.txt` as a line such as `output-shows titles tables charts`; the Export dialog's **Hidden items too** is kept as `export hidden`.
-  - **Variables in tables** (Labels, Names, or Names and labels) and **Values in tables** (Labels, Values, or Values and labels). These belong to the session, not the window. A choice runs `SET TVARS` or `SET TNUMBERS` like any other command, shows in the log and stays for the later runs. A SET in syntax changes the dialog too. The window also keeps the choice (lines such as `tvars names` and `tnumbers both` in `window.txt`) and runs the same SET when it starts, so you set it once.
-  - **Output for multiply imputed data**: Original data, Each imputation, Pooled and Diagnostics, for procedures run on data split by `Imputation_`. A change runs `SET MIOUTPUT=[...]`; at least one part stays checked. Like the table labels it belongs to the session, is kept in `window.txt` (a line such as `mioutput observed pooled`) and is set again when the window starts.
+  - **Show in the output**: Command headings (off by default), Titles, Tables, Notes under tables and Charts (on by default). See [What the output shows](#what-the-output-shows).
+  - **Variables in tables** (Labels, Names, or Names and labels) and **Values in tables** (Labels, Values, or Values and labels). These belong to the session, not the window. A choice runs `SET TVARS` or `SET TNUMBERS` like any other command, shows in the log and stays for the later runs. A SET in syntax changes the dialog too. The window remembers the choice and sets it again when it starts, so you set it once.
+  - **Output for multiply imputed data**: Original data, Each imputation, Pooled and Diagnostics, for procedures run on data split by `Imputation_`. A change runs `SET MIOUTPUT=[...]`; at least one part stays checked. Like the table labels it belongs to the session, and the window sets it again when it starts.
 - **Updates**
   - **Check for updates automatically**: see [Updates](#updates).
 - **AI agents**
   - Adds the Statscraft MCP server to the AI apps on this computer, or takes it out again, with a click per app, and says what to restart. For Claude Desktop, **Install extension** downloads and opens the Statscraft extension of this version. **Check** shows each app's settings files and whether the entry is in them now. See [Connect your AI agent](connect.md#from-the-window-edit--settings--ai-agents).
 
 - **Plugins**
-  - The installed plugins, programs that colour and comment the cells of custom tables, in the order they run: each with its name and version, a box that turns it on and off, its full path, **Up**, **Down**, **Remove** and **Settings...**, which opens the plugin's own settings (kept with the data file). **Add plugin...** adds one. Where two plugins style the same thing, the later one wins. Kept in `window.txt` as one line per plugin, `plugin PATH` or `plugin-off PATH`. See [Plugins](plugins.md).
+  - The installed plugins, programs that color and comment the cells of custom tables, in the order they run. See [Plugins](plugins.md).
 
 ## What the window remembers
 
-The window keeps these in `statscraft/window.txt` in the user's config folder (`%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or `~/.config` elsewhere):
-
-- the size and position of the last data window, syntax window and output window, which a new window of that kind opens with (a little lower and to the right of the windows of its kind already open);
-- the folder of the last file dialog;
-- the ten files opened or saved last (File > Recent files);
-- the settings of Edit > Settings;
-- the column widths of the Variables tab.
+Between sessions the window remembers the size and position of each kind of window, the folder of the last file dialog, the ten recent files (File > Recent files), the column widths of the Variables tab and every choice in Edit > Settings. A new window opens where the last one of its kind was, a little lower and to the right of those already open.
 
 ## Closing and unsaved work
 
@@ -587,22 +581,7 @@ Closing one window while others stay open asks only about its own work: the synt
 
 ## Updates
 
-The window asks GitHub at most once a day whether a newer release is published. It does so in the background and never holds up the start.
-
-- Checks are on by default and say nothing unless a newer version is out.
-- Edit > Settings > Updates turns them on and off (the line `updates on` or `updates off` in `window.txt`).
-- Help > Check for updates checks at once, and also says when there is nothing new.
-
-When a newer release is out, a small bar under the menu says so, with a link to the release notes, **Update now** and **Later**. Later hides the bar until the next check. Update now downloads the package for this installation and checks it against the release's `SHA256SUMS`. Then it depends on how Statscraft was installed:
-
-- **Windows installer**: the window closes, the new installer runs silently for the same per-user installation (same folder, file types and Start menu entry), and the installer opens the window again. Unsaved work is asked about first, as for any close, and the installer starts only once the window is gone. If the window stays at the old version, `statscraft-setup.log` in the temporary folder (`%TEMP%`) says why.
-- **Tarball**: `statscraft` and `statscraft-gui` in its `bin` folder are replaced (each written next to the old one, then renamed over it). The bar offers **Restart now**, which closes the window (asking about unsaved work first) and starts the new one, and **Later**, which keeps this window. Cancel in the unsaved-work question keeps this window and starts none.
-- **Portable Windows .zip** (the folder with `LICENSE.txt` next to the programs): `statscraft.exe` and `statscraft-gui.exe` in that folder are replaced the same way, with **Restart now**. Windows cannot replace a running program, so the old one is renamed aside first and deleted the next time Statscraft starts.
-- **Statscraft.app on macOS**: there is no Update now. The bar has a **Download** link to the new macOS package; replace Statscraft.app with the one in it. The updater does not change files inside the app, which a signed app would not allow.
-- **.deb**: the package is saved in `~/Downloads` and installed through `pkexec apt-get install`, so the system asks for your password in its own window; then the bar offers **Restart now**. When pkexec is missing, or the password question is cancelled or the install fails, the bar shows the one command that installs it, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`, with a **Copy command** button.
-- **Built from source or copied elsewhere**: there is no Update now. The bar names the folder this copy runs from and says to install the new version the way this copy was installed, or to use the .deb or tarball.
-
-The check is one request to the GitHub API with the User-Agent `statscraft/VERSION`. Nothing about you or your data is sent. `statscraft update` does the same from the command line.
+When a new version is out, a bar under the menu says so, with a link to the release notes, **Update now** and **Later**. **Help > Check for updates** checks at once. [Install and update](install.md#updates) says what Update now does for each kind of installation, and how to turn the daily check off.
 
 ## Driving the window from the command line or an AI agent
 
@@ -621,14 +600,7 @@ statscraft describe -s gui --json                        dictionary of the windo
 
 So an AI agent with a shell can work in the open window. Start `statscraft-gui`, then tell the agent to use `statscraft run -s gui --json` for every step and `statscraft help COMMAND` for the syntax. The person watching sees each table appear, and can keep working in the window between the agent's runs.
 
-How it connects:
-
-- On start, the window listens on a random TCP port of 127.0.0.1.
-- It writes the address and a random token to `statscraft/gui.json` in `$XDG_RUNTIME_DIR` on Linux or `%LOCALAPPDATA%` on Windows (`~/.config` otherwise), readable only by the user.
-- A request without the token is refused. The command line sends the token only to a local address.
-- When no window is open, `-s gui` fails with "no Statscraft window is running". With several windows open, the one started last answers.
-
-See [AI agents](ai-agents.md#safety-of-the-live-session) for what this means for safety.
+Only programs that run as you on the same computer can reach the window. See [AI agents](ai-agents.md#safety-of-the-live-session) for what this means for safety.
 
 ## Fonts
 

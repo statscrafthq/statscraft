@@ -67,11 +67,11 @@ Procedures draw their own charts. When the person wants a chart that no procedur
 
 ## Tables with a plugin
 
-A plugin decorates the CTABLES tables of a run in the workbook: colours, comments, column widths and the rest of its look. The agent asks `describe_plugin` for the plugin's settings. Each is kept in a data file attribute, such as `plugin_margins_confidence`, and a run takes each setting from that attribute of the active data, else the plugin's default. To change one, the agent runs `DATAFILE ATTRIBUTE ATTRIBUTE=plugin_margins_confidence('90').` before the tables (yes/no as `Yes` or `No`, a colour as `#rrggbb`, a style as JSON); SAVE keeps it with the data. Then:
+A plugin decorates the CTABLES tables of a run in the workbook: colours, comments, column widths and the rest of its look. The agent asks `describe_plugin` for the plugin's settings. Each is kept in a data file attribute, such as `plugin_acme_tables_confidence`, and a run takes each setting from that attribute of the active data, else the plugin's default. To change one, the agent runs `DATAFILE ATTRIBUTE ATTRIBUTE=plugin_acme_tables_confidence('90').` before the tables (yes/no as `Yes` or `No`, a colour as `#rrggbb`, a style as JSON); SAVE keeps it with the data. Then:
 
 ```json
 { "file": "/home/anna/jobs/tables.sps", "session": "work", "xlsx": "/home/anna/jobs/tables.xlsx",
-  "xlsx_one_sheet": true, "plugins": ["/home/anna/plugins/statscraft-ctables-margins"] }
+  "xlsx_one_sheet": true, "plugins": ["/home/anna/plugins/acme-tables"] }
 ```
 
 A plugin that fails fails the run, with its message. In the open window `plugins` works the same way: the settings come from the attributes of the window's active data after the run, and only this run's workbook gets the plugins' look. The window's own output keeps the plugins of Edit > Settings > Plugins, which `export_output` writes.

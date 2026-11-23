@@ -120,39 +120,39 @@ An unknown name is an error. The same text, one page per command, is in [command
 
 ## Sessions and line ranges
 
-A session is what one window would keep from one run to the next, stored on disk in `.statscraft/sessions/<name>/` under the current folder. A name may hold letters, digits, `-` and `_`.
+A session keeps your work between runs, as the window does while it is open. Give it a name with `-s`, and each run builds on the one before:
 
-| What | Kept | Where in the session folder |
-|---|---|---|
-| The active dataset: data, dictionary, weight, file label, documents, attributes, multiple response sets | yes | `data.zsav` |
-| SPLIT FILE and FILTER of the active dataset | yes | `state.json` |
-| Where the random number generators stand (SAMPLE, UNIFORM, NORMAL, RV functions), so the next run goes on where the last one stopped | yes | `state.json` |
-| Named datasets (DATASET NAME, COPY, DECLARE) and which one is active, each with its split and filter | yes | `datasets/` |
-| Macros (DEFINE) and the macro settings MEXPAND, MPRINT, MNEST, MITERATE | yes | `macros.sps` |
-| File handles (FILE HANDLE), SET values, PRESERVE levels not yet restored, the CD folder | yes | `settings.sps`, as FILE HANDLE, SET, PRESERVE and CD commands |
-| The syntax of every run that worked, oldest first: the trail of how the session got where it is | yes | `syntax.sps`, each run under a comment line such as `* Agent 2026-11-12 14:32.` |
-| TEMPORARY, N OF CASES, scratch variables, VECTOR | no: the end of a run is a data pass, so they take effect or end in the run that gives them | |
-| An open DO IF, LOOP, or a DATA LIST without its BEGIN DATA | no: the run fails | |
-| The folder of the syntax file, where INSERT and INCLUDE start | no: each run starts from its own file | |
-| Output documents (OUTPUT NEW, NAME, ACTIVATE) with their tables, charts, hidden items, labels, plugin comments, the designated one and the name counter | yes | `outputs/`: `names.json` and one `<n>.scout` per document |
-| The workbooks OUTPUT EXPORT wrote (CREATESHEET and MODIFYSHEET add only to one written in the same run), the files REPORT wrote, the TITLE text | no | |
+```
+statscraft run -s demo -e "GET FILE='survey.sav'."
+statscraft run -s demo -e "RECODE age (LOWEST THRU 39 = 1) (40 THRU HIGHEST = 2) INTO young_old."
+statscraft run -s demo -e "FREQUENCIES VARIABLES=young_old."
+```
 
-- The first run of a new session starts without data; its syntax usually begins with `GET FILE`. Settings, macros and a CD may come before any data.
-- With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
-- A run saves the session when it changed anything in the table above, or when the session file did not exist yet. A failed run keeps none of its changes. A dataset keeps the encoding of the file it came from; when a label or value no longer fits that code page (a letter of another language), the session keeps it in UTF-8 instead.
-- `describe -s NAME` shows the active dataset and, under `session` in the JSON, the SET values given, the number of PRESERVE levels, `directory`, where relative file names start (the folder of the last CD, else, for the window, its last caller's folder), the active dataset's name, every named dataset with its size, the macros, the output documents and the designated one ([describe](#describe)).
-- The trail in `syntax.sps` holds exactly the syntax that ran: only the chosen lines for `--lines`, nothing of a failed run or a check. Run it from the top on the original data to repeat the work, or copy steps from it. When it cannot be written, the run fails and the session stays as it was.
-- `check` and `describe` never write it.
-- Output piles up: the tables of every run go to the designated document and are written again after each run that made tables or ran an OUTPUT command. `OUTPUT CLOSE ALL.` empties it, and so does deleting the folder `outputs`. A run that only makes tables does not set `saved`; the data file is not written then.
-- Collect over several runs, then write once: `statscraft run -s S -e "OUTPUT MODIFY /SELECT TABLES /IF COMMANDS=['Means'] /OBJECTPROPERTIES VISIBLE=NO."` hides what the earlier runs made, and a later `OUTPUT EXPORT /XLSX DOCUMENTFILE='all.xlsx' /CONTENTS EXPORT=VISIBLE.` or `OUTPUT SAVE` writes the document. `--xlsx` still writes only the tables of its own run. `OUTPUT MODIFY /SELECT HEADINGS /OBJECTPROPERTIES VISIBLE=NO.` drops the command headings from that export and keeps the tables; `/TABLE TABLETITLE=''` blanks table titles, `/SELECT CHARTS PAGETITLE` hides charts and the TITLE lines, and `NOTESCAPTIONS=NO` leaves out the notes under tables, so what the window's Show in the output hides can be hidden headless.
-- Delete the session's folder to start over.
+A session keeps:
+
+- the active dataset with its weight, split and filter, and every named dataset;
+- the macros (DEFINE, or a macro library brought in with INCLUDE) and the macro settings of SET;
+- file handles, SET values, PRESERVE levels and the folder of the last CD;
+- where the random numbers stand, so the next run goes on where the last one stopped;
+- the output documents and their tables;
+- the syntax of every run that worked, in the file `syntax.sps`: a record of how the session got where it is. Run it from the top on the original data to repeat the work.
+
+TEMPORARY, N OF CASES, scratch variables and VECTOR end with the run that gives them. An open DO IF or LOOP fails the run.
+
+- The first run of a new session starts without data, so it usually begins with `GET FILE`.
+- A run is all or nothing: when one command fails, the session stays as it was. Fix the line and run it again.
+- `describe -s NAME` shows the active dataset and what the session keeps (see [describe](#describe)).
+- Sessions live in `.statscraft/sessions/<name>/` under the current folder. Delete that folder to start over.
+- Tables pile up in the session's output from run to run. `OUTPUT CLOSE ALL.` empties it. `--xlsx` writes only the tables of its own run; to write the tables of several runs at once, end with `OUTPUT EXPORT` (see [Excel export](#excel-export)).
+
+`--lines` runs a part of a file, so you can work through a long script piece by piece:
 
 ```
 statscraft run -s demo --lines 1-1 job.sps
 statscraft run -s demo --lines 4-6 job.sps
 ```
 
-`--lines` selects the commands that lie inside the range. Blank lines and comments inside it are fine, and a syntax error on a line outside the range does not stop it, but the range must cover whole commands. A range that cuts through one fails:
+The range must cover whole commands. Blank lines and comments inside it are fine, and a syntax error outside it does not stop it. A range that cuts through a command fails:
 
 ```
 error: line 1, column 1: line range 2-3 cuts through command FREQUENCIES, which occupies lines 1-2; hint: use lines 1-3 to include the whole command
@@ -458,7 +458,7 @@ The latest release is the newest published release on the GitHub repository; dra
 
 `latest` is null when no release is published yet, and `notes` is the release page when there is an update.
 
-`update --check --plugin PROGRAM` asks a [plugin](plugins.md#updates) instead, as the window's Check in Edit > Settings > Plugins does: it prints the plugin's name, its version and, when the plugin offers a newer one, that version and its notes; exit code 10 when there is an update, else 0. With `--json`: `{"plugin":"Margins","current":"0.2.1","latest":"0.2.2","update":true,"notes":"Faster tables"}`. It never installs the plugin: `--plugin` only goes with `--check`, and Update in the window's plugin settings installs it. A plugin that does not offer updates, or cannot check, is an error with its reason.
+`update --check --plugin PROGRAM` asks a [plugin](plugins.md#updates) instead, as the window's Check in Edit > Settings > Plugins does: it prints the plugin's name, its version and, when the plugin offers a newer one, that version and its notes; exit code 10 when there is an update, else 0. With `--json`: `{"plugin":"Acme Tables","current":"0.2.1","latest":"0.2.2","update":true,"notes":"Faster tables"}`. It never installs the plugin: `--plugin` only goes with `--check`, and Update in the window's plugin settings installs it. A plugin that does not offer updates, or cannot check, is an error with its reason.
 
 `update` does what the window's Update now does, for the way this copy was installed:
 
@@ -470,9 +470,7 @@ The latest release is the newest published release on the GitHub repository; dra
 | the .deb | downloads the package into `~/Downloads` and prints the one command that installs it, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`; it never runs sudo itself |
 | anything else (a build from source, a copy elsewhere, the command line from the macOS package) | refuses with exit code 1, says to update it the way it was installed and gives the release page |
 
-Every download is checked against the `SHA256SUMS` file of the release before anything is run or replaced; on a mismatch nothing changes and the file is deleted. The installer, the tarball and the .zip go to a temporary folder that is removed after use. Errors print as for the other subcommands, exit code 1.
-
-The only requests go to GitHub over HTTPS: one to the API for the latest release and, on update, the download of `SHA256SUMS` and of the one package. They carry the User-Agent `statscraft/VERSION` and nothing else about you; there is no account, token or telemetry.
+Every download is checked against the checksums published with the release before anything is run or replaced; on a mismatch nothing changes. The check sends nothing about you or your data. Errors print as for the other subcommands, exit code 1.
 
 ## connect
 
@@ -508,44 +506,9 @@ OUTPUT EXPORT /XLSX DOCUMENTFILE='region.xlsx' /HTML DOCUMENTFILE='region.html'.
 
 The second run converts the saved output without the data: OUTPUT OPEN makes the file's document the designated one, and OUTPUT EXPORT writes it. Tables of commands after OUTPUT OPEN join that document, so open, run and save again adds to the file.
 
-A file may come from anyone, so OUTPUT OPEN checks every table and chart before anything shows it. A chart passes the checks of [charts as input](#charts-as-input), with limits wide enough for what procedures make (100000 categories, 2000000 values, strings of 32768 characters), and the indexes of a dendrogram, an icicle plot and a tree diagram must point where they should. A table's rows must have a cell for every column and its formats the shape of its rows, within 1000000 rows, 10000 columns and 10000000 cells. An item that fails is not shown: a warning names it and says why, the rest of the file opens, and OUTPUT SAVE writes the item back as it was read. Fields a newer Statscraft added are dropped.
+A file may come from anyone, so OUTPUT OPEN checks every table and chart before it shows it. An item that fails the checks is left out with a warning that says why, and the rest of the file opens.
 
-The file is UTF-8 JSON, so an agent or a script reads it directly, with no Statscraft call (shortened here):
-
-```
-{
-  "format": "statscraft-output",
-  "version": 1,
-  "written_by": "statscraft 0.8.1",
-  "items": [
-    {
-      "kind": "command",
-      "command": "CROSSTABS",
-      "syntax": "CROSSTABS region BY gender.",
-      "warnings": [],
-      "items": [
-        {
-          "kind": "table",
-          "title": "region by gender",
-          "row_headers": 2,
-          "columns": ["", "", "Female", "Male", "Total"],
-          ...
-          "rows": [
-            ["North", "Count", 22, 19, 41],
-            ...
-          ]
-        }
-      ]
-    }
-  ]
-}
-```
-
-- `items` holds one `command` item per command, in order, with the syntax exactly as it ran, its warnings and its own items. A `table` item is a table as in [the run result](#run-result); a `chart` item holds the chart under `chart`, as in [charts](#charts).
-- Keys come in a fixed order and each table row is one line, so two saved files diff well. A whole number has no fraction. A table number that is not finite is written as the text the table shows.
-- `version` rises only when a field changes its meaning. A file from a newer Statscraft is refused with a message that says so; older versions are read and brought up to date. An item of a kind this version does not know is kept and written back as it was.
-- A path ending in `.spv`, `.spo` or `.spw` (another program's output files) is saved as `.scout` under the same name, with a warning; OUTPUT OPEN of such a path reads that `.scout` file. A password on OUTPUT SAVE /PASSPROTECT is an error, since a Statscraft output file is never encrypted.
-- OUTPUT OPEN of a missing or foreign file is a warning, and the run goes on.
+The file is plain JSON, one table row per line, so an agent or a script can read it directly, with no Statscraft call. Each command is an item with the syntax exactly as it ran, its warnings, and its tables and charts in the form of [the run result](#run-result). The [developer notes](https://github.com/statscrafthq/statscraft/blob/main/docs/developers/README.md#output-files) describe the layout.
 
 ## Chart pictures
 
@@ -579,7 +542,7 @@ statscraft describe -s gui --json
 ```
 
 - The window runs the syntax as its own Run button does: the tables appear in the designated output window, the commands in the log, and the data windows show the new data.
-- The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's session (the table under [Sessions](#sessions-and-line-ranges)); nothing is written to disk unless the syntax says `SAVE`.
+- The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed what the window's session keeps (see [Sessions](#sessions-and-line-ranges)); nothing is written to disk unless the syntax says `SAVE`.
 - The window keeps the same state between runs as a file session, in memory until it closes; `describe -s gui` shows it the same way.
 - Relative paths in the syntax start from the folder where `statscraft` was started, unless a CD is in force in the window's session: a CD starts from that folder too and then stays until the next CD, as in a file session. INSERT and INCLUDE in a syntax file given to `run` start from the file's folder, as in a file session. A run leaves the caller's folder to the window's own later runs, and `describe` shows it as `directory`; a check uses it only for itself. A syntax window that an agent runs starts from its own file's folder, or from the agent's folder when it has no file. A folder that is gone makes relative files fail with their own error; nothing is read or written anywhere else.
 - Unlike a file session, the window names files in its messages by their full path, since it resolves relative names against the caller's folder.
