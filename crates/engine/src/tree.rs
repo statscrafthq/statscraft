@@ -1383,6 +1383,9 @@ impl Engine {
         } else {
             profit_table(command, &classes, &labels, &dependent, &mut warnings)?
         };
+        if command.plot_mean && !scale_dep {
+            warnings.push("PLOT MEAN needs a scale dependent variable; ignored".into());
+        }
         if (command.plot_profit || command.plot_roi) && profits.is_none() {
             warnings.push("PLOT PROFIT and ROI need PROFITS; ignored".into());
         }

@@ -1461,6 +1461,8 @@ pub struct Tree {
     pub plot_response: bool,
     pub plot_index: bool,
     /// `/PLOT PROFIT` and `ROI`: charts of the profit and the return on investment.
+    /// `/PLOT MEAN`: the mean of a scale dependent over percentile groups.
+    pub plot_mean: bool,
     pub plot_profit: bool,
     pub plot_roi: bool,
     /// `/PLOT INCREMENT`: the width of the percentile groups of the charts, in percent.

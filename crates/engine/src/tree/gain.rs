@@ -610,6 +610,8 @@ pub(super) struct MeanContext<'a> {
     pub training: &'a [Node],
     pub terminals: &'a [usize],
     pub validated: bool,
+    /// The dependent as shown.
+    pub dependent: &'a str,
 }
 
 impl MeanContext<'_> {
@@ -639,6 +641,58 @@ impl MeanContext<'_> {
             if self.command.gain_ptile {
                 out.push(self.percentile_table(label, &gain, &order));
             }
+        }
+    }
+
+    /// The mean chart: the mean of the first p percent of the cases at each percentile, the nodes
+    /// in the training sample's order of means.
+    pub(super) fn charts(&self, charts: &mut Vec<crate::Chart>) {
+        use crate::chart::{Axis, Category, Series, Statistic};
+        if !self.command.plot_mean {
+            return;
+        }
+        let q = self.command.plot_increment;
+        let categories: Vec<Category> = (q..=100)
+            .step_by(q)
+            .map(|p| Category {
+                label: format!("{p}%"),
+                value: Cell::Number(p as f64),
+                missing: false,
+                bin: None,
+            })
+            .collect();
+        let order = MeanGain {
+            nodes: self.training,
+        }
+        .order(self.terminals, self.command.gain_ascending);
+        for (label, ns) in self.samples {
+            let values = MeanGain { nodes: ns }
+                .percentiles(&order, q)
+                .iter()
+                .map(|r| r.score)
+                .collect();
+            let mut chart = crate::Chart::lines(
+                if self.validated {
+                    format!("Mean chart ({label} Sample)")
+                } else {
+                    "Mean chart".to_string()
+                },
+                Axis::titled("Percentile"),
+                Axis::titled("Mean"),
+                categories.clone(),
+                vec![Series {
+                    name: "Mean".into(),
+                    statistic: Statistic::Mean,
+                    variable: Some(self.dependent.to_string()),
+                    value: Cell::Empty,
+                    values,
+                }],
+            );
+            chart.footnote = Some(format!(
+                "Dependent variable: {}. Cumulative over percentile groups of {q}%",
+                self.dependent
+            ));
+            charts.push(chart);
         }
     }
 

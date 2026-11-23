@@ -1697,3 +1697,82 @@ fn profit_percentiles_interpolate_the_node_at_each_cut() {
         }
     }
 }
+
+#[test]
+fn the_mean_chart_follows_the_mean_of_the_first_percent_of_the_cases() {
+    for validated in [false, true] {
+        let mut engine = engine();
+        run(&mut engine, "WEIGHT BY w.");
+        let validation = if validated {
+            "/VALIDATION TYPE=SPLITSAMPLE(tr)"
+        } else {
+            ""
+        };
+        run(
+            &mut engine,
+            &format!(
+                "{SCALE_COMMAND} {SMALL} {validation} /PLOT MEAN INCREMENT=20 /SAVE NODEID(node) /TREE DISPLAY=NONE."
+            ),
+        );
+        let charts = engine.take_charts();
+        let samples: Vec<(&str, Option<f64>)> = if validated {
+            vec![
+                ("Mean chart (Training Sample)", Some(1.0)),
+                ("Mean chart (Test Sample)", Some(0.0)),
+            ]
+        } else {
+            vec![("Mean chart", None)]
+        };
+        let training = scale_nodes(&engine, validated.then_some(1.0));
+        let mean = |c: &(usize, f64, f64)| c.2 / c.1;
+        let mut order: Vec<usize> = training.iter().map(|c| c.0).collect();
+        order.sort_by(|&a, &b| {
+            let find = |id: usize| training.iter().find(|c| c.0 == id).unwrap();
+            mean(find(b)).total_cmp(&mean(find(a)))
+        });
+        for (title, sample) in samples {
+            let chart = charts.iter().find(|c| c.title == title).expect(title);
+            let nodes = scale_nodes(&engine, sample);
+            let n: f64 = nodes.iter().map(|c| c.1).sum();
+            let total: f64 = nodes.iter().map(|c| c.2).sum();
+            assert_eq!(chart.series.len(), 1);
+            assert_eq!(chart.series[0].values.len(), 5);
+            for (k, &got) in chart.series[0].values.iter().enumerate() {
+                let cut = n * (k + 1) as f64 * 0.2;
+                let (mut taken, mut sum) = (0.0, 0.0);
+                for id in &order {
+                    let (_, size, s) = *nodes.iter().find(|c| c.0 == *id).unwrap();
+                    if taken + size >= cut - 1e-9 {
+                        sum += if size > 0.0 {
+                            (cut - taken) / size * s
+                        } else {
+                            0.0
+                        };
+                        break;
+                    }
+                    taken += size;
+                    sum += s;
+                }
+                close(got, sum / cut, 1e-9);
+            }
+            // the last point is the mean of everything
+            close(*chart.series[0].values.last().unwrap(), total / n, 1e-9);
+        }
+    }
+}
+
+#[test]
+fn plot_mean_of_a_categorical_dependent_is_ignored_with_a_warning() {
+    let mut engine = engine();
+    run(
+        &mut engine,
+        &format!("TREE y3 [n] BY x1 [s] /METHOD TYPE=CRT {SMALL} /PLOT MEAN /TREE DISPLAY=NONE."),
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("PLOT MEAN needs a scale"))
+    );
+    assert!(engine.take_charts().is_empty());
+}

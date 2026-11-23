@@ -328,9 +328,8 @@ fn gain(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     Ok(())
 }
 
-/// `/PLOT`: GAIN, RESPONSE, INDEX, PROFIT and ROI are made (the last two with profits); MEAN
-/// needs a scale dependent and IMPORTANCE a CRT tree, so they are ignored with a warning, as the
-/// manual says. INCREMENT other than 1, 2, 5, 10, 20 or 25 keeps 10, with a warning.
+/// `/PLOT`: GAIN, RESPONSE, INDEX, PROFIT, ROI, MEAN and IMPORTANCE are made when the dependent
+/// and the method allow it (the engine says so otherwise, as the manual does). INCREMENT other than 1, 2, 5, 10, 20 or 25 keeps 10, with a warning.
 fn plot(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     p.eat(Punct::Eq);
     while !at_end(p) {
@@ -341,8 +340,7 @@ fn plot(p: &mut Parser, command: &mut Tree) -> PResult<()> {
         } else if p.eat_keyword("INDEX") {
             command.plot_index = true;
         } else if p.eat_keyword("MEAN") {
-            let message = "PLOT MEAN needs a scale dependent variable; ignored";
-            command.ignored.push(message.into());
+            command.plot_mean = true;
         } else if p.eat_keyword("PROFIT") {
             command.plot_profit = true;
         } else if p.eat_keyword("ROI") {
@@ -856,6 +854,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         validation: TreeValidation::None,
         rules: None,
         profits: None,
+        plot_mean: false,
         plot_profit: false,
         plot_roi: false,
         adjust_priors: false,

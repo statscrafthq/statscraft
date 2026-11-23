@@ -332,14 +332,16 @@ impl Engine {
             });
         }
 
-        super::gain::MeanContext {
+        let means = super::gain::MeanContext {
             command,
             samples: &samples,
             training: nodes,
             terminals: &terminals,
             validated,
-        }
-        .tables(&mut out);
+            dependent: &shown.variable(dependent),
+        };
+        means.tables(&mut out);
+        means.charts(charts);
         out
     }
 }
