@@ -28,7 +28,7 @@ MANOVA dependents [BY factors (min,max) [factors (min,max) ...]] [WITH covariate
              [ALPHA(value)]]]
    [/ANALYSIS[(CONDITIONAL | UNCONDITIONAL)]=dependents [WITH covariates]
       | (dependents [WITH covariates] [/ ...]) [WITH covariates]]
-   [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]]
+   [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]] [/MATRIX=IN(file | dataset | *) OUT(file | dataset | *)]
    [/DESIGN=term [term ...]] [/DESIGN ...].
 ```
 
@@ -61,6 +61,8 @@ PCOMPS, with several dependents, finds the principal components of the error mat
 DISCRIM describes every multivariate effect, and the covariates, by its discriminant functions: the eigenvectors of the hypothesis matrix relative to the error matrix, scaled to a variance of 1 within the error. Functions are kept in order while the dimension reduction test of a function and the ones after it has Sig. at most ALPHA (0.25 by default; 1 keeps all, 0 none). RAW gives the coefficients, STAN the coefficients times the error standard deviations, ESTIM the effect's parameter estimates (or the covariates' coefficients) times the coefficients, COR each dependent's correlation with each function within the error, ROTATE those correlations rotated when two or more functions are kept. DISCRIM alone gives RAW, STAN, ESTIM and COR; ALL also ROTATE.
 
 ANALYSIS picks which variables are dependents and which covariates (also with WSFACTORS, where its dependents are the cells and its covariates after WITH the constant ones). Several groups in parentheses separated by slashes are separate analyses, each with its own tables; CONDITIONAL makes the variables of the earlier groups covariates of the later ones, and covariates after the closing parenthesis go to every group. A variable is named once on the subcommand.
+
+MATRIX=OUT(file \| dataset \| \*) writes the cells and the pooled within-cells moments: records N (the total), N and MEAN of every non-empty cell with its factor values between ROWTYPE\_ and VARNAME\_, STDDEV (the root of the within-cells mean square) and CORR (the within-cells correlations) over the dependents and covariates. MATRIX=IN(file \| dataset \| \*) runs the analyses from such a file, with the tables the data would give. CELLINFO, HOMOGENEITY, RESIDUALS and PLOT need the cases and are refused with IN. A file CORRELATIONS wrote (N, MEAN, STDDEV, CORR) is one cell without factors.
 
 ## Example
 

@@ -2,8 +2,7 @@
 
 ## Unreleased
 
-- MANOVA /MATRIX=OUT and IN: the cells' sizes and means and the pooled within-cells standard deviations and correlations are written to a matrix file, and an analysis can be run from such a file (or from a CORRELATIONS file) with the tables of the data's analysis, except CELLINFO, HOMOGENEITY and RESIDUALS.
-
+- MANOVA /MATRIX=OUT and IN: the cells' sizes and means and the pooled within-cells standard deviations and correlations are written to a matrix file, and an analysis can be run from such a file (or from a CORRELATIONS file) with the tables the data's analysis gives.
 - MANOVA /ANALYSIS takes several groups of analyses in parentheses ((a b / c) WITH covariates), CONDITIONAL and UNCONDITIONAL, and works with WSFACTORS: each group is an analysis of its own, its dependents the within-subjects cells.
 
 ## 0.31.0 (2026-11-23)
