@@ -6,6 +6,13 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.36.0 (2026-11-23)
+
+Plugins lay out tables of means more compactly and can offer their settings as a list.
+
+- In a plugin's compact layout, a table of means shows each question in its mean row, with no row of its own above it, in Excel and on web pages.
+- A plugin setting can offer a fixed set of values, chosen from a list in the plugin's settings.
+
 ## 0.35.0 (2026-11-23)
 
 Undo and redo go more than one step.
