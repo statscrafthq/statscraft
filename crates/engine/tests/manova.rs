@@ -1829,6 +1829,12 @@ fn matrix_input_refuses_what_needs_the_cases() {
         ));
         assert!(message.contains(words), "{tail}: {message}");
     }
+    // a cell with no count
+    let message = run_error(
+        "DATA LIST FREE /ROWTYPE_ (A8) a (F2.0) VARNAME_ (A8) y1 (F8.2).\nBEGIN DATA\nN 1 x 0\nMEAN 1 x 5\nEND DATA.\nRECODE y1 (0=SYSMIS).\n\
+         MANOVA y1 BY a(1,1) /MATRIX=IN(*) /DESIGN.",
+    );
+    assert!(message.contains("missing count"), "{message}");
     for (list, words) in [
         ("y1 y2 BY a(1,3) zz(1,2)", "zz"),
         ("y1 y9 BY a(1,3) b(1,2)", "y9"),

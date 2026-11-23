@@ -523,7 +523,15 @@ impl Engine {
         };
         tables.extend(setup.cell_tables(c, deps.len())?);
         if c.matrix.output.is_some() {
-            *matrix_part = Some(self.manova_matrix_out(&setup)?);
+            let labels = cont
+                .iter()
+                .map(|n| {
+                    data.variable(n)
+                        .ok()
+                        .and_then(|v| v.label().map(str::to_string))
+                })
+                .collect();
+            *matrix_part = Some(self.manova_matrix_out(&setup, labels)?);
         }
         self.manova_designs(c, &setup, tables, deps.len(), nvary)
     }

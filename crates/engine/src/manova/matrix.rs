@@ -75,7 +75,11 @@ fn cells_and_pooled(s: &Setup) -> (Vec<CellStats>, Matrix, f64) {
 
 impl Engine {
     /// The matrix file MATRIX=OUT asks for.
-    pub(super) fn manova_matrix_out(&self, s: &Setup) -> Result<Dataset, Error> {
+    pub(super) fn manova_matrix_out(
+        &self,
+        s: &Setup,
+        labels: Vec<Option<String>>,
+    ) -> Result<Dataset, Error> {
         let (cells, w, df) = cells_and_pooled(s);
         if df <= 0.0 {
             return Err(err(
@@ -83,17 +87,6 @@ impl Engine {
             ));
         }
         let k = s.cont.len();
-        let labels: Vec<Option<String>> = s
-            .cont
-            .iter()
-            .map(|n| {
-                self.active().ok().and_then(|d| {
-                    d.variable(n)
-                        .ok()
-                        .and_then(|v| v.label().map(str::to_string))
-                })
-            })
-            .collect();
         let mut rows = MatrixRows::new(s.cont.to_vec(), labels);
         let mut factor_values: Vec<Vec<Option<f64>>> = vec![Vec::new(); s.factors.len()];
         let mut push = |rows: &mut MatrixRows,
@@ -229,6 +222,9 @@ impl Engine {
                 cells.push((levels, n[0], mean.1.clone()));
             }
         }
+        if cells.iter().any(|c| !c.1.is_finite()) {
+            return Err(err("an N record of the matrix file has a missing count"));
+        }
         cells.retain(|c| c.1 > 0.0);
         if cells.is_empty() {
             return Err(err(
@@ -336,7 +332,7 @@ impl Engine {
             n,
         };
         if c.matrix.output.is_some() {
-            *matrix_part = Some(self.manova_matrix_out(&setup)?);
+            *matrix_part = Some(self.manova_matrix_out(&setup, vec![None; cont.len()])?);
         }
         self.manova_designs(c, &setup, tables, deps.len(), nvary)
     }
