@@ -24,7 +24,24 @@ The row Valid N (listwise) counts the cases valid on every listed variable. Stri
 ## Example
 
 ```text
-DESCRIPTIVES VARIABLES=age income (z_inc) /STATISTICS=DEFAULT SUM /SAVE.
+GET FILE='survey.sav'.
+DESCRIPTIVES age spend satisfaction.
+DESCRIPTIVES spend /STATISTICS=MEAN SEMEAN STDDEV MIN MAX.
+DESCRIPTIVES age spend /SAVE.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Descriptive Statistics
+
+| Variable | Label | N | Mean | Std Dev | Minimum | Maximum |
+| --- | --- | --- | --- | --- | --- | --- |
+| age | Age in years | 300 | 45.74 | 13.70 | 18 | 84 |
+| spend | Monthly spend in euros | 284 | 38.51 | 13.21 | 13.63 | 94.52 |
+| satisfaction | Overall satisfaction with the service | 277 | 3.16 | 1.16 | 1 | 5 |
+| Valid N (listwise) |  | 261 |  |  |  |  |
+| Missing N (listwise) |  | 39 |  |  |  |  |
 
 `statscraft help DESCRIPTIVES` prints the same text in the terminal. [All commands](README.md)

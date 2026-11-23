@@ -27,7 +27,22 @@ DISPLAY lists the sets in a table. Sets are saved with the data file and used by
 ## Example
 
 ```text
-MRSETS /MDGROUP NAME=$channels LABEL='Contact channels' VARIABLES=q5_1 TO q5_5 VALUE=1 /DISPLAY NAME=ALL.
+GET FILE='survey.sav'.
+MRSETS /DISPLAY NAME=ALL.
+MRSETS /MDGROUP NAME=$digital LABEL='Digital channels'
+  VARIABLES=ch_web ch_app ch_email VALUE=1
+  /DISPLAY NAME=[$digital].
+CTABLES /TABLE $digital [COUNT, COLPCT.COUNT PCT5.1] BY region.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Multiple Response Sets
+
+| Name | Label | Type | Counted value | Variables |
+| --- | --- | --- | --- | --- |
+| $channels | Channels used | Multiple dichotomy | 1 | ch_web ch_app ch_phone ch_store ch_email |
 
 `statscraft help MRSETS` prints the same text in the terminal. [All commands](README.md)

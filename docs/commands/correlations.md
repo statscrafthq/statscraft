@@ -22,7 +22,28 @@ A list alone gives a square matrix, WITH a rectangular one (left variables in ro
 ## Example
 
 ```text
-CORRELATIONS /VARIABLES=age income WITH satisfaction /PRINT=ONETAIL NOSIG.
+GET FILE='survey.sav'.
+CORRELATIONS /VARIABLES=age spend satisfaction.
+CORRELATIONS /VARIABLES=age spend WITH satisfaction /PRINT=ONETAIL NOSIG.
+CORRELATIONS /VARIABLES=age spend satisfaction /MISSING=LISTWISE /STATISTICS=DESCRIPTIVES.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Correlations
+
+|  |  | Age in years | Monthly spend in euros | Overall satisfaction with the service |
+| --- | --- | --- | --- | --- |
+| Age in years | Pearson Correlation | 1 | -0.14 | -0.14 |
+|  | Sig. (2-tailed) |  | 0.02 | 0.02 |
+|  | N | 300 | 284 | 277 |
+| Monthly spend in euros | Pearson Correlation | -0.14 | 1 | -0.16 |
+|  | Sig. (2-tailed) | 0.02 |  | 0.01 |
+|  | N | 284 | 284 | 261 |
+| Overall satisfaction with the service | Pearson Correlation | -0.14 | -0.16 | 1 |
+|  | Sig. (2-tailed) | 0.02 | 0.01 |  |
+|  | N | 277 | 261 | 277 |
 
 `statscraft help CORRELATIONS` prints the same text in the terminal. [All commands](README.md)

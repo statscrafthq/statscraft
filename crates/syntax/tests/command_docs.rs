@@ -1,7 +1,7 @@
 //! Renders the command table to `docs/commands/` and fails when the pages there are out of date.
 //! Regenerate with `UPDATE_DOCS=1 cargo test -p statscraft-syntax --test command_docs`.
 
-use statscraft_syntax::{CommandSpec, command_specs, help};
+use statscraft_syntax::{CommandSpec, command_specs, example_output, help};
 use std::path::PathBuf;
 
 /// The index groups every supported command under one area. A new command must be added here.
@@ -361,10 +361,19 @@ fn page(spec: &CommandSpec) -> String {
         out.push_str(&note);
         out.push_str("\n\n");
     }
+    out.push_str(&format!("## Example\n\n```text\n{}\n```\n\n", spec.example));
+    if spec.example.contains("survey.sav") {
+        out.push_str(
+            "The example reads the sample data file [survey.sav](../sample/survey.sav), an invented \
+             customer survey; save it in the folder you run the syntax from.\n\n",
+        );
+    }
+    if let Some(output) = example_output(spec.name) {
+        out.push_str(&format!("## Example output\n\n{output}\n\n"));
+    }
     out.push_str(&format!(
-        "## Example\n\n```text\n{}\n```\n\n`statscraft help {}` prints the same text in the terminal. \
-         [All commands](README.md)\n",
-        spec.example, spec.name
+        "`statscraft help {}` prints the same text in the terminal. [All commands](README.md)\n",
+        spec.name
     ));
     out
 }

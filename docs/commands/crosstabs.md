@@ -36,7 +36,23 @@ METHOD adds significances from the tables with the observed row and column total
 ## Example
 
 ```text
-CROSSTABS /TABLES=region BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.
+GET FILE='survey.sav'.
+CROSSTABS /TABLES=recommend BY region.
+CROSSTABS /TABLES=switching BY age_group /CELLS=COUNT COLUMN /STATISTICS=CHISQ.
+WEIGHT BY weight.
+CROSSTABS /TABLES=satisfaction BY gender BY region /CELLS=COLUMN.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Would recommend us to a friend by Region
+
+| Would recommend us to a friend | Statistic | Region / North | Region / South | Region / East | Region / West | Total |
+| --- | --- | --- | --- | --- | --- | --- |
+| No | Count | 20 | 23 | 37 | 33 | 113 |
+| Yes | Count | 55 | 39 | 44 | 49 | 187 |
+| Total | Count | 75 | 62 | 81 | 82 | 300 |
 
 `statscraft help CROSSTABS` prints the same text in the terminal. [All commands](README.md)

@@ -21,7 +21,23 @@ The independent test shows Levene's test and rows for equal and unequal variance
 ## Example
 
 ```text
-T-TEST GROUPS=gender(1,2) /VARIABLES=age income /CRITERIA=CI(.90).
+GET FILE='survey.sav'.
+T-TEST GROUPS=contacted(0, 1) /VARIABLES=satisfaction spend.
+T-TEST /TESTVAL=40 /VARIABLES=spend.
+T-TEST GROUPS=gender(1, 2) /VARIABLES=age /CRITERIA=CI(0.99).
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Group Statistics
+
+|  |  | N | Mean | Std. Deviation | Std. Error Mean |
+| --- | --- | --- | --- | --- | --- |
+| Overall satisfaction with the service | No | 144 | 3.13 | 1.02 | 0.08 |
+|  | Yes | 133 | 3.18 | 1.31 | 0.11 |
+| Monthly spend in euros | No | 146 | 39.40 | 14.01 | 1.16 |
+|  | Yes | 138 | 37.56 | 12.30 | 1.05 |
 
 `statscraft help T-TEST` prints the same text in the terminal. [All commands](README.md)

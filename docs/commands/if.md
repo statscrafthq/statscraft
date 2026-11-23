@@ -15,7 +15,23 @@ The parentheses around the condition are optional. The command sets target only 
 ## Example
 
 ```text
-IF (age >= 65 AND region = 2) senior_south = 1.
+GET FILE='survey.sav'.
+IF (satisfaction <= 2 AND switching = 1) at_risk = 1.
+IF (age >= 60 AND ch_app = 0) offline = 1.
+RECODE at_risk offline (SYSMIS = 0).
+FREQUENCIES at_risk offline.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### at_risk
+
+| Category | Value | Label | Frequency | Percent | Valid Percent | Cumulative Percent |
+| --- | --- | --- | --- | --- | --- | --- |
+| valid | 0 |  | 269 | 89.67 | 89.67 | 89.67 |
+| valid | 1 |  | 31 | 10.33 | 10.33 | 100 |
+| total |  |  | 300 | 100 |  |  |
 
 `statscraft help IF` prints the same text in the terminal. [All commands](README.md)

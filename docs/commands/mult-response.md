@@ -25,12 +25,29 @@ A case is missing for a group with no counted value; MDGROUP and MRGROUP leave o
 ## Example
 
 ```text
-MULT RESPONSE GROUPS=media 'Media used' (tv radio web (1))
-  brands 'Brands known' (brand1 TO brand3 (1, 9))
-  /VARIABLES=gender (1, 2)
-  /FREQUENCIES=media brands
-  /TABLES=media brands BY gender
-  /CELLS=COLUMN.
+GET FILE='survey.sav'.
+MULT RESPONSE GROUPS=channels 'Channels used' (ch_web TO ch_email (1))
+  /FREQUENCIES=channels.
+MULT RESPONSE GROUPS=channels 'Channels used' (ch_web TO ch_email (1))
+  /VARIABLES=age_group (1, 4)
+  /TABLES=channels BY age_group /CELLS=COUNT COLUMN /BASE=CASES.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Channels used Frequencies
+
+| Channels used | Responses / N | Responses / Percent | Percent of Cases |
+| --- | --- | --- | --- |
+| Website | 212 | 33.97 | 74.39 |
+| Mobile app | 86 | 13.78 | 30.18 |
+| Phone | 149 | 23.88 | 52.28 |
+| Store | 65 | 10.42 | 22.81 |
+| Email | 112 | 17.95 | 39.30 |
+| Total | 624 | 100 | 218.95 |
+
+channels is a dichotomy group counting the value 1.
 
 `statscraft help MULT RESPONSE` prints the same text in the terminal. [All commands](README.md)

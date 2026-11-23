@@ -458,7 +458,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "GET FILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...] [/MAP].\n\
                  KEEP, DROP and RENAME work in the order written, as in ADD FILES. MAP lists the variables as the\n\
                  options before it leave them, each with its name in the file; it may come as often as you like.",
-        example: "GET FILE='survey.sav'.",
+        example: "GET FILE='survey.sav'.\n\
+                 GET FILE='survey.sav' /KEEP=id region satisfaction spend.\n\
+                 GET FILE='survey.sav' /DROP=ch_web TO ch_email /RENAME=(spend = monthly_bill) /MAP.",
         parse: commands::get,
     },
     CommandSpec {
@@ -471,7 +473,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  dataset; it may come as often as you like.\n\
                  COMPRESSED compresses case by case, ZCOMPRESSED in zlib blocks, UNCOMPRESSED not at all;\n\
                  without one a file named .zsav gets zlib blocks and any other the case by case form.",
-        example: "SAVE OUTFILE='survey_clean.sav' /COMPRESSED.",
+        example: "GET FILE='survey.sav'.\n\
+                 SAVE OUTFILE='survey_copy.sav'.\n\
+                 SAVE OUTFILE='satisfaction.sav' /KEEP=id region satisfaction /RENAME=(satisfaction = sat) /MAP.",
         parse: commands::save,
     },
     CommandSpec {
@@ -564,7 +568,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  FREQ and PERCENT, MISSING and NOMISSING, NORMAL and NONORMAL the first given counts. A chart\n\
                  comes as its numbers: a data table in the text output, its description with --json, and a\n\
                  Vega-Lite specification with --vega-lite.",
-        example: "FREQUENCIES VARIABLES=age region /FORMAT=LIMIT(10) /STATISTICS=MEAN MEDIAN MODE /NTILES=4.",
+        example: "GET FILE='survey.sav'.\n\
+                 FREQUENCIES region satisfaction.\n\
+                 FREQUENCIES age spend /FORMAT=NOTABLE /STATISTICS=MEAN MEDIAN STDDEV MINIMUM MAXIMUM.\n\
+                 FREQUENCIES education /BARCHART PERCENT.",
         parse: frequencies::frequencies,
     },
     CommandSpec {
@@ -592,7 +599,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "SORT CASES [BY] varlist [(A | D)] [varlist [(A | D)] ...].\n\
                  A is ascending (the default), D descending; a direction covers the variables before it.\n\
                  System-missing sorts lowest. Cases with equal keys keep their order.",
-        example: "SORT CASES BY region (A) age (D).",
+        example: "GET FILE='survey.sav'.\n\
+                 SORT CASES BY spend (D).\n\
+                 LIST id region spend /CASES=FROM 1 TO 5.\n\
+                 SORT CASES BY region age_group (A) age (D).",
         parse: data_commands::sort_cases,
     },
     CommandSpec {
@@ -641,7 +651,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  are used as they are in counts, percentages and statistics; most significance tests, confidence\n\
                  intervals and standard errors round them. A case whose weight is zero, negative or missing is left\n\
                  out. SHOW WEIGHT tells which variable weights the data.",
-        example: "WEIGHT BY weight.",
+        example: "GET FILE='survey.sav'.\n\
+                 WEIGHT BY weight.\n\
+                 FREQUENCIES age_group.\n\
+                 WEIGHT OFF.\n\
+                 FREQUENCIES age_group.",
         parse: data_commands::weight,
     },
     CommandSpec {
@@ -663,7 +677,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  result (N, NU, NMISS and NUMISS still count). PRESORTED keeps the cases in file order and makes a\n\
                  group of each run of adjacent cases with the same break values. With a weight variable SUM,\n\
                  MEAN, SD, MEDIAN, N and NMISS are weighted.",
-        example: "AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=region /region_mean = MEAN(income) /region_n = N.",
+        example: "GET FILE='survey.sav'.\n\
+                 AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=region\n\
+                 \x20\x20/region_spend = MEAN(spend) /region_n = N.\n\
+                 COMPUTE above_region = spend > region_spend.\n\
+                 GET FILE='survey.sav'.\n\
+                 AGGREGATE /OUTFILE=* /BREAK=region\n\
+                 \x20\x20/respondents = N /mean_spend = MEAN(spend) /share_recommend = MEAN(recommend).\n\
+                 LIST.",
         parse: data_commands::aggregate,
     },
     CommandSpec {
@@ -745,7 +766,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  FILTER OFF.\n\
                  The cases stay in the dataset. The filter is kept with the dataset, follows a rename\n\
                  and ends when the variable is deleted or the dataset replaced.",
-        example: "FILTER BY adult.",
+        example: "GET FILE='survey.sav'.\n\
+                 COMPUTE app_user = (ch_app = 1).\n\
+                 FILTER BY app_user.\n\
+                 DESCRIPTIVES age spend.\n\
+                 FILTER OFF.\n\
+                 DESCRIPTIVES age spend.",
         parse: selection::filter,
     },
     CommandSpec {
@@ -858,7 +884,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  SUM and NVALID, and in MISSING, SYSMIS and VALUE. Operators and functions are listed under the\n\
                  general rules on the command index and in statscraft help.\n\
                  COMPUTE is a transformation: it runs when the next procedure or EXECUTE reads the data.",
-        example: "COMPUTE bmi = weight / (height / 100) ** 2.",
+        example: "GET FILE='survey.sav'.\n\
+                 COMPUTE spend_year = spend * 12.\n\
+                 COMPUTE channels = SUM(ch_web, ch_app, ch_phone, ch_store, ch_email).\n\
+                 COMPUTE days_in = DATEDIFF(interview_date, DATE.DMY(5, 10, 2026), 'days').\n\
+                 DESCRIPTIVES spend_year channels days_in.",
         parse: commands::compute,
     },
     CommandSpec {
@@ -870,7 +900,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  as system-missing (numeric, F8.2) for every case, so cases the condition leaves out stay missing. A\n\
                  string target must exist first (STRING). Several IF commands in a row are checked one after another,\n\
                  so a later one may overwrite an earlier one.",
-        example: "IF (age >= 65 AND region = 2) senior_south = 1.",
+        example: "GET FILE='survey.sav'.\n\
+                 IF (satisfaction <= 2 AND switching = 1) at_risk = 1.\n\
+                 IF (age >= 60 AND ch_app = 0) offline = 1.\n\
+                 RECODE at_risk offline (SYSMIS = 0).\n\
+                 FREQUENCIES at_risk offline.",
         parse: commands::if_command,
     },
     CommandSpec {
@@ -881,7 +915,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  missing. The cases are gone for every later command; after TEMPORARY the selection holds only for\n\
                  the next procedure. FILTER hides cases without deleting them. Like other transformations, it runs\n\
                  when the next procedure or EXECUTE reads the data.",
-        example: "SELECT IF age >= 18 AND NOT MISSING(q1).",
+        example: "GET FILE='survey.sav'.\n\
+                 SELECT IF (region = 3).\n\
+                 FREQUENCIES satisfaction.\n\
+                 GET FILE='survey.sav'.\n\
+                 SELECT IF (age >= 30 AND age < 60 AND NOT MISSING(spend)).\n\
+                 DESCRIPTIVES age spend.",
         parse: commands::select_if,
     },
     CommandSpec {
@@ -895,7 +934,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  The first matching (inputs = output) wins. A value or range also matches user-missing values.\n\
                  Without a match a variable keeps its value, and so does an existing INTO target; a new target becomes system-missing.\n\
                  A string target of INTO must exist already. A quoted value longer than its variable is an error.",
-        example: "RECODE age (LOWEST THRU 29 = 1) (30 THRU 59 = 2) (60 THRU HIGHEST = 3) INTO age_group.",
+        example: "GET FILE='survey.sav'.\n\
+                 RECODE satisfaction (1, 2 = 1) (3 = 2) (4, 5 = 3) (MISSING = SYSMIS) INTO sat3.\n\
+                 VALUE LABELS sat3 1 'Dissatisfied' 2 'Neutral' 3 'Satisfied'.\n\
+                 RECODE age (LOWEST THRU 34 = 1) (35 THRU 54 = 2) (55 THRU HIGHEST = 3) INTO age3.\n\
+                 RECODE ch_web TO ch_email (SYSMIS = 0).\n\
+                 FREQUENCIES sat3.",
         parse: commands::recode,
     },
     CommandSpec {
@@ -1134,7 +1178,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  effective base. The tests use the effective bases and round nothing; the column t-tests compare two\n\
                  categories when both have a case and one has two.\n\
                  DMTABLES is another name for the command.",
-        example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
+        example: "GET FILE='survey.sav'.\n\
+                 CTABLES /TABLE satisfaction [COUNT, COLPCT.COUNT PCT5.1] BY region\n\
+                 \x20\x20/CATEGORIES VARIABLES=satisfaction TOTAL=YES.\n\
+                 CTABLES /TABLE region > gender BY spend [MEAN F5.1, MEDIAN F5.1, COUNT].\n\
+                 CTABLES /TABLE $channels [COLPCT.RESPONSES.COUNT PCT5.1] BY age_group\n\
+                 \x20\x20/SIGTEST TYPE=CHISQUARE /COMPARETEST TYPE=PROP ALPHA=0.05.",
         parse: ctables::ctables,
     },
     CommandSpec {
@@ -1164,7 +1213,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  MCGROUP (categories): the values of the variables are\n\
                  the categories, labeled with the value labels of the first variable that has one.\n\
                  DISPLAY lists the sets in a table. Sets are saved with the data file and used by CTABLES.",
-        example: "MRSETS /MDGROUP NAME=$channels LABEL='Contact channels' VARIABLES=q5_1 TO q5_5 VALUE=1 /DISPLAY NAME=ALL.",
+        example: "GET FILE='survey.sav'.\n\
+                 MRSETS /DISPLAY NAME=ALL.\n\
+                 MRSETS /MDGROUP NAME=$digital LABEL='Digital channels'\n\
+                 \x20\x20VARIABLES=ch_web ch_app ch_email VALUE=1\n\
+                 \x20\x20/DISPLAY NAME=[$digital].\n\
+                 CTABLES /TABLE $digital [COUNT, COLPCT.COUNT PCT5.1] BY region.",
         parse: mrsets::mrsets,
     },
     CommandSpec {
@@ -1183,7 +1237,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  statistics; a warning names them. var (name) in the list adds a z-score under that name; SAVE adds\n\
                  one for every variable, named Z plus the variable name (ZSC001 to ZSC099, STDZ01 to STDZ09,\n\
                  ZZZZ01 to ZZZZ09, ZQZQ01 to ZQZQ09 when that name is taken), labeled Zscore: plus the label.",
-        example: "DESCRIPTIVES VARIABLES=age income (z_inc) /STATISTICS=DEFAULT SUM /SAVE.",
+        example: "GET FILE='survey.sav'.\n\
+                 DESCRIPTIVES age spend satisfaction.\n\
+                 DESCRIPTIVES spend /STATISTICS=MEAN SEMEAN STDDEV MIN MAX.\n\
+                 DESCRIPTIVES age spend /SAVE.",
         parse: procedures::descriptives,
     },
     CommandSpec {
@@ -1246,7 +1303,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  memory keeps only its asymptotic value, with a warning. MC instead draws SAMPLES random tables with\n\
                  those totals from the SET SEED generator and shows the share at least as extreme, with its interval\n\
                  at CIN percent. McNemar-Bowker and CMH stay asymptotic.",
-        example: "CROSSTABS /TABLES=region BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.",
+        example: "GET FILE='survey.sav'.\n\
+                 CROSSTABS /TABLES=recommend BY region.\n\
+                 CROSSTABS /TABLES=switching BY age_group /CELLS=COUNT COLUMN /STATISTICS=CHISQ.\n\
+                 WEIGHT BY weight.\n\
+                 CROSSTABS /TABLES=satisfaction BY gender BY region /CELLS=COLUMN.",
         parse: procedures::crosstabs,
     },
     CommandSpec {
@@ -1274,12 +1335,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  based on responses. NOLABELS and CONDENSE show values for category groups and variables;\n\
                  ONEPAGE and DOUBLE only change printed layout and are ignored with a warning. Weights count\n\
                  as they are.",
-        example: "MULT RESPONSE GROUPS=media 'Media used' (tv radio web (1))\n\
-                  \x20 brands 'Brands known' (brand1 TO brand3 (1, 9))\n\
-                  \x20 /VARIABLES=gender (1, 2)\n\
-                  \x20 /FREQUENCIES=media brands\n\
-                  \x20 /TABLES=media brands BY gender\n\
-                  \x20 /CELLS=COLUMN.",
+        example: "GET FILE='survey.sav'.\n\
+                 MULT RESPONSE GROUPS=channels 'Channels used' (ch_web TO ch_email (1))\n\
+                 \x20\x20/FREQUENCIES=channels.\n\
+                 MULT RESPONSE GROUPS=channels 'Channels used' (ch_web TO ch_email (1))\n\
+                 \x20\x20/VARIABLES=age_group (1, 4)\n\
+                 \x20\x20/TABLES=channels BY age_group /CELLS=COUNT COLUMN /BASE=CASES.",
         parse: mult_response::mult_response,
     },
     CommandSpec {
@@ -1299,7 +1360,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Without /MISSING each dependent with its controls leaves out its own missing cases; any /MISSING\n\
                  leaves out cases missing on any variable of the list (INCLUDE: user-missing values count;\n\
                  DEPENDENT: they count for the controls only). Weighted when a weight variable is set.",
-        example: "MEANS TABLES=income BY region BY gender /CELLS=MEAN COUNT STDDEV MEDIAN /STATISTICS=ANOVA.",
+        example: "GET FILE='survey.sav'.\n\
+                 MEANS spend BY region.\n\
+                 MEANS spend age BY age_group BY gender /CELLS=MEAN COUNT STDDEV.\n\
+                 MEANS satisfaction BY education /STATISTICS=ANOVA.",
         parse: stats::means,
     },
     CommandSpec {
@@ -1366,7 +1430,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  LISTWISE those missing on any variable of the test type. Effect sizes: Cohen's d and Hedges'\n\
                  correction (and Glass's delta for groups) with confidence intervals; they use weights rounded to\n\
                  whole numbers. Weighted when a weight variable is set.",
-        example: "T-TEST GROUPS=gender(1,2) /VARIABLES=age income /CRITERIA=CI(.90).",
+        example: "GET FILE='survey.sav'.\n\
+                 T-TEST GROUPS=contacted(0, 1) /VARIABLES=satisfaction spend.\n\
+                 T-TEST /TESTVAL=40 /VARIABLES=spend.\n\
+                 T-TEST GROUPS=gender(1, 2) /VARIABLES=age /CRITERIA=CI(0.99).",
         parse: stats::t_test,
     },
     CommandSpec {
@@ -1402,7 +1469,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  dependent; IN reads such records (and the pooled MSE and DFE records, which then give the within\n\
                  variance) and runs everything that needs no cases: HOMOGENEITY is an error, and the minimum and\n\
                  maximum of the descriptives are empty.",
-        example: "ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.",
+        example: "GET FILE='survey.sav'.\n\
+                 ONEWAY satisfaction BY region.\n\
+                 ONEWAY spend BY age_group /STATISTICS=DESCRIPTIVES HOMOGENEITY.\n\
+                 ONEWAY satisfaction BY region /POSTHOC=TUKEY ALPHA(0.05).",
         parse: stats::oneway,
     },
     CommandSpec {
@@ -1426,7 +1496,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  covariances; DESCRIPTIVES a table of means, standard deviations and counts. PAIRWISE (default)\n\
                  uses the cases valid on both variables of a pair; LISTWISE the cases valid on every variable\n\
                  of every list. Weighted when a weight variable is set.",
-        example: "CORRELATIONS /VARIABLES=age income WITH satisfaction /PRINT=ONETAIL NOSIG.",
+        example: "GET FILE='survey.sav'.\n\
+                 CORRELATIONS /VARIABLES=age spend satisfaction.\n\
+                 CORRELATIONS /VARIABLES=age spend WITH satisfaction /PRINT=ONETAIL NOSIG.\n\
+                 CORRELATIONS /VARIABLES=age spend satisfaction /MISSING=LISTWISE /STATISTICS=DESCRIPTIVES.",
         parse: stats::correlations,
     },
     CommandSpec {
@@ -1669,7 +1742,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  variable when pairwise counts differ) and CORR (OCORR with ORIGIN) of every variable on VARIABLES,\n\
                  per split group; * puts them in the active dataset. IN gives the equation from such records, which\n\
                  have no cases: SAVE, RESIDUALS, CASEWISE, the plots, SELECT and REGWGT are errors then.",
-        example: "REGRESSION /STATISTICS=COEFF OUTS R ANOVA CHANGE /DEPENDENT=spend /METHOD=ENTER age /METHOD=STEPWISE q1 TO q5 /SAVE=PRED ZRESID.",
+        example: "GET FILE='survey.sav'.\n\
+                 REGRESSION /DEPENDENT=satisfaction /METHOD=ENTER age spend contacted.\n\
+                 REGRESSION /STATISTICS=COEFF R ANOVA CI(95) /DEPENDENT=spend /METHOD=ENTER age.\n\
+                 REGRESSION /DEPENDENT=satisfaction /METHOD=STEPWISE age spend contacted switching\n\
+                 \x20\x20/SAVE PRED RESID.",
         parse: regression::regression,
     },
     CommandSpec {

@@ -16,7 +16,25 @@ The command makes each case count as many times as its value of var, a numeric v
 ## Example
 
 ```text
+GET FILE='survey.sav'.
 WEIGHT BY weight.
+FREQUENCIES age_group.
+WEIGHT OFF.
+FREQUENCIES age_group.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Age group
+
+| Category | Value | Label | Frequency | Percent | Valid Percent | Cumulative Percent |
+| --- | --- | --- | --- | --- | --- | --- |
+| valid | 1 | 18-29 | 50.68 | 15.97 | 15.97 | 15.97 |
+| valid | 2 | 30-44 | 106.51 | 33.55 | 33.55 | 49.52 |
+| valid | 3 | 45-59 | 117.82 | 37.12 | 37.12 | 86.64 |
+| valid | 4 | 60 and over | 42.41 | 13.36 | 13.36 | 100 |
+| total |  |  | 317.42 | 100 |  |  |
 
 `statscraft help WEIGHT` prints the same text in the terminal. [All commands](README.md)

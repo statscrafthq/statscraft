@@ -16,7 +16,25 @@ The cases stay in the dataset. The filter is kept with the dataset, follows a re
 ## Example
 
 ```text
-FILTER BY adult.
+GET FILE='survey.sav'.
+COMPUTE app_user = (ch_app = 1).
+FILTER BY app_user.
+DESCRIPTIVES age spend.
+FILTER OFF.
+DESCRIPTIVES age spend.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Descriptive Statistics
+
+| Variable | Label | N | Mean | Std Dev | Minimum | Maximum |
+| --- | --- | --- | --- | --- | --- | --- |
+| age | Age in years | 86 | 39.90 | 12.16 | 18 | 64 |
+| spend | Monthly spend in euros | 84 | 39.24 | 13.65 | 15.79 | 94.52 |
+| Valid N (listwise) |  | 84 |  |  |  |  |
+| Missing N (listwise) |  | 2 |  |  |  |  |
 
 `statscraft help FILTER` prints the same text in the terminal. [All commands](README.md)

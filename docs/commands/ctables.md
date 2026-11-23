@@ -67,7 +67,27 @@ DMTABLES is another name for the command.
 ## Example
 
 ```text
-CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.
+GET FILE='survey.sav'.
+CTABLES /TABLE satisfaction [COUNT, COLPCT.COUNT PCT5.1] BY region
+  /CATEGORIES VARIABLES=satisfaction TOTAL=YES.
+CTABLES /TABLE region > gender BY spend [MEAN F5.1, MEDIAN F5.1, COUNT].
+CTABLES /TABLE $channels [COLPCT.RESPONSES.COUNT PCT5.1] BY age_group
+  /SIGTEST TYPE=CHISQUARE /COMPARETEST TYPE=PROP ALPHA=0.05.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Custom Tables
+
+|  |  | Region / North / Count | Region / North / Column % | Region / South / Count | Region / South / Column % | Region / East / Count | Region / East / Column % | Region / West / Count | Region / West / Column % |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Overall satisfaction with the service | Very dissatisfied | 3 | 4.3% | 4 | 6.9% | 11 | 15.1% | 2 | 2.6% |
+| Overall satisfaction with the service | Dissatisfied | 14 | 20.0% | 5 | 8.6% | 25 | 34.2% | 22 | 28.9% |
+| Overall satisfaction with the service | Neutral | 11 | 15.7% | 19 | 32.8% | 26 | 35.6% | 29 | 38.2% |
+| Overall satisfaction with the service | Satisfied | 26 | 37.1% | 16 | 27.6% | 9 | 12.3% | 12 | 15.8% |
+| Overall satisfaction with the service | Very satisfied | 16 | 22.9% | 14 | 24.1% | 2 | 2.7% | 11 | 14.5% |
+| Overall satisfaction with the service | Total | 70 | 100.0% | 58 | 100.0% | 73 | 100.0% | 76 | 100.0% |
 
 `statscraft help CTABLES` prints the same text in the terminal. [All commands](README.md)

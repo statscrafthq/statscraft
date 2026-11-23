@@ -40,6 +40,7 @@ mod discriminant;
 mod encoding;
 mod error;
 mod examine;
+mod example_output;
 mod expr;
 mod factor;
 mod files;
@@ -283,6 +284,7 @@ pub use discriminant::{
 };
 pub use encoding::{decode_syntax, encoding_for, legacy_encoding};
 pub use error::{Span, SyntaxError};
+pub use example_output::example_output;
 pub use factor::{
     ClusterMethod, ClusterSave, Extraction, Factor, FactorCriteria, FactorMatrixOut, FactorMissing,
     FactorPlot, FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,

@@ -32,7 +32,26 @@ BARCHART has a bar per valid value, in the order of the table: counts, or with P
 ## Example
 
 ```text
-FREQUENCIES VARIABLES=age region /FORMAT=LIMIT(10) /STATISTICS=MEAN MEDIAN MODE /NTILES=4.
+GET FILE='survey.sav'.
+FREQUENCIES region satisfaction.
+FREQUENCIES age spend /FORMAT=NOTABLE /STATISTICS=MEAN MEDIAN STDDEV MINIMUM MAXIMUM.
+FREQUENCIES education /BARCHART PERCENT.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Overall satisfaction with the service
+
+| Category | Value | Label | Frequency | Percent | Valid Percent | Cumulative Percent |
+| --- | --- | --- | --- | --- | --- | --- |
+| valid | 1 | Very dissatisfied | 20 | 6.67 | 7.22 | 7.22 |
+| valid | 2 | Dissatisfied | 66 | 22 | 23.83 | 31.05 |
+| valid | 3 | Neutral | 85 | 28.33 | 30.69 | 61.73 |
+| valid | 4 | Satisfied | 63 | 21 | 22.74 | 84.48 |
+| valid | 5 | Very satisfied | 43 | 14.33 | 15.52 | 100 |
+| missing | 9 | Don't know | 23 | 7.67 |  |  |
+| total |  |  | 300 | 100 |  |  |
 
 `statscraft help FREQUENCIES` prints the same text in the terminal. [All commands](README.md)

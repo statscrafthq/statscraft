@@ -18,7 +18,21 @@ COMPRESSED compresses case by case, ZCOMPRESSED in zlib blocks, UNCOMPRESSED not
 ## Example
 
 ```text
-SAVE OUTFILE='survey_clean.sav' /COMPRESSED.
+GET FILE='survey.sav'.
+SAVE OUTFILE='survey_copy.sav'.
+SAVE OUTFILE='satisfaction.sav' /KEEP=id region satisfaction /RENAME=(satisfaction = sat) /MAP.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Variables in the file
+
+| Name in the file | Variable |
+| --- | --- |
+| id | id |
+| region | region |
+| sat | satisfaction |
 
 `statscraft help SAVE` prints the same text in the terminal. [All commands](README.md)

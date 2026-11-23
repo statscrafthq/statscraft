@@ -19,7 +19,25 @@ COMPUTE is a transformation: it runs when the next procedure or EXECUTE reads th
 ## Example
 
 ```text
-COMPUTE bmi = weight / (height / 100) ** 2.
+GET FILE='survey.sav'.
+COMPUTE spend_year = spend * 12.
+COMPUTE channels = SUM(ch_web, ch_app, ch_phone, ch_store, ch_email).
+COMPUTE days_in = DATEDIFF(interview_date, DATE.DMY(5, 10, 2026), 'days').
+DESCRIPTIVES spend_year channels days_in.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Descriptive Statistics
+
+| Variable | Label | N | Mean | Std Dev | Minimum | Maximum |
+| --- | --- | --- | --- | --- | --- | --- |
+| spend_year |  | 284 | 462.11 | 158.57 | 163.56 | 1134.24 |
+| channels |  | 300 | 2.08 | 1.02 | 0 | 5 |
+| days_in |  | 300 | 20.98 | 12.82 | 0 | 41 |
+| Valid N (listwise) |  | 284 |  |  |  |  |
+| Missing N (listwise) |  | 16 |  |  |  |  |
 
 `statscraft help COMPUTE` prints the same text in the terminal. [All commands](README.md)

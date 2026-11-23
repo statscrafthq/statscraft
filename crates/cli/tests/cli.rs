@@ -1151,3 +1151,30 @@ fn a_file_session_keeps_which_output_document_is_designated() {
         "Document2"
     );
 }
+
+/// Every command example that reads the sample file runs on it without an error or a warning,
+/// and still prints the output its page shows.
+#[test]
+fn examples_on_the_sample_file_run() {
+    let sample = format!(
+        "{}/../../docs/sample/survey.sav",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let specs = statscraft_syntax::command_specs()
+        .iter()
+        .filter(|spec| spec.example.contains("survey.sav"));
+    for spec in specs {
+        let dir = Workdir::new(&format!("example-{}", spec.name.replace(' ', "-")));
+        std::fs::copy(&sample, dir.0.join("survey.sav")).unwrap();
+        std::fs::write(dir.0.join("example.sps"), spec.example).unwrap();
+        let out = dir.ok(&["run", "example.sps"]);
+        assert!(!out.contains("warning:"), "{}: {out}", spec.name);
+        if let Some(expected) = statscraft_syntax::example_output(spec.name) {
+            assert!(
+                out.contains(expected),
+                "{}: the output changed:\n{out}",
+                spec.name
+            );
+        }
+    }
+}

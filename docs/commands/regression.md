@@ -35,7 +35,26 @@ MATRIX must come first. OUT writes the records MEAN, STDDEV, N (one record, or a
 ## Example
 
 ```text
-REGRESSION /STATISTICS=COEFF OUTS R ANOVA CHANGE /DEPENDENT=spend /METHOD=ENTER age /METHOD=STEPWISE q1 TO q5 /SAVE=PRED ZRESID.
+GET FILE='survey.sav'.
+REGRESSION /DEPENDENT=satisfaction /METHOD=ENTER age spend contacted.
+REGRESSION /STATISTICS=COEFF R ANOVA CI(95) /DEPENDENT=spend /METHOD=ENTER age.
+REGRESSION /DEPENDENT=satisfaction /METHOD=STEPWISE age spend contacted switching
+  /SAVE PRED RESID.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Coefficients
+
+| Model |  | Unstandardized Coefficients / B | Unstandardized Coefficients / Std. Error | Standardized Coefficients / Beta | t | Sig. |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | (Constant) | 4.34 | 0.35 |  | 12.38 | 0.00 |
+|  | Age in years | -0.01 | 0.01 | -0.16 | -2.63 | 0.01 |
+|  | Monthly spend in euros | -0.02 | 0.01 | -0.18 | -2.90 | 0.00 |
+|  | Contacted customer support in the last year | 0.11 | 0.14 | 0.05 | 0.82 | 0.41 |
+
+Dependent variable: Overall satisfaction with the service.
 
 `statscraft help REGRESSION` prints the same text in the terminal. [All commands](README.md)

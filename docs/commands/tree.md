@@ -63,4 +63,6 @@ TREE switching [n] BY satisfaction [o] region age_group spend [s]
   /METHOD TYPE=CRT /GROWTHLIMIT MAXDEPTH=3 /PRINT=MODELSUMMARY RISK IMPORTANCE.
 ```
 
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
 `statscraft help TREE` prints the same text in the terminal. [All commands](README.md)

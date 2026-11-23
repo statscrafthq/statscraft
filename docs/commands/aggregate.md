@@ -27,7 +27,27 @@ Missing values are skipped; with MISSING=COLUMNWISE a group with one missing val
 ## Example
 
 ```text
-AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=region /region_mean = MEAN(income) /region_n = N.
+GET FILE='survey.sav'.
+AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=region
+  /region_spend = MEAN(spend) /region_n = N.
+COMPUTE above_region = spend > region_spend.
+GET FILE='survey.sav'.
+AGGREGATE /OUTFILE=* /BREAK=region
+  /respondents = N /mean_spend = MEAN(spend) /share_recommend = MEAN(recommend).
+LIST.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### List
+
+| region | respondents | mean_spend | share_recommend |
+| --- | --- | --- | --- |
+| 1 | 75 | 36.14 | .73 |
+| 2 | 62 | 40.50 | .63 |
+| 3 | 81 | 38.47 | .54 |
+| 4 | 82 | 39.19 | .60 |
 
 `statscraft help AGGREGATE` prints the same text in the terminal. [All commands](README.md)

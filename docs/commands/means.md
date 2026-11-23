@@ -24,7 +24,24 @@ Without /MISSING each dependent with its controls leaves out its own missing cas
 ## Example
 
 ```text
-MEANS TABLES=income BY region BY gender /CELLS=MEAN COUNT STDDEV MEDIAN /STATISTICS=ANOVA.
+GET FILE='survey.sav'.
+MEANS spend BY region.
+MEANS spend age BY age_group BY gender /CELLS=MEAN COUNT STDDEV.
+MEANS satisfaction BY education /STATISTICS=ANOVA.
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### Report: Monthly spend in euros by Region
+
+| Region | Mean | N | Std. Deviation |
+| --- | --- | --- | --- |
+| North | 36.14 | 71 | 11.89 |
+| South | 40.50 | 59 | 16.44 |
+| East | 38.47 | 76 | 13.51 |
+| West | 39.19 | 78 | 11.10 |
+| Total | 38.51 | 284 | 13.21 |
 
 `statscraft help MEANS` prints the same text in the terminal. [All commands](README.md)

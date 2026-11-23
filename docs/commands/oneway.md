@@ -29,7 +29,22 @@ MATRIX=OUT writes, per split group and value of the factor, the records MEAN, ST
 ## Example
 
 ```text
-ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.
+GET FILE='survey.sav'.
+ONEWAY satisfaction BY region.
+ONEWAY spend BY age_group /STATISTICS=DESCRIPTIVES HOMOGENEITY.
+ONEWAY satisfaction BY region /POSTHOC=TUKEY ALPHA(0.05).
 ```
+
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
+## Example output
+
+### ANOVA
+
+|  |  | Sum of Squares | df | Mean Square | F | Sig. |
+| --- | --- | --- | --- | --- | --- | --- |
+| Overall satisfaction with the service | Between Groups | 47.20 | 3 | 15.73 | 13.13 | 0.00 |
+|  | Within Groups | 327.12 | 273 | 1.20 |  |  |
+|  | Total | 374.32 | 276 |  |  |  |
 
 `statscraft help ONEWAY` prints the same text in the terminal. [All commands](README.md)

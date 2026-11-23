@@ -18,4 +18,6 @@ A table of the file (label, cases, variables, documents) and the tables of DISPL
 SYSFILE INFO FILE='survey.sav'.
 ```
 
+The example reads the sample data file [survey.sav](../sample/survey.sav), an invented customer survey; save it in the folder you run the syntax from.
+
 `statscraft help SYSFILE INFO` prints the same text in the terminal. [All commands](README.md)
