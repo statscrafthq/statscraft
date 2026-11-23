@@ -389,3 +389,78 @@ fn what_is_not_supported_says_so() {
     assert_eq!(found[4].0, "b = 3; 9");
     assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
 }
+
+/// TARGETRESPONSE: the terminal nodes by the percentage of the target category, the highest
+/// first, with the path that describes each (a missing value left out) and the cumulative
+/// percentage; the figures are those of the gain summary, which the test above checks.
+#[test]
+fn target_response_lists_the_nodes_by_their_response() {
+    let mut engine = engine_with(DATA1);
+    let tables = run(
+        &mut engine,
+        "TREE y [n] BY a [n] b [o] c [n] /DEPCATEGORIES TARGET=[3] /TARGETRESPONSE RATE=40
+          /TREE DISPLAY=NONE.",
+    );
+    let response = table(&tables, "Target Response");
+    assert_eq!(
+        response.columns,
+        [
+            "Node",
+            "Description",
+            "Response",
+            "Cumulative Response",
+            "At or Above Minimum"
+        ]
+    );
+    let gains = table(&tables, "Gain Summary for Nodes");
+    assert_eq!(response.rows.len(), 3);
+    for (row, gain) in response.rows.iter().zip(&gains.rows) {
+        assert_eq!(text(&row[0]), text(&gain[0]));
+        relative(number(&row[2]), number(&gain[5]), 1e-12);
+        relative(number(&row[3]), number(&gain[11]), 1e-12);
+    }
+    // the terminal nodes: b = 1, 2 and b = 3, 4, 5 (and the missing category, left out of the
+    // description) within a = 3, 4, and a = 1, 2 alone
+    let descriptions: Vec<&str> = response.rows.iter().map(|r| text(&r[1])).collect();
+    assert_eq!(
+        descriptions,
+        [
+            "a = 3; 4 and b = 1; 2",
+            "a = 3; 4 and b = 3; 4; 5",
+            "a = 1; 2"
+        ]
+    );
+    // the responses fall, and the minimum marks the rows whose cumulative response reaches it
+    let falling: Vec<f64> = response.rows.iter().map(|r| number(&r[2])).collect();
+    assert!(falling.windows(2).all(|w| w[0] >= w[1]));
+    for row in &response.rows {
+        let marked = text(&row[4]);
+        assert_eq!(marked, if number(&row[3]) >= 40.0 { "Yes" } else { "No" });
+    }
+    let charts = engine.take_charts();
+    assert!(
+        charts
+            .iter()
+            .any(|c| c.title == "Cumulative response chart: 3")
+    );
+    // RATE=NONE has no marking column
+    let none = run(
+        &mut engine,
+        "TREE y [n] BY a [n] b [o] c [n] /DEPCATEGORIES TARGET=[3] /TARGETRESPONSE RATE=NONE
+          /TREE DISPLAY=NONE.",
+    );
+    assert_eq!(table(&none, "Target Response").columns.len(), 4);
+    // without target categories there is nothing to show, and a warning says so
+    let mut engine = engine_with(DATA1);
+    let tables = run(
+        &mut engine,
+        "TREE y [n] BY a [n] b [o] c [n] /TARGETRESPONSE RATE=NONE /TREE DISPLAY=NONE.",
+    );
+    assert!(tables.iter().all(|t| t.title != "Target Response"));
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("TARGETRESPONSE"))
+    );
+}

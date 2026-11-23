@@ -1441,6 +1441,9 @@ pub struct Tree {
     /// `/DEPCATEGORIES TARGET`
     pub targets: Vec<Value>,
     pub print: TreePrint,
+    /// `/TARGETRESPONSE RATE`: the nodes by their response to the target categories; the
+    /// inner None is RATE=NONE, else the minimum cumulative percentage.
+    pub target_response: Option<Option<f64>>,
     /// `/GAIN CATEGORYTABLE`
     pub gain_table: bool,
     /// `/GAIN CATEGORYTABLE` was written (a scale dependent has no category tables).

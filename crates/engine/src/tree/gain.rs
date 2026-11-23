@@ -20,7 +20,7 @@
 //! - Nodes are sorted by score, highest first unless ascending, in the training sample's order
 //!   for every sample.
 
-use super::{Key, Node, Tree, empirical_priors, key_of, percent, text};
+use super::{Key, Node, Predictor, Tree, empirical_priors, key_of, percent, text};
 use crate::{Cell, Table};
 
 /// The terminal nodes of a sample as the gain tables of one target category see them.
@@ -219,6 +219,7 @@ pub(super) struct Context<'a> {
     pub dependent: &'a str,
     pub dependent_name: &'a str,
     pub validated: bool,
+    pub predictors: &'a [Predictor],
 }
 
 impl Context<'_> {
@@ -259,6 +260,165 @@ impl Context<'_> {
                 if self.command.gain_ptile {
                     out.push(self.percentile_table(label, &gain, &training));
                 }
+            }
+        }
+    }
+
+    /// What describes terminal node `t`: the conditions along its path, one for each split, with
+    /// no mention of a missing value; None when the node stands for a missing category alone.
+    fn description(&self, nodes: &[Node], t: usize) -> Option<String> {
+        let mut steps = Vec::new();
+        let mut at = t;
+        while let Some(parent) = nodes[at].parent {
+            if let Some((p, group)) = &nodes[at].definition {
+                let predictor = &self.predictors[*p];
+                let present: Vec<usize> = group
+                    .iter()
+                    .copied()
+                    .filter(|&c| c != predictor.missing())
+                    .collect();
+                if present.is_empty() {
+                    return None;
+                }
+                steps.push(format!(
+                    "{} = {}",
+                    predictor.name,
+                    predictor.describe(&present)
+                ));
+            }
+            at = parent;
+        }
+        steps.reverse();
+        Some(match steps.is_empty() {
+            true => "All cases".to_string(),
+            false => steps.join(" and "),
+        })
+    }
+
+    /// TARGETRESPONSE: for each target category and sample a table of the terminal nodes by the
+    /// percentage of the category in them, the highest first, with their description and the
+    /// cumulative percentage, and a chart of the cumulative percentages.
+    pub(super) fn target_response(&self, out: &mut Vec<Table>, charts: &mut Vec<crate::Chart>) {
+        use crate::chart::{Axis, Category, PERCENT_FORMAT, Series, Statistic};
+        let Some(rate) = self.command.target_response else {
+            return;
+        };
+        for (label, ns) in self.samples {
+            for j in self.targets() {
+                let gain = Gain {
+                    nodes: ns,
+                    target: j,
+                    empirical: self.empirical(),
+                };
+                let mut rows: Vec<Vec<Cell>> = Vec::new();
+                let mut categories = Vec::new();
+                let (mut sum_a, mut sum_w) = (0.0, 0.0);
+                let mut cumulative = Vec::new();
+                for t in gain.order(self.terminals, false) {
+                    let figures = gain.figures(t);
+                    let Some(description) = self.description(self.training, t) else {
+                        continue;
+                    };
+                    if figures.w <= 0.0 {
+                        continue;
+                    }
+                    sum_a += figures.a;
+                    sum_w += figures.w;
+                    let response = 100.0 * figures.a / figures.w;
+                    let total = 100.0 * sum_a / sum_w;
+                    let mut row = vec![
+                        text(t.to_string()),
+                        text(description),
+                        Cell::Number(response),
+                        Cell::Number(total),
+                    ];
+                    if let Some(rate) = rate {
+                        row.push(text(if total >= rate { "Yes" } else { "No" }));
+                    }
+                    rows.push(row);
+                    categories.push(Category {
+                        label: format!("Node {t}"),
+                        value: Cell::Number(t as f64),
+                        missing: false,
+                        bin: None,
+                    });
+                    cumulative.push(total);
+                }
+                if rows.is_empty() {
+                    continue;
+                }
+                let sample = |title: &str| match self.validated {
+                    true => format!("{title} ({label} Sample)"),
+                    false => title.to_string(),
+                };
+                let mut columns: Vec<String> =
+                    ["Node", "Description", "Response", "Cumulative Response"]
+                        .map(String::from)
+                        .to_vec();
+                let mut formats = vec![
+                    String::new(),
+                    String::new(),
+                    "PCT6.1".to_string(),
+                    "PCT6.1".to_string(),
+                ];
+                if rate.is_some() {
+                    columns.push("At or Above Minimum".into());
+                    formats.push(String::new());
+                }
+                let caption = format!(
+                    "Target category: {}. Dependent variable: {}.{}",
+                    self.class_labels[j],
+                    self.dependent,
+                    rate.map_or(String::new(), |r| format!(
+                        " Minimum cumulative response: {r}%."
+                    ))
+                );
+                out.push(Table {
+                    title: sample("Target Response"),
+                    row_headers: 1,
+                    column_groups: vec![Vec::new(); columns.len()],
+                    columns,
+                    formats: vec![formats; rows.len()],
+                    rows,
+                    caption: Some(caption.clone()),
+                    outline: None,
+                    hidden: false,
+                    cell_stats: None,
+                    decorations: Vec::new(),
+                    style: Default::default(),
+                });
+                let mut series = vec![Series {
+                    name: self.class_labels[j].clone(),
+                    statistic: Statistic::Percent,
+                    variable: Some(self.dependent_name.to_string()),
+                    value: Cell::Empty,
+                    values: cumulative.clone(),
+                }];
+                if let Some(rate) = rate {
+                    series.push(Series {
+                        name: "Minimum".into(),
+                        statistic: Statistic::Percent,
+                        variable: Some(self.dependent_name.to_string()),
+                        value: Cell::Empty,
+                        values: vec![rate; cumulative.len()],
+                    });
+                }
+                let mut chart = crate::Chart::lines(
+                    sample(&format!(
+                        "Cumulative response chart: {}",
+                        self.class_labels[j]
+                    )),
+                    Axis::titled("Node"),
+                    Axis {
+                        format: PERCENT_FORMAT.into(),
+                        ..Axis::titled("Cumulative response (%)")
+                    },
+                    categories,
+                    series,
+                );
+                chart.legend = Some(self.dependent.to_string());
+                chart.footnote = Some(caption);
+                charts.push(chart);
             }
         }
     }

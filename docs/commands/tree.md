@@ -15,7 +15,7 @@ TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]
      [/CRT IMPURITY=GINI | TWOING | ORDEREDTWOING  MINIMPROVEMENT=0.0001]  [/QUEST ALPHASPLIT=.05]
      [/PRIORS FROMDATA | EQUAL | CUSTOM=value [prior] ...  ADJUST=NO | YES]
      [/COSTS EQUAL | CUSTOM=actual predicted [cost] ...]  [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]
-     [/PROFITS CUSTOM=category [revenue expense] ...]
+     [/PROFITS CUSTOM=category [revenue expense] ...]  [/TARGETRESPONSE RATE=NONE | percent]
      [/DEPCATEGORIES USEVALUES=[VALID MISSING value ...] TARGET=[value ...]]
      [/VALIDATION TYPE=NONE | SPLITSAMPLE(percent | var) | CROSSVALIDATION(folds)  OUTPUT=BOTHSAMPLES | TESTSAMPLE]
      [/MISSING NOMINALMISSING=MISSING | VALID]
@@ -48,6 +48,8 @@ VALIDATION TYPE=SPLITSAMPLE(percent) grows the tree on a random share of the cas
 The tree comes as chart data: each node with its parent, the condition that leads to it, its counts, its predicted value and its split. DISPLAY=NONE leaves it out, and TREETABLE lists the nodes as a table. USEVALUES lists the classes of the dependent (VALID: every valid value; user-missing values of a nominal dependent may be named). NOMINALMISSING=VALID makes user-missing values of nominal predictors valid categories.
 
 Gain tables, one per TARGET category, list the terminal nodes by index: size, target count, response (the target share in the node) and index (response over the overall share), cumulative unless CUMULATIVE=NO. TYPE=\[NODE PTILE\] adds percentile groups INCREMENT percent wide (1, 2, 5, 10, 20 or 25; default 10). For a scale dependent SUMMARYTABLE lists the nodes by mean. PLOT GAIN, RESPONSE and INDEX chart the percentile groups. PROFITS CUSTOM=category \[revenue expense\] ... adds the average profit and the return on investment to the summary, charted by PLOT PROFIT and ROI. PLOT MEAN charts a scale dependent.
+
+TARGETRESPONSE (a nominal or ordinal dependent with TARGET categories on DEPCATEGORIES; RATE is required) gives for each target category and sample a Target Response table: the terminal nodes by the percentage of the category in them, the highest first, each with the conditions of its path (a missing value is left out, and a CHAID node that stands for a missing category alone is not listed) and the cumulative percentage down the table, with RATE=percent also whether that reaches the percentage; and a chart of the cumulative percentages, with the percentage as a line.
 
 RULES writes rules for the terminal nodes (NODES=ALL: every node, parents first). SYNTAX=INTERNAL gives DO IF blocks that compute NodeID, PredictedValue and PredictedProbability, SQL gives CASE expressions, GENERIC gives sentences with labels (LABELS=NO: names and values). TYPE=SELECTION gives one rule that selects the cases of the nodes. A missing value follows the surrogates (SURROGATES=INCLUDE), then the larger child. TOPN(n), TOPPCT(p) and MININDEX(v) keep the terminal nodes with the highest index. OUTFILE writes the rules to a text file.
 

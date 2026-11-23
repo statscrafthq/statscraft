@@ -1437,6 +1437,20 @@ fn tree_profits() {
 }
 
 #[test]
+fn tree_target_response() {
+    assert_eq!(tree_of("TREE y BY x.").target_response, None);
+    let t = tree_of("TREE y [n] BY x /DEPCATEGORIES TARGET=[1] /TARGETRESPONSE RATE=NONE.");
+    assert_eq!(t.target_response, Some(None));
+    let t = tree_of("TREE y [n] BY x /DEPCATEGORIES TARGET=[1] /TARGETRESPONSE RATE=62.5.");
+    assert_eq!(t.target_response, Some(Some(62.5)));
+    let message = |source: &str| err(source).message;
+    assert!(message("TREE y BY x /TARGETRESPONSE RATE=0.").contains("above 0 and below 100"));
+    assert!(message("TREE y BY x /TARGETRESPONSE RATE=100.").contains("above 0 and below 100"));
+    assert!(message("TREE y BY x /TARGETRESPONSE RATE=101.").contains("between 0 and 100"));
+    assert!(message("TREE y BY x /TARGETRESPONSE.").contains("unexpected"));
+}
+
+#[test]
 fn tree_errors() {
     let message = |source: &str| err(source).message;
     assert_eq!(

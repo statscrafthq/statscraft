@@ -4927,7 +4927,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20\x20\x20[/CRT IMPURITY=GINI | TWOING | ORDEREDTWOING  MINIMPROVEMENT=0.0001]  [/QUEST ALPHASPLIT=.05]\n\
                  \x20\x20\x20\x20\x20[/PRIORS FROMDATA | EQUAL | CUSTOM=value [prior] ...  ADJUST=NO | YES]\n\
                  \x20\x20\x20\x20\x20[/COSTS EQUAL | CUSTOM=actual predicted [cost] ...]  [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]\n\
-                 \x20\x20\x20\x20\x20[/PROFITS CUSTOM=category [revenue expense] ...]\n\
+                 \x20\x20\x20\x20\x20[/PROFITS CUSTOM=category [revenue expense] ...]  [/TARGETRESPONSE RATE=NONE | percent]\n\
                  \x20\x20\x20\x20\x20[/DEPCATEGORIES USEVALUES=[VALID MISSING value ...] TARGET=[value ...]]\n\
                  \x20\x20\x20\x20\x20[/VALIDATION TYPE=NONE | SPLITSAMPLE(percent | var) | CROSSVALIDATION(folds)  OUTPUT=BOTHSAMPLES | TESTSAMPLE]\n\
                  \x20\x20\x20\x20\x20[/MISSING NOMINALMISSING=MISSING | VALID]\n\
@@ -4997,6 +4997,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  INDEX chart the percentile groups. PROFITS CUSTOM=category [revenue expense] ... adds the average\n\
                  profit and the return on investment to the summary, charted by PLOT PROFIT and ROI. PLOT MEAN charts\n\
                  a scale dependent.\n\
+                 TARGETRESPONSE (a nominal or ordinal dependent with TARGET categories on DEPCATEGORIES; RATE is\n\
+                 required) gives for each target category and sample a Target Response table: the terminal nodes by\n\
+                 the percentage of the category in them, the highest first, each with the conditions of its path\n\
+                 (a missing value is left out, and a CHAID node that stands for a missing category alone is not\n\
+                 listed) and the cumulative percentage down the table, with RATE=percent also whether that reaches the\n\
+                 percentage; and a chart of the cumulative percentages, with the percentage as a line.\n\
                  RULES writes rules for the terminal nodes (NODES=ALL: every node, parents first). SYNTAX=INTERNAL\n\
                  gives DO IF blocks that compute NodeID, PredictedValue and PredictedProbability, SQL gives CASE\n\
                  expressions, GENERIC gives sentences with labels (LABELS=NO: names and values). TYPE=SELECTION gives\n\

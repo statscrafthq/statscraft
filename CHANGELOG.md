@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- TREE /TARGETRESPONSE RATE=NONE | percent: for each target category the terminal nodes by their response, with the path that describes each, the cumulative response and whether it reaches the minimum, and a chart of the cumulative response.
+
 ## 0.36.0 (2026-11-23)
 
 Plugins lay out tables of means more compactly and can offer their settings as a list.

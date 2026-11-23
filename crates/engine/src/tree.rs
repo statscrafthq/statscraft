@@ -1056,6 +1056,15 @@ impl Engine {
                 ));
             }
         }
+        if command.target_response.is_some()
+            && (scale_dep || !command.targets.iter().any(|t| classes.contains(&key_of(t))))
+        {
+            warnings.push(
+                "TARGETRESPONSE needs a nominal or ordinal dependent with target categories \
+                 (DEPCATEGORIES TARGET); it shows nothing"
+                    .into(),
+            );
+        }
         let charted = command.plot_gain || command.plot_response || command.plot_index;
         if charted && !scale_dep && !command.targets.iter().any(|t| classes.contains(&key_of(t))) {
             warnings.push(
@@ -2554,8 +2563,10 @@ impl Engine {
             dependent: &shown.variable(dependent),
             dependent_name: dependent.name(),
             validated,
+            predictors,
         };
         gains.node_tables(&mut out);
+        gains.target_response(&mut out, charts);
         gains.charts(charts);
         if let Some(profits) = checks.profits {
             let profit = gain::ProfitContext {

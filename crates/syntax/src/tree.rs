@@ -824,6 +824,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             case_summary: true,
             tree_table: false,
         },
+        target_response: None,
         gain_table: true,
         gain_table_given: false,
         gain_summary: true,
@@ -934,6 +935,23 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
                 } else if !p.eat_keyword("EQUALINCREMENTS") {
                     return Err(p.unexpected(&["EQUALINCREMENTS", "CUSTOM"]));
                 }
+            }
+            "TARGETRESPONSE" => {
+                if !p.eat_keyword("RATE") {
+                    return Err(p.unexpected(&["RATE"]));
+                }
+                p.eat(Punct::Eq);
+                command.target_response = Some(if p.eat_keyword("NONE") {
+                    None
+                } else {
+                    let start = p.pos;
+                    let rate = number(p, "the minimum percentage", 0.0, 100.0)?;
+                    if rate <= 0.0 || rate >= 100.0 {
+                        let message = "the minimum percentage must be above 0 and below 100";
+                        return Err(SyntaxError::new(p.span_from(start), message));
+                    }
+                    Some(rate)
+                });
             }
             "MISSING" => {
                 if !p.eat_keyword("NOMINALMISSING") {
