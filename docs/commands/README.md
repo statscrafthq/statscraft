@@ -206,7 +206,7 @@ One page per supported command, generated from the same table that the parser an
 | [TIME PROGRAM](time-program.md) | Start the transformations that define time-dependent covariates for the next COXREG. |
 | [CLEAR TIME PROGRAM](clear-time-program.md) | Drop the time-dependent covariates of the last TIME PROGRAM. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
-| [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
+| [TREE](tree.md) | A decision tree grown by CHAID, exhaustive CHAID, CRT or QUEST, with gain tables, rules and saved predictions. |
 | [DMTREE](dmtree.md) | Another name for TREE. |
 | [MLP](mlp.md) | Multilayer perceptron: a neural network with one or two hidden layers that predicts scale dependents and classifies categorical ones. |
 | [RBF](rbf.md) | Radial basis function network: Gaussian hidden units at two-step clusters and least squares output weights. |
