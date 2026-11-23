@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## 0.32.0 (2026-11-23)
+
+- The documentation and the help describe only what Statscraft does: the separate page of differences and limits is gone, and the command pages are easier to read on the documentation site.
 - MANOVA /MATRIX=OUT and IN: the cells' sizes and means and the pooled within-cells standard deviations and correlations are written to a matrix file, and an analysis can be run from such a file (or from a CORRELATIONS file) with the tables the data's analysis gives.
 - MANOVA /ANALYSIS takes several groups of analyses in parentheses ((a b / c) WITH covariates), CONDITIONAL and UNCONDITIONAL, and works with WSFACTORS: each group is an analysis of its own, its dependents the within-subjects cells.
 
