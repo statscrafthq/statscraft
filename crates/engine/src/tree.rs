@@ -42,7 +42,7 @@ mod scale;
 
 use crate::crosstabs::Key;
 use crate::descriptives::case_weights;
-use crate::dist::chi_square_p;
+use crate::dist::{chi_square_p, f_p};
 use crate::format::category_text;
 use crate::pass::default_measure;
 use crate::shown::Shown;
@@ -112,6 +112,8 @@ struct Split {
     groups: Vec<Vec<usize>>,
     statistic: f64,
     df: f64,
+    /// The degrees of freedom within the groups, for the F test of a scale dependent.
+    df2: Option<f64>,
     sig: f64,
     /// The decrease in impurity of a CRT split; CHAID has the three above instead.
     improvement: Option<f64>,
@@ -340,6 +342,9 @@ struct Checks<'a> {
 
 /// What the tests of independence need.
 struct Tester<'a> {
+    /// A scale dependent: the table rows hold the weight, the sum of the values and of their
+    /// squares, and the test is the ANOVA F test across the rows.
+    scale: bool,
     /// Scores of the classes of an ordinal dependent; None for a nominal one.
     scores: Option<&'a [f64]>,
     likelihood_ratio: bool,
@@ -348,9 +353,40 @@ struct Tester<'a> {
 }
 
 impl Tester<'_> {
+    /// The weight of the cases in a row of the table.
+    fn size(&self, row: &[f64]) -> f64 {
+        if self.scale { row[0] } else { row.iter().sum() }
+    }
+
+    /// The ANOVA F test of the means of the dependent across the rows (groups): the F statistic,
+    /// its degrees of freedom between, and its significance. Empty rows are left out.
+    fn anova(&self, table: &[Vec<f64>]) -> (f64, f64, f64) {
+        let rows: Vec<&Vec<f64>> = table.iter().filter(|r| r[0] > 0.0).collect();
+        let total: f64 = rows.iter().map(|r| r[0]).sum();
+        let (dfn, dfd) = (rows.len() as f64 - 1.0, total - rows.len() as f64);
+        if rows.len() < 2 || dfd <= 0.0 {
+            return (0.0, 0.0, 1.0);
+        }
+        let sum: f64 = rows.iter().map(|r| r[1]).sum();
+        let by_group: f64 = rows.iter().map(|r| r[1] * r[1] / r[0]).sum();
+        let between = (by_group - sum * sum / total).max(0.0);
+        let within = (rows.iter().map(|r| r[2]).sum::<f64>() - by_group).max(0.0);
+        if between <= 0.0 {
+            return (0.0, dfn, 1.0);
+        }
+        if within <= 1e-12 * between {
+            return (f64::INFINITY, dfn, 0.0);
+        }
+        let f = (between / dfn) / (within / dfd);
+        (f, dfn, f_p(f, dfn, dfd))
+    }
+
     /// Statistic, degrees of freedom and significance of a table with groups as rows and
     /// classes as columns. Empty rows and columns are left out.
     fn test(&self, table: &[Vec<f64>]) -> (f64, f64, f64) {
+        if self.scale {
+            return self.anova(table);
+        }
         let rows: Vec<&Vec<f64>> = table
             .iter()
             .filter(|r| r.iter().sum::<f64>() > 0.0)
@@ -556,7 +592,7 @@ impl Merging<'_> {
         predictor: &Predictor,
         table: &[Vec<f64>],
     ) -> Option<(Vec<Vec<usize>>, f64, f64, f64)> {
-        let size = |c: &usize| table[*c].iter().sum::<f64>();
+        let size = |c: &usize| self.tester.size(&table[*c]);
         let present: Vec<usize> = (0..table.len()).filter(|c| size(c) > 0.0).collect();
         let missing = predictor.missing();
         let nominal = predictor.nominal;
@@ -622,7 +658,7 @@ impl Merging<'_> {
             let small = groups
                 .iter()
                 .enumerate()
-                .map(|(i, g)| (i, row_sum(table, g).iter().sum::<f64>()))
+                .map(|(i, g)| (i, self.tester.size(&row_sum(table, g))))
                 .filter(|&(_, n)| n < self.min_child)
                 .reduce(|a, b| if b.1 < a.1 { b } else { a });
             let Some((s, _)) = small.filter(|_| groups.len() > 1) else {
@@ -772,21 +808,11 @@ impl Engine {
         let mut warnings: Vec<String> = Vec::new();
         let dependent = data.variable(&command.dependent)?;
         let dependent_level = level_of(data, &dependent, command.dependent_level, scale_min);
-        if dependent_level == Level::Scale {
-            if dependent.is_string() {
-                warnings.push(format!(
-                    "the string variable {} cannot be scale; it is nominal",
-                    dependent.name()
-                ));
-            } else if !command.binary() {
-                return Err(Error(format!(
-                    "TREE with a scale dependent variable ({}) needs METHOD TYPE=CRT; or give it a \
-                     level, as in {} [n] or {} [o]",
-                    dependent.name(),
-                    dependent.name(),
-                    dependent.name()
-                )));
-            }
+        if dependent_level == Level::Scale && dependent.is_string() {
+            warnings.push(format!(
+                "the string variable {} cannot be scale; it is nominal",
+                dependent.name()
+            ));
         }
         let scale_dep = dependent_level == Level::Scale && !dependent.is_string();
         let ordinal = dependent_level == Level::Ordinal;
@@ -947,6 +973,18 @@ impl Engine {
             }
             if command.costs.is_some() {
                 warnings.push(message("COSTS"));
+            }
+            // the CHAID settings of the chi-square tests have nothing to act on
+            if !command.binary() {
+                if command.likelihood_ratio {
+                    warnings.push("CHAID CHISQUARE applies to a nominal dependent; ignored".into());
+                }
+                if command.converge != 0.001 || command.max_iterations != 100 {
+                    warnings.push(
+                        "CHAID CONVERGE and MAXITERATIONS apply to an ordinal dependent; ignored"
+                            .into(),
+                    );
+                }
             }
             if command.plot_gain || command.plot_response || command.plot_index {
                 warnings.push(message("PLOT GAIN, RESPONSE and INDEX"));
@@ -1364,6 +1402,7 @@ impl Engine {
             } else {
                 let merging = Merging {
                     tester: Tester {
+                        scale: dep_values.is_some(),
                         scores: ordinal.then_some(&scores[..]),
                         likelihood_ratio: command.likelihood_ratio,
                         converge: command.converge,
@@ -1375,23 +1414,37 @@ impl Engine {
                     bonferroni: command.bonferroni,
                 };
                 let max_depth = depth_limit(command);
-                let ones = vec![1.0; classes.len()];
+                // a scale dependent: a node's statistics are its weight, sum of values and of squares
+                let scale = dep_values.is_some();
+                let ones = if scale {
+                    vec![1.0 / weights.iter().sum::<f64>()]
+                } else {
+                    vec![1.0; classes.len()]
+                };
                 let node_of = |cases: Vec<usize>, parent, depth, definition| {
-                    make_node(
+                    let mut node = make_node(
                         cases,
                         parent,
                         depth,
                         definition,
-                        (&case_class, weights, None),
+                        (&case_class, weights, dep_values.as_deref()),
                         &ones,
                         costs.as_ref(),
-                    )
+                    );
+                    node.shift = dep_shift;
+                    node
                 };
                 let mut nodes = vec![node_of((0..cases.len()).collect(), None, 0, None)];
                 let mut queue = VecDeque::from([0]);
                 while let Some(id) = queue.pop_front() {
                     let node = &nodes[id];
-                    let pure = node.counts.iter().filter(|&&n| n > 0.0).count() < 2;
+                    let pure = if scale {
+                        // every value alike, up to rounding
+                        let [w, s, q] = [node.counts[0], node.counts[1], node.counts[2]];
+                        q * w - s * s <= 1e-12 * q * w
+                    } else {
+                        node.counts.iter().filter(|&&n| n > 0.0).count() < 2
+                    };
                     if node.depth >= max_depth || node.n < command.min_parent || pure {
                         continue;
                     }
@@ -1400,20 +1453,35 @@ impl Engine {
                         if id == 0 && command.force.is_some() && p != 0 {
                             continue;
                         }
-                        let mut table = vec![vec![0.0; classes.len()]; predictor.labels.len() + 1];
+                        let width = if scale { 3 } else { classes.len() };
+                        let mut table = vec![vec![0.0; width]; predictor.labels.len() + 1];
                         for &i in &node.cases {
-                            table[predictor.codes[i]][case_class[i]] += weights[i];
+                            let row = &mut table[predictor.codes[i]];
+                            match &dep_values {
+                                Some(y) => {
+                                    row[0] += weights[i];
+                                    row[1] += weights[i] * y[i];
+                                    row[2] += weights[i] * y[i] * y[i];
+                                }
+                                None => row[case_class[i]] += weights[i],
+                            }
                         }
                         let Some((groups, statistic, df, sig)) = merging.merge(predictor, &table)
                         else {
                             continue;
                         };
+                        // the degrees of freedom within the groups of the F test
+                        let df2 = scale.then(|| {
+                            let total: f64 = groups.iter().map(|g| row_sum(&table, g)[0]).sum();
+                            total - groups.len() as f64
+                        });
                         if best.as_ref().is_none_or(|b| sig < b.sig) {
                             best = Some(Split {
                                 predictor: p,
                                 groups,
                                 statistic,
                                 df,
+                                df2,
                                 sig,
                                 improvement: None,
                                 surrogates: Vec::new(),

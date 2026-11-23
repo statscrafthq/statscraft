@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- TREE CHAID and exhaustive CHAID accept a scale dependent: categories merge and nodes split by the ANOVA F test of the dependent's means, with the same node tables, risk, gain summary, SAVE and validation as CRT. A numeric dependent without a level is scale, so the default method no longer stops with a request for a level.
 - TREE /PRIORS ADJUST=YES: the priors of a CRT or QUEST tree are altered by the misclassification costs (each prior times the sum of its category's costs), which then count as equal for growing, assignment and risk.
 - TREE /COSTS CUSTOM=actual predicted [cost] ...: nodes are assigned the category of least expected cost, the risk and its error are the mean cost of the assignments (also in split-sample and cross-validation), CRT with the Gini measure counts the costs in its impurity, and pruning uses them. PRIORS ADJUST with custom costs comes next.
 - TREE validation (split sample and cross-validation) also works for a scale dependent under CRT: the risk is the mean squared deviation from the training node means, with its standard error.

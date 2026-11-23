@@ -60,17 +60,6 @@ fn run(engine: &mut Engine, source: &str) -> Vec<Table> {
     tables
 }
 
-fn error(engine: &mut Engine, source: &str) -> String {
-    let (commands, errors) = parse(source);
-    assert!(errors.is_empty(), "{errors:?}");
-    for command in &commands {
-        if let Err(error) = engine.execute(&command.command) {
-            return error.0;
-        }
-    }
-    panic!("no error")
-}
-
 fn number(cell: &Cell) -> f64 {
     match cell {
         Cell::Number(n) => *n,
@@ -383,8 +372,6 @@ fn save_adds_node_prediction_and_probabilities() {
 #[test]
 fn what_is_not_supported_says_so() {
     let mut engine = engine_with(DATA1);
-    let message = error(&mut engine, "TREE y [s] BY a [n] /PRINT NONE.");
-    assert!(message.contains("scale dependent variable"), "{message}");
     let (_, errors) = parse("TREE y BY a /VALIDATION TYPE=CROSSVALIDATION(26).");
     assert_eq!(
         errors[0].message,

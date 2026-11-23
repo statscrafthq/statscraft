@@ -1249,8 +1249,9 @@ fn a_scale_dependent_saves_the_node_and_its_mean_and_warns_about_what_does_not_a
                 .all(|&i| (guess[i].unwrap() - mean).abs() < 1e-9)
         );
     }
-    let message = error(&mut engine, "TREE r [s] BY x2 [s].");
-    assert!(message.contains("needs METHOD TYPE=CRT"), "{message}");
+    // the default method, CHAID, takes a scale dependent too
+    let tables = run(&mut engine, "TREE r [s] BY x2 [s] /PRINT TREETABLE.");
+    assert!(tables.iter().any(|t| t.title == "Tree Table"));
 }
 
 #[test]

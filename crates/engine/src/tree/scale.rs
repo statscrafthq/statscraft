@@ -50,7 +50,8 @@ impl Engine {
             };
             let row = |group: &str, name: &str, value: Cell| vec![text(group), text(name), value];
             let depth = nodes.iter().map(|n| n.depth).max().unwrap_or(0);
-            let rows = vec![
+            let binary = command.binary();
+            let mut rows = vec![
                 row(
                     "Specifications",
                     "Growing Method",
@@ -62,20 +63,26 @@ impl Engine {
                     "Independent Variables",
                     text(names(predictors.iter().collect())),
                 ),
-                row("", "Impurity Measure", text("Least squares deviation")),
-                row(
-                    "",
-                    "Minimum Change in Improvement",
-                    Cell::Number(command.min_improvement.unwrap_or(0.0001)),
-                ),
-                row(
-                    "",
-                    "Pruning",
-                    text(match command.prune {
-                        None => "None".to_string(),
-                        Some(b) => format!("Standard error rule, {b} standard errors"),
-                    }),
-                ),
+            ];
+            if binary {
+                rows.extend([
+                    row("", "Impurity Measure", text("Least squares deviation")),
+                    row(
+                        "",
+                        "Minimum Change in Improvement",
+                        Cell::Number(command.min_improvement.unwrap_or(0.0001)),
+                    ),
+                    row(
+                        "",
+                        "Pruning",
+                        text(match command.prune {
+                            None => "None".to_string(),
+                            Some(b) => format!("Standard error rule, {b} standard errors"),
+                        }),
+                    ),
+                ]);
+            }
+            rows.extend([
                 row(
                     "",
                     "Validation",
@@ -115,7 +122,7 @@ impl Engine {
                     Cell::Number(terminals.len() as f64),
                 ),
                 row("", "Depth", Cell::Number(depth as f64)),
-            ];
+            ]);
             out.push(Table {
                 title: "Model Summary".into(),
                 row_headers: 2,
@@ -134,6 +141,7 @@ impl Engine {
             ),
             None => String::new(),
         };
+        let binary = command.binary();
         if command.display {
             let mut diagram = Vec::new();
             for (id, node) in nodes.iter().enumerate() {
@@ -147,7 +155,14 @@ impl Engine {
                 ];
                 if let Some(split) = &node.split {
                     statistics.push(("Split by".into(), text(&predictors[split.predictor].name)));
-                    statistics.push(("Improvement".into(), number_or_empty(split.improvement)));
+                    if binary {
+                        statistics.push(("Improvement".into(), number_or_empty(split.improvement)));
+                    } else {
+                        statistics.push(("Adj. Sig.".into(), Cell::Number(split.sig)));
+                        statistics.push(("F".into(), Cell::Number(split.statistic)));
+                        statistics.push(("df".into(), Cell::Number(split.df)));
+                        statistics.push(("Error df".into(), number_or_empty(split.df2)));
+                    }
                 }
                 diagram.push(crate::plot::TreeNode {
                     id,
@@ -176,7 +191,12 @@ impl Engine {
                 ["N", "Percent", "Mean", "Std. Deviation", "Predicted Mean"].map(String::from),
             );
             if command.branch_statistics {
-                columns.extend(["Variable", "Improvement"].map(String::from));
+                if binary {
+                    columns.extend(["Variable", "Improvement"].map(String::from));
+                } else {
+                    columns
+                        .extend(["Variable", "Adj. Sig.", "F", "df", "Error df"].map(String::from));
+                }
             }
             let rows: Vec<Vec<Cell>> = nodes
                 .iter()
@@ -199,11 +219,18 @@ impl Engine {
                     ]);
                     if command.branch_statistics {
                         match &node.split {
-                            Some(split) => row.extend([
+                            Some(split) if binary => row.extend([
                                 text(&predictors[split.predictor].name),
                                 number_or_empty(split.improvement),
                             ]),
-                            None => row.extend([Cell::Empty, Cell::Empty]),
+                            Some(split) => row.extend([
+                                text(&predictors[split.predictor].name),
+                                Cell::Number(split.sig),
+                                Cell::Number(split.statistic),
+                                Cell::Number(split.df),
+                                number_or_empty(split.df2),
+                            ]),
+                            None => row.extend(vec![Cell::Empty; if binary { 2 } else { 5 }]),
                         }
                     }
                     row
@@ -219,6 +246,9 @@ impl Engine {
                             "Percent" => "F5.1".to_string(),
                             "Mean" | "Std. Deviation" | "Predicted Mean" => "F8.3".to_string(),
                             "Improvement" => "F8.5".to_string(),
+                            "Adj. Sig." => "F5.3".to_string(),
+                            "F" => "F8.3".to_string(),
+                            "df" | "Error df" => "F8.0".to_string(),
                             _ => String::new(),
                         })
                         .collect()

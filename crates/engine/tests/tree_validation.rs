@@ -890,3 +890,13 @@ fn the_test_risk_counts_the_cost_of_each_assignment() {
         );
     }
 }
+
+#[test]
+fn chaid_of_a_scale_dependent_with_a_test_sample_grows_the_tree_of_the_training_cases() {
+    for method in ["CHAID", "EXHAUSTIVECHAID"] {
+        same_as_training_alone(&format!(
+            "TREE r [s] BY o [o] g [n] b [n] g4 [n] x2 [s] /METHOD TYPE={method} /CHAID ALPHASPLIT=.2 \
+             /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=20 MINCHILDSIZE=8"
+        ));
+    }
+}

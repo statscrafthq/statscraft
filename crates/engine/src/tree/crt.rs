@@ -536,6 +536,7 @@ impl Growth<'_> {
                 groups: Vec::new(),
                 statistic: 0.0,
                 df: 0.0,
+                df2: None,
                 sig: 0.0,
                 improvement: quest_split.is_none().then_some(gain),
                 surrogates,

@@ -4893,10 +4893,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  there is none. PRINT SURROGATES lists them with their association. METHOD PRUNE=SE(b) (b is 1 when\n\
                  omitted) cuts the grown tree back by repeatedly turning its weakest links into terminal nodes and\n\
                  keeps the smallest subtree whose risk is within b standard errors of the lowest risk, all from\n\
-                 the risk of the cases analyzed (there is no validation sample yet). PRINT IMPORTANCE and PLOT\n\
+                 the risk of the cases analyzed (the test sample's risk with a split sample). PRINT IMPORTANCE and PLOT\n\
                  IMPORTANCE give each predictor's importance: the improvements of the splits of the final tree\n\
                  where it is the main splitter or a surrogate, added up and shown relative to the largest. CRT also\n\
-                 takes a scale dependent (level [s], an explicit METHOD TYPE=CRT is needed): the least squares\n\
+                 takes a scale dependent (level [s]; CHAID and exhaustive CHAID do, merging and splitting by the ANOVA F\n\
+                 test of its means across the categories, with the same node tables): the least squares\n\
                  deviation, the within-node variance, replaces the impurity measure, PRIORS and the class tables do\n\
                  not apply, a node shows its mean and standard deviation and is assigned its mean, and the risk is\n\
                  the mean squared deviation from the terminal node means. SAVE gives NODEID and PREDVAL (the node\n\
@@ -4930,7 +4931,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  COSTS with a warning. /PRIORS ADJUST=YES (CRT and QUEST) multiplies each category's prior by the sum of\n\
                  its costs and scales the result to 1, then goes on as if there were no costs: the altered priors grow\n\
                  the tree, assign its nodes and weigh the risk. Not supported yet:\n\
-                 a scale dependent with CHAID, SPLITMERGED=YES, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 SPLITMERGED=YES, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,
