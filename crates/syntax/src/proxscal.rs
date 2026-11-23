@@ -243,9 +243,14 @@ fn sources(p: &mut Parser) -> PResult<Vec<String>> {
 fn restriction_variables(p: &mut Parser) -> PResult<ProxscalVariables> {
     let file = out_target(p)?;
     let (mut variables, mut first) = (Vec::new(), None);
-    // ALL, like a list left out, takes every variable of the file
-    if p.eat_keyword("ALL") {
-    } else if p.eat_keyword("FIRST") {
+    // ALL, like a list left out, takes every variable of the file; FIRST(n) the first n
+    let next_is = |p: &Parser, punct: Punct| p.peek_at(1) == Some(&TokenKind::Punct(punct));
+    let all_alone = p.at_keyword("ALL")
+        && (p.peek_at(1).is_none() || next_is(p, Punct::LParen) || next_is(p, Punct::Slash));
+    if all_alone {
+        p.pos += 1;
+    } else if p.at_keyword("FIRST") && next_is(p, Punct::LParen) {
+        p.pos += 1;
         first = Some(whole_in_parens(p, "the number of variables", 1)?);
     } else if !at_end(p) && !p.at(Punct::LParen) {
         variables = p.var_list()?;

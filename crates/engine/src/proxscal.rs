@@ -561,8 +561,9 @@ impl Engine {
                 _ => None,
             };
             let raw = match solutions.last() {
-                // the next smaller dimensionality goes on from the last one on principal axes
-                Some((_, _, done)) => {
+                // the next smaller dimensionality goes on from the last solution (on principal axes with
+                // fixed coordinates or independent variables, whose axes are pinned down)
+                Some((_, raw, done)) => {
                     let (z, a, start) = match (&restricted, &variables) {
                         // fixed coordinates keep the axes: the last dimension goes
                         (Some(_), _) => (
@@ -580,7 +581,7 @@ impl Engine {
                             (mdsv::space(&kept), vec![mds::identity(p); m], Some(kept))
                         }
                         _ => {
-                            let (z, a) = mds::reduce(model, done);
+                            let (z, a) = mds::reduce(model, raw);
                             (z, a, None)
                         }
                     };

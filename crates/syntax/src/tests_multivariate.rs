@@ -605,6 +605,15 @@ fn proxscal_defaults_and_keywords() {
         .restrict_variables
         .unwrap();
     assert!(v.variables.is_empty() && v.first.is_none() && v.kinds.is_empty());
+    // FIRST and ALL are keywords only where the syntax has them
+    let v = proxscal("PROXSCAL a b c /RESTRICTIONS=VARIABLES(f) first all.")
+        .restrict_variables
+        .unwrap();
+    assert!(v.first.is_none() && v.variables.len() == 2);
+    let v = proxscal("PROXSCAL a b c /RESTRICTIONS=VARIABLES(f) ALL (NOMINAL) /PRINT=NONE.")
+        .restrict_variables
+        .unwrap();
+    assert!(v.variables.is_empty() && v.kinds == [VariableTransformation::Nominal]);
     // the last RESTRICTIONS wins
     let c = proxscal("PROXSCAL a b c /RESTRICTIONS=VARIABLES(f) /RESTRICTIONS=COORDINATES(g).");
     assert!(c.restrict_variables.is_none() && c.restrict_coordinates.is_some());
