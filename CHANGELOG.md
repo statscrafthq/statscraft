@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- TREE /PROFITS CUSTOM=category [revenue expense] ...: profit summary tables (average profit, ROI and index by node, cumulatively and by percentile) for a categorical dependent, and /PLOT PROFIT and ROI.
 - TREE /RULES NODES=TOPN(n), TOPPCT(p) and MININDEX(v) write rules for the terminal nodes with the largest index values of the first target category, and OUTFILE='file' writes the rules to a text file.
 - TREE /RULES NODES=TERMINAL | ALL SYNTAX=INTERNAL | SQL | GENERIC TYPE=SCORING | SELECTION SURROGATES LABELS: the tree as rules, in a Rules table: DO IF blocks of the command language (run in the tests and agreeing with SAVE), SQL, or sentences with labels; surrogates and the larger side route cases with missing values as the tree does. TOPN, TOPPCT, MININDEX and OUTFILE come next.
 - TREE gain summaries for a scale dependent: the node table gains cumulative size, mean and index (CUMULATIVE=NO leaves them out), GAIN TYPE=[PTILE] INCREMENT=n adds the percentile table, SUMMARYTABLE=NO turns the summaries off, and CATEGORYTABLE no longer does.

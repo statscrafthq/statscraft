@@ -1444,3 +1444,256 @@ fn summarytable_no_removes_the_scale_summaries_and_category_tables_are_ignored_w
             .any(|w| w.contains("GAIN CATEGORYTABLE"))
     );
 }
+
+const PROFITS: [(f64, f64); 3] = [(10.0, 2.0), (4.0, 3.0), (0.0, 1.0)];
+
+/// The profit summary rows of the nodes in `order` from class counts: N, size %, average profit,
+/// ROI %, index %, and the same cumulatively; with `priors` (the shares of the data, or others).
+fn profit_rows(counts: &[(usize, [f64; 3])], priors: [f64; 3], order: &[usize]) -> Vec<Vec<f64>> {
+    let totals: Vec<f64> = (0..3)
+        .map(|j| counts.iter().map(|c| c.1[j]).sum())
+        .collect();
+    let figures = |node: usize| {
+        let c = counts.iter().find(|c| c.0 == node).expect("a node").1;
+        let share = |j: usize| priors[j] * c[j] / totals[j];
+        let w: f64 = (0..3).map(share).sum();
+        let a: f64 = (0..3)
+            .map(|j| share(j) * (PROFITS[j].0 - PROFITS[j].1))
+            .sum();
+        let b: f64 = (0..3).map(|j| share(j) * PROFITS[j].1).sum();
+        (c.iter().sum::<f64>(), w, a, b)
+    };
+    let all_w: f64 = counts.iter().map(|c| figures(c.0).1).sum();
+    let base: f64 = (0..3)
+        .map(|j| priors[j] * (PROFITS[j].0 - PROFITS[j].1))
+        .sum();
+    let (mut sn, mut sw, mut sa, mut sb) = (0.0, 0.0, 0.0, 0.0);
+    order
+        .iter()
+        .map(|&node| {
+            let (n, w, a, b) = figures(node);
+            (sn, sw, sa, sb) = (sn + n, sw + w, sa + a, sb + b);
+            let mut row = Vec::new();
+            for (n, w, a, b) in [(n, w, a, b), (sn, sw, sa, sb)] {
+                row.extend([
+                    n,
+                    100.0 * w / all_w,
+                    a / w,
+                    100.0 * a / b,
+                    100.0 * (a / w) / base,
+                ]);
+            }
+            row
+        })
+        .collect()
+}
+
+#[test]
+fn profit_summaries_average_the_profit_of_the_cases_in_each_node() {
+    let clause = "/PROFITS CUSTOM=1 [10 2] 2 [4 3] 3 [0 1]";
+    for (priors_clause, given, validated) in [
+        ("", [0.0; 3], false),
+        ("/PRIORS EQUAL", [1.0 / 3.0; 3], false),
+        ("/PRIORS CUSTOM=1 [5] 2 [3] 3 [2]", [0.5, 0.3, 0.2], true),
+    ] {
+        let mut engine = engine();
+        run(&mut engine, "WEIGHT BY w.");
+        let validation = if validated {
+            "/VALIDATION TYPE=SPLITSAMPLE(tr)"
+        } else {
+            ""
+        };
+        let tables = run(
+            &mut engine,
+            &format!(
+                "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT {priors_clause} {clause} {SMALL} {validation} \
+                 /GAIN SUMMARYTABLE=YES CATEGORYTABLE=NO CUMULATIVE=YES /SAVE NODEID(node) /TREE DISPLAY=NONE."
+            ),
+        );
+        let shares = |sample: Option<f64>| -> [f64; 3] {
+            if given != [0.0; 3] {
+                return given;
+            }
+            let counts = terminal_counts(&engine, sample);
+            let totals: Vec<f64> = (0..3)
+                .map(|j| counts.iter().map(|c| c.1[j]).sum())
+                .collect();
+            let n: f64 = totals.iter().sum();
+            [totals[0] / n, totals[1] / n, totals[2] / n]
+        };
+        let training = terminal_counts(&engine, validated.then_some(1.0));
+        let mut order: Vec<usize> = training.iter().map(|c| c.0).collect();
+        let score = |node: usize| {
+            let rows = profit_rows(&training, shares(validated.then_some(1.0)), &[node]);
+            (rows[0][2] * 1e9).round() as i64
+        };
+        order.sort_by_key(|&n| std::cmp::Reverse(score(n)));
+        let samples: Vec<(String, Option<f64>)> = if validated {
+            vec![
+                (
+                    "Profit Summary for Nodes (Training Sample)".into(),
+                    Some(1.0),
+                ),
+                ("Profit Summary for Nodes (Test Sample)".into(), Some(0.0)),
+            ]
+        } else {
+            vec![("Profit Summary for Nodes".into(), None)]
+        };
+        for (title, sample) in samples {
+            let found = tables.iter().find(|t| t.title == title).expect(&title);
+            let counts = terminal_counts(&engine, sample);
+            let want = profit_rows(&counts, shares(sample), &order);
+            assert_eq!(found.rows.len(), want.len(), "{title}");
+            for (row, want) in found.rows.iter().zip(&want) {
+                for (k, expected) in want.iter().enumerate() {
+                    let got = number(&row[1 + k]);
+                    assert!(
+                        (got - expected).abs() <= 1e-9 * expected.abs().max(1e-12),
+                        "{priors_clause} {title} column {k}: {got} against {expected}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn profit_and_roi_charts_end_at_the_samples_average_profit_and_return() {
+    let mut engine = engine();
+    run(&mut engine, "WEIGHT BY w.");
+    run(
+        &mut engine,
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] /METHOD TYPE=CRT {SMALL} /PROFITS CUSTOM=1 [10 2] 2 [4 3] 3 [0 1] \
+             /PLOT PROFIT ROI INCREMENT=25 /GAIN SUMMARYTABLE=NO /TREE DISPLAY=NONE."
+        ),
+    );
+    let charts = engine.take_charts();
+    assert_eq!(charts.len(), 2);
+    assert_eq!(charts[0].title, "Profit chart");
+    assert_eq!(charts[1].title, "ROI chart");
+    // the whole sample: the profit and the expense by class, weighted by the classes' counts
+    let (y, w) = (values(&engine, "y3"), values(&engine, "w"));
+    let n: f64 = w.iter().sum();
+    let (mut profit, mut expense) = (0.0, 0.0);
+    for i in 0..y.len() {
+        let (r, e) = PROFITS[y[i] as usize - 1];
+        profit += w[i] * (r - e);
+        expense += w[i] * e;
+    }
+    close(
+        *charts[0].series[0].values.last().unwrap(),
+        profit / n,
+        1e-9,
+    );
+    close(
+        *charts[1].series[0].values.last().unwrap(),
+        100.0 * profit / expense,
+        1e-9,
+    );
+}
+
+#[test]
+fn profits_need_every_category_and_a_categorical_dependent() {
+    let mut engine = engine();
+    let message = error(
+        &mut engine,
+        "TREE y3 [n] BY x1 [s] /PROFITS CUSTOM=1 [10 2] 2 [4 3].",
+    );
+    assert!(
+        message.contains("no revenue and expense for category 3"),
+        "{message}"
+    );
+    run(
+        &mut engine,
+        "TREE r [s] BY x1 [s] /METHOD TYPE=CRT /PROFITS CUSTOM=1 [10 2] /PLOT PROFIT.",
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("PROFITS needs a categorical"))
+    );
+    run(&mut engine, "TREE y3 [n] BY x1 [s] /PLOT PROFIT.");
+    assert!(engine.warnings().iter().any(|w| w.contains("need PROFITS")));
+    run(
+        &mut engine,
+        "TREE y3 [n] BY x1 [s] /PROFITS CUSTOM=1 [10 2] 2 [4 3] 3 [0 1] 9 [1 1].",
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("not in the analysis"))
+    );
+}
+
+#[test]
+fn profit_percentiles_interpolate_the_node_at_each_cut() {
+    for (priors_clause, priors) in [("", [0.0; 3]), ("/PRIORS EQUAL", [1.0 / 3.0; 3])] {
+        let mut engine = engine();
+        run(&mut engine, "WEIGHT BY w.");
+        let tables = run(
+            &mut engine,
+            &format!(
+                "TREE y3 [n] BY x1 [s] x2 [s] o [o] /METHOD TYPE=CRT {priors_clause} {SMALL} \
+                 /PROFITS CUSTOM=1 [10 2] 2 [4 3] 3 [0 1] /GAIN TYPE=[PTILE] INCREMENT=20 \
+                 /SAVE NODEID(node) /TREE DISPLAY=NONE."
+            ),
+        );
+        let counts = terminal_counts(&engine, None);
+        let totals: Vec<f64> = (0..3)
+            .map(|j| counts.iter().map(|c| c.1[j]).sum())
+            .collect();
+        let n: f64 = totals.iter().sum();
+        let priors = if priors == [0.0; 3] {
+            [totals[0] / n, totals[1] / n, totals[2] / n]
+        } else {
+            priors
+        };
+        // each node: cases, weight, profit numerator, expense numerator
+        let node = |id: usize| {
+            let c = counts.iter().find(|c| c.0 == id).unwrap().1;
+            let share = |j: usize| priors[j] * c[j] / totals[j];
+            (
+                c.iter().sum::<f64>(),
+                (0..3).map(share).sum::<f64>(),
+                (0..3)
+                    .map(|j| share(j) * (PROFITS[j].0 - PROFITS[j].1))
+                    .sum::<f64>(),
+                (0..3).map(|j| share(j) * PROFITS[j].1).sum::<f64>(),
+            )
+        };
+        let mut order: Vec<usize> = counts.iter().map(|c| c.0).collect();
+        order.sort_by_key(|&id| {
+            let (_, w, a, _) = node(id);
+            std::cmp::Reverse((a / w * 1e9).round() as i64)
+        });
+        let base: f64 = (0..3)
+            .map(|j| priors[j] * (PROFITS[j].0 - PROFITS[j].1))
+            .sum();
+        let found = tables
+            .iter()
+            .find(|t| t.title == "Profit Summary for Percentiles")
+            .expect("a table");
+        assert_eq!(found.rows.len(), 5);
+        for (k, row) in found.rows.iter().enumerate() {
+            let cut = n * (k + 1) as f64 * 0.2;
+            let (mut taken, mut w, mut a, mut b) = (0.0, 0.0, 0.0, 0.0);
+            for &id in &order {
+                let (size, wt, at, bt) = node(id);
+                if taken + size >= cut - 1e-9 {
+                    let part = (cut - taken) / size;
+                    (w, a, b) = (w + part * wt, a + part * at, b + part * bt);
+                    break;
+                }
+                taken += size;
+                (w, a, b) = (w + wt, a + at, b + bt);
+            }
+            assert_eq!(number(&row[1]), cut.round());
+            close(number(&row[2]), a / w, 1e-9);
+            close(number(&row[3]), 100.0 * a / b, 1e-9);
+            close(number(&row[4]), 100.0 * (a / w) / base, 1e-9);
+        }
+    }
+}

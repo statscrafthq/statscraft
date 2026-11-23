@@ -336,9 +336,12 @@ fn rescore(nodes: &[Node], class: &[usize], weight: &[f64], values: Option<&[f64
         .collect()
 }
 
-/// What the tree was checked against besides the cases it grew on.
+/// What the tree was checked against besides the cases it grew on, and the profits its summaries
+/// use.
 #[derive(Clone, Copy, Default)]
 struct Checks<'a> {
+    /// The revenue and expense of each class.
+    profits: Option<&'a gain::Profits>,
     /// The tree's nodes counting the test sample's cases.
     test: Option<&'a [Node]>,
     /// The cross-validated risk and its variance.
@@ -1002,6 +1005,9 @@ impl Engine {
             if command.costs.is_some() {
                 warnings.push(message("COSTS"));
             }
+            if command.profits.is_some() {
+                warnings.push(message("PROFITS"));
+            }
             if command.gain_table_given {
                 warnings.push(message("GAIN CATEGORYTABLE"));
             }
@@ -1372,6 +1378,14 @@ impl Engine {
         } else {
             (None, 0.0)
         };
+        let profits = if scale_dep {
+            None
+        } else {
+            profit_table(command, &classes, &labels, &dependent, &mut warnings)?
+        };
+        if (command.plot_profit || command.plot_roi) && profits.is_none() {
+            warnings.push("PLOT PROFIT and ROI need PROFITS; ignored".into());
+        }
         let costs = (!scale_dep)
             .then(|| custom_costs(command, &classes, &labels, &dependent, &mut warnings))
             .flatten();
@@ -1669,6 +1683,7 @@ impl Engine {
                 Checks {
                     test: tested.as_deref(),
                     cross,
+                    profits: profits.as_ref(),
                 },
             ),
             &coded,
@@ -2539,6 +2554,19 @@ impl Engine {
         };
         gains.node_tables(&mut out);
         gains.charts(charts);
+        if let Some(profits) = checks.profits {
+            let profit = gain::ProfitContext {
+                command,
+                samples: &samples,
+                training: nodes,
+                terminals: &terminals,
+                profits,
+                validated,
+                dependent: &shown.variable(dependent),
+            };
+            profit.tables(&mut out);
+            profit.charts(charts);
+        }
         Ok(out)
     }
 }
@@ -2646,6 +2674,45 @@ fn empirical_priors(command: &Tree) -> bool {
     !command.binary()
         || (command.priors == TreePriors::FromData
             && !(command.adjust_priors && command.costs.is_some()))
+}
+
+/// The revenue and expense of each class from `PROFITS CUSTOM`: every class needs both (an error
+/// otherwise), a category that is no class is ignored with a warning.
+fn profit_table(
+    command: &Tree,
+    classes: &[Key],
+    labels: &Shown,
+    dependent: &Variable,
+    warnings: &mut Vec<String>,
+) -> Result<Option<gain::Profits>, Error> {
+    let Some(given) = &command.profits else {
+        return Ok(None);
+    };
+    let mut figures: Vec<Option<(f64, f64)>> = vec![None; classes.len()];
+    for (value, revenue, expense) in given {
+        match classes.iter().position(|k| *k == key_of(value)) {
+            Some(j) => figures[j] = Some((*revenue, *expense)),
+            None => warnings.push(format!(
+                "PROFITS names a category of {} that is not in the analysis; ignored",
+                dependent.name()
+            )),
+        }
+    }
+    let mut profits = gain::Profits {
+        revenue: Vec::new(),
+        expense: Vec::new(),
+    };
+    for (j, found) in figures.iter().enumerate() {
+        let Some((revenue, expense)) = found else {
+            return Err(Error(format!(
+                "PROFITS gives no revenue and expense for category {}",
+                labels.value(dependent, &classes[j])
+            )));
+        };
+        profits.revenue.push(*revenue);
+        profits.expense.push(*expense);
+    }
+    Ok(Some(profits))
 }
 
 /// The cost matrix of `COSTS CUSTOM`: every cost 1 unless given, 0 on the diagonal (a nonzero one

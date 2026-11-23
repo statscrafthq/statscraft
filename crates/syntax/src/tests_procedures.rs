@@ -1270,9 +1270,10 @@ fn tree_subcommands() {
         Some(vec![(Value::Number(1.0), 1.0), (Value::Number(2.0), 2.5)])
     );
     assert!(t.plot_gain && t.plot_index && !t.plot_response && t.plot_increment == 5);
-    // ASSIGNMENT, PLOT ROI and PRIORS are accepted and said to be ignored (MAXSURROGATES=AUTO is
-    // the default and says nothing)
-    assert_eq!(t.ignored.len(), 3);
+    // PLOT ROI is kept (it needs PROFITS, which the engine checks); ASSIGNMENT and PRIORS are
+    // accepted and said to be ignored (MAXSURROGATES=AUTO is the default and says nothing)
+    assert!(t.plot_roi);
+    assert_eq!(t.ignored.len(), 2);
 }
 
 #[test]
@@ -1422,6 +1423,20 @@ fn tree_rules() {
 }
 
 #[test]
+fn tree_profits() {
+    let t = tree_of("TREE y BY x /PROFITS CUSTOM=1 [10 2] 2 [4 3] 1 [8 1] /PLOT PROFIT ROI.");
+    assert_eq!(
+        t.profits,
+        Some(vec![
+            (Value::Number(2.0), 4.0, 3.0),
+            (Value::Number(1.0), 8.0, 1.0)
+        ])
+    );
+    assert!(t.plot_profit && t.plot_roi);
+    assert!(tree_of("TREE y BY x.").profits.is_none());
+}
+
+#[test]
 fn tree_errors() {
     let message = |source: &str| err(source).message;
     assert_eq!(
@@ -1448,6 +1463,14 @@ fn tree_errors() {
     assert_eq!(
         message("TREE y BY x /COSTS CUSTOM=1 2 [-3]."),
         "a misclassification cost cannot be negative"
+    );
+    assert_eq!(
+        message("TREE y BY x /PROFITS CUSTOM=1 [10]."),
+        "unexpected ']'"
+    );
+    assert_eq!(
+        message("TREE y BY x /PROFITS 1 [1 2]."),
+        "unexpected number 1"
     );
     assert_eq!(
         message("TREE y BY x /COSTS CUSTOM=1."),

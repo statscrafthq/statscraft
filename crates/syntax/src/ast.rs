@@ -1420,6 +1420,8 @@ pub struct Tree {
     pub priors: TreePriors,
     /// `/PRIORS ADJUST=YES`: priors adjusted by the misclassification costs.
     pub adjust_priors: bool,
+    /// `/PROFITS CUSTOM`: each category with its revenue and expense.
+    pub profits: Option<Vec<(Value, f64, f64)>>,
     /// `/COSTS CUSTOM`: the actual category, the predicted category and the cost; None is EQUAL.
     pub costs: Option<Vec<(Value, Value, f64)>>,
     /// `/METHOD MAXSURROGATES`; None is AUTO.
@@ -1458,6 +1460,9 @@ pub struct Tree {
     pub plot_gain: bool,
     pub plot_response: bool,
     pub plot_index: bool,
+    /// `/PLOT PROFIT` and `ROI`: charts of the profit and the return on investment.
+    pub plot_profit: bool,
+    pub plot_roi: bool,
     /// `/PLOT INCREMENT`: the width of the percentile groups of the charts, in percent.
     pub plot_increment: usize,
     /// `/SAVE`: what to save, with the name or root given in parentheses.

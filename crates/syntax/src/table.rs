@@ -4860,7 +4860,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20    [/RULES NODES=TERMINAL | ALL | TOPN(n) | TOPPCT(p) | MININDEX(v) | NONE\n\
                  \x20            SYNTAX=INTERNAL | SQL | GENERIC TYPE=SCORING | SELECTION\n\
                  \x20            SURROGATES=INCLUDE | EXCLUDE LABELS=YES | NO OUTFILE='file']\n\
-                 \x20    [/PLOT GAIN RESPONSE INDEX INCREMENT=10].\n\
+                 \x20    [/PROFITS CUSTOM=category [revenue expense] ...]\n\
+                 \x20    [/PLOT GAIN RESPONSE INDEX PROFIT ROI INCREMENT=10].\n\
                  Levels: [S] scale, [O] ordinal, [N] or [C] nominal; without one the dictionary's level holds,\n\
                  and an unknown level comes from the data as in a data pass. The dependent is nominal\n\
                  (Pearson or likelihood-ratio chi-square) or ordinal (likelihood ratio against Goodman's row\n\
@@ -4955,8 +4956,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  and MININDEX(v) (a categorical dependent with target categories; the first one counts) write rules for\n\
                  the terminal nodes with the largest index, the first n, those holding the first p percent of the cases\n\
                  (the node that reaches p included), or those with an index of at least v, in order of index. OUTFILE\n\
-                 writes the rules to a text file. Not supported yet:\n\
-                 SPLITMERGED=YES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 writes the rules to a text file. PROFITS CUSTOM gives each category of a categorical dependent a\n\
+                 revenue and an expense; with it the summary tables (GAIN SUMMARYTABLE, TYPE, CUMULATIVE, INCREMENT)\n\
+                 list the terminal nodes by average profit (revenue less expense over the cases, in the node's\n\
+                 probability under other priors) with the return on investment (profit over expense, in percent) and\n\
+                 the index over the sample's average profit, node by node and by percentile, and PLOT PROFIT and\n\
+                 ROI chart the average profit and the return of the first p percent of the cases. Not supported yet:\n\
+                 SPLITMERGED=YES, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,

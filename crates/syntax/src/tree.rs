@@ -328,9 +328,9 @@ fn gain(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     Ok(())
 }
 
-/// `/PLOT`: GAIN, RESPONSE and INDEX are made; MEAN needs a scale dependent, PROFIT and ROI
-/// need profits and IMPORTANCE a CRT tree, so they are ignored with a warning, as the manual
-/// says. INCREMENT other than 1, 2, 5, 10, 20 or 25 keeps 10, with a warning.
+/// `/PLOT`: GAIN, RESPONSE, INDEX, PROFIT and ROI are made (the last two with profits); MEAN
+/// needs a scale dependent and IMPORTANCE a CRT tree, so they are ignored with a warning, as the
+/// manual says. INCREMENT other than 1, 2, 5, 10, 20 or 25 keeps 10, with a warning.
 fn plot(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     p.eat(Punct::Eq);
     while !at_end(p) {
@@ -343,9 +343,10 @@ fn plot(p: &mut Parser, command: &mut Tree) -> PResult<()> {
         } else if p.eat_keyword("MEAN") {
             let message = "PLOT MEAN needs a scale dependent variable; ignored";
             command.ignored.push(message.into());
-        } else if p.eat_keyword("PROFIT") || p.eat_keyword("ROI") {
-            let message = "PLOT PROFIT and ROI need profits, which are not supported yet; ignored";
-            command.ignored.push(message.into());
+        } else if p.eat_keyword("PROFIT") {
+            command.plot_profit = true;
+        } else if p.eat_keyword("ROI") {
+            command.plot_roi = true;
         } else if p.eat_keyword("IMPORTANCE") {
             command.plot_importance = true;
         } else if p.eat_keyword("INCREMENT") {
@@ -495,6 +496,34 @@ fn crt(p: &mut Parser, command: &mut Tree) -> PResult<()> {
             return Err(p.unexpected(&["IMPURITY", "MINIMPROVEMENT"]));
         }
     }
+    Ok(())
+}
+
+/// `category [revenue expense] ...` after PROFITS CUSTOM: at least one, the last of a category
+/// holding.
+fn profits(p: &mut Parser, command: &mut Tree) -> PResult<()> {
+    p.eat(Punct::Eq);
+    if !p.eat_keyword("CUSTOM") {
+        return Err(p.unexpected(&["CUSTOM"]));
+    }
+    p.eat(Punct::Eq);
+    let mut given: Vec<(Value, f64, f64)> = Vec::new();
+    while !at_end(p) {
+        let Some(value) = p.value() else {
+            return Err(p.unexpected(&["a category"]));
+        };
+        p.expect(Punct::LBracket)?;
+        let (Some(revenue), Some(expense)) = (p.number(), p.number()) else {
+            return Err(p.unexpected(&["a revenue and an expense"]));
+        };
+        p.expect(Punct::RBracket)?;
+        given.retain(|(v, ..)| *v != value);
+        given.push((value, revenue, expense));
+    }
+    if given.is_empty() {
+        return Err(p.unexpected(&["a category"]));
+    }
+    command.profits = Some(given);
     Ok(())
 }
 
@@ -826,6 +855,9 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         crt: false,
         validation: TreeValidation::None,
         rules: None,
+        profits: None,
+        plot_profit: false,
+        plot_roi: false,
         adjust_priors: false,
         costs: None,
         test_sample_only: false,
@@ -885,6 +917,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             "PRIORS" => priors(p, &mut command)?,
             "QUEST" => quest(p, &mut command)?,
             "RULES" => rules(p, &mut command)?,
+            "PROFITS" => profits(p, &mut command)?,
             "COSTS" => {
                 p.eat(Punct::Eq);
                 if p.eat_keyword("CUSTOM") {

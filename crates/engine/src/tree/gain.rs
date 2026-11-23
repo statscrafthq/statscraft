@@ -30,13 +30,15 @@ pub(super) struct Gain<'a> {
     pub empirical: bool,
 }
 
-/// The figures of one terminal node: count, target count, weight and numerator of the score.
+/// The figures of one terminal node: count, target count, weight and numerator of the score, and
+/// the numerator of the expense score (profits only).
 #[derive(Clone, Copy)]
 pub(super) struct Figures {
     pub n: f64,
     pub g: f64,
     pub w: f64,
     pub a: f64,
+    pub b: f64,
 }
 
 impl Gain<'_> {
@@ -52,7 +54,13 @@ impl Gain<'_> {
         let (node, root) = (&self.nodes[t], &self.nodes[0]);
         let (n, g) = (node.n, node.counts[self.target]);
         if self.empirical {
-            return Figures { n, g, w: n, a: g };
+            return Figures {
+                n,
+                g,
+                w: n,
+                a: g,
+                b: 0.0,
+            };
         }
         let share = |class: usize| {
             if root.counts[class] > 0.0 {
@@ -67,6 +75,7 @@ impl Gain<'_> {
             g,
             w,
             a: share(self.target),
+            b: 0.0,
         }
     }
 
@@ -109,6 +118,8 @@ pub(super) struct Percentile {
     pub gain: f64,
     pub gain_share: f64,
     pub score: f64,
+    /// The expense per case (profits only).
+    pub expense: f64,
     /// The terminal nodes that belong to it.
     pub nodes: Vec<usize>,
 }
@@ -163,10 +174,11 @@ fn percentile_rows(
         } else {
             0.0
         };
-        let (gain, w, a) = (
+        let (gain, w, a, b) = (
             before(|f| f.g) + part * f.g,
             before(|f| f.w) + part * f.w,
             before(|f| f.a) + part * f.a,
+            before(|f| f.b) + part * f.b,
         );
         // the nodes from the one that holds the previous cut (the next one when that cut falls
         // on a boundary) to the one that holds this cut
@@ -185,6 +197,7 @@ fn percentile_rows(
                 f64::NAN
             },
             score: if w > 0.0 { a / w } else { f64::NAN },
+            expense: if w > 0.0 { b / w } else { f64::NAN },
             nodes: order[from.min(k)..=k].to_vec(),
         });
         previous_cut = cut;
@@ -291,6 +304,7 @@ impl Context<'_> {
             g: 0.0,
             w: 0.0,
             a: 0.0,
+            b: 0.0,
         };
         let mut rows = Vec::new();
         for &t in &order {
@@ -300,6 +314,7 @@ impl Context<'_> {
                 g: sum.g + f.g,
                 w: sum.w + f.w,
                 a: sum.a + f.a,
+                b: sum.b + f.b,
             };
             let mut row = vec![text(t.to_string())];
             for f in if command.gain_cumulative {
@@ -558,6 +573,7 @@ impl MeanGain<'_> {
             g: 0.0,
             w: node.n,
             a,
+            b: 0.0,
         }
     }
 
@@ -754,6 +770,358 @@ impl MeanContext<'_> {
                 super::method_name(self.command)
             )),
             ..Table::default()
+        }
+    }
+}
+
+/// The revenue and the expense of each class (PROFITS CUSTOM).
+pub(super) struct Profits {
+    pub revenue: Vec<f64>,
+    pub expense: Vec<f64>,
+}
+
+/// The terminal nodes of a sample as the profit summaries see them: the score of a node is its
+/// average profit (revenue less expense of the classes of its cases), its expense score the
+/// average expense, and the return on investment the first over the second. With priors from the
+/// data the average runs over cases; with others over the node's probability, as in `Gain`.
+pub(super) struct ProfitGain<'a> {
+    pub nodes: &'a [Node],
+    pub profits: &'a Profits,
+    pub empirical: bool,
+}
+
+impl ProfitGain<'_> {
+    fn prior(&self, class: usize) -> f64 {
+        let root = &self.nodes[0];
+        root.assign[class] / root.assign.iter().sum::<f64>()
+    }
+
+    fn profit(&self, class: usize) -> f64 {
+        self.profits.revenue[class] - self.profits.expense[class]
+    }
+
+    pub(super) fn figures(&self, t: usize) -> Figures {
+        let (node, root) = (&self.nodes[t], &self.nodes[0]);
+        // the weight of each class's cases in the node: their count, or their probability
+        let share = |class: usize| {
+            if self.empirical {
+                node.counts[class]
+            } else if root.counts[class] > 0.0 {
+                self.prior(class) * node.counts[class] / root.counts[class]
+            } else {
+                0.0
+            }
+        };
+        let classes = node.counts.len();
+        Figures {
+            n: node.n,
+            g: 0.0,
+            w: (0..classes).map(share).sum(),
+            a: (0..classes).map(|j| share(j) * self.profit(j)).sum(),
+            b: (0..classes)
+                .map(|j| share(j) * self.profits.expense[j])
+                .sum(),
+        }
+    }
+
+    /// The average profit of the sample as a whole: what the index divides by.
+    pub(super) fn base(&self) -> f64 {
+        let root = &self.nodes[0];
+        let classes = root.counts.len();
+        if self.empirical {
+            (0..classes)
+                .map(|j| root.counts[j] * self.profit(j))
+                .sum::<f64>()
+                / root.n
+        } else {
+            (0..classes).map(|j| self.prior(j) * self.profit(j)).sum()
+        }
+    }
+
+    /// The terminal nodes by average profit, the largest first unless `ascending`; a node without
+    /// cases goes last.
+    pub(super) fn order(&self, terminals: &[usize], ascending: bool) -> Vec<usize> {
+        let key = |t: usize| {
+            let f = self.figures(t);
+            (f.w > 0.0).then(|| (f.a / f.w * 1e9).round() as i64)
+        };
+        let mut order = terminals.to_vec();
+        order.sort_by(|&a, &b| match (key(a), key(b)) {
+            (Some(x), Some(y)) if ascending => x.cmp(&y),
+            (Some(x), Some(y)) => y.cmp(&x),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        });
+        order
+    }
+
+    pub(super) fn percentiles(&self, order: &[usize], q: usize) -> Vec<Percentile> {
+        let figures: Vec<Figures> = order.iter().map(|&t| self.figures(t)).collect();
+        percentile_rows(&figures, order, self.nodes[0].n, 0.0, q)
+    }
+}
+
+/// What the profit summaries need.
+pub(super) struct ProfitContext<'a> {
+    pub command: &'a Tree,
+    pub samples: &'a [(&'a str, &'a [Node])],
+    pub training: &'a [Node],
+    pub terminals: &'a [usize],
+    pub profits: &'a Profits,
+    pub validated: bool,
+    pub dependent: &'a str,
+}
+
+/// The return on investment in percent: profit over expense; none without an expense.
+fn roi(profit: f64, expense: f64) -> Option<f64> {
+    (expense > 0.0).then(|| 100.0 * profit / expense)
+}
+
+impl ProfitContext<'_> {
+    fn gain<'a>(&self, nodes: &'a [Node]) -> ProfitGain<'a>
+    where
+        Self: 'a,
+    {
+        ProfitGain {
+            nodes,
+            profits: self.profits,
+            empirical: empirical_priors(self.command),
+        }
+    }
+
+    fn title(&self, kind: &str, label: &str) -> String {
+        if self.validated {
+            format!("Profit Summary for {kind} ({label} Sample)")
+        } else {
+            format!("Profit Summary for {kind}")
+        }
+    }
+
+    /// The profit summaries as asked: terminal nodes with cumulative figures, percentile groups.
+    pub(super) fn tables(&self, out: &mut Vec<Table>) {
+        if !self.command.gain_summary {
+            return;
+        }
+        for (label, ns) in self.samples {
+            let gain = self.gain(ns);
+            let order = self
+                .gain(self.training)
+                .order(self.terminals, self.command.gain_ascending);
+            if self.command.gain_node {
+                out.push(self.node_table(label, &gain, &order));
+            }
+            if self.command.gain_ptile {
+                out.push(self.percentile_table(label, &gain, &order));
+            }
+        }
+    }
+
+    fn node_table(&self, label: &str, gain: &ProfitGain, order: &[usize]) -> Table {
+        let total_w: f64 = self.terminals.iter().map(|&t| gain.figures(t).w).sum();
+        let base = gain.base();
+        let cumulative = self.command.gain_cumulative;
+        let mut columns = vec!["Node".to_string()];
+        let mut groups: Vec<Vec<String>> = vec![Vec::new()];
+        for set in if cumulative {
+            vec!["", "Cumulative"]
+        } else {
+            vec![""]
+        } {
+            for name in ["N", "Percent", "Average Profit", "ROI", "Index"] {
+                columns.push(name.to_string());
+                groups.push(if set.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![set.to_string()]
+                });
+            }
+        }
+        let mut sum = Figures {
+            n: 0.0,
+            g: 0.0,
+            w: 0.0,
+            a: 0.0,
+            b: 0.0,
+        };
+        let rows: Vec<Vec<Cell>> = order
+            .iter()
+            .map(|&t| {
+                let f = gain.figures(t);
+                sum = Figures {
+                    n: sum.n + f.n,
+                    g: 0.0,
+                    w: sum.w + f.w,
+                    a: sum.a + f.a,
+                    b: sum.b + f.b,
+                };
+                let mut row = vec![text(t.to_string())];
+                for f in if cumulative { vec![f, sum] } else { vec![f] } {
+                    let score = (f.w > 0.0).then(|| f.a / f.w);
+                    row.extend([
+                        Cell::Number(f.n),
+                        percent(f.w, total_w),
+                        score.map_or(Cell::Empty, Cell::Number),
+                        roi(f.a, f.b).map_or(Cell::Empty, Cell::Number),
+                        match score {
+                            Some(s) if base != 0.0 => Cell::Number(100.0 * s / base),
+                            _ => Cell::Empty,
+                        },
+                    ]);
+                }
+                row
+            })
+            .collect();
+        let formats = rows
+            .iter()
+            .map(|row| {
+                columns
+                    .iter()
+                    .zip(row)
+                    .map(|(c, _)| match c.as_str() {
+                        "N" => "F8.0".to_string(),
+                        "Percent" | "ROI" | "Index" => "PCT6.1".to_string(),
+                        "Average Profit" => "F10.3".to_string(),
+                        _ => String::new(),
+                    })
+                    .collect()
+            })
+            .collect();
+        Table {
+            title: self.title("Nodes", label),
+            row_headers: 1,
+            column_groups: groups,
+            columns,
+            rows,
+            formats,
+            caption: Some(format!("Dependent variable: {}.", self.dependent)),
+            ..Table::default()
+        }
+    }
+
+    fn percentile_table(&self, label: &str, gain: &ProfitGain, order: &[usize]) -> Table {
+        let base = gain.base();
+        let rows: Vec<Vec<Cell>> = gain
+            .percentiles(order, self.command.gain_increment)
+            .iter()
+            .map(|r| {
+                let score = (!r.score.is_nan()).then_some(r.score);
+                vec![
+                    Cell::Number(r.percent as f64),
+                    Cell::Number(r.size),
+                    score.map_or(Cell::Empty, Cell::Number),
+                    roi(r.score, r.expense).map_or(Cell::Empty, Cell::Number),
+                    match score {
+                        Some(s) if base != 0.0 => Cell::Number(100.0 * s / base),
+                        _ => Cell::Empty,
+                    },
+                    text(
+                        r.nodes
+                            .iter()
+                            .map(|t| t.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                ]
+            })
+            .collect();
+        let columns: Vec<String> = ["Percentile", "N", "Average Profit", "ROI", "Index", "Nodes"]
+            .map(String::from)
+            .to_vec();
+        let formats = vec![
+            vec![
+                "F8.0".to_string(),
+                "F8.0".into(),
+                "F10.3".into(),
+                "PCT6.1".into(),
+                "PCT6.1".into(),
+                String::new(),
+            ];
+            rows.len()
+        ];
+        Table {
+            title: self.title("Percentiles", label),
+            row_headers: 1,
+            column_groups: vec![Vec::new(); columns.len()],
+            columns,
+            rows,
+            formats,
+            caption: Some(format!("Dependent variable: {}.", self.dependent)),
+            ..Table::default()
+        }
+    }
+
+    /// The profit and ROI charts over percentile groups: the average profit, and the return on
+    /// investment in percent, of the first p percent of the cases at each percentile.
+    pub(super) fn charts(&self, charts: &mut Vec<crate::Chart>) {
+        use crate::chart::{Axis, Category, PERCENT_FORMAT, Series, Statistic};
+        let command = self.command;
+        let wanted = [(command.plot_profit, "Profit"), (command.plot_roi, "ROI")];
+        if !wanted.iter().any(|w| w.0) {
+            return;
+        }
+        let q = command.plot_increment;
+        let categories: Vec<Category> = (q..=100)
+            .step_by(q)
+            .map(|p| Category {
+                label: format!("{p}%"),
+                value: Cell::Number(p as f64),
+                missing: false,
+                bin: None,
+            })
+            .collect();
+        for (label, ns) in self.samples {
+            let gain = self.gain(ns);
+            let order = self
+                .gain(self.training)
+                .order(self.terminals, command.gain_ascending);
+            let rows = gain.percentiles(&order, q);
+            for (asked, name) in wanted {
+                if !asked {
+                    continue;
+                }
+                let (values, statistic) = if name == "Profit" {
+                    (rows.iter().map(|r| r.score).collect(), Statistic::Value)
+                } else {
+                    (
+                        rows.iter()
+                            .map(|r| roi(r.score, r.expense).unwrap_or(f64::NAN))
+                            .collect(),
+                        Statistic::Percent,
+                    )
+                };
+                let series = vec![Series {
+                    name: name.to_string(),
+                    statistic,
+                    variable: Some(self.dependent.to_string()),
+                    value: Cell::Empty,
+                    values,
+                }];
+                let axis = if name == "ROI" {
+                    Axis {
+                        format: PERCENT_FORMAT.into(),
+                        ..Axis::titled("ROI (%)")
+                    }
+                } else {
+                    Axis::titled("Average profit")
+                };
+                let mut chart = crate::Chart::lines(
+                    if self.validated {
+                        format!("{name} chart ({label} Sample)")
+                    } else {
+                        format!("{name} chart")
+                    },
+                    Axis::titled("Percentile"),
+                    axis,
+                    categories.clone(),
+                    series,
+                );
+                chart.footnote = Some(format!(
+                    "Dependent variable: {}. Cumulative over percentile groups of {q}%",
+                    self.dependent
+                ));
+                charts.push(chart);
+            }
         }
     }
 }
