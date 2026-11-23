@@ -2795,3 +2795,74 @@ fn repeated_measures_emmeans_compare_tests_the_effect_of_the_compared_factor() {
         );
     }
 }
+
+#[test]
+fn repeated_measures_profile_plots_draw_the_estimated_means_with_the_dependents_covariance() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 BY g /WSFACTOR=time 3 /PLOT=PROFILE(time*g) PROFILE(time) ERRORBAR=CI MEANREFERENCE=YES."
+        ),
+    );
+    let charts = engine.take_charts();
+    assert_eq!(charts.len(), 2);
+    let near =
+        |got: f64, want: f64| assert!((got - want).abs() <= 1e-7 * want.abs(), "{got} vs {want}");
+    // R: the cell means of the three dependents in each group (the earlier EMMEANS check)
+    let by_group = &charts[0];
+    assert_eq!(by_group.legend.as_deref(), Some("g"));
+    assert_eq!(by_group.categories.len(), 3);
+    assert_eq!(by_group.series.len(), 2, "a line for each group");
+    for (series, want) in by_group.series.iter().zip([
+        [9.15857143, 10.73, 12.29857143],
+        [9.43, 11.44857143, 13.05142857],
+    ]) {
+        for (got, want) in series.values.iter().zip(want) {
+            near(*got, want);
+        }
+    }
+    // the means of each time over both groups, with the 95% bars: the t quantile on 12 degrees
+    // of freedom times the standard errors 0.37619718, 0.27842548 and 0.25679540
+    let by_time = &charts[1];
+    assert_eq!(by_time.series.len(), 2);
+    for (got, want) in by_time.series[0]
+        .values
+        .iter()
+        .zip([9.29428571, 11.08928571, 12.675])
+    {
+        near(*got, want);
+    }
+    let bars = by_time.error_bars.as_ref().expect("error bars");
+    assert_eq!(bars.label, "95% CI");
+    for (got, want) in bars.margins[0]
+        .iter()
+        .zip([0.8196632423, 0.6066370079, 0.5595091121])
+    {
+        near(*got, want);
+    }
+    assert!(bars.margins[1].is_empty(), "the grand mean has no bars");
+    // a within-subjects factor has no variable behind its axis
+    assert_eq!(by_time.category_axis.variable, None);
+}
+
+#[test]
+fn profile_plots_with_measures_have_a_chart_for_each() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 b1 b2 b3 BY g /WSFACTOR=time 3 /MEASURE=A B /PLOT=PROFILE(time)."
+        ),
+    );
+    let charts = engine.take_charts();
+    assert_eq!(charts.len(), 2);
+    assert!(charts[0].title.ends_with("of A"), "{}", charts[0].title);
+    assert!(charts[1].title.ends_with("of B"), "{}", charts[1].title);
+    // the second measure's means are those of its own cells: R, the means of b1, b2 and b3
+    // over both groups (equal sizes)
+    let values = &charts[1].series[0].values;
+    for (got, want) in values.iter().zip([4.597142857, 3.567857143, 5.512142857]) {
+        assert!((got - want).abs() < 1e-8, "{got} vs {want}");
+    }
+}

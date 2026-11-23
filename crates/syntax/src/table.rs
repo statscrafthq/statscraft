@@ -202,7 +202,7 @@ macro_rules! glm_syntax {
                  multivariate model: the dependents are the cells of the within-subjects design for the first measure, then the\n\
                  second, and so on, the last WSFACTOR varying fastest; each measure has its own sphericity, averaged,\n\
                  contrast and between-subjects tests and the multivariate tests take the measures together. Not supported yet:\n\
-                 OUTFILE; with WSFACTOR also PLOT.")
+                 OUTFILE; with WSFACTOR also the SPREADLEVEL and RESIDUALS plots.")
     };
 }
 

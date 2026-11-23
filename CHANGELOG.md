@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- GLM PLOT=PROFILE with WSFACTOR: profile plots of the estimated marginal means over between-subjects and within-subjects factors (error bars and the grand mean line as without WSFACTOR; a chart per measure with MEASURE).
+
 ## 0.30.0 (2026-11-23)
 
 - TREE /PLOT MEAN for a scale dependent: the mean of the first p percent of the cases at each percentile group.

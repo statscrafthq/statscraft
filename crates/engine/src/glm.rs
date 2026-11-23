@@ -1101,11 +1101,6 @@ impl Engine {
         let dependent_texts: Vec<String> = dep_vars.iter().map(|v| shown.variable(v)).collect();
         let mut tables = Vec::new();
         if !command.wsfactors.is_empty() {
-            if !command.plots.is_empty() {
-                warnings.push(format!(
-                    "{name}: PLOT with WSFACTOR is not supported yet; no chart is made"
-                ));
-            }
             if command.save.iter().any(|(_, name)| name.is_some()) {
                 return Err(Error(format!(
                     "{name}: SAVE with a variable name is not supported yet with several dependent variables; leave the name out"
@@ -2731,8 +2726,6 @@ fn profile_plots(
     label_of: &dyn Fn(usize, usize) -> String,
     alpha: f64,
 ) -> Result<Vec<Chart>, Error> {
-    use crate::chart::{Axis, Category, ChartKind, ErrorBars, Series, Statistic};
-    use statscraft_syntax::ErrorBar;
     let h = fit.h();
     let mean_of = |l: &[f64]| emmean(fit, &h, l).unwrap_or((f64::NAN, f64::NAN));
     let factors: Vec<usize> = profile
@@ -2748,40 +2741,217 @@ fn profile_plots(
     if factors.len() > 3 {
         return Err(Error("PLOT PROFILE crosses at most three factors".into()));
     }
+    let with = covariate_values(d, &profile.with, "PLOT PROFILE")?;
+    let mut notes = vec![format!("Dependent variable: {dependent}")];
+    notes.extend(profile_covariate_note(d, &with));
+    let grand = profile
+        .mean_reference
+        .then(|| mean_of(&emmeans_l(d, fit, &[], &with)).0);
+    let plot_factors: Vec<PlotFactor> = factors
+        .iter()
+        .map(|&f| PlotFactor {
+            text: d.factor_texts[f].clone(),
+            variable: Some(d.factors[f].clone()),
+            labels: (0..d.values[f].len()).map(|l| label_of(f, l)).collect(),
+            values: d.values[f].clone(),
+        })
+        .collect();
+    let at = |levels: &[usize]| {
+        let fixed: Vec<(usize, usize)> = factors
+            .iter()
+            .copied()
+            .zip(levels.iter().copied())
+            .collect();
+        mean_of(&emmeans_l(d, fit, &fixed, &with))
+    };
+    Ok(draw_profile(
+        profile,
+        &plot_factors,
+        &at,
+        grand,
+        notes,
+        (dependent, alpha, fit.df_error()),
+    ))
+}
+
+/// The note on the values the covariates of a profile plot are held at.
+fn profile_covariate_note(d: &Data, with: &[(usize, f64)]) -> Option<String> {
+    if d.covariates.is_empty() {
+        return None;
+    }
+    let at: Vec<String> = (0..d.covariates.len())
+        .map(|c| {
+            let v = with
+                .iter()
+                .find(|w| w.0 == c)
+                .map_or_else(|| d.covariate_mean(&[c]), |w| w.1);
+            format!("{} = {}", d.covariates[c], round3(v))
+        })
+        .collect();
+    Some(format!("Covariates at {}", at.join(", ")))
+}
+
+/// l over the between-subjects parameters and c over the dependents of the estimated mean at the
+/// given levels of between-subjects factors (`fixed`: factor, level) and within-subjects factors
+/// (`within`: position in WSFACTOR, level); the factors left out are averaged with equal weights.
+fn rm_mean_vectors(
+    d: &Data,
+    fit: &Fit,
+    ws: &[statscraft_syntax::WsFactor],
+    with: &[(usize, f64)],
+    fixed: &[(usize, usize)],
+    within: &[(usize, usize)],
+) -> (Vec<f64>, Vec<f64>) {
+    let cells = combinations(&ws.iter().map(|w| w.levels).collect::<Vec<_>>());
+    let l = emmeans_l(d, fit, fixed, with);
+    let matches: Vec<bool> = cells
+        .iter()
+        .map(|cell| within.iter().all(|&(k, lv)| cell[k] == lv))
+        .collect();
+    let n = matches.iter().filter(|m| **m).count() as f64;
+    let c = matches
+        .iter()
+        .map(|&m| if m { 1.0 / n } else { 0.0 })
+        .collect();
+    (l, c)
+}
+
+/// PLOT=PROFILE of a repeated measures model: the estimated marginal means of the dependent
+/// variables (as EMMEANS gives them) along between-subjects and within-subjects factors, the
+/// within-subjects levels numbered from 1.
+fn rm_profile_plots(
+    command: &Glm,
+    d: &Data,
+    fit: &Fit,
+    ws: &[statscraft_syntax::WsFactor],
+    label_of: &dyn Fn(usize, usize) -> String,
+    measure: &str,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Chart>, Error> {
+    let mut charts = Vec::new();
+    let h = fit.h();
+    for plot in &command.plots {
+        let GlmPlot::Profile(profile) = plot else {
+            warnings.push(
+                "PLOT SPREADLEVEL and RESIDUALS are not available with WSFACTOR; they are left out"
+                    .into(),
+            );
+            continue;
+        };
+        if profile.factors.len() > 3 {
+            return Err(Error("PLOT PROFILE crosses at most three factors".into()));
+        }
+        // (within-subjects?, position)
+        let picks: Vec<(bool, usize)> = profile
+            .factors
+            .iter()
+            .map(|n| {
+                if let Some(f) = d.factors.iter().position(|v| v.eq_ignore_ascii_case(n)) {
+                    Ok((false, f))
+                } else if let Some(k) = ws.iter().position(|w| w.name.eq_ignore_ascii_case(n)) {
+                    Ok((true, k))
+                } else {
+                    Err(Error(format!(
+                        "PLOT PROFILE names {n}, which is neither a between-subjects nor a within-subjects factor"
+                    )))
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        let with = covariate_values(d, &profile.with, "PLOT PROFILE")?;
+        let plot_factors: Vec<PlotFactor> = picks
+            .iter()
+            .map(|&(within, k)| {
+                if within {
+                    let labels: Vec<String> = (1..=ws[k].levels).map(|l| l.to_string()).collect();
+                    PlotFactor {
+                        text: ws[k].name.clone(),
+                        variable: None,
+                        values: labels.clone(),
+                        labels,
+                    }
+                } else {
+                    PlotFactor {
+                        text: d.factor_texts[k].clone(),
+                        variable: Some(d.factors[k].clone()),
+                        labels: (0..d.values[k].len()).map(|l| label_of(k, l)).collect(),
+                        values: d.values[k].clone(),
+                    }
+                }
+            })
+            .collect();
+        let at = |levels: &[usize]| {
+            let fixed: Vec<(usize, usize)> = picks
+                .iter()
+                .zip(levels)
+                .filter(|((within, _), _)| !within)
+                .map(|(&(_, k), &l)| (k, l))
+                .collect();
+            let within: Vec<(usize, usize)> = picks
+                .iter()
+                .zip(levels)
+                .filter(|((within, _), _)| *within)
+                .map(|(&(_, k), &l)| (k, l))
+                .collect();
+            let (l, c) = rm_mean_vectors(d, fit, ws, &with, &fixed, &within);
+            combination_value(fit, &h, &vec![(1.0, l, c)]).unwrap_or((f64::NAN, f64::NAN))
+        };
+        let grand = profile.mean_reference.then(|| {
+            let (l, c) = rm_mean_vectors(d, fit, ws, &with, &[], &[]);
+            combination_value(fit, &h, &vec![(1.0, l, c)]).map_or(f64::NAN, |m| m.0)
+        });
+        let mut notes = vec![format!("Dependent variables: {measure}")];
+        notes.extend(profile_covariate_note(d, &with));
+        charts.extend(draw_profile(
+            profile,
+            &plot_factors,
+            &at,
+            grand,
+            notes,
+            (measure, command.alpha, fit.df_error()),
+        ));
+    }
+    Ok(charts)
+}
+
+/// A factor of a profile plot: what the axis, the legend and the series need.
+struct PlotFactor {
+    text: String,
+    /// The variable of a between-subjects factor; None for a within-subjects one.
+    variable: Option<String>,
+    labels: Vec<String>,
+    values: Vec<String>,
+}
+
+/// The charts of a profile: the means `mean_at` (mean and standard error at the levels of the
+/// factors in order) along the first factor, a line for each level of the second and a chart for
+/// each level of the third.
+fn draw_profile(
+    profile: &Profile,
+    factors: &[PlotFactor],
+    mean_at: &dyn Fn(&[usize]) -> (f64, f64),
+    grand: Option<f64>,
+    mut notes: Vec<String>,
+    (dependent, alpha, df): (&str, f64, f64),
+) -> Vec<Chart> {
+    use crate::chart::{Axis, Category, ChartKind, ErrorBars, Series, Statistic};
+    use statscraft_syntax::ErrorBar;
     // the bars' label and how many standard errors they reach on each side
     let bars = profile.error_bar.map(|e| match e {
         ErrorBar::Ci => (
             format!("{} CI", percent_title(alpha)),
-            t_quantile(alpha / 2.0, fit.df_error()),
+            t_quantile(alpha / 2.0, df),
         ),
         ErrorBar::Se(times) => (format!("{times} SE"), times),
     });
-    let with = covariate_values(d, &profile.with, "PLOT PROFILE")?;
-    let mut notes = vec![format!("Dependent variable: {dependent}")];
-    if !d.covariates.is_empty() {
-        let at: Vec<String> = (0..d.covariates.len())
-            .map(|c| {
-                let v = with
-                    .iter()
-                    .find(|w| w.0 == c)
-                    .map_or_else(|| d.covariate_mean(&[c]), |w| w.1);
-                format!("{} = {}", d.covariates[c], round3(v))
-            })
-            .collect();
-        notes.push(format!("Covariates at {}", at.join(", ")));
-    }
     if let Some((label, _)) = &bars {
         notes.push(format!("Error bars: {label}"));
     }
-    let grand = profile
-        .mean_reference
-        .then(|| mean_of(&emmeans_l(d, fit, &[], &with)).0);
-    let levels = |k: usize| factors.get(k).map_or(1, |&f| d.values[f].len());
-    let f0 = factors[0];
+    let levels = |k: usize| factors.get(k).map_or(1, |f| f.labels.len());
+    let f0 = &factors[0];
     let categories: Vec<Category> = (0..levels(0))
         .map(|l| Category {
-            label: label_of(f0, l),
-            value: Cell::Text(d.values[f0][l].clone()),
+            label: f0.labels[l].clone(),
+            value: Cell::Text(f0.values[l].clone()),
             missing: false,
             bin: None,
         })
@@ -2792,21 +2962,20 @@ fn profile_plots(
         let mut series: Vec<Series> = (0..levels(1))
             .map(|line| {
                 let (values, se): (Vec<f64>, Vec<f64>) = (0..levels(0))
-                    .map(|l| {
-                        let fixed: Vec<(usize, usize)> =
-                            factors.iter().copied().zip([l, line, panel]).collect();
-                        mean_of(&emmeans_l(d, fit, &fixed, &with))
-                    })
+                    .map(|l| mean_at(&[l, line, panel][..factors.len()]))
                     .unzip();
                 if let Some((_, times)) = &bars {
                     margins.push(se.iter().map(|s| times * s).collect());
                 }
                 match factors.get(1) {
-                    Some(&f1) => Series {
-                        name: label_of(f1, line),
+                    Some(f1) => Series {
+                        name: f1.labels[line].clone(),
                         statistic: Statistic::Mean,
-                        variable: Some(d.factors[f1].clone()),
-                        value: Cell::Text(d.values[f1][line].clone()),
+                        variable: f1.variable.clone(),
+                        value: f1
+                            .variable
+                            .as_ref()
+                            .map_or(Cell::Empty, |_| Cell::Text(f1.values[line].clone())),
                         values,
                     },
                     None => Series {
@@ -2831,18 +3000,14 @@ fn profile_plots(
             margins.push(Vec::new());
         }
         let mut title = format!("Estimated marginal means of {dependent}");
-        if let Some(&f2) = factors.get(2) {
-            title = format!(
-                "{title} at {} = {}",
-                d.factor_texts[f2],
-                label_of(f2, panel)
-            );
+        if let Some(f2) = factors.get(2) {
+            title = format!("{title} at {} = {}", f2.text, f2.labels[panel]);
         }
         let mut chart = Chart::lines(
             title,
             Axis {
-                variable: Some(d.factors[f0].clone()),
-                ..Axis::titled(d.factor_texts[f0].clone())
+                variable: f0.variable.clone(),
+                ..Axis::titled(f0.text.clone())
             },
             Axis::titled("Estimated marginal means"),
             categories.clone(),
@@ -2851,8 +3016,8 @@ fn profile_plots(
         if profile.bar {
             chart.kind = ChartKind::Bar;
         }
-        if let Some(&f1) = factors.get(1) {
-            chart.legend = Some(d.factor_texts[f1].clone());
+        if let Some(f1) = factors.get(1) {
+            chart.legend = Some(f1.text.clone());
         }
         chart.error_bars = bars.as_ref().map(|(label, _)| ErrorBars {
             label: label.clone(),
@@ -2862,7 +3027,7 @@ fn profile_plots(
         chart.footnote = Some(notes.join(". "));
         charts.push(chart);
     }
-    Ok(charts)
+    charts
 }
 
 /// SPREADLEVEL: every cell of the factors with more than one case, its mean against its
@@ -3333,33 +3498,17 @@ fn rm_emmeans_tables(
     let dfe = fit.df_error();
     let tc = t_quantile(command.alpha / 2.0, dfe);
     let level = percent_title(command.alpha);
-    let cells = combinations(&ws.iter().map(|w| w.levels).collect::<Vec<_>>());
     // l and c of the mean at the given levels of the factors of TABLES
     let at = |combo: &[usize]| -> (Vec<f64>, Vec<f64>) {
         let mut fixed = Vec::new();
-        let mut within = vec![None; ws.len()];
+        let mut within = Vec::new();
         for (w, &lv) in which.iter().zip(combo) {
             match *w {
                 Which::Between(f) => fixed.push((f, lv)),
-                Which::Within(k) => within[k] = Some(lv),
+                Which::Within(k) => within.push((k, lv)),
             }
         }
-        let l = emmeans_l(d, fit, &fixed, &with);
-        let matches: Vec<bool> = cells
-            .iter()
-            .map(|cell| {
-                within
-                    .iter()
-                    .zip(cell)
-                    .all(|(w, &lv)| w.is_none_or(|x| x == lv))
-            })
-            .collect();
-        let n = matches.iter().filter(|m| **m).count() as f64;
-        let c = matches
-            .iter()
-            .map(|&m| if m { 1.0 / n } else { 0.0 })
-            .collect();
-        (l, c)
+        rm_mean_vectors(d, fit, ws, &with, &fixed, &within)
     };
     let combos = combinations(&which.iter().map(size).collect::<Vec<_>>());
     let means: Vec<Combination> = combos
@@ -4761,9 +4910,11 @@ impl Engine {
         let mut taken: Vec<Vec<Table>> = Vec::new();
         for k in 0..m {
             let dk = d.columns(k * r..(k + 1) * r);
+            let mut named = single.clone();
+            named.measures = vec![names[k].clone()];
             let mut own = Vec::new();
             taken.push(self.repeated_measures(
-                &single,
+                &named,
                 &dk,
                 effects.clone(),
                 &dependents[k * r..(k + 1) * r],
@@ -5471,6 +5622,10 @@ impl Engine {
         for e in &command.emmeans {
             out.extend(rm_emmeans_tables(command, d, &fit, ws, e, label_of)?);
         }
+        let measure =
+            (command.measures.first().cloned()).unwrap_or_else(|| "MEASURE_1".to_string());
+        let charts = rm_profile_plots(command, d, &fit, ws, label_of, &measure, warnings)?;
+        self.charts.extend(charts);
         Ok(out)
     }
 }
