@@ -4980,7 +4980,6 @@ fn data_states(data: &Dataset) -> Vec<(String, Dialog)> {
     states
 }
 
-/// The macros defined by the commands of the session that ran, each name once.
 /// The text of an Edit menu item that undoes or redoes `syntax`: the verb and the run's first
 /// line, shortened.
 fn step_label(verb: &str, syntax: Option<&str>) -> String {
@@ -4993,6 +4992,7 @@ fn step_label(verb: &str, syntax: Option<&str>) -> String {
     }
 }
 
+/// The macros defined by the commands of the session that ran, each name once.
 fn session_macros(log: &[statscraft_engine::session::LogEntry]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for entry in log.iter().filter(|e| e.result.is_ok() && !e.undone) {
