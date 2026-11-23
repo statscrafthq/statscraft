@@ -18,7 +18,7 @@ PROXSCAL varlist | /MATRIX=IN('file' | dataset | *)
    [/PRINT=[NONE] [INPUT] [RANDOM] [HISTORY] [STRESS] [DECOMPOSITION] [COMMON] [DISTANCES] [WEIGHTS]
            [INDIVIDUAL] [TRANSFORMATIONS] [VARIABLES] [CORRELATIONS]]
    [/PLOT=[NONE] [STRESS] [COMMON] [WEIGHTS] [INDIVIDUAL[(sources | ALL)]] [TRANSFORMATIONS[(sources | ALL)]]
-          [RESIDUALS[(sources | ALL)]]]
+          [RESIDUALS[(sources | ALL)]] [VARIABLES[(variables | ALL)]] [CORRELATIONS]]
    [/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)] [VARIABLES(...)]].
 ```
 
@@ -32,9 +32,7 @@ Tables: Case Processing Summary; Stress and Fit Measures (normalized raw stress,
 
 RESTRICTIONS=COORDINATES fixes coordinates of the common space to those of a file with one case per object (the variables named, or its first numeric ones, one for each dimension; DIMENSIONS(min,max) uses the first columns for the smaller solutions). A missing value leaves that coordinate free. The free coordinates are estimated with the fixed ones held, the common space is not turned, so the fixed coordinates come out exactly as given (the stress does not depend on their scale), and the transformed proximities and distances are shown at the scale of the file.
 
-RESTRICTIONS=VARIABLES makes the common space a weighted sum of independent variables read from a file, one case per object: the variables named, the first n, or all. Each variable has a kind in parentheses, one per variable or one for all (INTERVAL when none): INTERVAL, NOMINAL, ORDINAL with KEEPTIES or UNTIE, or SPLINE with DEGREE and INKNOT, as for the proximities but without a sign condition. A missing value takes the fitted value. With fewer variables than dimensions the rest are free. PRINT VARIABLES gives the transformed variables (centered, sum of squares n) and their regression weights, CORRELATIONS their correlations with the dimensions; OUTFILE VARIABLES writes the transformed variables as VAR\_1, VAR\_2, and so on. Both restrictions go with the identity model only.
-
-Not supported yet: the VARIABLES and CORRELATIONS keywords of PLOT.
+RESTRICTIONS=VARIABLES makes the common space a weighted sum of independent variables read from a file, one case per object: the variables named, the first n, or all. Each variable has a kind in parentheses, one per variable or one for all (INTERVAL when none): INTERVAL, NOMINAL, ORDINAL with KEEPTIES or UNTIE, or SPLINE with DEGREE and INKNOT, as for the proximities but without a sign condition. A missing value takes the fitted value. With fewer variables than dimensions the rest are free. PRINT VARIABLES gives the transformed variables (centered, sum of squares n) and their regression weights, CORRELATIONS their correlations with the dimensions; OUTFILE VARIABLES writes the transformed variables as VAR\_1, VAR\_2, and so on. PLOT CORRELATIONS (on by default with the variables) draws each variable at its correlations with the dimensions and PLOT VARIABLES a Transformation Plot of each variable named (original against transformed values). Both restrictions go with the identity model only.
 
 ## Example
 

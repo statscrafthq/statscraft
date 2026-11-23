@@ -136,6 +136,10 @@ pub struct ProxscalPlot {
     pub individual: Option<Vec<String>>,
     pub transformations: Option<Vec<Vec<String>>>,
     pub residuals: Option<Vec<Vec<String>>>,
+    /// The independent variables to draw transformation plots of; empty for ALL.
+    pub variables: Option<Vec<String>>,
+    /// The correlations of the independent variables with the dimensions.
+    pub correlations: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -400,14 +404,20 @@ fn defaults() -> ProxscalPrint {
     }
 }
 
+/// COMMON, WEIGHTS and CORRELATIONS, what PLOT draws when nothing is asked for.
+fn default_plot() -> ProxscalPlot {
+    ProxscalPlot {
+        common: true,
+        weights: true,
+        correlations: true,
+        ..ProxscalPlot::default()
+    }
+}
+
 fn plot(p: &mut Parser) -> PResult<ProxscalPlot> {
     let mut plot = ProxscalPlot::default();
     if at_end(p) {
-        return Ok(ProxscalPlot {
-            common: true,
-            weights: true,
-            ..ProxscalPlot::default()
-        });
+        return Ok(default_plot());
     }
     while !at_end(p) {
         if p.eat_keyword("NONE") {
@@ -424,9 +434,10 @@ fn plot(p: &mut Parser) -> PResult<ProxscalPlot> {
             plot.transformations = Some(source_lists(p)?);
         } else if p.eat_keyword("RESIDUALS") {
             plot.residuals = Some(source_lists(p)?);
-        } else if p.eat_keyword("CORRELATIONS") || p.eat_keyword("VARIABLES") {
-            // the plots of the independent variables are not drawn yet: read and ignored
-            sources(p)?;
+        } else if p.eat_keyword("CORRELATIONS") {
+            plot.correlations = true;
+        } else if p.eat_keyword("VARIABLES") {
+            plot.variables = Some(sources(p)?);
         } else {
             return Err(p.unexpected(&[
                 "NONE",
@@ -436,6 +447,8 @@ fn plot(p: &mut Parser) -> PResult<ProxscalPlot> {
                 "INDIVIDUAL",
                 "TRANSFORMATIONS",
                 "RESIDUALS",
+                "VARIABLES",
+                "CORRELATIONS",
             ]));
         }
         p.eat(Punct::Comma);
@@ -470,11 +483,7 @@ pub(crate) fn proxscal(p: &mut Parser) -> PResult<Command> {
         diff_stress: 0.0001,
         min_stress: 0.0001,
         print: defaults(),
-        plot: ProxscalPlot {
-            common: true,
-            weights: true,
-            ..ProxscalPlot::default()
-        },
+        plot: default_plot(),
         outfile: ProxscalOutfile::default(),
         matrix_in: None,
     };

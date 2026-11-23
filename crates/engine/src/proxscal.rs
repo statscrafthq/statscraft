@@ -904,6 +904,59 @@ impl Engine {
                 *p,
             ));
         }
+        if let (Some(vs), Some(fit)) = (&variables, &done.variables) {
+            let h = vs.count();
+            if plot.correlations {
+                // a variable with no spread has no correlation to draw
+                let r = mdsv::correlations(fit, h, &done.z);
+                let shown: Vec<usize> = (0..h)
+                    .filter(|&j| r[j].iter().all(|v| v.is_finite()))
+                    .collect();
+                let names: Vec<String> = shown.iter().map(|&j| vs.names[j].clone()).collect();
+                let points: Matrix = shown.iter().map(|&j| r[j].clone()).collect();
+                charts.push(space_chart("Correlations".into(), &names, &points, *p));
+            }
+            if let Some(list) = &plot.variables {
+                for (j, name) in vs.names.iter().enumerate() {
+                    let asked =
+                        list.is_empty() || list.iter().any(|a| a.eq_ignore_ascii_case(name));
+                    if !asked {
+                        continue;
+                    }
+                    let points = (0..n)
+                        .filter_map(|i| {
+                            vs.values[j][i].map(|x| Point {
+                                x,
+                                y: fit.q[i][j],
+                                z: None,
+                                label: Some(input.objects[i].clone()),
+                            })
+                        })
+                        .collect();
+                    charts.push(Chart::plot(
+                        ChartKind::Scatter,
+                        format!("Transformation Plot: {name}"),
+                        Axis::titled("Original Values"),
+                        Axis::titled("Transformed Values"),
+                        Plot::Points {
+                            groups: vec![PointGroup {
+                                name: name.clone(),
+                                points,
+                            }],
+                            lines: Vec::new(),
+                            z_axis: None,
+                        },
+                    ));
+                }
+                for name in list {
+                    if !vs.names.iter().any(|v| v.eq_ignore_ascii_case(name)) {
+                        warnings.push(format!(
+                            "PROXSCAL: there is no independent variable {name} to plot"
+                        ));
+                    }
+                }
+            }
+        }
         if plot.weights && model == Model::Weighted && *p >= 2 {
             let points = input
                 .sources

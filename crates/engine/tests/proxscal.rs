@@ -1032,3 +1032,62 @@ fn a_start_file_needs_every_coordinate() {
     );
     std::fs::remove_dir_all(&dir).ok();
 }
+
+fn points_of(chart: &statscraft_engine::Chart) -> Vec<(f64, f64, Option<String>)> {
+    match chart.plot.as_ref().expect("a plot") {
+        statscraft_engine::plot::Plot::Points { groups, .. } => groups
+            .iter()
+            .flat_map(|g| g.points.iter().map(|p| (p.x, p.y, p.label.clone())))
+            .collect(),
+        other => panic!("not points: {other:?}"),
+    }
+}
+
+/// The plots of the independent variables: the correlations of each variable with the two
+/// dimensions are the points of the Correlations plot (the table's values), and a variable's
+/// transformation plot has a point for each object with the original and the transformed value.
+#[test]
+fn the_plots_of_the_independent_variables() {
+    let dir = folder("plots");
+    let gap: [&str; 8] = ["1", "3", ".", "4", "1", "4", "2", "3"];
+    let file = variable_file(&dir, "v.sav", &[("rank", gap), ("east", V1)]);
+    let mut engine = Engine::default();
+    let tables = run_on(
+        &mut engine,
+        &format!(
+            "{PLACES}PROXSCAL o1 TO o8 /RESTRICTIONS=VARIABLES('{file}') (ORDINAL INTERVAL) \
+             /PLOT=CORRELATIONS VARIABLES(rank) /PRINT=CORRELATIONS VARIABLES."
+        ),
+    );
+    let charts = engine.take_charts();
+    let titles: Vec<&str> = charts.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(titles, ["Correlations", "Transformation Plot: rank"]);
+    let table = table(&tables, "Correlations");
+    let points = points_of(&charts[0]);
+    assert_eq!(points.len(), 2);
+    for (j, (x, y, label)) in points.iter().enumerate() {
+        close(*x, number(&table.rows[j][1]), "x");
+        close(*y, number(&table.rows[j][2]), "y");
+        assert_eq!(label.as_deref(), Some(["rank", "east"][j]));
+    }
+    // the variable with a missing value has no point at that object
+    let q = column(&tables, "Transformed Independent Variables", 0);
+    let transformed = points_of(&charts[1]);
+    assert_eq!(transformed.len(), 7);
+    for (x, y, label) in &transformed {
+        let object: usize = label.as_deref().unwrap()[1..].parse::<usize>().unwrap() - 1;
+        assert!(object != 2);
+        close(*y, q[object], "transformed value");
+        let original = ["1", "3", ".", "4", "1", "4", "2", "3"][object];
+        close(*x, original.parse().unwrap(), "original value");
+    }
+    // the default plots of a restricted run: the common space and the correlations
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!("{PLACES}PROXSCAL o1 TO o8 /RESTRICTIONS=VARIABLES('{file}')."),
+    );
+    let titles: Vec<String> = engine.take_charts().into_iter().map(|c| c.title).collect();
+    assert_eq!(titles, ["Common Space", "Correlations"]);
+    std::fs::remove_dir_all(&dir).ok();
+}

@@ -2839,7 +2839,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/PRINT=[NONE] [INPUT] [RANDOM] [HISTORY] [STRESS] [DECOMPOSITION] [COMMON] [DISTANCES] [WEIGHTS]\n\
                  \x20          [INDIVIDUAL] [TRANSFORMATIONS] [VARIABLES] [CORRELATIONS]]\n\
                  \x20  [/PLOT=[NONE] [STRESS] [COMMON] [WEIGHTS] [INDIVIDUAL[(sources | ALL)]] [TRANSFORMATIONS[(sources | ALL)]]\n\
-                 \x20         [RESIDUALS[(sources | ALL)]]]\n\
+                 \x20         [RESIDUALS[(sources | ALL)]] [VARIABLES[(variables | ALL)]] [CORRELATIONS]]\n\
                  \x20  [/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)] [VARIABLES(...)]].\n\
                  The proximities are dissimilarities unless PROXIMITIES=SIMILARITIES. Without TABLE each case is a row of\n\
                  a square matrix and each variable a column; more cases than variables hold several matrices, one\n\
@@ -2885,8 +2885,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  condition. A missing value takes the fitted value. With fewer variables than dimensions the rest are\n\
                  free. PRINT VARIABLES gives the transformed variables (centered, sum of squares n) and their\n\
                  regression weights, CORRELATIONS their correlations with the dimensions; OUTFILE VARIABLES writes the\n\
-                 transformed variables as VAR_1, VAR_2, and so on. Both restrictions go with the identity model only.\n\
-                 Not supported yet: the VARIABLES and CORRELATIONS keywords of PLOT.",
+                 transformed variables as VAR_1, VAR_2, and so on. PLOT CORRELATIONS (on by default with the variables)\n\
+                 draws each variable at its correlations with the dimensions and PLOT VARIABLES a Transformation Plot of\n\
+                 each variable named (original against transformed values). Both restrictions go with the identity\n\
+                 model only.",
         example: "PROXSCAL brand1 TO brand6 /TRANSFORMATION=ORDINAL /CRITERIA=DIMENSIONS(1,3) /PRINT=COMMON STRESS HISTORY /PLOT=COMMON STRESS.",
         parse: proxscal::proxscal,
     },

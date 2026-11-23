@@ -630,6 +630,17 @@ fn proxscal_defaults_and_keywords() {
     };
     assert!(f.variables.is_empty());
     assert!(err("PROXSCAL a b c /INITIAL=CENTROIDS.").contains("word CENTROIDS"));
+    let c = proxscal("PROXSCAL a b c.");
+    assert!(c.plot.correlations && c.plot.common && c.plot.variables.is_none());
+    let c = proxscal("PROXSCAL a b c /PLOT=VARIABLES(x y) CORRELATIONS.");
+    assert_eq!(
+        c.plot.variables,
+        Some(vec!["x".to_string(), "y".to_string()])
+    );
+    assert!(c.plot.correlations && !c.plot.common);
+    let c = proxscal("PROXSCAL a b c /PLOT=VARIABLES(ALL).");
+    assert_eq!(c.plot.variables, Some(Vec::new()));
+    assert!(!c.plot.correlations);
 }
 
 #[test]
