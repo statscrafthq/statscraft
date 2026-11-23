@@ -514,3 +514,36 @@ fn rules_that_are_not_ready_say_so() {
     let error = engine.execute(&commands[0].command).expect_err("an error");
     assert!(error.0.contains("not supported yet"), "{error}");
 }
+
+#[test]
+fn a_generic_rule_says_a_group_with_the_missing_category_as_a_choice() {
+    // the group of a split that holds the missing category with values reads "(x <= v or x is
+    // missing)", never "x <= v and x is missing"
+    let mut engine = engine();
+    run(&mut engine, "WEIGHT BY w.");
+    let mut said_or = false;
+    for (method, extra) in [
+        ("CHAID", "/CHAID ALPHASPLIT=.5 ALPHAMERGE=.9"),
+        ("EXHAUSTIVECHAID", "/CHAID ALPHASPLIT=.5"),
+    ] {
+        let tables = run(
+            &mut engine,
+            &format!(
+                "TREE y3 [n] BY xm [s] z [s] o [o] /METHOD TYPE={method} {extra} \
+                 /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=12 MINCHILDSIZE=5 /RULES SYNTAX=GENERIC NODES=ALL /PRINT NONE /TREE DISPLAY=NONE."
+            ),
+        );
+        for line in rule_lines(&tables) {
+            for name in ["xm", "z"] {
+                let value_step =
+                    line.contains(&format!("{name} <=")) || line.contains(&format!("{name} >"));
+                assert!(
+                    !(value_step && line.contains(&format!(" and {name} is missing"))),
+                    "{line}"
+                );
+                said_or |= line.contains(&format!("or {name} is missing)"));
+            }
+        }
+    }
+    assert!(said_or, "no group held the missing category with values");
+}

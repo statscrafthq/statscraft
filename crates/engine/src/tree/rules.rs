@@ -104,6 +104,8 @@ enum Step {
     Range(usize, f64, f64),
     Values(usize, Vec<usize>),
     Missing(usize),
+    /// The step, or a missing value.
+    OrMissing(Box<Step>),
 }
 
 impl Rules<'_> {
@@ -317,34 +319,37 @@ impl Rules<'_> {
                 .filter(|&c| c != pr.missing())
                 .collect();
             let with_missing = codes.contains(&pr.missing());
-            let step = if present.is_empty() {
-                Step::Missing(p)
+            // the step for the categories the group holds, None when that is every value
+            let base: Option<Step> = if present.is_empty() {
+                None
             } else if pr.breaks.is_some() && !pr.numbers.is_empty() {
                 let (lo, hi) = (present[0], present[present.len() - 1]);
-                if lo == 0 {
+                Some(if lo == 0 {
                     Step::Cut(p, true, pr.numbers[hi])
                 } else {
                     Step::Cut(p, false, pr.numbers[lo - 1])
-                }
+                })
             } else if pr.breaks.is_some() {
                 let (lo, hi) = (present[0], present[present.len() - 1]);
                 let cuts = &pr.rule.cuts;
                 if lo == 0 && hi < cuts.len() {
-                    Step::Cut(p, true, cuts[hi])
+                    Some(Step::Cut(p, true, cuts[hi]))
                 } else if lo > 0 && hi >= cuts.len() {
-                    Step::Cut(p, false, cuts[lo - 1])
+                    Some(Step::Cut(p, false, cuts[lo - 1]))
                 } else if lo > 0 {
-                    Step::Range(p, cuts[lo - 1], cuts[hi])
+                    Some(Step::Range(p, cuts[lo - 1], cuts[hi]))
                 } else {
-                    Step::Missing(p)
+                    None
                 }
             } else {
-                Step::Values(p, present)
+                Some(Step::Values(p, present))
             };
-            let only_missing = matches!(step, Step::Missing(_));
-            steps.push(step);
-            if with_missing && !only_missing {
-                steps.push(Step::Missing(p));
+            match (base, with_missing) {
+                (Some(step), false) => steps.push(step),
+                (Some(step), true) => steps.push(Step::OrMissing(Box::new(step))),
+                (None, true) if codes.len() == 1 => steps.push(Step::Missing(p)),
+                // every value, missing ones too: no condition
+                (None, _) => {}
             }
             at = parent;
         }
@@ -572,47 +577,72 @@ impl Rules<'_> {
         lines
     }
 
+    /// The name of a variable as a sentence says it.
+    fn variable_text(&self, p: usize, labels: bool) -> String {
+        let info = &self.predictor(p).rule;
+        match (&info.label, labels) {
+            (Some(l), true) => l.clone(),
+            _ => info.name.clone(),
+        }
+    }
+
+    /// The category `c` of predictor `p` as a sentence says it.
+    fn category_text(&self, p: usize, c: usize, labels: bool) -> String {
+        let info = &self.predictor(p).rule;
+        match (&info.value_labels[c], labels) {
+            (Some(l), true) => l.clone(),
+            _ => match &info.keys[c] {
+                Key::Number(x) => format!("{x}"),
+                Key::Text(t) => t.clone(),
+            },
+        }
+    }
+
+    /// A step of the path as a phrase of a generic rule.
+    fn sentence(&self, step: &Step, labels: bool) -> String {
+        match step {
+            Step::Cut(p, true, v) => format!("{} <= {v}", self.variable_text(*p, labels)),
+            Step::Cut(p, false, v) => format!("{} > {v}", self.variable_text(*p, labels)),
+            Step::Range(p, lo, hi) => {
+                format!("{} > {lo} and <= {hi}", self.variable_text(*p, labels))
+            }
+            Step::Values(p, codes) => format!(
+                "{} is {}",
+                self.variable_text(*p, labels),
+                codes
+                    .iter()
+                    .map(|&c| self.category_text(*p, c, labels))
+                    .collect::<Vec<_>>()
+                    .join(" or ")
+            ),
+            Step::Missing(p) => format!("{} is missing", self.variable_text(*p, labels)),
+            Step::OrMissing(inner) => {
+                let p = match &**inner {
+                    Step::Cut(p, ..)
+                    | Step::Range(p, ..)
+                    | Step::Values(p, _)
+                    | Step::Missing(p) => *p,
+                    Step::OrMissing(_) => unreachable!("a step is wrapped once"),
+                };
+                format!(
+                    "({} or {} is missing)",
+                    self.sentence(inner, labels),
+                    self.variable_text(p, labels)
+                )
+            }
+        }
+    }
+
     fn generic(&self, scope: &[usize]) -> Vec<String> {
         let labels = self.rules.labels;
         let mut lines = Vec::new();
-        let variable = |p: usize| {
-            let info = &self.predictor(p).rule;
-            match (&info.label, labels) {
-                (Some(l), true) => l.clone(),
-                _ => info.name.clone(),
-            }
-        };
-        let category = |p: usize, c: usize| {
-            let info = &self.predictor(p).rule;
-            match (&info.value_labels[c], labels) {
-                (Some(l), true) => l.clone(),
-                _ => match &info.keys[c] {
-                    Key::Number(x) => format!("{x}"),
-                    Key::Text(t) => t.clone(),
-                },
-            }
-        };
         let selection = self.rules.selection;
         let mut selected = Vec::new();
         for &t in scope {
             let steps: Vec<String> = self
                 .steps(t)
                 .iter()
-                .map(|step| match step {
-                    Step::Cut(p, true, v) => format!("{} <= {v}", variable(*p)),
-                    Step::Cut(p, false, v) => format!("{} > {v}", variable(*p)),
-                    Step::Range(p, lo, hi) => format!("{} > {lo} and <= {hi}", variable(*p)),
-                    Step::Values(p, codes) => format!(
-                        "{} is {}",
-                        variable(*p),
-                        codes
-                            .iter()
-                            .map(|&c| category(*p, c))
-                            .collect::<Vec<_>>()
-                            .join(" or ")
-                    ),
-                    Step::Missing(p) => format!("{} is missing", variable(*p)),
-                })
+                .map(|step| self.sentence(step, labels))
                 .collect();
             let when = if steps.is_empty() {
                 "always".to_string()
