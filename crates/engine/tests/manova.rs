@@ -1952,10 +1952,25 @@ fn the_plots_of_the_cells_and_the_scores() {
             "{got:?} {w:?}"
         );
     }
-    chart(
+    // the line is that of a normal with the mean and deviation of the scores
+    let x: Vec<f64> = normal.iter().map(|p| p.0).collect();
+    let mean = x.iter().sum::<f64>() / 33.0;
+    let sd = (x.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / 32.0).sqrt();
+    let line_chart = chart(&charts, "MANOVA: normal Q-Q plot of the scores of y1");
+    match line_chart.plot.as_ref().unwrap() {
+        statscraft_engine::plot::Plot::Points { lines, .. } => {
+            assert!((lines[0].slope - 1.0 / sd).abs() < 1e-12);
+            assert!((lines[0].intercept + mean / sd).abs() < 1e-12);
+        }
+        other => panic!("{other:?}"),
+    }
+    // the detrended plot is the standardized score less the expected deviate: around 0
+    let detrended = points(chart(
         &charts,
         "MANOVA: detrended normal Q-Q plot of the scores of y1",
-    );
+    ));
+    assert!(detrended.iter().all(|p| p.1.abs() < 1.5), "{detrended:?}");
+    assert!((detrended[0].1 - ((13.9 - mean) / sd + 1.88950996033)).abs() < 1e-8);
     let z = points(chart(
         &charts,
         "MANOVA: half-normal plot of the within-cells correlations (Fisher's z)",

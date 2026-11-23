@@ -66,7 +66,9 @@ pub(super) fn cell_label(factors: &[Factor], levels: &[usize]) -> String {
 }
 
 /// The normal and the detrended normal plot of `values`, named by `what`: the i-th smallest of n
-/// against the normal quantile of i / (n + 1).
+/// against the normal quantile of i / (n + 1); the line is that of a normal distribution with
+/// the mean and standard deviation of the values, and the detrended plot shows the standardized
+/// value less the expected deviate.
 fn normal_charts(what: &str, axis: &str, values: &[f64]) -> Vec<Chart> {
     let mut sorted: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
     if sorted.is_empty() {
@@ -74,25 +76,31 @@ fn normal_charts(what: &str, axis: &str, values: &[f64]) -> Vec<Chart> {
     }
     sorted.sort_by(f64::total_cmp);
     let n = sorted.len() as f64;
+    let mean = sorted.iter().sum::<f64>() / n;
+    let sd = (sorted.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
+    if !(sd > 0.0 && sd.is_finite()) {
+        return Vec::new();
+    }
     let scores: Vec<f64> = (1..=sorted.len())
         .map(|i| normal_quantile(i as f64 / (n + 1.0)))
         .collect();
-    let draw = |kind: ChartKind, title: String, y: &str, deviation: bool, slope: f64| {
+    let draw = |kind: ChartKind, title: String, y: &str, deviation: bool| {
         let points: Vec<Point> = sorted
             .iter()
             .zip(&scores)
-            .map(|(&v, &s)| point(v, if deviation { v - s } else { s }, None))
+            .map(|(&v, &s)| point(v, if deviation { (v - mean) / sd - s } else { s }, None))
             .collect();
+        let (intercept, slope) = match deviation {
+            true => (0.0, 0.0),
+            false => (-mean / sd, 1.0 / sd),
+        };
         let mut chart = scatter(
             title,
             axis,
             y,
             axis,
             points,
-            Some(ReferenceLine {
-                intercept: 0.0,
-                slope,
-            }),
+            Some(ReferenceLine { intercept, slope }),
         );
         chart.kind = kind;
         chart
@@ -103,14 +111,12 @@ fn normal_charts(what: &str, axis: &str, values: &[f64]) -> Vec<Chart> {
             format!("MANOVA: normal Q-Q plot of {what}"),
             "Expected normal",
             false,
-            1.0,
         ),
         draw(
             ChartKind::DetrendedNormalQq,
             format!("MANOVA: detrended normal Q-Q plot of {what}"),
             "Deviation from normal",
             true,
-            0.0,
         ),
     ]
 }
