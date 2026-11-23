@@ -3,6 +3,7 @@
 ## Unreleased
 
 - GLM PLOT=PROFILE with WSFACTOR: profile plots of the estimated marginal means over between-subjects and within-subjects factors (error bars and the grand mean line as without WSFACTOR; a chart per measure with MEASURE).
+- PROXSCAL /RESTRICTIONS=COORDINATES('file' | dataset) [ALL | varlist]: fixes coordinates of the common space (a missing value frees that coordinate); the fixed ones come out exactly as given and the free ones minimize the stress with them held. Identity model only.
 
 ## 0.30.0 (2026-11-23)
 

@@ -397,6 +397,24 @@ impl Engine {
             warnings.push("PROXSCAL: one source only, so the identity model is used".to_string());
             model = Model::Identity;
         }
+        let restricted: Option<Vec<Vec<Option<f64>>>> = match &command.restrict_coordinates {
+            None => None,
+            Some(spec) => {
+                if model != Model::Identity {
+                    return Err(Error(
+                        "PROXSCAL: RESTRICTIONS go with MODEL=IDENTITY only".into(),
+                    ));
+                }
+                let fixed = self.file_coordinates("PROXSCAL", spec, n, max_dim, "fixed")?;
+                if fixed.iter().all(|r| r.iter().all(Option::is_none)) {
+                    warnings.push(
+                        "PROXSCAL: the file fixes no coordinate, so the restrictions change nothing"
+                            .into(),
+                    );
+                }
+                Some(fixed)
+            }
+        };
         let groups = match command.unconditional {
             true => vec![(0..m).collect()],
             false => (0..m).map(|k| vec![k]).collect(),
@@ -449,10 +467,29 @@ impl Engine {
         }
         let mut solutions: Vec<(usize, Solution, Solution)> = Vec::new();
         for &p in &dims {
+            // the fixed coordinates of the first p dimensions
+            let pinned: Option<Vec<Vec<Option<f64>>>> = restricted
+                .as_ref()
+                .map(|f| f.iter().map(|r| r[..p].to_vec()).collect());
             let raw = match solutions.last() {
                 Some((_, raw, _)) => {
-                    let (z, a) = mds::reduce(model, raw);
-                    mds::iterate(&problem, model, &criteria, z, a, start_dhat.clone())
+                    let (z, a) = match restricted {
+                        // fixed coordinates keep the axes: the last dimension goes
+                        Some(_) => (
+                            raw.z.iter().map(|r| r[..p].to_vec()).collect(),
+                            vec![mds::identity(p); m],
+                        ),
+                        None => mds::reduce(model, raw),
+                    };
+                    mds::iterate(
+                        &problem,
+                        model,
+                        &criteria,
+                        z,
+                        a,
+                        start_dhat.clone(),
+                        pinned.as_deref(),
+                    )
                 }
                 None => match command.initial {
                     ScalingStart::Simplex | ScalingStart::Torgerson => {
@@ -467,6 +504,7 @@ impl Engine {
                             z,
                             vec![mds::start_weights(model, p); m],
                             start_dhat.clone(),
+                            pinned.as_deref(),
                         )
                     }
                     ScalingStart::Random(starts) => {
@@ -482,6 +520,7 @@ impl Engine {
                                 z,
                                 vec![mds::start_weights(model, p); m],
                                 start_dhat.clone(),
+                                pinned.as_deref(),
                             );
                             let stress = s.history.last().copied().unwrap_or(1.0);
                             random_stress.push(stress);
@@ -496,7 +535,11 @@ impl Engine {
                     }
                 },
             };
-            let done = mds::finish(model, raw.clone());
+            // principal axes would move the fixed coordinates
+            let done = match restricted {
+                Some(_) => raw.clone(),
+                None => mds::finish(model, raw.clone()),
+            };
             solutions.push((p, raw, done));
         }
         let several = solutions.len() > 1;

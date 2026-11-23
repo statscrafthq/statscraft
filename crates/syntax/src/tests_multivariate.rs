@@ -562,6 +562,15 @@ fn proxscal_defaults_and_keywords() {
         ProxTransformation::Ordinal { untie: true }
     );
     assert_eq!(proxscal("PROXSCAL /MATRIX=IN(*).").matrix_in, Some(None));
+    assert_eq!(proxscal("PROXSCAL a b c.").restrict_coordinates, None);
+    let c = proxscal("PROXSCAL a b c /RESTRICTIONS=COORDINATES('f.sav') u TO v.")
+        .restrict_coordinates
+        .unwrap();
+    assert_eq!((c.file.as_str(), c.variables.len()), ("f.sav", 1));
+    let c = proxscal("PROXSCAL a b c /RESTRICTIONS=COORDINATES(set) ALL.")
+        .restrict_coordinates
+        .unwrap();
+    assert_eq!((c.file.as_str(), c.variables.len()), ("set", 0));
 }
 
 #[test]
@@ -570,7 +579,8 @@ fn proxscal_errors() {
     assert!(err("PROXSCAL a b c /CRITERIA=DIFFSTRESS(2).").contains("from 0 to 1"));
     assert!(err("PROXSCAL a b c /TRANSFORMATION=SPLINE DEGREE=4.").contains("1 to 3"));
     assert!(err("PROXSCAL a b c /MODEL=REDUCED(2).").contains("rank"));
-    assert!(err("PROXSCAL a b c /RESTRICTIONS=COORDINATES('f.sav').").contains("not supported"));
+    assert!(err("PROXSCAL a b c /RESTRICTIONS=VARIABLES('f.sav').").contains("not supported"));
+    assert!(err("PROXSCAL a b c /RESTRICTIONS=PLANE('f.sav').").contains("word PLANE"));
     assert!(err("PROXSCAL /SHAPE=UPPER.").contains("variable list"));
 }
 

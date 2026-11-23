@@ -423,3 +423,216 @@ fn the_reduced_rank_model_moves_the_common_space_with_few_sources() {
         .sum();
     assert!(beyond > 1e-3, "{rows:?}");
 }
+
+/// A data file of coordinates; `.` is a missing value.
+fn coordinate_file(dir: &std::path::Path, name: &str, rows: &[&str]) -> String {
+    let path = dir.join(name);
+    let source = format!(
+        "DATA LIST FREE /d1 d2.\nBEGIN DATA.\n{}\nEND DATA.\nSAVE OUTFILE='{}'.\n",
+        rows.join("\n"),
+        path.display()
+    );
+    run_on(&mut Engine::default(), &source);
+    path.display().to_string()
+}
+
+fn folder(name: &str) -> std::path::PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("statscraft-proxscal-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Fixed coordinates for the first four places; the rest are free. The expected numbers are
+/// the minimum of normalized raw stress over the free coordinates, found by BFGS from 60
+/// random starts in base R (its own gradient, the proximities normalized to n(n-1)/2 squares),
+/// with the fixed coordinates at the scale of the file.
+const FIXED_PLACES: [&str; 8] = [
+    "0.5 1.5", "5 4", "4.5 -2", "3.5 .", ". .", ". .", ". .", ". .",
+];
+
+fn close(got: f64, want: f64, what: &str) {
+    assert!((got - want).abs() < 1e-6, "{what}: {got} against {want}");
+}
+
+fn coordinates(tables: &[Table], title: &str) -> Vec<[f64; 2]> {
+    table(tables, title)
+        .rows
+        .iter()
+        .map(|r| [number(&r[1]), number(&r[2])])
+        .collect()
+}
+
+#[test]
+fn fixed_coordinates_stay_and_the_free_ones_reach_the_minimum() {
+    let dir = folder("fixed");
+    let file = coordinate_file(&dir, "fixed.sav", &FIXED_PLACES);
+    for initial in ["TORGERSON", "SIMPLEX"] {
+        let tables = run(
+            PLACES,
+            &format!(
+                "PROXSCAL o1 TO o8 /RESTRICTIONS=COORDINATES('{file}') /INITIAL={initial} \
+                 /CRITERIA=MAXITER(100000) DIFFSTRESS(0) MINSTRESS(0) /PRINT=COMMON STRESS HISTORY."
+            ),
+        );
+        let z = coordinates(&tables, "Final Coordinates");
+        let want = [
+            [0.5, 1.5],
+            [5.0, 4.0],
+            [4.5, -2.0],
+            [3.5, 3.723730359987],
+            [0.14900439135, 3.181169313738],
+            [-0.5153453172, -6.816864090725],
+            [1.25278937381, 3.587730851725],
+            [2.29264213491, 0.736442387854],
+        ];
+        for (i, (got, w)) in z.iter().zip(want).enumerate() {
+            // the majorization stops a little short of the R optimum in the last digits
+            assert!(
+                (got[0] - w[0]).abs() < 1e-5 && (got[1] - w[1]).abs() < 1e-5,
+                "{initial} object {i}: {got:?} against {w:?}"
+            );
+        }
+        // the fixed ones are exactly the file's
+        for (got, w) in z.iter().zip(want).take(3) {
+            assert!((got[0] - w[0]).abs() < 1e-12 && (got[1] - w[1]).abs() < 1e-12);
+        }
+        assert!((z[3][0] - 3.5).abs() < 1e-12);
+        let got = stress(&tables, "Stress and Fit Measures");
+        assert!((got - 0.007514758863).abs() < 1e-8, "{initial}: {got}");
+        // the stress never rises
+        let history: Vec<f64> = table(&tables, "Iteration History")
+            .rows
+            .iter()
+            .map(|r| number(&r[1]))
+            .collect();
+        assert!(history.len() > 5);
+        assert!(
+            history.windows(2).all(|w| w[1] <= w[0] + 1e-12),
+            "{history:?}"
+        );
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A lower dimensionality takes the first column of the file and keeps the axes.
+#[test]
+fn fewer_dimensions_use_the_first_columns_of_the_file() {
+    let dir = folder("one");
+    let file = coordinate_file(&dir, "one.sav", &FIXED_PLACES);
+    let tables = run(
+        PLACES,
+        &format!(
+            "PROXSCAL o1 TO o8 /RESTRICTIONS=COORDINATES('{file}') d1 /INITIAL=TORGERSON \
+             /CRITERIA=DIMENSIONS(1) MAXITER(100000) DIFFSTRESS(0) MINSTRESS(0) /PRINT=COMMON STRESS."
+        ),
+    );
+    // One dimension has several local minima. The solution from the classical start is the one
+    // below; in R it is a stationary point of the same stress (gradient 1.5e-9, polished to the
+    // same values), and the best of 60 random starts there is another, at 0.107106962198.
+    let z: Vec<f64> = table(&tables, "Final Coordinates")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    let want = [
+        0.5,
+        5.0,
+        4.5,
+        3.5,
+        1.62896282265,
+        -4.27785462579,
+        2.18213302570,
+        1.20683293895,
+    ];
+    for (i, (got, w)) in z.iter().zip(want).enumerate() {
+        close(*got, w, &format!("object {i}"));
+    }
+    let got = stress(&tables, "Stress and Fit Measures");
+    assert!((got - 0.111608665221).abs() < 1e-8, "{got}");
+    // from two down to one: the 1-D solution keeps the same fixed column
+    let both = run(
+        PLACES,
+        &format!(
+            "PROXSCAL o1 TO o8 /RESTRICTIONS=COORDINATES('{file}') /INITIAL=TORGERSON \
+             /CRITERIA=DIMENSIONS(1,2) MAXITER(100000) DIFFSTRESS(0) MINSTRESS(0) /PRINT=COMMON."
+        ),
+    );
+    let z1 = &table(&both, "Final Coordinates (1 Dimensions)").rows;
+    for (row, w) in z1.iter().zip([0.5, 5.0, 4.5, 3.5]) {
+        close(number(&row[1]), w, "fixed in one dimension");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// With every coordinate given nothing is estimated: the configuration is the file's and the
+/// stress is that of the fixed distances against the normalized proximities.
+#[test]
+fn a_file_that_fixes_everything_gives_its_own_stress() {
+    let dir = folder("all");
+    let rows = [
+        "0.2 0.1", "2.1 3.2", "4.3 0.9", "0.8 4.1", "3.2 2.8", "5.1 5.2", "0.1 5.4", "4.2 4.1",
+    ];
+    let file = coordinate_file(&dir, "all.sav", &rows);
+    let tables = run(
+        PLACES,
+        &format!("PROXSCAL o1 TO o8 /RESTRICTIONS=COORDINATES('{file}') ALL /PRINT=COMMON STRESS."),
+    );
+    let z = coordinates(&tables, "Final Coordinates");
+    let pts: Vec<[f64; 2]> = rows
+        .iter()
+        .map(|r| {
+            let v: Vec<f64> = r.split(' ').map(|v| v.parse().unwrap()).collect();
+            [v[0], v[1]]
+        })
+        .collect();
+    for (got, w) in z.iter().zip(&pts) {
+        close(got[0], w[0], "x");
+        close(got[1], w[1], "y");
+    }
+    // 1 - rho^2 / (eta_dhat eta_x) from the lower triangle of PLACES, worked out here
+    let delta: Vec<Vec<f64>> = PLACES
+        .lines()
+        .skip(2)
+        .take(8)
+        .map(|l| l.split_whitespace().map(|v| v.parse().unwrap()).collect())
+        .collect();
+    let (mut ee, mut ff, mut ef) = (0.0, 0.0, 0.0);
+    for i in 0..8 {
+        for j in 0..i {
+            let d = ((pts[i][0] - pts[j][0]).powi(2) + (pts[i][1] - pts[j][1]).powi(2)).sqrt();
+            ee += delta[i][j] * delta[i][j];
+            ff += d * d;
+            ef += delta[i][j] * d;
+        }
+    }
+    let expected = 1.0 - ef * ef / (ee * ff);
+    let got = stress(&tables, "Stress and Fit Measures");
+    assert!((got - expected).abs() < 1e-9, "{got} against {expected}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn restrictions_need_the_identity_model_and_a_file_of_the_right_size() {
+    let dir = folder("errors");
+    let short = coordinate_file(&dir, "short.sav", &FIXED_PLACES[..5]);
+    let seven = coordinate_file(&dir, "seven.sav", &FIXED_PLACES[..7]);
+    let mut engine = Engine::default();
+    let (commands, errors) = parse(&format!(
+        "{PLACES}PROXSCAL o1 TO o8 /RESTRICTIONS=COORDINATES('{short}').\n\
+         {JUDGES}PROXSCAL a1 TO a7 /MODEL=WEIGHTED /RESTRICTIONS=COORDINATES('{seven}').\n"
+    ));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut messages = Vec::new();
+    for command in &commands {
+        if let Err(e) = engine.execute(&command.command) {
+            messages.push(e.to_string());
+        }
+    }
+    assert!(
+        messages[0].contains("5 cases") && messages[0].contains("8 objects"),
+        "{messages:?}"
+    );
+    assert!(messages[1].contains("MODEL=IDENTITY only"), "{messages:?}");
+    std::fs::remove_dir_all(&dir).ok();
+}

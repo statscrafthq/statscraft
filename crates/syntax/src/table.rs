@@ -2833,6 +2833,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/INITIAL=SIMPLEX | TORGERSON | RANDOM[(n)]] [/WEIGHTS=varlist] [/CONDITION=MATRIX | UNCONDITIONAL]\n\
                  \x20  [/TRANSFORMATION=RATIO | INTERVAL | ORDINAL[(KEEPTIES | UNTIE)] | SPLINE [DEGREE=2] [INKNOT=1]]\n\
                  \x20  [/PROXIMITIES=DISSIMILARITIES | SIMILARITIES] [/MODEL=IDENTITY | WEIGHTED | GENERALIZED | REDUCED[(2)]]\n\
+                 \x20  [/RESTRICTIONS=COORDINATES('file' | dataset) [ALL | varlist]]\n\
                  \x20  [/ACCELERATION=NONE] [/CRITERIA=[DIMENSIONS(2[,max])] [MAXITER(100)] [DIFFSTRESS(.0001)] [MINSTRESS(.0001)]]\n\
                  \x20  [/PRINT=[NONE] [INPUT] [RANDOM] [HISTORY] [STRESS] [DECOMPOSITION] [COMMON] [DISTANCES] [WEIGHTS]\n\
                  \x20          [INDIVIDUAL] [TRANSFORMATIONS]]\n\
@@ -2867,8 +2868,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Common Space (a scatterplot matrix from three dimensions), Scree Plot of stress by dimensionality\n\
                  (STRESS), Dimension Weights, Individual Space, Transformation Plot and Residuals Plot. OUTFILE writes\n\
                  DIM_1, DIM_2, ... for the common space or the weights and OBJ_1, OBJ_2, ... for the distances and the\n\
-                 transformed proximities, the sources one below the other. Not supported yet: RESTRICTIONS, a start\n\
-                 from a file, and the VARIABLES and CORRELATIONS keywords of PRINT and PLOT.",
+                 transformed proximities, the sources one below the other.\n\
+                 RESTRICTIONS=COORDINATES fixes coordinates of the common space to those of a file with one case per\n\
+                 object (the variables named, or its first numeric ones, one for each dimension; DIMENSIONS(min,max)\n\
+                 uses the first columns for the smaller solutions). A missing value leaves that coordinate free. The\n\
+                 free coordinates are estimated with the fixed ones held, the common space is not turned, so the fixed\n\
+                 coordinates come out exactly as given (the stress does not depend on their scale), and the transformed\n\
+                 proximities and distances are shown at the scale of the file. It goes with the identity model only.\n\
+                 Not supported yet: RESTRICTIONS=VARIABLES, a start from a file, and the VARIABLES and CORRELATIONS\n\
+                 keywords of PRINT and PLOT.",
         example: "PROXSCAL brand1 TO brand6 /TRANSFORMATION=ORDINAL /CRITERIA=DIMENSIONS(1,3) /PRINT=COMMON STRESS HISTORY /PLOT=COMMON STRESS.",
         parse: proxscal::proxscal,
     },

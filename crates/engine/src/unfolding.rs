@@ -658,7 +658,7 @@ impl Unfolding {
 }
 
 /// Puts the given coordinates in `z`.
-fn pin(z: &mut Matrix, fixed: &[Vec<Option<f64>>]) {
+pub(crate) fn pin(z: &mut Matrix, fixed: &[Vec<Option<f64>>]) {
     for (row, given) in z.iter_mut().zip(fixed) {
         for (v, g) in row.iter_mut().zip(given) {
             if let Some(g) = g {
@@ -671,7 +671,7 @@ fn pin(z: &mut Matrix, fixed: &[Vec<Option<f64>>]) {
 /// Moves, turns and scales `z` so that the objects with all their coordinates given lie as
 /// near as possible to them (Procrustes), a start the fixed objects can live with. Nothing
 /// moves with fewer than two such objects or when they leave no rotation.
-fn align_to(z: &mut Matrix, fixed: &[Vec<Option<f64>>]) {
+pub(crate) fn align_to(z: &mut Matrix, fixed: &[Vec<Option<f64>>]) {
     let p = z.first().map_or(0, Vec::len);
     let whole: Vec<usize> = (0..z.len())
         .filter(|&i| fixed[i].iter().all(Option::is_some))
@@ -712,7 +712,7 @@ fn align_to(z: &mut Matrix, fixed: &[Vec<Option<f64>>]) {
 /// The majorization step of the identity model with fixed coordinates: per dimension the free
 /// coordinates solve V_FF z_F = t_F - V_FX z_X; a dimension without a fixed coordinate takes the
 /// usual step.
-fn pinned_step(
+pub(crate) fn pinned_step(
     v: &Matrix,
     vinv: &Matrix,
     c: &[Matrix],

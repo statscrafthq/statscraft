@@ -12,6 +12,8 @@
 //!   ORDINAL[(KEEPTIES | UNTIE)] or SPLINE [DEGREE=2] [INKNOT=1]; DEGREE from 1 to 3, INKNOT
 //!   from 0. PROXIMITIES=DISSIMILARITIES (default) or SIMILARITIES.
 //! - MODEL=IDENTITY (default), WEIGHTED, GENERALIZED or REDUCED[(2)]. ACCELERATION=NONE.
+//! - RESTRICTIONS=COORDINATES(file | dataset) [ALL | varlist]: fixed coordinates of the common
+//!   space. RESTRICTIONS=VARIABLES(...) is recognized and refused until it is built.
 //! - CRITERIA=DIMENSIONS(min[,max]) (2), MAXITER(n) (100), DIFFSTRESS(v) and MINSTRESS(v)
 //!   (0.0001, from 0 to 1).
 //! - PRINT: without the subcommand or keywords COMMON, WEIGHTS, STRESS (and VARIABLES,
@@ -25,6 +27,7 @@ use crate::cluster::matrix_source;
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
+use crate::prefscal::PrefscalFile;
 use crate::procedures::at_end;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +122,8 @@ pub struct Proxscal {
     pub similarities: bool,
     pub model: ScalingModel,
     pub acceleration: bool,
+    /// The file or dataset that holds the fixed coordinates of the common space.
+    pub restrict_coordinates: Option<PrefscalFile>,
     pub dimensions: (usize, usize),
     pub max_iterations: usize,
     pub diff_stress: f64,
@@ -362,6 +367,7 @@ pub(crate) fn proxscal(p: &mut Parser) -> PResult<Command> {
         similarities: false,
         model: ScalingModel::Identity,
         acceleration: true,
+        restrict_coordinates: None,
         dimensions: (2, 2),
         max_iterations: 100,
         diff_stress: 0.0001,
@@ -478,6 +484,24 @@ pub(crate) fn proxscal(p: &mut Parser) -> PResult<Command> {
                 return Err(p.unexpected(&["NONE"]));
             }
             command.acceleration = false;
+        } else if p.eat_keyword("RESTRICTIONS") {
+            p.eat(Punct::Eq);
+            if p.eat_keyword("COORDINATES") {
+                let file = out_target(p)?;
+                // ALL names every variable of the file, which is what leaving the list out does
+                let variables = match at_end(p) || p.eat_keyword("ALL") {
+                    true => Vec::new(),
+                    false => p.var_list()?,
+                };
+                command.restrict_coordinates = Some(PrefscalFile { file, variables });
+            } else if p.at_keyword("VARIABLES") {
+                return Err(SyntaxError::new(
+                    p.span(),
+                    "RESTRICTIONS=VARIABLES is not supported yet",
+                ));
+            } else {
+                return Err(p.unexpected(&["COORDINATES", "VARIABLES"]));
+            }
         } else if p.eat_keyword("CRITERIA") {
             p.eat(Punct::Eq);
             while !at_end(p) {
@@ -555,7 +579,7 @@ pub(crate) fn proxscal(p: &mut Parser) -> PResult<Command> {
             }
             command.matrix_in = Some(matrix_source(p)?);
         } else {
-            return Err(p.subcommand_error("PROXSCAL", &["RESTRICTIONS"]));
+            return Err(p.subcommand_error("PROXSCAL", &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

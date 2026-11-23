@@ -60,8 +60,9 @@ struct Layout {
 impl Engine {
     /// The coordinates a data file or dataset holds, one case per object: the variables named,
     /// else the first numeric ones, `p` of them. A user-missing value counts as missing.
-    fn file_coordinates(
+    pub(crate) fn file_coordinates(
         &self,
+        who: &str,
         spec: &PrefscalFile,
         objects: usize,
         p: usize,
@@ -78,7 +79,7 @@ impl Engine {
         };
         if names.len() < p {
             return Err(Error(format!(
-                "PREFSCAL: {} holds {} numeric variables for the {what} coordinates, but {p} dimensions \
+                "{who}: {} holds {} numeric variables for the {what} coordinates, but {p} dimensions \
                  (the largest of CRITERIA DIMENSIONS) need {p}",
                 spec.file,
                 names.len()
@@ -86,7 +87,7 @@ impl Engine {
         }
         if data.case_count() != objects {
             return Err(Error(format!(
-                "PREFSCAL: {} has {} cases for the {what} coordinates, but there are {objects} objects",
+                "{who}: {} has {} cases for the {what} coordinates, but there are {objects} objects",
                 spec.file,
                 data.case_count()
             )));
@@ -96,7 +97,7 @@ impl Engine {
             let variable = data.variable(name)?;
             let Values::Numeric(values) = variable.values() else {
                 return Err(Error(format!(
-                    "PREFSCAL: {name} in {} is a string variable, not coordinates",
+                    "{who}: {name} in {} is a string variable, not coordinates",
                     spec.file
                 )));
             };
@@ -414,11 +415,11 @@ impl Engine {
                         ));
                     }
                     let mut fixed = match rows {
-                        Some(f) => self.file_coordinates(f, n, max_dim, "row")?,
+                        Some(f) => self.file_coordinates("PREFSCAL", f, n, max_dim, "row")?,
                         None => vec![vec![None; max_dim]; n],
                     };
                     fixed.extend(match columns {
-                        Some(f) => self.file_coordinates(f, m, max_dim, "column")?,
+                        Some(f) => self.file_coordinates("PREFSCAL", f, m, max_dim, "column")?,
                         None => vec![vec![None; max_dim]; m],
                     });
                     Some(fixed)
@@ -426,7 +427,7 @@ impl Engine {
             };
         let file_start: Option<Matrix> = match &command.initial {
             PrefscalStart::File(f) => {
-                let given = self.file_coordinates(f, n + m, max_dim, "initial")?;
+                let given = self.file_coordinates("PREFSCAL", f, n + m, max_dim, "initial")?;
                 if given.iter().flatten().any(Option::is_none) {
                     return Err(Error(format!(
                         "PREFSCAL: the initial configuration in {} has missing values",

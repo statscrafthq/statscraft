@@ -29,6 +29,7 @@
 //!   object's coordinate (the first that is not 0) positive; diagonal weights are positive.
 
 use crate::matrix::{Matrix, inverse, multiply, symmetric_eigen, transpose};
+use crate::unfolding::{align_to, pin, pinned_step};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Model {
@@ -654,6 +655,31 @@ pub(crate) fn spline_bases(problem: &Problem) -> Vec<Matrix> {
     }
 }
 
+/// Dilates z to fit the transformed proximities best, about the origin of the fixed
+/// coordinates: only the dimensions with no fixed coordinate are centered. Returns the factor.
+fn dilate_fixed(
+    problem: &Problem,
+    dhat: &[Matrix],
+    z: &mut Matrix,
+    a: &[Matrix],
+    fixed: &[Vec<Option<f64>>],
+) -> f64 {
+    let p = z.first().map_or(0, Vec::len);
+    for d in 0..p {
+        if fixed.iter().all(|r| r[d].is_none()) {
+            let mean = z.iter().map(|r| r[d]).sum::<f64>() / z.len() as f64;
+            z.iter_mut().for_each(|r| r[d] -= mean);
+        }
+    }
+    let s = sums(problem, dhat, &spaces(z, a));
+    if s.eta_x > 0.0 && s.rho > 0.0 {
+        let factor = s.rho / s.eta_x;
+        scale(z, factor);
+        return factor;
+    }
+    1.0
+}
+
 /// Centers z and dilates it to fit the transformed proximities best.
 pub(crate) fn dilate(problem: &Problem, dhat: &[Matrix], z: &mut Matrix, a: &[Matrix]) {
     center(z);
@@ -800,27 +826,44 @@ pub(crate) fn iterate(
     mut z: Matrix,
     mut a: Vec<Matrix>,
     mut dhat: Vec<Matrix>,
+    fixed: Option<&[Vec<Option<f64>>]>,
 ) -> Solution {
     let n = problem.n;
     let p = z.first().map_or(0, Vec::len);
     let m = problem.w.len();
     let basis = spline_bases(problem);
-    let (_, vinv) = mean_laplacian(problem).expect("checked before");
+    let (v, vinv) = mean_laplacian(problem).expect("checked before");
     let laplacians: Vec<Matrix> = problem.w.iter().map(laplacian).collect();
+    let mut scale = 1.0;
     // with one Laplacian for all sources, or identity weights, Z = V^- T S^-1 is exact
     let same_weights = model == Model::Identity || problem.w.windows(2).all(|w| w[0] == w[1]);
-    dilate(problem, &dhat, &mut z, &a);
+    match fixed {
+        Some(fixed) => {
+            align_to(&mut z, fixed);
+            pin(&mut z, fixed);
+            scale = dilate_fixed(problem, &dhat, &mut z, &a, fixed);
+        }
+        None => dilate(problem, &dhat, &mut z, &a),
+    }
     let mut x = spaces(&z, &a);
     let mut stress = raw_stress(&sums(problem, &dhat, &x));
     let mut history = vec![stress];
-    let relaxed = criteria.acceleration && model == Model::Identity;
+    let relaxed = criteria.acceleration && model == Model::Identity && fixed.is_none();
     for _ in 0..criteria.max_iterations {
         if stress <= criteria.min_stress {
             break;
         }
         let c: Vec<Matrix> = (0..m).map(|k| bx(&problem.w[k], &dhat[k], &x[k])).collect();
+        let held: Option<Vec<Vec<Option<f64>>>> = fixed.map(|f| {
+            f.iter()
+                .map(|r| r.iter().map(|g| g.map(|g| g * scale)).collect())
+                .collect()
+        });
         let step = |relax: bool, z: &Matrix, a: &[Matrix]| -> (Matrix, Vec<Matrix>) {
-            let mut znew = update_z(&laplacians, &vinv, same_weights, &c, z, a);
+            let mut znew = match &held {
+                Some(held) => pinned_step(&v, &vinv, &c, z, held),
+                None => update_z(&laplacians, &vinv, same_weights, &c, z, a),
+            };
             if relax {
                 for i in 0..n {
                     for d in 0..p {
@@ -835,24 +878,35 @@ pub(crate) fn iterate(
             (znew, anew)
         };
         let attempt = |relax: bool| {
-            let (znew, anew) = step(relax, &z, &a);
-            let xnew = spaces(&znew, &anew);
+            let (mut znew, anew) = step(relax, &z, &a);
+            let mut xnew = spaces(&znew, &anew);
             let mut dnew = dhat.clone();
             transform(problem, &xnew, &mut dnew, &basis);
+            let mut factor = 1.0;
+            if let Some(fixed) = fixed {
+                factor = dilate_fixed(problem, &dnew, &mut znew, &anew, fixed);
+                xnew = spaces(&znew, &anew);
+            }
             let s = raw_stress(&sums(problem, &dnew, &xnew));
-            (znew, anew, xnew, dnew, s)
+            (znew, anew, xnew, dnew, s, factor)
         };
         let mut next = attempt(relaxed);
         if relaxed && next.4 > stress {
             next = attempt(false);
         }
-        let (znew, anew, xnew, dnew, s) = next;
+        let (znew, anew, xnew, dnew, s, factor) = next;
+        scale *= factor;
         let gain = stress - s;
         (z, a, x, dhat, stress) = (znew, anew, xnew, dnew, s);
         history.push(stress);
         if stress <= criteria.min_stress || gain <= criteria.diff_stress {
             break;
         }
+    }
+    if fixed.is_some() {
+        // back to the fixed coordinates; the distances and the transformed proximities with them
+        z.iter_mut().flatten().for_each(|v| *v /= scale);
+        dhat.iter_mut().for_each(|d| self::scale(d, 1.0 / scale));
     }
     Solution {
         z,
@@ -1305,6 +1359,7 @@ mod tests {
                 z,
                 vec![identity(2)],
                 dhat,
+                None,
             );
             let stress = *s.history.last().unwrap();
             assert!(stress < 1e-10, "{transform:?}: {stress}");
