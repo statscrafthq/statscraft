@@ -3526,11 +3526,255 @@ fn rm_emmeans_tables(
         columns,
         rows,
         Some(format!(
-            "Based on estimated marginal means. Adjustment for multiple comparisons: {}. The test of the effect itself (the Univariate and Multivariate Tests of COMPARE) is not given with WSFACTOR.",
+            "Based on estimated marginal means. Adjustment for multiple comparisons: {}.",
             adjustment_name(e.adjustment)
         )),
     ));
+    // the test of the effect of the compared factor at each combination of the others: a
+    // between-subjects factor is tested on the dependents' mean over the cells fixed (a
+    // univariate test), a within-subjects one by its contrasts of the dependents together (a
+    // multivariate test, L of the between-subjects part, M the differences of the cells)
+    let flags = flags_of(command);
+    let raw = fit.raw();
+    let mut mv_rows = Vec::new();
+    let mut sources = Vec::new();
+    for other in &other_combos {
+        let label = others
+            .iter()
+            .zip(other)
+            .map(|(&o, &lv)| format!("{} = {}", name_of(&which[o]), level_of(&which[o], lv)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let parts: Vec<(Vec<f64>, Vec<f64>)> = (0..k)
+            .map(|lv| {
+                let mut combo = vec![0; which.len()];
+                for (o, &i) in other.iter().zip(&others) {
+                    combo[i] = *o;
+                }
+                combo[pos] = lv;
+                at(&combo)
+            })
+            .collect();
+        match compared {
+            Which::Between(_) => {
+                let c = &parts[0].1;
+                let l: Matrix = (1..k)
+                    .map(|i| {
+                        parts[0]
+                            .0
+                            .iter()
+                            .zip(&parts[i].0)
+                            .map(|(a, b)| a - b)
+                            .collect()
+                    })
+                    .filter(|row: &Vec<f64>| fit.estimable(row, &h))
+                    .collect();
+                let m: Matrix = c.iter().map(|v| vec![*v]).collect();
+                let (ssh, df) = fit.hypothesis(&l, Some(&m), None);
+                let sse = quadratic(&m, &fit.s)[0][0];
+                let prefix = if label.is_empty() {
+                    String::new()
+                } else {
+                    format!("{label}: ")
+                };
+                sources.push(Source {
+                    label: format!("{prefix}Contrast"),
+                    ss: ssh[0][0],
+                    df: df as f64,
+                    tested: true,
+                });
+                sources.push(Source {
+                    label: format!("{prefix}Error"),
+                    ss: sse,
+                    df: dfe,
+                    tested: false,
+                });
+            }
+            Which::Within(_) => {
+                let l = vec![parts[0].0.clone()];
+                if !fit.estimable(&l[0], &h) {
+                    continue;
+                }
+                let m: Matrix = (0..parts[0].1.len())
+                    .map(|j| (1..k).map(|i| parts[0].1[j] - parts[i].1[j]).collect())
+                    .collect();
+                let (ssh, df) = fit.hypothesis(&l, Some(&m), None);
+                let se = quadratic(&m, &fit.s);
+                let scale = transformed_scale(&m, &raw);
+                for (i, mut row) in multivariate_rows(&ssh, &se, &scale, df as f64, dfe, &flags)
+                    .into_iter()
+                    .enumerate()
+                {
+                    row.insert(
+                        0,
+                        if i == 0 {
+                            text(label.clone())
+                        } else {
+                            Cell::Empty
+                        },
+                    );
+                    mv_rows.push(row);
+                }
+            }
+        }
+    }
+    let name = name_of(&compared);
+    if !sources.is_empty() {
+        // each combination has the error of its own cells' mean, so each F is its own
+        let mut rows = Vec::new();
+        for pair in sources.chunks(2) {
+            let (hyp, err) = (&pair[0], &pair[1]);
+            let f = (hyp.ss / hyp.df) / (err.ss / err.df);
+            rows.push(vec![
+                text(hyp.label.clone()),
+                number(Some(hyp.ss)),
+                number(Some(hyp.df)),
+                number(Some(hyp.ss / hyp.df)),
+                number(Some(f)),
+                number(Some(f_p(f, hyp.df, err.df))),
+            ]);
+            rows.push(vec![
+                text(err.label.clone()),
+                number(Some(err.ss)),
+                number(Some(err.df)),
+                number(Some(err.ss / err.df)),
+                Cell::Empty,
+                Cell::Empty,
+            ]);
+        }
+        out.push(table(
+            "Univariate Tests",
+            1,
+            plain(&["", "Sum of Squares", "df", "Mean Square", "F", "Sig."]),
+            rows,
+            Some(format!(
+                "The F tests the effect of {name}, based on the linearly independent pairwise comparisons among the estimated marginal means."
+            )),
+        ));
+    }
+    if !mv_rows.is_empty() {
+        out.push(table(
+            "Multivariate Tests",
+            2,
+            multivariate_columns(&flags, true),
+            mv_rows,
+            Some(format!(
+                "The multivariate tests of the effect of {name}, based on the linearly independent pairwise comparisons among the estimated marginal means.{}",
+                multivariate_note(&flags)
+            )),
+        ));
+    }
     Ok(out)
+}
+
+/// The multivariate tests of EMMEANS COMPARE in the multivariate model: for each combination of
+/// the other factors of TABLES, the hypothesis that the compared factor's estimated marginal
+/// means are equal for all dependents together, from the independent pairwise comparisons
+/// (L B with L the differences of the means' l vectors), against the error SSCP.
+fn emmeans_multivariate_tests(
+    d: &Data,
+    fit: &Fit,
+    e: &Emmeans,
+    flags: &Flags,
+    label_of: &dyn Fn(usize, usize) -> String,
+) -> Result<Option<Table>, Error> {
+    let Some(compare) = &e.compare else {
+        return Ok(None);
+    };
+    let find = |name: &str| -> Result<usize, Error> {
+        d.factors
+            .iter()
+            .position(|v| v.eq_ignore_ascii_case(name))
+            .ok_or_else(|| Error(format!("EMMEANS names {name}, which is not a factor")))
+    };
+    let factors: Vec<usize> = e
+        .factors
+        .iter()
+        .map(|n| find(n))
+        .collect::<Result<_, _>>()?;
+    let compared = match compare {
+        Some(n) => find(n)?,
+        None => *factors
+            .first()
+            .ok_or_else(|| Error("COMPARE needs a factor in TABLES".into()))?,
+    };
+    let Some(at) = factors.iter().position(|&f| f == compared) else {
+        return Err(Error(format!(
+            "COMPARE names {}, which is not in TABLES",
+            d.factors[compared].as_str()
+        )));
+    };
+    let with = covariate_values(d, &e.with, "EMMEANS")?;
+    let h = fit.h();
+    let dfe = fit.df_error();
+    let k = d.values[compared].len();
+    let others: Vec<usize> = (0..factors.len()).filter(|&i| i != at).collect();
+    let other_combos = combinations(
+        &others
+            .iter()
+            .map(|&i| d.values[factors[i]].len())
+            .collect::<Vec<_>>(),
+    );
+    let reference = fit.raw();
+    let mut rows = Vec::new();
+    for other in &other_combos {
+        let level_l = |lv: usize| -> Vec<f64> {
+            let mut fixed: Vec<(usize, usize)> = others
+                .iter()
+                .zip(other)
+                .map(|(&i, &o)| (factors[i], o))
+                .collect();
+            fixed.push((compared, lv));
+            emmeans_l(d, fit, &fixed, &with)
+        };
+        let ls: Vec<Vec<f64>> = (0..k).map(level_l).collect();
+        let l: Matrix = (0..k)
+            .flat_map(|i| (i + 1..k).map(move |j| (i, j)))
+            .map(|(i, j)| ls[i].iter().zip(&ls[j]).map(|(a, b)| a - b).collect())
+            .filter(|row: &Vec<f64>| fit.estimable(row, &h))
+            .collect();
+        let (ssh, df) = fit.hypothesis(&l, None, None);
+        let label = others
+            .iter()
+            .zip(other)
+            .map(|(&i, &o)| {
+                format!(
+                    "{} = {}",
+                    d.factor_texts[factors[i]],
+                    label_of(factors[i], o)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        for (i, mut row) in multivariate_rows(&ssh, &fit.s, &reference, df as f64, dfe, flags)
+            .into_iter()
+            .enumerate()
+        {
+            row.insert(
+                0,
+                if i == 0 {
+                    text(label.clone())
+                } else {
+                    Cell::Empty
+                },
+            );
+            rows.push(row);
+        }
+    }
+    let name = d.factor_texts[compared].as_str();
+    Ok(Some(table(
+        &format!(
+            "Multivariate Tests of Comparisons: {}",
+            e.factors.join(" * ")
+        ),
+        2,
+        multivariate_columns(flags, true),
+        rows,
+        Some(format!(
+            "The multivariate tests of the effect of {name} on all the dependent variables, based on the linearly independent pairwise comparisons among the estimated marginal means.{}",
+            multivariate_note(flags)
+        )),
+    )))
 }
 
 /// The regression of the squared weighted residuals on the columns `z` (with frequencies as
@@ -5672,12 +5916,6 @@ impl Engine {
                 command.command
             )));
         }
-        if command.emmeans.iter().any(|e| e.compare.is_some()) {
-            warnings.push(
-                "EMMEANS COMPARE gives the univariate tests of each dependent; its multivariate tests are not supported yet"
-                    .into(),
-            );
-        }
         if command.print.mmatrix && given_m.is_none() {
             warnings.push(
                 "PRINT TEST(MMATRIX) shows the M matrix of MMATRIX, which is not given".into(),
@@ -5814,6 +6052,9 @@ impl Engine {
             out.extend(means_and_posthoc(
                 command, dj, fj, dep, &flags, label_of, warnings,
             )?);
+        }
+        for e in &command.emmeans {
+            out.extend(emmeans_multivariate_tests(d, &fit, e, &flags, label_of)?);
         }
         for ((dj, fj), dep) in parts.iter().zip(texts) {
             let charts = plots(command, dj, fj, dep, label_of)?;

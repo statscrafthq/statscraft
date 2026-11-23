@@ -2694,3 +2694,104 @@ fn repeated_measures_save_the_fit_of_each_dependent() {
         assert!(values(&engine, name).iter().all(Option::is_some), "{name}");
     }
 }
+
+#[test]
+fn emmeans_compare_gives_multivariate_tests_in_the_multivariate_model() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}COMPUTE h = MOD($CASENUM, 2) + 1.\nGLM a1 a2 a3 BY g h /DESIGN=g h g*h /EMMEANS=TABLES(g*h) COMPARE(g)."
+        ),
+    );
+    // R: the cell means and the error SSCP of the full factorial; the hypothesis SSCP of the
+    // two group means at one level of h is d d' / (1/n1 + 1/n2)
+    let title = "Multivariate Tests of Comparisons: g * h";
+    for (row, value) in [
+        ("h = 1 / Pillai's Trace", 0.35288222),
+        ("h = 1 / Wilks' Lambda", 0.64711778),
+        ("h = 2 / Pillai's Trace", 0.24340212),
+        ("h = 2 / Wilks' Lambda", 0.75659788),
+    ] {
+        let got = number(cell(&tables, title, row, "Value"));
+        assert!((got - value).abs() <= 1e-7, "{row}: {got} vs {value}");
+    }
+    // one factor: the multivariate test of g itself (R: manova)
+    let one = run(&mut engine, "GLM a1 a2 a3 BY g /EMMEANS=TABLES(g) COMPARE.");
+    let title = "Multivariate Tests of Comparisons: g";
+    let got = number(cell(&one, title, "Pillai's Trace", "Value"));
+    assert!((got - 0.20619675).abs() <= 1e-7, "{got}");
+    let got = number(cell(&one, title, "Pillai's Trace", "F"));
+    assert!((got - 0.86586002).abs() <= 1e-6, "{got}");
+    let got = number(cell(&one, title, "Pillai's Trace", "Sig."));
+    assert!((got - 0.49031693).abs() <= 1e-6, "{got}");
+}
+
+#[test]
+fn repeated_measures_emmeans_compare_tests_the_effect_of_the_compared_factor() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DOUBLY}GLM a1 a2 a3 BY g /WSFACTOR=time 3 /EMMEANS=TABLES(time) COMPARE \
+             /EMMEANS=TABLES(g*time) COMPARE(g)."
+        ),
+    );
+    // R: the cell means and the error SSCP of the dependents. Within factor: L the average of
+    // the groups, M the differences of the three times; between factor: the F of the group
+    // difference at one time against that time's error variance
+    let near = |got: f64, want: f64, what: &str| {
+        assert!(
+            (got - want).abs() <= 1e-7 * want.abs().max(1e-3),
+            "{what}: {got} vs {want}"
+        );
+    };
+    near(
+        number(cell(
+            &tables,
+            "Multivariate Tests",
+            "Pillai's Trace",
+            "Value",
+        )),
+        0.90612212,
+        "Pillai",
+    );
+    near(
+        number(cell(
+            &tables,
+            "Multivariate Tests",
+            "Wilks' Lambda",
+            "Value",
+        )),
+        0.09387788,
+        "Wilks",
+    );
+    for (t, f, sig, ss, mse) in [
+        (1, 0.13014277, 0.72455476, 0.25785714, 1.98134048),
+        (2, 1.66518290, 0.22121537, 1.80720714, 1.08529048),
+        (3, 2.14877369, 0.16839165, 1.98377857, 0.92321429),
+    ] {
+        let row = format!("time = {t}: Contrast");
+        near(
+            number(cell(&tables, "Univariate Tests", &row, "F")),
+            f,
+            &row,
+        );
+        near(
+            number(cell(&tables, "Univariate Tests", &row, "Sig.")),
+            sig,
+            &row,
+        );
+        near(
+            number(cell(&tables, "Univariate Tests", &row, "Sum of Squares")),
+            ss,
+            &row,
+        );
+        let error = format!("time = {t}: Error");
+        near(
+            number(cell(&tables, "Univariate Tests", &error, "Mean Square")),
+            mse,
+            &error,
+        );
+    }
+}
