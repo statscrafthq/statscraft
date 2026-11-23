@@ -16,7 +16,7 @@ statscraft mcp        serve these tools to an AI agent over MCP
 statscraft connect    add the Statscraft MCP server to the AI agents on this computer
 ```
 
-`statscraft --version` prints the version, and `statscraft <subcommand> --help` lists the flags of a subcommand. The examples run from the root of the repository and use the synthetic files in `tests/fixtures/`; `job.sps` is the file from [Getting started](getting-started.md#run-a-syntax-file).
+`statscraft --version` prints the version, and `statscraft <subcommand> --help` lists the flags of a subcommand. The examples use the [sample file](getting-started.md#open-the-sample-file) `survey.sav` or a data file of your own, and `job.sps` stands for a syntax file of your own.
 
 ## describe
 

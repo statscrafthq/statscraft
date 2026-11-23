@@ -16,16 +16,16 @@ Statscraft is an independent project. It is not affiliated with or endorsed by t
 Status: early development. Licensed under MIT.
 
 ```
-statscraft describe tests/fixtures/survey_basic.sav --json    dictionary and counts of a file
+statscraft describe survey.sav --json                         dictionary and counts of a file
 statscraft run job.sps                                        run a syntax file
 statscraft run -s work --lines 1-6 job.sps                    run some lines in a session that keeps the data
 statscraft check -s work job.sps                              validate without saving anything
 statscraft run job.sps --xlsx tables.xlsx                     also write every table to an Excel workbook
 statscraft help CTABLES                                       syntax of one command
-statscraft-gui tests/fixtures/survey_basic.sav job.sps        the desktop window
+statscraft-gui survey.sav job.sps                             the desktop window
 ```
 
-(`job.sps` is the example from [Getting started](docs/getting-started.md#run-a-syntax-file).)
+(`survey.sav` is the [sample file](docs/getting-started.md#open-the-sample-file), and `job.sps` stands for a syntax file of your own.)
 
 ## What runs today
 
@@ -72,7 +72,8 @@ The [command pages](docs/commands/README.md) list every supported command. In sh
 
 The documentation is online at [docs.statscraft.org](https://docs.statscraft.org); the same pages are in `docs/`.
 
-- [Getting started](docs/getting-started.md): install, open a file, run syntax, the window in five minutes.
+- [Getting started](docs/getting-started.md): from installing to a custom table in Excel, with a sample file.
+- [Install and update](docs/install.md): every package, uninstalling and updates.
 - [Changelog](CHANGELOG.md): what is in each release.
 - [The window](docs/window.md): the data editor, syntax editor, output view, menus and dialogs.
 - [The command line](docs/command-line.md): every subcommand and flag, sessions, JSON output, exit codes, Excel export, the live window session, OpenStatSpec plans and SQLite.
@@ -84,7 +85,7 @@ The documentation is online at [docs.statscraft.org](https://docs.statscraft.org
 
 ## Getting a build
 
-The manual workflow **Release build** (Actions, Release build, Run workflow, or `gh workflow run release.yml`) gives a per-user Windows installer and a portable Windows .zip, a .deb for Debian and Ubuntu, a .tar.gz for other Linux, and a .tar.gz for macOS (Apple silicon and Intel) with Statscraft.app and the command line, each with `statscraft` and `statscraft-gui`, an MCP bundle (.mcpb) for Claude Desktop on each of the three systems, the agent skill as a .zip, and a `SHA256SUMS` of them; ticking **draft release** also attaches them to a draft GitHub Release. [Getting started](docs/getting-started.md#install) explains how to install and uninstall them. The packaging scripts are in `packaging/`, the icon in `crates/gui/icons/`. To build from source you need Rust 1.95 or newer: `cargo build --release -p statscraft -p statscraft-gui`.
+The manual workflow **Release build** (Actions, Release build, Run workflow, or `gh workflow run release.yml`) gives a per-user Windows installer and a portable Windows .zip, a .deb for Debian and Ubuntu, a .tar.gz for other Linux, and a .tar.gz for macOS (Apple silicon and Intel) with Statscraft.app and the command line, each with `statscraft` and `statscraft-gui`, an MCP bundle (.mcpb) for Claude Desktop on each of the three systems, the agent skill as a .zip, and a `SHA256SUMS` of them; ticking **draft release** also attaches them to a draft GitHub Release. [Install and update](docs/install.md) explains how to install and uninstall them. The packaging scripts are in `packaging/`, the icon in `crates/gui/icons/`. To build from source you need Rust 1.95 or newer: `cargo build --release -p statscraft -p statscraft-gui`.
 
 ## Releasing a version
 

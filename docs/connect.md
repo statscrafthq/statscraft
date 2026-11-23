@@ -157,7 +157,7 @@ In Claude Code, type:
 /plugin install statscraft@statscraft
 ```
 
-and start a new session. The plugin adds the MCP server and [the skill](#teach-your-agent-the-skill). It starts the server as `statscraft mcp`, so `statscraft` must be on your PATH. The Windows installer, the .deb package and the Linux tarball put it there; the portable Windows .zip and the macOS download do not, until you add it as [Getting started](getting-started.md#install) shows. Check with `statscraft --version` in a new terminal. Without PATH, run `statscraft connect claude-code` with the full path of the program: the skill from the plugin still works with that entry.
+and start a new session. The plugin adds the MCP server and [the skill](#teach-your-agent-the-skill). It starts the server as `statscraft mcp`, so `statscraft` must be on your PATH. The Windows installer, the .deb package and the Linux tarball put it there; the portable Windows .zip and the macOS download do not, until you add it as [Install and update](install.md) shows. Check with `statscraft --version` in a new terminal. Without PATH, run `statscraft connect claude-code` with the full path of the program: the skill from the plugin still works with that entry.
 
 If Claude Code was connected with `statscraft connect` before, it now has the server twice. `statscraft connect --remove claude-code` takes out the older entry.
 
