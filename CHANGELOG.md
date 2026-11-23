@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- PROXSCAL /PLOT=CORRELATIONS VARIABLES(list | ALL): the Correlations plot of the independent variables with the dimensions (on by default with RESTRICTIONS=VARIABLES) and a Transformation Plot of each variable named.
+## 0.31.0 (2026-11-23)
 
+- PROXSCAL /PLOT=CORRELATIONS VARIABLES(list | ALL): the Correlations plot of the independent variables with the dimensions (on by default with RESTRICTIONS=VARIABLES) and a Transformation Plot of each variable named.
 - PROXSCAL /INITIAL=('file' | dataset) [varlist]: start from the coordinates of a file, one case per object.
 - SURVIVAL /WRITE=TABLES and BOTH write the life tables to the PROCEDURE OUTPUT file in the fixed-column record layout of the manual (types 10, 20, 30, 31 and 40).
 - PROXSCAL /RESTRICTIONS=VARIABLES('file' | dataset) [ALL | FIRST(n) | varlist] [(kinds)]: the common space is a weighted sum of independent variables, each INTERVAL, NOMINAL, ORDINAL(KEEPTIES | UNTIE) or SPLINE; PRINT VARIABLES and CORRELATIONS show the transformed variables, their regression weights and their correlations with the dimensions, and OUTFILE VARIABLES writes the transformed variables. Identity model only.
