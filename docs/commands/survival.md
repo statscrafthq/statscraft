@@ -13,7 +13,7 @@ SURVIVAL [TABLES=] times [BY controls(min, max) ...] [BY controls(min, max) ...]
    [/PLOTS[(ALL | SURVIVAL | LOGSURV | HAZARD | DENSITY | OMS ...)][=times BY controls BY controls]]
    [/PRINT=TABLE | NOTABLE] [/COMPARE[=times BY controls BY controls]]
    [/CALCULATE=[EXACT | CONDITIONAL | APPROXIMATE] [PAIRWISE] [COMPARE]]
-   [/MISSING=[GROUPWISE | LISTWISE] [INCLUDE]] [/WRITE=NONE].
+   [/MISSING=[GROUPWISE | LISTWISE] [INCLUDE]] [/WRITE[=NONE | TABLES | BOTH]].
 ```
 
 Intervals start at 0; each THRU ... BY period continues where the last one ended, and a period that the width does not divide evenly is stretched to the next whole interval.
@@ -22,7 +22,7 @@ One more interval, open at the top, holds the longer times. A time falls into th
 
 The life table shows, per interval with cases entering: those entering, withdrawing, exposed to risk and having the event, the proportions ending and surviving, the cumulative survival at the interval's end with its standard error, the density and the hazard with theirs (none for the open interval). Median Survival Times interpolates inside the interval where the cumulative survival passes 0.5, or shows the start of the last interval cases entered with a plus sign. Weights count cases, so counts per interval may be entered as weighted records. Negative times are missing.
 
-COMPARE tests whether the groups of each first order control share one survival curve, with Gehan's scores (a tie between an event and a censored time ranks the event first); CALCULATE PAIRWISE adds each pair of values, APPROXIMATE scores the interval of each time instead of the time, COMPARE gives the comparisons only. MISSING=GROUPWISE leaves a case out only of the tables whose variables it misses; LISTWISE leaves out a case missing on any TABLES variable (a missing status only affects its own time variable); INCLUDE keeps user-missing values. PLOTS draws, per time variable, first order control and second order value, the survival function, its log, the hazard, the density or one minus survival, the groups as lines. Not supported yet: WRITE=TABLES and BOTH (only CROSSTABS writes through PROCEDURE OUTPUT so far).
+COMPARE tests whether the groups of each first order control share one survival curve, with Gehan's scores (a tie between an event and a censored time ranks the event first); CALCULATE PAIRWISE adds each pair of values, APPROXIMATE scores the interval of each time instead of the time, COMPARE gives the comparisons only. MISSING=GROUPWISE leaves a case out only of the tables whose variables it misses; LISTWISE leaves out a case missing on any TABLES variable (a missing status only affects its own time variable); INCLUDE keeps user-missing values. PLOTS draws, per time variable, first order control and second order value, the survival function, its log, the hazard, the density or one minus survival, the groups as lines. WRITE puts the life tables in the file of the PROCEDURE OUTPUT before the command, as fixed-column records: with TABLES, a type 30 and a type 31 record for each line of a table and a type 40 at its end; with BOTH also a type 10 record (the survival variable) and a type 20 record for each control variable of the table.
 
 ## Example
 

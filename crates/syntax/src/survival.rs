@@ -25,8 +25,8 @@
 //!   HAZARD, DENSITY and OMS. PRINT takes TABLE or NOTABLE. COMPARE takes an optional list of
 //!   the same shape as PLOTS. CALCULATE takes EXACT, CONDITIONAL or APPROXIMATE (of several the
 //!   strongest in that reverse order counts), PAIRWISE and COMPARE. MISSING takes GROUPWISE or
-//!   LISTWISE and INCLUDE. WRITE takes NONE, TABLES or BOTH; alone it means TABLES. Only NONE
-//!   is supported: the others write through PROCEDURE OUTPUT, which only CROSSTABS /WRITE uses so far.
+//!   LISTWISE and INCLUDE. WRITE takes NONE, TABLES or BOTH; alone it means TABLES. The records
+//!   go to the file of PROCEDURE OUTPUT, in the layout of the Syntax Reference.
 
 use crate::ast::{Command, MissingValue, VarItem};
 use crate::error::SyntaxError;
@@ -142,6 +142,20 @@ pub struct Survival {
     pub compare_only: bool,
     pub listwise: bool,
     pub include: bool,
+    /// WRITE: the records of the life tables go to the PROCEDURE OUTPUT file.
+    pub write: SurvivalWrite,
+}
+
+/// What `WRITE` puts in the PROCEDURE OUTPUT file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SurvivalWrite {
+    /// Nothing (the default).
+    #[default]
+    None,
+    /// Record types 30, 31 and 40: the statistics of each life table.
+    Tables,
+    /// Record types 10, 20, 30, 31 and 40: the statistics with names, labels and value labels.
+    Both,
 }
 
 /// `(values)` of KM's STATUS: values and numeric ranges.
@@ -461,6 +475,7 @@ pub(crate) fn survival(p: &mut Parser) -> PResult<Command> {
         compare_only: false,
         listwise: false,
         include: false,
+        write: SurvivalWrite::None,
     };
     while p.eat_word("BY") {
         if command.controls.len() == 2 {
@@ -604,14 +619,15 @@ pub(crate) fn survival(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("WRITE") {
             p.eat(Punct::Eq);
-            if !p.eat_keyword("NONE") {
-                // shortcut: only CROSSTABS /WRITE writes through PROCEDURE OUTPUT so far, not these tables
-                return Err(SyntaxError::new(
-                    p.span(),
-                    "WRITE=TABLES and WRITE=BOTH of SURVIVAL are not supported yet; of the \
-                     procedures only CROSSTABS writes through PROCEDURE OUTPUT",
-                ));
-            }
+            command.write = if p.eat_keyword("NONE") {
+                SurvivalWrite::None
+            } else if p.eat_keyword("BOTH") {
+                SurvivalWrite::Both
+            } else {
+                // TABLES is the default of a WRITE without a keyword
+                p.eat_keyword("TABLES");
+                SurvivalWrite::Tables
+            };
         } else {
             return Err(p.subcommand_error("SURVIVAL", &[]));
         }

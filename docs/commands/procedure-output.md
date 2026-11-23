@@ -10,7 +10,7 @@ Name the file the next procedures write their results to.
 PROCEDURE OUTPUT OUTFILE='file' | handle.
 ```
 
-CROSSTABS /WRITE puts its cell counts in this file. The file stays in effect, for every procedure that asks for it, until another PROCEDURE OUTPUT replaces it. A relative name starts from the current folder (CD).
+CROSSTABS /WRITE puts its cell counts and SURVIVAL /WRITE its life tables in this file. The file stays in effect, for every procedure that asks for it, until another PROCEDURE OUTPUT replaces it. A relative name starts from the current folder (CD).
 
 ## Example
 

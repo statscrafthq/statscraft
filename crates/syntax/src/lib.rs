@@ -419,7 +419,7 @@ pub use split::{RawCommand, select_lines, split_commands, split_commands_in, spl
 pub use summarize::{Summarize, SummarizeList, SummarizeMissing};
 pub use survival::{
     Control, Km, KmCompare, KmPlot, KmSave, KmTest, LifePlot, Survival, SurvivalStatus,
-    TableSelection,
+    SurvivalWrite, TableSelection,
 };
 pub use table::{
     CommandSpec, command_name, command_names, command_specs, help, unsupported_commands,

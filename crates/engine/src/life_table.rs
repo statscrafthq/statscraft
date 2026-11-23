@@ -285,6 +285,99 @@ fn is_chosen(choice: &Option<Vec<String>>, name: &str) -> bool {
         .is_none_or(|names| names.iter().any(|n| n == name))
 }
 
+/// A number in an Fw.d field, right-justified; asterisks when it does not fit, a period for a
+/// missing value.
+fn fixed(x: Option<f64>, width: usize, decimals: usize) -> String {
+    let text = match x {
+        Some(v) if v.is_finite() => format!("{v:.decimals$}"),
+        _ => ".".to_string(),
+    };
+    // the leading zero of a fraction is left out when the field is too narrow for it
+    let text = if text.len() > width {
+        text.strip_prefix("0.")
+            .map_or(text.clone(), |t| format!(".{t}"))
+    } else {
+        text
+    };
+    if text.len() > width {
+        "*".repeat(width)
+    } else {
+        format!("{text:>width$}")
+    }
+}
+
+/// Text in an Aw field: padded on the right, cut at the width.
+fn field(text: &str, width: usize) -> String {
+    let cut: String = text.chars().take(width).collect();
+    format!("{cut:<width$}")
+}
+
+/// The records of one life table in the layout of the Syntax Reference: with BOTH the type 10
+/// record of the survival variable and a type 20 record for each control variable, then a type 30
+/// and 31 pair for each line and the closing type 40.
+fn survival_records(
+    number: usize,
+    both: bool,
+    time: &Variable,
+    controls: &[(&Variable, i64)],
+    lines: &[Line],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let n = |x: usize| fixed(Some(x as f64), 5, 0);
+    if both {
+        out.push(format!(
+            "10{}{}{}{}{}",
+            n(number),
+            field(time.label().unwrap_or(""), 40),
+            fixed(Some(controls.len() as f64), 1, 0),
+            fixed(Some(lines.len() as f64), 4, 0),
+            field(time.name(), 64)
+        ));
+        for (control, value) in controls {
+            let label = control
+                .value_labels()
+                .iter()
+                .find(
+                    |(v, _)| matches!(v, statscraft_data::Value::Number(x) if *x == *value as f64),
+                )
+                .map_or("", |(_, l)| l.as_str());
+            out.push(format!(
+                "20{}{}{}{}{}",
+                n(number),
+                field(control.label().unwrap_or(""), 40),
+                fixed(Some(*value as f64), 5, 0),
+                field(label, 20),
+                field(control.name(), 64)
+            ));
+        }
+    }
+    for line in lines {
+        out.push(format!(
+            "30{}{}{}{}{}{}",
+            n(number),
+            fixed(Some(line.start), 6, 2),
+            fixed(Some(line.entering), 8, 2),
+            fixed(Some(line.withdrawn), 8, 2),
+            fixed(Some(line.exposed), 8, 2),
+            fixed(Some(line.events), 8, 2)
+        ));
+        out.push(format!(
+            "31{}{}{}{}{}{}{}{}{}",
+            n(number),
+            fixed(Some(line.q), 8, 6),
+            fixed(Some(line.p), 8, 6),
+            fixed(Some(line.cumulative), 8, 6),
+            fixed(line.density, 8, 6),
+            fixed(line.hazard, 8, 6),
+            fixed(Some(line.se_cumulative), 7, 4),
+            fixed(line.se_density, 7, 4),
+            fixed(line.se_hazard, 7, 4)
+        ));
+    }
+    out.push("40".to_string());
+    out
+}
+
 impl Engine {
     pub(crate) fn life_tables(&mut self, command: &Survival) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
@@ -413,6 +506,18 @@ impl Engine {
             );
         }
 
+        // WRITE: where the records go, and the records of every life table so far
+        let target = match command.write {
+            statscraft_syntax::SurvivalWrite::None => None,
+            _ => Some(self.procedure_output.clone().ok_or_else(|| {
+                Error(
+                    "SURVIVAL /WRITE needs the file named on a PROCEDURE OUTPUT command before it"
+                        .into(),
+                )
+            })?),
+        };
+        let mut records: Vec<String> = Vec::new();
+        let mut table_number = 0;
         let mut tables = Vec::new();
         let mut charts = Vec::new();
         let mut overall_rows = Vec::new();
@@ -487,6 +592,24 @@ impl Engine {
                         let mut lines_of = Vec::new();
                         for (a, cases) in &groups {
                             let lines = life_table(cases, &starts);
+                            if target.is_some() {
+                                table_number += 1;
+                                // the first order control is named first, then the second
+                                let mut named: Vec<(&Variable, i64)> = Vec::new();
+                                if let (Some(cv), Some(a)) = (first, a) {
+                                    named.push((&cv.variable, *a));
+                                }
+                                if let (Some(cv), Some(b)) = (second, b) {
+                                    named.push((&cv.variable, b));
+                                }
+                                records.extend(survival_records(
+                                    table_number,
+                                    command.write == statscraft_syntax::SurvivalWrite::Both,
+                                    &time_vars[v],
+                                    &named,
+                                    &lines,
+                                ));
+                            }
                             if command.table && !command.compare_only {
                                 for (k, line) in lines.iter().enumerate() {
                                     let mut row = match k {
@@ -784,6 +907,34 @@ impl Engine {
                 columns,
                 rows: pair_rows,
                 caption: Some(method.into()),
+                ..Table::default()
+            });
+        }
+        if let Some(path) = target {
+            let text: String = records.iter().map(|line| format!("{line}\n")).collect();
+            if !self.dry_run {
+                std::fs::write(&path, text.as_bytes()).map_err(|e| {
+                    Error(format!(
+                        "SURVIVAL /WRITE: cannot write {}: {e}",
+                        path.display()
+                    ))
+                })?;
+            }
+            tables.push(Table {
+                title: "Output File Summary".into(),
+                row_headers: 1,
+                columns: vec![String::new(), "Value".into()],
+                column_groups: vec![Vec::new(); 2],
+                rows: vec![
+                    vec![
+                        Cell::Text("File Name".into()),
+                        Cell::Text(path.display().to_string()),
+                    ],
+                    vec![
+                        Cell::Text("Records".into()),
+                        Cell::Number(records.len() as f64),
+                    ],
+                ],
                 ..Table::default()
             });
         }

@@ -5347,7 +5347,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/PLOTS[(ALL | SURVIVAL | LOGSURV | HAZARD | DENSITY | OMS ...)][=times BY controls BY controls]]\n\
                  \x20  [/PRINT=TABLE | NOTABLE] [/COMPARE[=times BY controls BY controls]]\n\
                  \x20  [/CALCULATE=[EXACT | CONDITIONAL | APPROXIMATE] [PAIRWISE] [COMPARE]]\n\
-                 \x20  [/MISSING=[GROUPWISE | LISTWISE] [INCLUDE]] [/WRITE=NONE].\n\
+                 \x20  [/MISSING=[GROUPWISE | LISTWISE] [INCLUDE]] [/WRITE[=NONE | TABLES | BOTH]].\n\
                  Intervals start at 0; each THRU ... BY period continues where the last one ended, and a\n\
                  period that the width does not divide evenly is stretched to the next whole interval.\n\
                  One more interval, open at the top, holds the longer times. A time falls into the\n\
@@ -5371,7 +5371,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  any TABLES variable (a missing status only affects its own time variable); INCLUDE keeps\n\
                  user-missing values. PLOTS draws, per time variable, first order control and second order\n\
                  value, the survival function, its log, the hazard, the density or one minus survival, the\n\
-                 groups as lines. Not supported yet: WRITE=TABLES and BOTH (only CROSSTABS writes through PROCEDURE OUTPUT so far).",
+                 groups as lines. WRITE puts the life tables in the file of the PROCEDURE OUTPUT before the command, as\n\
+                 fixed-column records: with TABLES, a type 30 and a type 31 record for each line of a table and a\n\
+                 type 40 at its end; with BOTH also a type 10 record (the survival variable) and a type 20 record\n\
+                 for each control variable of the table.",
         example: "SURVIVAL TABLES=weeks BY plan(1,3) /INTERVAL=THRU 30 BY 5 /STATUS=outcome(1) /COMPARE /CALCULATE=PAIRWISE /PLOTS(SURVIVAL,HAZARD).",
         parse: survival::survival,
     },
@@ -6078,7 +6081,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "PROCEDURE OUTPUT",
         summary: "Name the file the next procedures write their results to.",
         syntax: "PROCEDURE OUTPUT OUTFILE='file' | handle.\n\
-                 CROSSTABS /WRITE puts its cell counts in this file. The file stays in effect, for every\n\
+                 CROSSTABS /WRITE puts its cell counts and SURVIVAL /WRITE its life tables in this file. The file stays in effect, for every\n\
                  procedure that asks for it, until another PROCEDURE OUTPUT replaces it. A relative name starts\n\
                  from the current folder (CD).",
         example: "PROCEDURE OUTPUT OUTFILE='cells.txt'.",

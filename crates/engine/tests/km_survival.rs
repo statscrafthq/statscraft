@@ -610,3 +610,65 @@ SURVIVAL weeks days /INTERVAL=THRU 300 BY 50 /STATUS=outcome(1)";
     assert_eq!(entering(&groupwise, "Life Table of weeks"), 35.0);
     assert_eq!(entering(&listwise, "Life Table of days"), 35.0);
 }
+
+#[test]
+fn survival_write_puts_the_life_tables_in_the_procedure_output_file() {
+    let dir = std::env::temp_dir().join(format!("statscraft-survwrite-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("surv.out");
+    let (tables, ..) = run(&format!(
+        "PROCEDURE OUTPUT OUTFILE='{}'.\n\
+         SURVIVAL TABLES=weeks BY plan(1,3) /INTERVAL=THRU 30 BY 5 /STATUS=outcome(1) /WRITE=BOTH.",
+        path.display()
+    ));
+    let records: Vec<String> = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(String::from)
+        .collect();
+    // three tables of 5, 7 and 7 lines: 3 x (10, 20) + 19 x (30, 31) + 3 x 40
+    assert_eq!(records.len(), 3 * 2 + 19 * 2 + 3);
+    let summary = table(&tables, "Output File Summary");
+    assert_eq!(num(&summary.rows[1][1]), 47.0);
+    // type 10: label of the survival variable (none), the number of BYs, rows, the name
+    let expected = format!("10    1{}1   5{:<64}", " ".repeat(40), "weeks");
+    assert_eq!(records[0], expected);
+    // type 20: the control variable's label (none), its value, its value label (none), name
+    let expected = format!(
+        "20    1{}    1{}{:<64}",
+        " ".repeat(40),
+        " ".repeat(20),
+        "plan"
+    );
+    assert_eq!(records[1], expected);
+    // the second line of plan 1 (interval from 5): the values of the life table test, the
+    // proportions in F8.6 and the standard errors in F7.4
+    assert_eq!(records[4], "30    1  5.00   11.00    2.00   10.00    3.00");
+    assert_eq!(
+        records[5],
+        "31    10.3000000.7000000.6416670.0550000.070588 0.1441 0.0270 0.0401"
+    );
+    // plan 2's open interval has no density or hazard: periods
+    let open = records
+        .iter()
+        .position(|r| r.starts_with("30    2 30.00"))
+        .expect("the open interval of plan 2");
+    assert_eq!(&records[open + 1][..2], "31");
+    assert_eq!(&records[open + 1][23..31].trim(), &"0.233508");
+    assert_eq!(&records[open + 1][31..39], "       .");
+    assert_eq!(records.last().unwrap(), "40");
+    // TABLES alone writes only the statistics
+    run(&format!(
+        "PROCEDURE OUTPUT OUTFILE='{}'.\n\
+         SURVIVAL TABLES=weeks BY plan(1,3) /INTERVAL=THRU 30 BY 5 /STATUS=outcome(1) /WRITE.",
+        path.display()
+    ));
+    let plain = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        plain
+            .lines()
+            .all(|r| r.starts_with("30") || r.starts_with("31") || r == "40")
+    );
+    assert_eq!(plain.lines().count(), 19 * 2 + 3);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
