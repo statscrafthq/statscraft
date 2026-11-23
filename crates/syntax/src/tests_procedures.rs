@@ -1359,6 +1359,18 @@ fn tree_validation_settings() {
 }
 
 #[test]
+fn tree_costs() {
+    let t = tree_of("TREE y BY x /COSTS CUSTOM=3 2 [2] 3 1 [8] 3 2 [4] 'a' 1 [0].");
+    let costs = t.costs.expect("custom costs");
+    // the last of a pair holds
+    assert_eq!(costs.len(), 3);
+    assert_eq!(costs[0], (Value::Number(3.0), Value::Number(1.0), 8.0));
+    assert_eq!(costs[1], (Value::Number(3.0), Value::Number(2.0), 4.0));
+    assert!(tree_of("TREE y BY x /COSTS EQUAL.").costs.is_none());
+    assert!(tree_of("TREE y BY x /PRIORS ADJUST=YES.").adjust_priors);
+}
+
+#[test]
 fn tree_errors() {
     let message = |source: &str| err(source).message;
     assert_eq!(
@@ -1385,7 +1397,18 @@ fn tree_errors() {
         message("TREE y BY x /RULES NODES=ALL."),
         "subcommand RULES of TREE is not supported yet"
     );
-    assert!(message("TREE y BY x /COSTS CUSTOM=1 2 [3].").contains("COSTS CUSTOM"));
+    assert_eq!(
+        message("TREE y BY x /COSTS CUSTOM=1 2 [-3]."),
+        "a misclassification cost cannot be negative"
+    );
+    assert_eq!(
+        message("TREE y BY x /COSTS CUSTOM=1."),
+        "unexpected end of command"
+    );
+    assert_eq!(
+        message("TREE y BY x /COSTS CUSTOM=1 2 [3] /PRIORS ADJUST=YES."),
+        "PRIORS ADJUST=YES with COSTS CUSTOM is not supported yet"
+    );
     assert!(message("TREE y BY x /GAIN TYPE=[PTILE].").contains("PTILE"));
     assert!(message("TREE y BY x /PRINT NONE RISK.").contains("NONE"));
     assert!(message("TREE y BY x /GROWTHLIMIT MINPARENTSIZE=50.").contains("MINCHILDSIZE"));

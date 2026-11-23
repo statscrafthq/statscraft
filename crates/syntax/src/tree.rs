@@ -497,11 +497,37 @@ fn quest(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     Ok(())
 }
 
+/// `actual predicted [cost] ...` after COSTS CUSTOM: at least one, the last of a pair holding.
+fn custom_costs(p: &mut Parser) -> PResult<Vec<(Value, Value, f64)>> {
+    p.eat(Punct::Eq);
+    let mut given: Vec<(Value, Value, f64)> = Vec::new();
+    while !at_end(p) {
+        let (Some(actual), Some(predicted)) = (p.value(), p.value()) else {
+            return Err(p.unexpected(&["an actual and a predicted category"]));
+        };
+        p.expect(Punct::LBracket)?;
+        let start = p.pos;
+        let Some(cost) = p.number() else {
+            return Err(p.unexpected(&["a cost"]));
+        };
+        if cost < 0.0 {
+            let message = "a misclassification cost cannot be negative";
+            return Err(SyntaxError::new(p.span_from(start), message));
+        }
+        p.expect(Punct::RBracket)?;
+        given.retain(|(a, b, _)| !(*a == actual && *b == predicted));
+        given.push((actual, predicted, cost));
+    }
+    if given.is_empty() {
+        return Err(p.unexpected(&["an actual and a predicted category"]));
+    }
+    Ok(given)
+}
+
 fn priors(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     while !at_end(p) {
         if p.eat_keyword("ADJUST") {
-            // with equal costs, which are all there is, the adjusted priors are the priors
-            yes(p)?;
+            command.adjust_priors = yes(p)?;
         } else if p.eat_keyword("FROMDATA") {
             command.priors = TreePriors::FromData;
         } else if p.eat_keyword("EQUAL") {
@@ -710,6 +736,8 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         nominal_missing_valid: false,
         crt: false,
         validation: TreeValidation::None,
+        adjust_priors: false,
+        costs: None,
         test_sample_only: false,
         quest: false,
         quest_alpha: 0.05,
@@ -769,9 +797,10 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             "COSTS" => {
                 p.eat(Punct::Eq);
                 if p.eat_keyword("CUSTOM") {
-                    return Err(not_supported(p, start, "COSTS CUSTOM"));
-                }
-                if !p.eat_keyword("EQUAL") {
+                    command.costs = Some(custom_costs(p)?);
+                } else if p.eat_keyword("EQUAL") {
+                    command.costs = None;
+                } else {
                     return Err(p.unexpected(&["EQUAL", "CUSTOM"]));
                 }
             }
@@ -804,6 +833,12 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             .ignored
             .push("CROSSVALIDATION is ignored when FORCE is given".into());
         command.validation = TreeValidation::None;
+    }
+    if command.adjust_priors && command.costs.is_some() {
+        return Err(SyntaxError::new(
+            p.span(),
+            "PRIORS ADJUST=YES with COSTS CUSTOM is not supported yet",
+        ));
     }
     let binary = command.crt || command.quest;
     if !binary {

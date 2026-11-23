@@ -52,6 +52,7 @@ use statscraft_syntax::{
     Level, Tree, TreeCategory, TreeImpurity, TreePriors, TreeSave, TreeValidation, VarItem,
 };
 use std::collections::VecDeque;
+use std::rc::Rc;
 
 /// One predictor, its categories coded per analysis case; `missing` (= the number of
 /// categories) is the code of a missing value.
@@ -143,6 +144,9 @@ struct Surrogate {
     improvement: f64,
 }
 
+/// The cost of assigning class i (row) to a case of class j (column); zero on the diagonal.
+type Costs = Rc<Vec<Vec<f64>>>;
+
 struct Node {
     parent: Option<usize>,
     depth: usize,
@@ -162,8 +166,11 @@ struct Node {
     /// mean (the node's own mean otherwise).
     squares_about: Option<f64>,
     n: f64,
-    /// The class a test sample's node is assigned: the training node's.
+    /// The class the node is assigned when that is not the most probable one: the cheapest one
+    /// under custom costs, or a test sample's node's, the training node's.
     predicted_as: Option<usize>,
+    /// Custom misclassification costs, None when every one is 1.
+    costs: Option<Costs>,
     /// The predictor and its categories that define the node.
     definition: Option<(usize, Vec<usize>)>,
     split: Option<Split>,
@@ -191,6 +198,22 @@ impl Node {
     }
 }
 
+/// The class with the smallest expected cost, the sum over the classes j of the cost of assigning
+/// it to a case of class j times the probability of j in the node. Among classes within rounding of
+/// the smallest, the lowest one with cases in the node, else the lowest.
+fn cheapest(assign: &[f64], counts: &[f64], costs: &[Vec<f64>]) -> usize {
+    let expected: Vec<f64> = costs
+        .iter()
+        .map(|row| row.iter().zip(assign).map(|(c, p)| c * p).sum())
+        .collect();
+    let least = expected.iter().copied().fold(f64::INFINITY, f64::min);
+    let tied = |j: usize| expected[j] <= least + 1e-12 * least.abs().max(f64::MIN_POSITIVE);
+    (0..expected.len())
+        .find(|&j| tied(j) && counts[j] > 0.0)
+        .or_else(|| (0..expected.len()).find(|&j| tied(j)))
+        .unwrap_or(0)
+}
+
 /// A node holding `cases`; `factor` turns a class count into the probability's numerator. The
 /// sample is the class and weight of each case, and the values of a scale dependent, whose node
 /// holds the weight, the sum of the values and of their squares in place of class counts.
@@ -201,6 +224,7 @@ fn make_node(
     definition: Option<(usize, Vec<usize>)>,
     sample: (&[usize], &[f64], Option<&[f64]>),
     factor: &[f64],
+    costs: Option<&Costs>,
 ) -> Node {
     let (class, weight, values) = sample;
     let mut counts = vec![0.0; if values.is_some() { 3 } else { factor.len() }];
@@ -231,12 +255,16 @@ fn make_node(
             0.0,
         ),
     };
+    let predicted_as = costs
+        .filter(|_| values.is_none())
+        .map(|c| cheapest(&assign, &counts, c));
     Node {
         parent,
         depth,
         n,
         assign,
-        predicted_as: None,
+        predicted_as,
+        costs: costs.cloned(),
         scale: values.is_some(),
         shift: 0.0,
         fourth,
@@ -292,6 +320,7 @@ fn rescore(nodes: &[Node], class: &[usize], weight: &[f64], values: Option<&[f64
                 fourth,
                 squares_about: squares,
                 predicted_as: (values.is_none()).then(|| node.predicted()),
+                costs: node.costs.clone(),
                 definition: node.definition.clone(),
                 split: None,
                 children: node.children.clone(),
@@ -916,6 +945,9 @@ impl Engine {
             if command.priors != TreePriors::FromData {
                 warnings.push(message("PRIORS"));
             }
+            if command.costs.is_some() {
+                warnings.push(message("COSTS"));
+            }
             if command.plot_gain || command.plot_response || command.plot_index {
                 warnings.push(message("PLOT GAIN, RESPONSE and INDEX"));
             }
@@ -1255,6 +1287,9 @@ impl Engine {
         } else {
             (None, 0.0)
         };
+        let costs = (!scale_dep)
+            .then(|| custom_costs(command, &classes, &labels, &dependent, &mut warnings))
+            .flatten();
         let priors = if !command.binary() {
             Vec::new()
         } else if scale_dep {
@@ -1289,6 +1324,7 @@ impl Engine {
                     } else {
                         command.impurity
                     },
+                    costs: costs.clone(),
                     quest: command.quest.then_some(command.quest_alpha),
                     min_improvement: command.min_improvement.unwrap_or(0.0001),
                     min_parent: command.min_parent,
@@ -1334,6 +1370,7 @@ impl Engine {
                         definition,
                         (&case_class, weights, None),
                         &ones,
+                        costs.as_ref(),
                     )
                 };
                 let mut nodes = vec![node_of((0..cases.len()).collect(), None, 0, None)];
@@ -1454,7 +1491,8 @@ impl Engine {
                 for (rank, &(_, i)) in keys.iter().enumerate() {
                     fold[i] = rank % folds;
                 }
-                let mut wrong = vec![0.0; classes.len()];
+                let (mut loss, mut loss_squared) =
+                    (vec![0.0; classes.len()], vec![0.0; classes.len()]);
                 let (mut squares, mut fourth) = (0.0, 0.0);
                 for f in 0..folds {
                     let weights = |keep: bool| -> Vec<f64> {
@@ -1475,11 +1513,7 @@ impl Engine {
                             fourth += node.fourth;
                             continue;
                         }
-                        for (j, &count) in node.counts.iter().enumerate() {
-                            if j != node.predicted() {
-                                wrong[j] += count;
-                            }
-                        }
+                        add_losses(node, &mut loss, &mut loss_squared);
                     }
                 }
                 Some(if scale_dep {
@@ -1489,7 +1523,8 @@ impl Engine {
                     (risk, ((fourth - n * risk * risk) / (n * n)).max(0.0))
                 } else {
                     misclassification_risk(
-                        &wrong,
+                        &loss,
+                        &loss_squared,
                         &nodes[0],
                         Some(!command.binary() || command.priors == TreePriors::FromData),
                     )
@@ -1867,6 +1902,9 @@ impl Engine {
                         TreeImpurity::OrderedTwoing => "Ordered Twoing",
                     }),
                 ));
+            }
+            if command.costs.is_some() {
+                rows.push(row("", "Misclassification Costs", text("Custom")));
             }
             if command.binary() {
                 rows.push(row(
@@ -2524,21 +2562,36 @@ fn risk_estimate<'a>(
         );
     }
     let classes = root.counts.len();
-    let mut wrong = vec![0.0; classes];
+    let (mut loss, mut squared) = (vec![0.0; classes], vec![0.0; classes]);
     for node in terminals {
-        let predicted = node.predicted();
-        for (j, &count) in node.counts.iter().enumerate() {
-            if j != predicted {
-                wrong[j] += count;
-            }
-        }
+        add_losses(node, &mut loss, &mut squared);
     }
-    misclassification_risk(&wrong, root, empirical)
+    misclassification_risk(&loss, &squared, root, empirical)
 }
 
-/// The risk and its variance from the weight of each class that was assigned wrongly, and the
-/// root of the sample the classes are counted in (its priors in `assign`, its class totals).
-fn misclassification_risk(wrong: &[f64], root: &Node, empirical: Option<bool>) -> (f64, f64) {
+/// Adds the cost of the node's assignment to each class's cases in it, and the square of that cost.
+fn add_losses(node: &Node, loss: &mut [f64], squared: &mut [f64]) {
+    let predicted = node.predicted();
+    for (j, &count) in node.counts.iter().enumerate() {
+        let cost = match &node.costs {
+            Some(matrix) => matrix[predicted][j],
+            None => f64::from(u8::from(j != predicted)),
+        };
+        loss[j] += count * cost;
+        squared[j] += count * cost * cost;
+    }
+}
+
+/// The risk and its variance from the cost of the assignments of each class's cases (`loss`) and
+/// the sum of the squares of those costs, and the root of the sample the classes are counted in
+/// (its priors in `assign`, its class totals). With costs of 0 and 1 the loss is the weight
+/// assigned wrongly.
+fn misclassification_risk(
+    loss: &[f64],
+    squared: &[f64],
+    root: &Node,
+    empirical: Option<bool>,
+) -> (f64, f64) {
     let classes = root.counts.len();
     let prior_total: f64 = root.assign.iter().sum();
     // priors from the data (M1), judged by the priors' setting for a test sample, else by whether
@@ -2547,16 +2600,17 @@ fn misclassification_risk(wrong: &[f64], root: &Node, empirical: Option<bool>) -
         (0..classes).all(|j| (root.assign[j] / prior_total - root.counts[j] / root.n).abs() < 1e-12)
     });
     if from_data {
-        let risk = wrong.iter().sum::<f64>() / root.n;
-        return (risk, risk * (1.0 - risk) / root.n);
+        let risk = loss.iter().sum::<f64>() / root.n;
+        let variance = (squared.iter().sum::<f64>() - root.n * risk * risk) / (root.n * root.n);
+        return (risk, variance.max(0.0));
     }
     let (mut risk, mut variance) = (0.0, 0.0);
-    for (j, &missed) in wrong.iter().enumerate() {
+    for (j, &missed) in loss.iter().enumerate() {
         let total = root.counts[j];
         if total > 0.0 {
             let prior = root.assign[j] / prior_total;
             risk += prior * missed / total;
-            variance += (prior / total).powi(2) * (missed - missed * missed / total);
+            variance += (prior / total).powi(2) * (squared[j] - missed * missed / total);
         }
     }
     (risk, variance)
@@ -2567,6 +2621,43 @@ fn depth_limit(command: &Tree) -> usize {
     command
         .max_depth
         .unwrap_or(if command.binary() { 5 } else { 3 })
+}
+
+/// The cost matrix of `COSTS CUSTOM`: every cost 1 unless given, 0 on the diagonal (a nonzero one
+/// given there is ignored with a warning), a category that is no class ignored with a warning.
+fn custom_costs(
+    command: &Tree,
+    classes: &[Key],
+    labels: &Shown,
+    dependent: &Variable,
+    warnings: &mut Vec<String>,
+) -> Option<Costs> {
+    let given = command.costs.as_ref()?;
+    let n = classes.len();
+    let mut matrix: Vec<Vec<f64>> = (0..n)
+        .map(|i| (0..n).map(|j| if i == j { 0.0 } else { 1.0 }).collect())
+        .collect();
+    let index = |v: &statscraft_syntax::Value| classes.iter().position(|k| *k == key_of(v));
+    for (actual, predicted, cost) in given {
+        let (Some(j), Some(i)) = (index(actual), index(predicted)) else {
+            warnings.push(format!(
+                "COSTS CUSTOM names a category of {} that is not in the analysis; ignored",
+                dependent.name()
+            ));
+            continue;
+        };
+        if i == j {
+            if *cost != 0.0 {
+                warnings.push(format!(
+                    "COSTS CUSTOM gives a cost for classifying category {} correctly; it is 0",
+                    labels.value(dependent, &classes[j])
+                ));
+            }
+            continue;
+        }
+        matrix[i][j] = *cost;
+    }
+    Some(Rc::new(matrix))
 }
 
 /// The prior probabilities of the classes, summing to 1.
@@ -2668,6 +2759,27 @@ fn percentile_gains(nodes: &[Node], order: &[usize], j: usize, q: usize) -> [Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cheapest_class_may_be_one_the_node_does_not_hold() {
+        // assigning class 3 costs 0.1 whoever the case is, the others cost 5 when wrong
+        let costs = vec![
+            vec![0.0, 5.0, 5.0],
+            vec![5.0, 0.0, 5.0],
+            vec![0.1, 0.1, 0.0],
+        ];
+        // a node of classes 1 and 2 only: expected cost 2.5 for class 1, 2.5 for 2, 0.1 for 3
+        assert_eq!(cheapest(&[0.5, 0.5, 0.0], &[10.0, 10.0, 0.0], &costs), 2);
+        // equal costs, a tie between the classes: the lowest one that the node holds
+        let unit = vec![
+            vec![0.0, 1.0, 1.0],
+            vec![1.0, 0.0, 1.0],
+            vec![1.0, 1.0, 0.0],
+        ];
+        assert_eq!(cheapest(&[0.0, 0.5, 0.5], &[0.0, 4.0, 4.0], &unit), 1);
+        // none of the tied classes is held: the lowest of them
+        assert_eq!(cheapest(&[0.0, 0.0, 0.0], &[0.0, 0.0, 0.0], &unit), 0);
+    }
 
     #[test]
     fn bonferroni_counts() {

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- TREE /COSTS CUSTOM=actual predicted [cost] ...: nodes are assigned the category of least expected cost, the risk and its error are the mean cost of the assignments (also in split-sample and cross-validation), CRT with the Gini measure counts the costs in its impurity, and pruning uses them. PRIORS ADJUST with custom costs comes next.
 - TREE validation (split sample and cross-validation) also works for a scale dependent under CRT: the risk is the mean squared deviation from the training node means, with its standard error.
 - GLM with WSFACTOR takes SAVE: the predicted values, residuals and the other keywords of each dependent variable.
 - GLM with WSFACTOR takes CONTRAST, LMATRIX, KMATRIX, MMATRIX, TEST(MMATRIX) and POSTHOC: the hypotheses and multiple comparisons of the between-subjects factors on the average of the cells (or on the transformation MMATRIX gives).

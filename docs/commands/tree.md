@@ -19,7 +19,7 @@ TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]
      [/GROWTHLIMIT MAXDEPTH=AUTO | n  MINPARENTSIZE=100  MINCHILDSIZE=50]
      [/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 SPLITMERGED=NO CHISQUARE=PEARSON | LR CONVERGE=.001
              MAXITERATIONS=100 ADJUST=BONFERRONI | NONE INTERVALS=10 | varlist(n) ...]
-     [/COSTS EQUAL] [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]
+     [/COSTS EQUAL | CUSTOM=actual predicted [cost] ...] [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]
      [/MISSING NOMINALMISSING=MISSING | VALID]
      [/PLOT GAIN RESPONSE INDEX INCREMENT=10].
 ```
@@ -38,7 +38,7 @@ VALIDATION TYPE=SPLITSAMPLE(percent) grows the tree on that share of the cases, 
 
 With PRUNE the test sample's risk picks the subtree. SAVE gives every case, test cases included, a node.
 
-CROSSVALIDATION(folds) (2 to 25, 10 when no number is given) deals the cases to that many folds at random, grows a tree without each fold with the same settings and scores it on the fold; the Risk table then also gives the cross-validated estimate, the pooled misses of those trees. It does not change the tree, and is ignored with a warning when FORCE is given. A scale dependent is validated the same way, its risk being the mean squared deviation from the training nodes' means. Not supported yet: a scale dependent with CHAID, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.
+CROSSVALIDATION(folds) (2 to 25, 10 when no number is given) deals the cases to that many folds at random, grows a tree without each fold with the same settings and scores it on the fold; the Risk table then also gives the cross-validated estimate, the pooled misses of those trees. It does not change the tree, and is ignored with a warning when FORCE is given. A scale dependent is validated the same way, its risk being the mean squared deviation from the training nodes' means. COSTS CUSTOM=actual predicted \[cost\] ... gives the cost of assigning the predicted category to a case of the actual one (1 where none is given, 0 for a correct assignment, a nonzero one given there is ignored with a warning). A node is assigned the category with the least expected cost, and the risk and its error are the mean cost of the assignments, in every method; CRT with the Gini measure also counts the costs in the impurity (twoing, QUEST and CHAID do not). A scale dependent ignores COSTS with a warning, and PRIORS ADJUST=YES with COSTS CUSTOM is not supported yet. Not supported yet: a scale dependent with CHAID, SPLITMERGED=YES, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.
 
 DMTREE is another name for the command.
 

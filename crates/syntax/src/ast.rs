@@ -1416,6 +1416,10 @@ pub struct Tree {
     pub prune: Option<f64>,
     /// `/PRIORS`
     pub priors: TreePriors,
+    /// `/PRIORS ADJUST=YES`: priors adjusted by the misclassification costs.
+    pub adjust_priors: bool,
+    /// `/COSTS CUSTOM`: the actual category, the predicted category and the cost; None is EQUAL.
+    pub costs: Option<Vec<(Value, Value, f64)>>,
     /// `/METHOD MAXSURROGATES`; None is AUTO.
     pub max_surrogates: Option<usize>,
     /// `/PRINT IMPORTANCE`, `/PRINT SURROGATES` and `/PLOT IMPORTANCE`

@@ -121,6 +121,7 @@ mod temporary_names;
 mod timeseries;
 mod transform;
 mod tree;
+mod tree_costs;
 mod tree_crt;
 mod tree_quest;
 mod tree_validation;

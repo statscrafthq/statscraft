@@ -36,7 +36,9 @@
 //!   with pL and pR the shares of the cases with a value of X* that s* sends left and right; only
 //!   a positive association keeps the surrogate, the best ones up to MAXSURROGATES.
 
-use super::{Node, Predictor, QuestSplit, Split, Surrogate, make_node, quest, risk_estimate};
+use super::{
+    Costs, Node, Predictor, QuestSplit, Split, Surrogate, make_node, quest, risk_estimate,
+};
 use crate::Error;
 use statscraft_syntax::TreeImpurity;
 use std::collections::VecDeque;
@@ -63,6 +65,9 @@ pub(super) struct Growth<'a> {
     pub classes: usize,
     pub priors: &'a [f64],
     pub impurity: TreeImpurity,
+    /// The misclassification costs; the Gini measure of CRT counts them, every node is assigned by
+    /// them.
+    pub costs: Option<Costs>,
     /// QUEST's alpha for the choice of the predictor; None grows by the impurity.
     pub quest: Option<f64>,
     pub min_improvement: f64,
@@ -139,7 +144,20 @@ impl Growth<'_> {
             return 0.0;
         }
         let (share_l, share_r) = (pl / total, pr / total);
-        let gini = |p: &[f64], sum: f64| 1.0 - p.iter().map(|x| (x / sum).powi(2)).sum::<f64>();
+        // the Gini measure with costs, the sum over i and j of C(i|j) p(i|t) p(j|t)
+        let costs = self.costs.as_ref().filter(|_| self.quest.is_none());
+        let gini = |p: &[f64], sum: f64| match costs {
+            Some(c) => {
+                let mut total = 0.0;
+                for (i, row) in c.iter().enumerate() {
+                    for (j, cost) in row.iter().enumerate() {
+                        total += cost * p[i] * p[j];
+                    }
+                }
+                total / (sum * sum)
+            }
+            None => 1.0 - p.iter().map(|x| (x / sum).powi(2)).sum::<f64>(),
+        };
         match self.impurity {
             TreeImpurity::Gini => {
                 let parent: Vec<f64> = l.iter().zip(&r).map(|(a, b)| a + b).collect();
@@ -429,7 +447,15 @@ impl Growth<'_> {
             .collect();
         let sample = (self.case_class, self.case_weight, self.values);
         let make = |cases, parent, depth, definition| {
-            let mut node = make_node(cases, parent, depth, definition, sample, &factor);
+            let mut node = make_node(
+                cases,
+                parent,
+                depth,
+                definition,
+                sample,
+                &factor,
+                self.costs.as_ref(),
+            );
             node.shift = self.shift;
             node
         };
@@ -525,7 +551,15 @@ fn node_risk(node: &Node) -> f64 {
     if node.scale {
         return node.assign[0];
     }
-    node.assign.iter().sum::<f64>() - node.assign[node.predicted()]
+    let predicted = node.predicted();
+    match &node.costs {
+        Some(c) => c[predicted]
+            .iter()
+            .zip(&node.assign)
+            .map(|(c, p)| c * p)
+            .sum(),
+        None => node.assign.iter().sum::<f64>() - node.assign[predicted],
+    }
 }
 
 /// Prunes by the standard error rule (on the risks of `tested`, a test sample's nodes, when there

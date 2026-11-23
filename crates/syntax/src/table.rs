@@ -4853,7 +4853,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20    [/GROWTHLIMIT MAXDEPTH=AUTO | n  MINPARENTSIZE=100  MINCHILDSIZE=50]\n\
                  \x20    [/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 SPLITMERGED=NO CHISQUARE=PEARSON | LR CONVERGE=.001\n\
                  \x20            MAXITERATIONS=100 ADJUST=BONFERRONI | NONE INTERVALS=10 | varlist(n) ...]\n\
-                 \x20    [/COSTS EQUAL] [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]\n\
+                 \x20    [/COSTS EQUAL | CUSTOM=actual predicted [cost] ...] [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]\n\
                  \x20    [/MISSING NOMINALMISSING=MISSING | VALID]\n\
                  \x20    [/PLOT GAIN RESPONSE INDEX INCREMENT=10].\n\
                  Levels: [S] scale, [O] ordinal, [N] or [C] nominal; without one the dictionary's level holds,\n\
@@ -4922,7 +4922,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  random, grows a tree without each fold with the same settings and scores it on the fold; the Risk table\n\
                  then also gives the cross-validated estimate, the pooled misses of those trees. It does not change the\n\
                  tree, and is ignored with a warning when FORCE is given. A scale dependent is validated the same way,\n\
-                 its risk being the mean squared deviation from the training nodes' means. Not supported yet: a scale dependent with CHAID, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 its risk being the mean squared deviation from the training nodes' means. COSTS CUSTOM=actual predicted [cost] ... gives the cost of assigning the predicted category\n\
+                 to a case of the actual one (1 where none is given, 0 for a correct assignment, a nonzero one given\n\
+                 there is ignored with a warning). A node is assigned the category with the least expected cost, and the\n\
+                 risk and its error are the mean cost of the assignments, in every method; CRT with the Gini measure\n\
+                 also counts the costs in the impurity (twoing, QUEST and CHAID do not). A scale dependent ignores\n\
+                 COSTS with a warning, and PRIORS ADJUST=YES with COSTS CUSTOM is not supported yet. Not supported yet:\n\
+                 a scale dependent with CHAID, SPLITMERGED=YES, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,

@@ -595,6 +595,14 @@ fn data_with_fold(fold: &[usize]) -> String {
 /// The cross-validated risk of `command` against the same trees grown fold by fold with a split
 /// sample (the fold held out as the test sample).
 fn cross_validation_equals_the_folds(command: &str, v: usize, equal_priors: bool) {
+    cross_validation_with_costs(command, v, equal_priors, &UNIT_COSTS);
+}
+
+/// The cost of assigning class i (row) to a case of class j (column).
+type CostMatrix = [[f64; 3]; 3];
+const UNIT_COSTS: CostMatrix = [[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0]];
+
+fn cross_validation_with_costs(command: &str, v: usize, equal_priors: bool, costs: &CostMatrix) {
     let seed = 13579;
     let fold = folds(seed, 150, v);
     let with_fold = data_with_fold(&fold);
@@ -623,7 +631,7 @@ fn cross_validation_equals_the_folds(command: &str, v: usize, equal_priors: bool
     );
     // the class weights missed by the tree of each fold, from its test-sample classification
     let classes = 3;
-    let mut wrong = vec![0.0; classes];
+    let (mut wrong, mut squared) = (vec![0.0; classes], vec![0.0; classes]);
     for f in 0..v {
         run(&mut engine, &format!("COMPUTE keep = (fold <> {f})."));
         let tables = run(
@@ -632,9 +640,12 @@ fn cross_validation_equals_the_folds(command: &str, v: usize, equal_priors: bool
         );
         let classification = table(&tables, "Classification");
         for (j, row) in classification.rows.iter().take(classes).enumerate() {
-            let on_diagonal = number(&row[2 + j]);
-            let total: f64 = (0..classes).map(|k| number(&row[2 + k])).sum();
-            wrong[j] += total - on_diagonal;
+            // the cases of class j assigned each class, with the cost of that
+            for i in 0..classes {
+                let count = number(&row[2 + i]);
+                wrong[j] += count * costs[i][j];
+                squared[j] += count * costs[i][j] * costs[i][j];
+            }
         }
         run(&mut engine, "DELETE VARIABLES keep.");
     }
@@ -655,13 +666,13 @@ fn cross_validation_equals_the_folds(command: &str, v: usize, equal_priors: bool
                 .sum::<f64>(),
             (0..classes)
                 .map(|j| {
-                    (1.0 / 3.0 / totals[j]).powi(2) * (wrong[j] - wrong[j] * wrong[j] / totals[j])
+                    (1.0 / 3.0 / totals[j]).powi(2) * (squared[j] - wrong[j] * wrong[j] / totals[j])
                 })
                 .sum::<f64>(),
         )
     } else {
         let r = wrong.iter().sum::<f64>() / n;
-        (r, r * (1.0 - r) / n)
+        (r, (squared.iter().sum::<f64>() - n * r * r) / (n * n))
     };
     close(number(&risk.rows[1][1]), estimate, 1e-12);
     close(number(&risk.rows[1][2]), variance.sqrt(), 1e-9);
@@ -822,4 +833,60 @@ fn cross_validation_of_a_scale_dependent_pools_the_fold_trees_squares() {
         ((fourth - n * estimate * estimate) / (n * n)).sqrt(),
         1e-6,
     );
+}
+
+#[test]
+fn cross_validation_with_costs_pools_the_cost_of_the_fold_trees_assignments() {
+    // assigning class i to a case of class j costs costs[i][j]: here 5 for 1 to a 3, 2 for 2 to a 3,
+    // 3 for 1 to a 2, as COSTS CUSTOM=3 1 [5] 3 2 [2] 2 1 [3] says
+    let costs = [[0.0, 3.0, 5.0], [1.0, 0.0, 2.0], [1.0, 1.0, 0.0]];
+    let tree = format!("TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT {SMALL}");
+    let custom = "/COSTS CUSTOM=3 1 [5] 3 2 [2] 2 1 [3]";
+    cross_validation_with_costs(&format!("{tree} {custom}"), 4, false, &costs);
+    cross_validation_with_costs(&format!("{tree} /PRIORS EQUAL {custom}"), 4, true, &costs);
+    let chaid = format!("TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CHAID {SMALL}");
+    cross_validation_with_costs(&format!("{chaid} {custom}"), 3, false, &costs);
+}
+
+#[test]
+fn the_test_risk_counts_the_cost_of_each_assignment() {
+    let mut engine = engine();
+    run(&mut engine, "WEIGHT BY w.");
+    let tables = run(
+        &mut engine,
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT /COSTS CUSTOM=3 1 [5] 3 2 [2] 2 1 [3] {SMALL} \
+             /VALIDATION TYPE=SPLITSAMPLE(tr) /PRINT RISK /SAVE PREDVAL(guess) /TREE DISPLAY=NONE."
+        ),
+    );
+    let (y, guess, tr, w) = (
+        values(&engine, "y3"),
+        values(&engine, "guess"),
+        values(&engine, "tr"),
+        values(&engine, "w"),
+    );
+    let cost = |assigned: f64, actual: f64| match (assigned as usize, actual as usize) {
+        (a, b) if a == b => 0.0,
+        (1, 3) => 5.0,
+        (2, 3) => 2.0,
+        (1, 2) => 3.0,
+        _ => 1.0,
+    };
+    let risk = table(&tables, "Risk");
+    for (k, sample) in [1.0, 0.0].into_iter().enumerate() {
+        let cases: Vec<usize> = (0..y.len()).filter(|&i| tr[i] == sample).collect();
+        let n: f64 = cases.iter().map(|&i| w[i]).sum();
+        let loss: f64 = cases.iter().map(|&i| w[i] * cost(guess[i], y[i])).sum();
+        let squared: f64 = cases
+            .iter()
+            .map(|&i| w[i] * cost(guess[i], y[i]).powi(2))
+            .sum();
+        let estimate = loss / n;
+        close(number(&risk.rows[k][1]), estimate, 1e-12);
+        close(
+            number(&risk.rows[k][2]),
+            ((squared - n * estimate * estimate) / (n * n)).sqrt(),
+            1e-9,
+        );
+    }
 }
