@@ -26,8 +26,6 @@ EFFECTS adds the rows Fixed Effects (pooled standard deviation, and the error an
 
 MATRIX=OUT writes, per split group and value of the factor, the records MEAN, STDDEV and N of every dependent; IN reads such records (and the pooled MSE and DFE records, which then give the within variance) and runs everything that needs no cases: HOMOGENEITY is an error, and the minimum and maximum of the descriptives are empty.
 
-Not supported yet: WALLER.
-
 ## Example
 
 ```text

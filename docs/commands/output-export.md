@@ -37,7 +37,7 @@ The TITLE text heads every page and the page number stands at the foot. EMBEDBOO
 
 TEXT saves each chart as a picture file in the folder of the text, named after the text file with a number from 0 (out.txt gives out0.jpg, out1.jpg, ...), and writes the chart's title and that file name where the chart stands. CSV shows a chart as its data table.
 
-With no document subcommand, each of /PNG, /JPG, /BMP and /TIF saves every chart in its format: IMAGEROOT='charts/june' gives charts/june0.png, charts/june1.png and so on. With a document subcommand IMAGEROOT is not used, and the subcommand of the format in use sets the pictures' size and colors. PERCENTSIZE (above 0, at most 200) scales a picture: 100 is 1280 pixels wide, the PNG of --charts. GRAYSCALE=YES, DEPTH=GRAYS256 and DEPTH=BLACKWHITE drop the color; the other depths and COMPRESS change nothing. EMF and EPS are not written yet: a warning, and their charts stay data tables, as does a kind that is not drawn yet, such as a stem-and-leaf display. /XLS and /XLSM are refused.
+With no document subcommand, each of /PNG, /JPG, /BMP and /TIF saves every chart in its format: IMAGEROOT='charts/june' gives charts/june0.png, charts/june1.png and so on. With a document subcommand IMAGEROOT is not used, and the subcommand of the format in use sets the pictures' size and colors. PERCENTSIZE (above 0, at most 200) scales a picture: 100 is 1280 pixels wide, the PNG of --charts. GRAYSCALE=YES, DEPTH=GRAYS256 and DEPTH=BLACKWHITE drop the color; the other depths and COMPRESS change nothing. EMF and EPS give a warning, and their charts stay data tables, as does a stem-and-leaf display. /XLS and /XLSM are refused.
 
 ## Example
 

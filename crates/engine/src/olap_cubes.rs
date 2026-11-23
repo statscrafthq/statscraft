@@ -11,7 +11,7 @@
 //!   Labels go to the differences in order; DEFAULT and missing labels take a generated name.
 //! - HIDESMALLCOUNTS: counts below n (weighted when weighting is on) show as "<n".
 //!
-//! Choices where the manual is silent (docs/differences.md):
+//! Choices where the manual is silent:
 //! - A case counts for a summary variable when it is valid on it and on the grouping variables
 //!   of the table (user-missing values are missing), as MEANS without /MISSING.
 //! - The layers become rows: one table per combination with the grouping categories nested

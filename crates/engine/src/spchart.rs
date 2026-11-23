@@ -27,7 +27,7 @@
 //!   pooled within-subgroup variance, MRBAR mean moving range over d2(SPAN). Performance uses
 //!   the standard deviation of all values. The indices follow the manual's formulas.
 //!
-//! Where the manual is silent (recorded in docs/differences.md):
+//! Where the manual is silent:
 //! - Rules are checked on the first chart only. The UCL and LCL rules flag points beyond the
 //!   drawn control limits; the zone rules use the chart's sigma whatever SIGMAS says. A
 //!   pattern needs its full length of points, and its last point must itself qualify.

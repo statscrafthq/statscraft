@@ -34,7 +34,7 @@
 //!   otherwise the smaller normalized BIC wins. Predictors that the ARIMA expert keeps make its
 //!   model win; it drops insignificant predictors one at a time from the last.
 //!
-//! Choices where the manuals are silent (see docs/differences.md):
+//! Choices where the manuals are silent:
 //! - A single lag value is an order (AR=2: lags 1 and 2); two or more values are the lags.
 //! - The ARIMA expert takes the transformation from the slope of the log standard deviations
 //!   on the log means of blocks of the series, the differencing orders with the smallest

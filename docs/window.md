@@ -25,7 +25,7 @@ With no data given, the program starts with one empty data window, a place to op
 - File > Open output opens a Statscraft output file (.scout) in an output window of its own, by running `OUTPUT OPEN FILE='...'.`. See [saving output](#saving-output).
 - File > Recent files lists the ten files opened or saved last.
 - Files dropped on the window from the file manager open too. A .sav or .zsav file opens as data, a workbook or text file in the Open Data dialog, a .sps file in a syntax window and each .scout file in an output window. One data file and one syntax file open at a time; the status bar names the files left out.
-- The installer on Windows, and the packages for macOS and Linux, let a double-click on a .sav, .zsav, .sps or .scout file open it in Statscraft. On macOS this is not yet tested on a Mac. When Statscraft runs already, the file opens in that window and its session, and the window comes to the front; starting Statscraft from the menu without a file still opens a new window.
+- The installer on Windows, and the packages for macOS and Linux, let a double-click on a .sav, .zsav, .sps or .scout file open it in Statscraft. When Statscraft runs already, the file opens in that window and its session, and the window comes to the front; starting Statscraft from the menu without a file still opens a new window.
 
 ## Exporting data
 
@@ -48,7 +48,7 @@ Each dataset of the session that holds data has a data window. The title names t
 - A click anywhere in a data window, its menus included, makes its dataset active. That runs `DATASET ACTIVATE name.`, which shows in the log like any run. A click in the window of the active dataset runs nothing.
 - Dialogs opened from a data window work on its dataset, which is active by then.
 - Each window keeps its own tab, selection and find bar. Grid edits, right-click menus and Delete work in every data window.
-- The data a typed `GET` reads without `DATASET NAME` has no name. As the manual describes, such a dataset closes when another one becomes active (a click in another data window, the Active list, opening a file). When it holds unsaved changes, a question comes first: **Save** saves it and goes on, **Don't save** goes on without it, **Cancel** keeps everything as it is.
+- The data a typed `GET` reads without `DATASET NAME` has no name. Such a dataset closes when another one becomes active (a click in another data window, the Active list, opening a file). When it holds unsaved changes, a question comes first: **Save** saves it and goes on, **Don't save** goes on without it, **Cancel** keeps everything as it is.
 - File > Close or the window's close button closes the dataset. When its data is unsaved, a question offers **Save**, **Don't save** and **Cancel**. Closing runs `DATASET CLOSE name.`. When the dataset is the active one, another open dataset is activated first, as `DATASET CLOSE` of the active dataset only takes its name away; when it is the last one, `NEW FILE.` follows.
 - Closing the last data window does not end the program while other windows are open. Opening a file opens a data window again.
 
@@ -370,14 +370,14 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
   - Plots: spread versus level, residuals against observed and predicted values, and profile plots of the estimated marginal means, each with a factor on the horizontal axis, maybe one for separate lines and, once lines are set, one for separate charts (a plot whose factor leaves the model is left out), drawn as lines or bars with error bars and a reference line at the grand mean if you like.
   - Descriptive statistics, effect sizes, observed power, parameter estimates, homogeneity tests, the lack of fit test, the contrast coefficient matrix, the general estimable function and the significance level. The modified Breusch-Pagan, Breusch-Pagan, F and White tests for heteroskedasticity; each of the first three is run on the predicted values or on the terms of the model. Parameter estimates with robust standard errors, by HC0 to HC4.
 - **Multivariate** (`GLM` with several dependent variables): the Univariate dialog with a list of at least two dependent variables, all numeric and none of them a factor or covariate.
-  - Everything Univariate offers except the robust standard errors, which are for one dependent variable; post hoc tests, estimated marginal means, plots and saved variables come for each dependent. Saved variables take their default names. Comparing main effects gives the univariate tests of each dependent only, since their multivariate tests are not supported yet (the command warns).
+  - Everything Univariate offers except the robust standard errors, which are for one dependent variable; post hoc tests, estimated marginal means, plots and saved variables come for each dependent. Saved variables take their default names. Comparing main effects gives the univariate tests of each dependent only (the command warns).
   - Homogeneity tests add Box's M test of the covariance matrices to Levene's test of each dependent. Further tables: the residual SSCP, covariance and correlation matrices with Bartlett's test of sphericity, the hypothesis and error SSCP of each effect, and the coefficients of the M matrix (offered only once the M matrix has a column).
   - M matrix: columns, each with an optional label and a coefficient for each dependent (an empty cell is 0, fractions such as `1/2` are allowed). It transforms the dependents in the test of the intercept, so the intercept must be in the model, each column needs a coefficient other than 0, and no column may be a combination of the others (so there are at most as many columns as dependents).
 - **Repeated Measures** (`GLM` with `WSFACTOR`):
   - Within-subjects factors, each with a name and its number of levels, and one variable for each combination of levels.
   - Between-subjects factors and covariates, and the type of sums of squares.
   - Descriptive statistics, effect sizes, observed power and the significance level.
-  - One measure only, since `MEASURE` is not supported yet.
+  - One measure only.
 
 **Mixed Models**
 
@@ -525,7 +525,6 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
   - Statistics: correlations of the quantified and of the original variables, descriptives, the iteration history, component loadings (sorted by size if you like), object scores labeled and listed as in Multiple Correspondence, category quantifications and the variance accounted for.
   - Plots: object points, component loadings (with the centroids of multiple nominal variables if you like), category points, joint category points, transformation and residual plots, a biplot with loadings or centroids and a triplot (neither with independent normalization), the centroids of one variable projected onto the vectors of others, and the variance accounted for; a longest label and a range of dimensions. Only multiple nominal variables plot more than one dimension in the transformation and residual plots.
   - Saving the quantified variables, the object scores and the approximations with an optional root, and writing the recoded data, quantified variables, object scores or approximations into a data file or a new dataset of their own.
-  - Bootstrap confidence regions (`RESAMPLE`) are not supported yet.
 
 **Scale**
 
@@ -545,7 +544,7 @@ Each dialog asks for the posterior distribution, the Bayes factor or both, and o
   - Ordinal (untied, similarities), interval or ratio with a degree from 1 to 4, or nominal data; conditional on the matrix or unconditional.
   - The Euclidean or the individual differences model; the latter needs several matrices and 2 dimensions or more. Dimensions from 1 to 6.
   - The convergence, iteration and S-stress limits, the cutoff for missing proximities, negative subject weights, the data and the option summary, plots, and the coordinates saved to a data file.
-  - Asymmetric and rectangular matrices, row conditionality and the asymmetric and generalized models are shown but not available yet.
+  - Asymmetric and rectangular matrices, row conditionality and the asymmetric and generalized models are shown but cannot be chosen.
 - **Weighted Kappa** (`WEIGHTED KAPPA`): every pair of the raters, or each row rater with each column rater. Linear or quadratic agreement weights, the confidence level, user-missing values as categories, and a table of counts for each pair with its categories ascending or descending.
 - **Fleiss Multirater Kappa** (`FLEISS MULTIRATER KAPPA`): two or more raters, all numeric or all string. The agreement on each category, the confidence level and user-missing values as categories.
 

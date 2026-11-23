@@ -62,8 +62,6 @@ DISCRIM describes every multivariate effect, and the covariates, by its discrimi
 
 ANALYSIS picks which variables are dependents and which covariates (also with WSFACTORS, where its dependents are the cells and its covariates after WITH the constant ones). Several groups in parentheses separated by slashes are separate analyses, each with its own tables; CONDITIONAL makes the variables of the earlier groups covariates of the later ones, and covariates after the closing parenthesis go to every group. A variable is named once on the subcommand.
 
-Not supported yet: PLOT, MATRIX, JOINT MULTIVARIATE(ROY) intervals for a term of more than one df, RESIDUALS PLOT, PMEANS PLOT, PRINT DESIGN other than OVERALL and ONEWAY, PARAMETERS(OPTIMAL).
-
 ## Example
 
 ```text

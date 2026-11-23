@@ -21,7 +21,7 @@
 //!   The acceleration is a = sum f l^3 / (6 (sum f l^2)^1.5), f the case's frequency, and each
 //!   tail a' = Phi(w + (w + z) / (1 - a (w + z))) with z = Phi^-1(a) replaces a in the ranks.
 //!
-//! Choices where the manual is silent (docs/differences.md): the draws are uniform picks from
+//! Choices where the manual is silent: the draws are uniform picks from
 //! the session's generator; a resample in which the procedure fails or lacks a statistic leaves
 //! that statistic out, and B counts the resamples that gave it; the statistics bootstrapped (the
 //! estimates each procedure's tables report, without counts of cases or redundant parameters)

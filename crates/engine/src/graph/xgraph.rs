@@ -15,7 +15,7 @@
 //!   for). MISSING USE=LISTWISE drops a case missing on any y variable, REPORT=YES keeps the
 //!   categories of missing values.
 //!
-//! Where the manual is silent (recorded in docs/differences.md):
+//! Where the manual is silent:
 //! - The z axis is not drawn in depth: z gives the series when nothing else does, and every
 //!   dimension beyond the category axis and the series gives a chart per category (panel).
 //! - A pyramid is drawn side by side, not back to back; a HISTOBAR pyramid as a histogram per

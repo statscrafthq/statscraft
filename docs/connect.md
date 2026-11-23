@@ -146,7 +146,7 @@ In the window, **Install extension** under Edit > Settings > AI agents does this
 
 The bundle carries its own copy of the `statscraft` program, so it works even where Statscraft is not installed. That copy does not update with `statscraft update`; install the bundle of the new release instead. The window, when you have it, still shows everything the agent runs.
 
-Known limits: the macOS program is not signed yet, so macOS may stop it; if Claude Desktop says the extension cannot start, use `statscraft connect` instead. Claude Desktop for Linux is a beta, and bundles have not been tried there.
+Known limits: the macOS program is not signed, so macOS may stop it; if Claude Desktop says the extension cannot start, use `statscraft connect` instead. Claude Desktop for Linux is a beta.
 
 ## Claude Code: the plugin
 

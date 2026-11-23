@@ -10,7 +10,7 @@
 //!   below 100).
 //! - Subcommands in any order; every word in full; the equals signs are required.
 //!
-//! Choices where the manual is silent (docs/differences.md): `/MINRATE=value` and
+//! Choices where the manual is silent: `/MINRATE=value` and
 //! `/MAXCOUNT=value`, as the manual's own examples write them, stand for RATE= and COUNT=;
 //! each subcommand is given once.
 

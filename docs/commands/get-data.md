@@ -26,8 +26,6 @@ Workbooks (XLSX and XLSM from Excel 2007 on, XLS from Excel 95 to 2003). The fir
 
 Empty rows and empty columns without a name are left out; error cells are empty. HIDDEN IGNORE=YES leaves out hidden rows and columns (XLSX only). ASSUMEDSTRWIDTH cuts longer strings (XLS: 255 by default). LEADINGSPACES IGNORE=YES removes leading blanks of strings; TRAILINGSPACES IGNORE=YES leaves trailing blanks out of the width.
 
-ODBC and OLEDB are not supported yet.
-
 ## Example
 
 ```text

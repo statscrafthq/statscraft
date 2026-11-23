@@ -16,7 +16,7 @@ Powers: numbers and grids first TO last BY step (or first BY step TO last), at m
 
 For every power the log-likelihood is 0.5 (-n ln 2 pi - n ln s^2 + sum ln w - (n - p)), with s^2 the weighted mean square error and p the number of coefficients; the Log-Likelihood Values table lists it and the power with the largest one is used. For that power (or for the WEIGHT variable) come the Model Summary (R, R square, adjusted R square, standard error and log-likelihood), ANOVA and Coefficients (B, standard error, standardized Beta with its standard error, t and significance). PRINT=ALL adds the coefficients of every power; without PRINT, TSET PRINT=DETAILED does the same and BRIEF leaves out the log-likelihoods.
 
-SAVE=WEIGHT keeps the chosen weights as WGT\_n, the first free n. Without SAVE, TSET NEWVAR decides: CURRENT (the default) saves WGT\_1, replacing it, ALL the next free WGT\_n, NONE nothing. CONSTANT or NOCONSTANT defaults to TSET. APPLY is not supported yet.
+SAVE=WEIGHT keeps the chosen weights as WGT\_n, the first free n. Without SAVE, TSET NEWVAR decides: CURRENT (the default) saves WGT\_1, replacing it, ALL the next free WGT\_n, NONE nothing. CONSTANT or NOCONSTANT defaults to TSET.
 
 ## Example
 

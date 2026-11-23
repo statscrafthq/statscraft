@@ -12,7 +12,7 @@
 //!   when its cumulative denominator sum stays within the maximum, with both when it does both;
 //!   other rows are red. PERCENT is a share of the denominator total of the groups kept.
 //!
-//! Choices where the manual is silent (docs/differences.md): case weights multiply both
+//! Choices where the manual is silent: case weights multiply both
 //! values; both limits are inclusive; the table also shows the numerator sums; the two chart
 //! panels are two charts; SPLIT FILE runs each split on its own.
 

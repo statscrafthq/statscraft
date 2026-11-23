@@ -15,7 +15,7 @@ item: varlist, varlist first-last \[(type\[,decimals\])\], varlist (format list)
 
 A transformation: the lines appear when the data are next read, case by case, one line per slash. A variable in its own print format is followed by a blank; one with a given format or columns is not. System-missing shows as a period. OUTFILE writes the lines to a file, each starting with a blank (the carriage control), replaced on each data pass.
 
-TABLE shows where each variable goes. Formats P, PK, IB, PIB, PIBHEX, RB, RBHEX and Z are not supported yet.
+TABLE shows where each variable goes.
 
 ## Example
 

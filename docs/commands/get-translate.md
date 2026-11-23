@@ -22,8 +22,6 @@ DBF (dBASE II, III and IV): every record, also those marked deleted, which get \
 
 XLS (Excel 95 to 2003, read as GET DATA reads it): the first sheet; names are the column letters without FIELDNAMES.
 
-1-2-3, Symphony and SYLK files (WK, WK1, WKS, WR1, WRK, SYM, SLK) are not supported.
-
 ## Example
 
 ```text

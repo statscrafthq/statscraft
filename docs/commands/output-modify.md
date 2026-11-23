@@ -31,7 +31,7 @@ Each block begins with /SELECT and runs on what the blocks before it left. Kinds
 
 VISIBLE=NO hides items: the window and OUTPUT EXPORT with /CONTENTS EXPORT=VISIBLE leave them out, the document and its file keep them. On HEADINGS it hides the heading alone and the tables under it stay; with OUTLINEHEADERS picked as well the command's items go too. OUTLINELABEL, TABLETITLE and TEXT take )LABEL (the text so far), )INDEX (from INDEXING, else 1, 2, 3), )DATE, )ADATE, )SDATE, )EDATE, )TIME and )ETIME. SORT orders the rows by a column; empty cells go last, rows labelled Total stay, and a table with nested row labels stays as it is. TABLECELLS picks rows or columns by label (any header level) or position, keeps the cells that meet every comparison on x (ABS(x), SYSMIS, numbers or quoted text) and then TOP or BOTTOM, and changes what APPLYTO names: FORMAT changes how numbers show, REPLACE puts in a value, HIDE takes the picked rows or columns out.
 
-Keywords may be shortened to three letters. Fonts, colors, styles, sizes, column widths, table looks, layers, PIVOT, UNGROUP and chart templates change nothing and say so in a warning. PARENT and CHILD conditions are not supported. PRINTREPORT=YES adds a table of what changed.
+Keywords may be shortened to three letters. Fonts, colors, styles, sizes, column widths, table looks, layers, PIVOT, UNGROUP and chart templates change nothing and say so in a warning. PRINTREPORT=YES adds a table of what changed.
 
 ## Example
 

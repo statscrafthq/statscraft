@@ -448,7 +448,7 @@ impl Glmm<'_> {
             .map(|(&k, g)| g * self.trials[k])
             .collect();
         let binomial = self.family == Family::Binomial;
-        // a count of 0 has no log: such a case starts half a count up (docs/differences.md)
+        // a count of 0 has no log: such a case starts half a count up
         let mut mu: Vec<f64> = case
             .iter()
             .zip(&y)
@@ -607,7 +607,7 @@ fn inner_fit(
     };
     let (fitted, mut warnings) = fit_model(model, start, command)?;
     // a covariance parameter held at its bound would otherwise stop the loop while the fixed
-    // effects still move (docs/differences.md)
+    // effects still move
     let change = previous.as_ref().map(|(old, beta)| {
         let fixed = beta
             .iter()
@@ -1741,7 +1741,7 @@ impl Engine {
         }
         // the distribution: a scale target is NORMAL, events and trials BINOMIAL, and a
         // categorical target of two values BINOMIAL (a nominal multinomial model of two
-        // categories is the binomial logit model; docs/differences.md)
+        // categories is the binomial logit model)
         let target = data.variable(&command.target)?;
         let target_index = data.variable_index(target.name()).expect("found");
         let target_measure = match target.measure() {

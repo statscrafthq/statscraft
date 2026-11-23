@@ -18,7 +18,7 @@
 //!   categories by value, label, count or first occurrence. COORDINATE=HORIZONTAL turns bars
 //!   on their side. NORMALIZE stacks to 100%.
 //!
-//! Where the manual is silent (recorded in docs/differences.md):
+//! Where the manual is silent:
 //! - BAR, LINE and AREA without a function take the MEAN; COLOR or STYLE without CLUSTER or
 //!   STACK cluster the bars. A COLOR variable without TYPE splits the chart unless it is a
 //!   scale variable, whose colors are only a look.

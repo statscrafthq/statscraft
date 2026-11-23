@@ -37,8 +37,6 @@
 //!   closed formulas. Exact powers rise in steps, so the search is repeated below its result
 //!   until it settles, the smallest result is kept and the size is then raised one at a time
 //!   until the power is reached.
-//!
-//! Choices where the manual is silent are listed in docs/differences.md under POWER.
 
 use crate::chart::{Axis, ChartKind};
 use crate::dist::{

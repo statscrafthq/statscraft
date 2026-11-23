@@ -7,7 +7,7 @@
 //! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_matrix::
 //! ```
 //!
-//! Left out where the two differ on purpose (see docs/differences.md): RND of halves, the
+//! Left out where the two differ on purpose: RND of halves, the
 //! bivariate normal CDF, the negative binomial, the Laplace density (PSPP's is twice what its
 //! own CDF gives), MAGIC of even sizes, the signs of singular vectors, the scalar that COMPUTE
 //! assigns to a part of a matrix, and the free-field and fixed WRITE layout. PSPP's matrix

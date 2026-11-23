@@ -10,7 +10,7 @@ Show the dictionary of a data file without opening it as the active dataset.
 SYSFILE INFO [FILE=] 'path'.
 ```
 
-A table of the file (label, cases, variables, documents) and the tables of DISPLAY DICTIONARY. PASSWORD (encrypted files) is not supported yet.
+A table of the file (label, cases, variables, documents) and the tables of DISPLAY DICTIONARY.
 
 ## Example
 

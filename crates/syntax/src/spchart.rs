@@ -654,5 +654,4 @@ pub(crate) const SPCHART_SYNTAX: &str = "SPCHART [/TITLE='line' ['line']] [/SUBT
                  (XR), SBAR (XS) or WITHIN for subgroups, MRBAR for single values. CPCHART without STATISTICS\n\
                  lists its indices in a table. MISSING: REPORT keeps subgroups for missing BY values, INCLUDE\n\
                  counts user-missing process values. Weights count only for units, whole positive ones; each\n\
-                 unit of an individuals chart is repeated by its weight. A chart has 2 to 3000 points.\n\
-                 Not supported yet: TEMPLATE.";
+                 unit of an individuals chart is repeated by its weight. A chart has 2 to 3000 points.";

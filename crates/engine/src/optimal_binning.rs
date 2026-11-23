@@ -16,7 +16,7 @@
 //! - Weights rounded to whole numbers; a case of missing or rounded zero weight is left out.
 //!   User-missing values are missing. PAIRWISE uses the cases valid on the variable (and the
 //!   guide for MDLP), LISTWISE the cases valid on all of them.
-//! - Choices where the manuals are silent are in docs/differences.md: the end points are data
+//! - Choices where the manuals are silent: the end points are data
 //!   values (the lowest value of the upper bin, or with LOWERLIMIT=EXCLUSIVE the highest value
 //!   of the lower bin), an observed end belongs to its bin, every case with a valid value is
 //!   binned, and SPLIT FILE is not used.

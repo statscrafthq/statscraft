@@ -22,8 +22,6 @@ Q-Q (the default) plots each value against the distribution's quantile at p, P-P
 
 APPLY repeats the previous PPLOT (its distribution without the parameters, and its variables unless new ones are given); the subcommands given with it override.
 
-Not supported yet: APPLY of a named model, TEMPLATE.
-
 ## Example
 
 ```text

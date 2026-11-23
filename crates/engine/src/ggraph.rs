@@ -18,7 +18,7 @@
 //!   pie, and ELEMENT draws: interval (bars), line, area and point, with position crossing the
 //!   variables of the dimensions and color splitting them into series.
 //!
-//! Where the manual is silent (recorded in docs/differences.md):
+//! Where the manual is silent:
 //! - Weights count in every function and in the summaries of the chart program; cases with a
 //!   weight of zero or less are left out, as in GRAPH.
 //! - Categories ascend by value, valid ones first, then user-missing ones (REPORTMISSING=YES).

@@ -202,8 +202,7 @@ macro_rules! glm_syntax {
                  of GLM) gives the chi-square or F, df and Sig. MEASURE=names (GLM) names the measures of a doubly\n\
                  multivariate model: the dependents are the cells of the within-subjects design for the first measure, then the\n\
                  second, and so on, the last WSFACTOR varying fastest; each measure has its own sphericity, averaged,\n\
-                 contrast and between-subjects tests and the multivariate tests take the measures together. Not supported yet:\n\
-                 OUTFILE; with WSFACTOR also the SPREADLEVEL and RESIDUALS plots.")
+                 contrast and between-subjects tests and the multivariate tests take the measures together.")
     };
 }
 
@@ -231,8 +230,7 @@ const PPLOT_SYNTAX: &str = "PPLOT [VARIABLES=] varlist\n\
                  plot shows observed minus expected, with the line y = 0. BOTH draws both plots. Values the\n\
                  distribution cannot take leave the variable out with a warning. Weights are not used.\n\
                  APPLY repeats the previous PPLOT (its distribution without the parameters, and its\n\
-                 variables unless new ones are given); the subcommands given with it override.\n\
-                 Not supported yet: APPLY of a named model, TEMPLATE.";
+                 variables unless new ones are given); the subcommands given with it override.";
 
 const MVA_SYNTAX: &str = "MVA [VARIABLES=] varlist | ALL\n\
                  \x20  [/CATEGORICAL=varlist] [/MAXCAT=25] [/ID=var]\n\
@@ -726,7 +724,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "WEIGHT",
         summary: "Weight the cases by a variable, or turn weighting off.",
         syntax: "WEIGHT BY var.\n\
-                 WEIGHT OFF.",
+                 WEIGHT OFF.\n\
+                 Fractional weights are used as they are in counts, percentages and statistics; most significance\n\
+                 tests, confidence intervals and standard errors round them. A case whose weight is zero,\n\
+                 negative or missing is left out.",
         example: "WEIGHT BY weight.",
         parse: data_commands::weight,
     },
@@ -902,7 +903,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the codes after them, still user-missing; system-missing stays missing. Each code is\n\
                  labeled with the value label or the value. GROUP uses one scheme for all variables,\n\
                  BLANK=MISSING makes a blank string user-missing. All cases are recoded, also those a\n\
-                 filter leaves out. APPLY TEMPLATE and SAVE TEMPLATE are not supported yet.",
+                 filter leaves out.",
         example: "AUTORECODE VARIABLES=country /INTO country_code /PRINT.",
         parse: data_commands::autorecode,
     },
@@ -1469,8 +1470,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  MATRIX=OUT writes, per split group and value of the factor, the records MEAN, STDDEV and N of every\n\
                  dependent; IN reads such records (and the pooled MSE and DFE records, which then give the within\n\
                  variance) and runs everything that needs no cases: HOMOGENEITY is an error, and the minimum and\n\
-                 maximum of the descriptives are empty.\n\
-                 Not supported yet: WALLER.",
+                 maximum of the descriptives are empty.",
         example: "ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.",
         parse: stats::oneway,
     },
@@ -1485,7 +1485,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  standard error 1 / sqrt(W - 3) (W the sum of the weights of the pair, above 3), BIAS=TRUE\n\
                  subtracting r / (2 (W - 1)) from the transformed value first; with ONETAIL one bound is -1 or 1\n\
                  (the lower limit for a positive r, the upper for a negative or zero r) and the other is found at the\n\
-                 one-tailed level. METHOD=EXACT is not supported yet.\n\
+                 one-tailed level.\n\
                  MATRIX writes the last list without WITH as a matrix data file (ROWTYPE_ MEAN, STDDEV, N and CORR,\n\
                  VARNAME_; N is one record under LISTWISE, a record per variable under PAIRWISE unless every pair has\n\
                  the same count; one set per SPLIT FILE group); the tables are still shown, and with * the file\n\
@@ -1731,15 +1731,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  SELECT makes the correlation matrix, the equation and its tests from the cases where the condition\n\
                  holds (a missing value on the variable leaves the case out; the variable is not on VARIABLES,\n\
                  DEPENDENT or METHOD, and its value is quoted for a string variable). The other cases still get\n\
-                 predictions, residuals, leverage, Mahalanobis and Cook's distance (formulas of the Algorithms\n\
-                 manual for cases outside the fit); the residual statistics, the outlier lists and the plots are of\n\
+                 predictions, residuals, leverage, Mahalanobis and Cook's distance; the residual statistics, the outlier lists and the plots are of\n\
                  the selected and the unselected cases apart (SEPARATE, the default) or of all of them (POOLED),\n\
                  Casewise Diagnostics list both with a Selected Status, and SAVE fills every case.\n\
                  MATRIX must come first. OUT writes the records MEAN, STDDEV, N (one record, or a record per\n\
                  variable when pairwise counts differ) and CORR (OCORR with ORIGIN) of every variable on VARIABLES,\n\
                  per split group; * puts them in the active dataset. IN gives the equation from such records, which\n\
-                 have no cases: SAVE, RESIDUALS, CASEWISE, the plots, SELECT and REGWGT are errors then.\n\
-                 Not supported yet: OUTFILE.",
+                 have no cases: SAVE, RESIDUALS, CASEWISE, the plots, SELECT and REGWGT are errors then.",
         example: "REGRESSION /STATISTICS=COEFF OUTS R ANOVA CHANGE /DEPENDENT=spend /METHOD=ENTER age /METHOD=STEPWISE q1 TO q5 /SAVE=PRED ZRESID.",
         parse: regression::regression,
     },
@@ -1989,8 +1987,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  such as MEANPRED_1). Each FTEST tests whether the parameters of its variables (and the\n\
                  intercept) equal TESTVALUES, 0 by default. PLOT draws prior, likelihood and posterior as\n\
                  chart data: of covariates, of the first MAX_CATEGORY categories of factors, of the\n\
-                 intercept, of the error variance, and the predictive density. OUTFILE is accepted, but no\n\
-                 model file is written yet. Cases missing on any variable of the model are left out.",
+                 intercept, of the error variance, and the predictive density. OUTFILE is accepted and\n\
+                 writes no file. Cases missing on any variable of the model are left out.",
         example: "BAYES REGRESSION bill_total BY table_zone WITH party_size\n\
                   \x20 /INFERENCE ANALYSIS=BOTH /ESTBF COMPARE=FULL\n\
                   \x20 /PREDICT REGRESSORS=2 4 /FTEST LABEL='zone' VARIABLES=table_zone.",
@@ -2319,8 +2317,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  CLASSMISSING=INCLUDE). Without CORRELATIONS the Pearson correlations of the fields in the data are\n\
                  used. MINVAL and MAXVAL cut the distribution. Several values of one parameter, several PROBS sets or\n\
                  FIXEDINPUT ITERATIONS run one simulation per value (sensitivity analysis). The plan is Statscraft's\n\
-                 own JSON. SPLIT FILE is not used. Not supported yet: model files of other procedures (PMML),\n\
-                 SOURCE='file', CONTINGENCY MULTIWAY=YES, string inputs.",
+                 own JSON. SPLIT FILE is not used.",
         example: "SIMPLAN CREATE /MODEL FILE='margin.json' CUSTOM=YES\n\
                   \x20 /SIMINPUT INPUT=units TYPE=MANUAL DISTRIBUTION=TRIANGULAR(MIN=800 MAX=1400 MODE=1000)\n\
                   \x20 /SIMINPUT INPUT=unit_cost /FIXEDINPUT INPUT=unit_price VALUE=12\n\
@@ -2477,7 +2474,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  TSC_1, TSC_2 and so on unless given. OUTFILE writes Statscraft's own JSON: MODEL the variables,\n\
                  their standardization and the final clusters, STATE the subclusters and settings of the tree\n\
                  (not with SPLIT FILE). The result depends on the order of the cases. DMCLUSTER is another\n\
-                 name for the command. Not supported yet: INFILE.",
+                 name for the command.",
         example: "TWOSTEP CLUSTER /CONTINUOUS VARIABLES=spend visits /CATEGORICAL VARIABLES=region plan\n\
                   \x20 /NUMCLUSTERS=AUTO 8 BIC /PRINT=COUNT SUMMARY IC /SAVE CLUSTER VARIABLE=segment.",
         parse: twostep::twostep,
@@ -2725,7 +2722,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  F of the predictor across the target classes; with a scale target a categorical predictor by\n\
                  the F of the target across its categories and a scale one by the significance of Pearson's r.\n\
                  When both kinds are present a chi-square significance (Pearson's unless LRCHISQ) ranks the categorical ones. Ties go\n\
-                 to the larger statistic, then the manual's further rules, then file order. SIZE predictors\n\
+                 to the larger statistic, then the smaller df, fewer categories or more cases, then file order. SIZE predictors\n\
                  are selected from the top (AUTO: the nearest whole number to the smaller of the predictor count\n\
                  and the larger of 30 and twice its square root), only those with a significance below PCUTOFF\n\
                  when significance ranks. Tables: Case Processing Summary, Excluded Predictors, Predictor\n\
@@ -2791,7 +2788,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  dendrogram holds every join with its coefficient, rescaled from 1 at the first join to 25 at\n\
                  the last. MATRIX=OUT writes the proximity matrix of the run (rows of type PROX, the same file PROXIMITIES\n\
                  writes: the ID variable or none, CASENO_, VARNAME_ and one VARn column per case) to a file, a\n\
-                 dataset or the active dataset. Not supported yet: SAVE with MATRIX=IN.",
+                 dataset or the active dataset.",
         example: "CLUSTER q1 TO q5 /MEASURE=SEUCLID /METHOD=WARD /PRINT=SCHEDULE CLUSTER(2,4) /SAVE=CLUSTER(3).",
         parse: cluster::cluster,
     },
@@ -2995,9 +2992,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  gives the configuration, the subject weights, the linear fit (disparities against distances), the\n\
                  nonlinear fit (data against distances) for ORDINAL and NOMINAL and the transformation (data against\n\
                  disparities), with ALL one per matrix. OUTFILE writes TYPE_ (CON for coordinates, SUB for subject\n\
-                 weights), DIMENS, MATNUM (0 for coordinates) and DIM1, DIM2, ... for every dimensionality. Not\n\
-                 supported yet: SHAPE=ASYMMETRIC and RECTANGULAR, CONDITION=ROW, the models ASCAL, AINDS and GEMSCAL,\n\
-                 FILE.",
+                 weights), DIMENS, MATNUM (0 for coordinates) and DIM1, DIM2, ... for every dimensionality.",
         example: "ALSCAL VARIABLES=s1 TO s9 /LEVEL=ORDINAL /CRITERIA=DIMENS(2,3) /PLOT.",
         parse: alscal::alscal,
     },
@@ -3107,7 +3102,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  functions: the transformation matrix with the share of the between-groups variance of each rotated\n\
                  function, the rotated standardized coefficients and the rotated structure matrix; scores and\n\
                  classification stay as they are. MATRIX=OUT writes the group counts and means with the pooled deviations and\n\
-                 correlations of the first analysis. Not supported yet: MATRIX=IN, OUTFILE.",
+                 correlations of the first analysis.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
         parse: discriminant::discriminant,
     },
@@ -3155,7 +3150,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  model, or the names given (DFBETA(name) gives name1, name2, ...). Weighted when a\n\
                  weight variable is set. After a TIME PROGRAM, covariates it creates change with time; SAVE then\n\
                  gives DFBETA only and the survival table, PATTERN and plots are left out. EXTERNAL changes\n\
-                 nothing. Not supported yet: OUTFILE.",
+                 nothing.",
         example: "COXREG months WITH plan spend /STATUS=ended(1) /STRATA=site /CATEGORICAL=plan /PRINT=CI(95) BASELINE /PLOT=SURVIVAL.",
         parse: coxreg::coxreg,
     },
@@ -3173,8 +3168,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  XSAVE; a COXREG that stops for a fault in the program drops it, one that stops for another\n\
                  error keeps it. Any other command that reads the data drops the program, as do CLEAR TIME\n\
                  PROGRAM and CLEAR TRANSFORMATIONS. A case the program gives a missing value while it is\n\
-                 missing on a variable the program names is left out.\n\
-                 Not supported yet in a program: LAG, $CASENUM and values carried from case to case.",
+                 missing on a variable the program names is left out.",
         example: "TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).",
         parse: coxreg::time_program,
     },
@@ -3225,7 +3219,6 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  value leaves the case unselected); the Case Processing Summary counts the unselected cases, the\n\
                  Classification Table has a part for each group, and SAVE and CASEWISE (with S or U in Selected\n\
                  Status) cover the unselected cases that have a prediction and an observed value.\n\
-                 Not supported yet: OUTFILE.\n\
                  DMLOGISTIC is another name for the command.",
         example: "LOGISTIC REGRESSION VARIABLES=bought WITH age income region /CATEGORICAL=region /METHOD=FSTEP(LR) /PRINT=GOODFIT CI(95) /SAVE=PRED.",
         parse: logistic::logistic,
@@ -3305,7 +3298,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  TEST=[(constants)] ['label'] effect values ; ... (or ALL values) tests linear combinations of the\n\
                  parameters, the values one per parameter of the effect (redundant ones included, INTERCEPT one), by\n\
                  Wald chi-squares for each logit (df the rank of the rows) and for all logits together; constants\n\
-                 default to 0 and a number may be a fraction. Not supported yet: OUTFILE.",
+                 default to 0 and a number may be a fraction.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
     },
@@ -3564,10 +3557,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  dependents are the cells and its covariates after WITH the constant ones). Several groups in\n\
                  parentheses separated by slashes are separate analyses, each with its own tables; CONDITIONAL makes the\n\
                  variables of the earlier groups covariates of the later ones, and covariates after the closing\n\
-                 parenthesis go to every group. A variable is named once on the subcommand.\n\
-                 Not supported yet: PLOT, MATRIX, JOINT MULTIVARIATE(ROY) intervals for a term of\n\
-                 more than one df, RESIDUALS PLOT, PMEANS PLOT, PRINT DESIGN other than OVERALL and ONEWAY,\n\
-                 PARAMETERS(OPTIMAL).",
+                 parenthesis go to every group. A variable is named once on the subcommand.",
         example: "MANOVA score1 score2 BY method(1,3) school(1,2) WITH pretest /PRINT=SIGNIF(EIGEN) /DESIGN.\n\
                   MANOVA t1 t2 t3 BY method(1,3) /WSFACTORS=trial(3) /PRINT=SIGNIF(GG HF) /DESIGN.",
         parse: manova::manova,
@@ -3675,7 +3665,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  and models and replacing variables of those names; ALL saves them under free numbers;\n\
                  NONE saves none. PLOT=FIT (the default) gives a\n\
                  chart of the observed values with every fitted curve; ID labels its points. Another\n\
-                 subcommand given twice keeps the last. APPLY is not supported yet; TEMPLATE is ignored.",
+                 subcommand given twice keeps the last. TEMPLATE is ignored.",
         example: "CURVEFIT VARIABLES=visitors WITH week /MODEL=LINEAR QUADRATIC GROWTH /PRINT=ANOVA /SAVE=PRED CIN.",
         parse: regression_more::curvefit,
     },
@@ -3702,7 +3692,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  without PRINT, TSET PRINT=DETAILED does the same and BRIEF leaves out the log-likelihoods.\n\
                  SAVE=WEIGHT keeps the chosen weights as WGT_n, the first free n. Without SAVE, TSET NEWVAR\n\
                  decides: CURRENT (the default) saves WGT_1, replacing it, ALL the next free WGT_n, NONE\n\
-                 nothing. CONSTANT or NOCONSTANT defaults to TSET. APPLY is not supported yet.",
+                 nothing. CONSTANT or NOCONSTANT defaults to TSET.",
         example: "WLS rent WITH floor_area rooms /SOURCE=floor_area /POWER=-1 TO 3 BY 0.25 /PRINT=ALL.",
         parse: regression_more::wls,
     },
@@ -3724,7 +3714,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Bartlett's sqrt((1 + 2 (r_1^2 + ... + r_(k-1)^2)) / n). PACF adds the partial\n\
                  autocorrelations, with standard error 1 / sqrt(n). A chart per series shows the\n\
                  coefficients with limits at two standard errors. APPLY without a name repeats the previous\n\
-                 ACF, with the subcommands given now replacing its own; named models are not supported.\n\
+                 ACF, with the subcommands given now replacing its own.\n\
                  DIFFERENCE is another name for DIFF. Case weights are not used.",
         example: "ACF VARIABLES=daily_orders /DIFF /MXAUTO=21 /PACF.",
         parse: timeseries::acf,
@@ -4010,8 +4000,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  forecasts and charts. MODELSUMMARY PLOT draws a histogram of each fit measure named (the names of MODELFIT),\n\
                  one value per model, and for RESIDACF and RESIDPACF a boxplot per lag of the models'\n\
                  residual autocorrelations (they need reestimation). OUTFILE writes the models to a JSON\n\
-                 file for TSAPPLY. SAVE adds root_series_model variables (Predicted, LCL, UCL, NResidual).\n\
-                 Not supported yet: OUTPMML and transfer functions chosen by the expert modeler.",
+                 file for TSAPPLY. SAVE adds root_series_model variables (Predicted, LCL, UCL, NResidual).",
         example: "TSMODEL /MODELDETAILS PRINT=[PARAMETERS FORECASTS] /MODEL DEPENDENT=bookings /EXSMOOTH TYPE=HOLT.",
         parse: tsmodel::tsmodel,
     },
@@ -4027,7 +4016,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  form of each model and estimates it again over the USE range of the active dataset.\n\
                  KEEP and DROP pick models by identifier; OUTFILE writes the models applied. Output and\n\
                  SAVE are as in TSMODEL; residual autocorrelations, fitted values and residuals need\n\
-                 REESTIMATE=YES. Not supported under SPLIT FILE.",
+                 REESTIMATE=YES. It does not run under SPLIT FILE.",
         example: "TSAPPLY /MODELDETAILS PRINT=FORECASTS /MODEL FILE='bookings_models.json'.",
         parse: tsmodel::tsapply,
     },
@@ -4314,8 +4303,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  that scores times loadings stay the same: VPRINCIPAL -1 (standard scores, loadings are\n\
                  correlations), OPRINCIPAL 1, SYMMETRICAL 0; INDEPENDENT scales the scores only. ROTATION turns\n\
                  the loadings of the variables that have loadings, with Kaiser normalization unless NOKAISER,\n\
-                 and the scores and centroids with them. RESAMPLE=BOOTSTRAP is not supported yet (an error);\n\
-                 a rotation with BOOTSTRAP is an error too. SPLIT FILE does not apply.\n\
+                 and the scores and centroids with them. SPLIT FILE does not apply.\n\
                  Tables: Case Processing Summary, Iteration History (iteration 0 and the last, or all with\n\
                  HISTORY: variance accounted for, its increase, and the loss split into the centroid part and\n\
                  the part from holding single variables to a line) and Model Summary (Cronbach's alpha,\n\
@@ -4641,8 +4629,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  and the ordinal model and REPEATED keep Wald intervals with a warning. The tolerance only sets how\n\
                  closely the limits are solved. A limit the profile never reaches is left empty.\n\
                  With REPEATED, ANALYSISTYPE=1(LR) or 3(LR) gives generalized score chi-squares instead of likelihood ratios\n\
-                 (the equations solved under L b = 0, T = s' M L' (L C L')^- L M s with the model-based M and robust C).\n\
-                 Not supported yet: OUTFILE, TWEEDIE, INITIAL from a file, and with REPEATED the multinomial distribution.",
+                 (the equations solved under L b = 0, T = s' M L' (L C L')^- L M s with the model-based M and robust C).",
         example: "GENLIN visits BY clinic WITH age /MODEL clinic age DISTRIBUTION=NEGBIN(MLE) LINK=LOG OFFSET=logdays /PRINT FIT SUMMARY SOLUTION(EXPONENTIATED) /EMMEANS TABLES=clinic COMPARE=clinic.",
         parse: genlin::genlin,
     },
@@ -4736,8 +4723,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  standard deviation of the dependent and covariates in each cell of the factors; HISTORY(n) lists\n\
                  the start and every n-th iteration (update type, step halvings, -2 log likelihood and every\n\
                  parameter) and always the last;\n\
-                 LMATRIX shows the coefficients of each test of a fixed effect and of each TEST. Not supported\n\
-                 yet: the spatial and Kronecker types of REPEATED, KRONECKER and SPCOORDS.",
+                 LMATRIX shows the coefficients of each test of a fixed effect and of each TEST.",
         example: "MIXED yield BY plot_type WITH rain /FIXED=plot_type rain /RANDOM=INTERCEPT rain | SUBJECT(farm) COVTYPE(UN) /PRINT=SOLUTION TESTCOV.",
         parse: mixed::mixed,
     },
@@ -4842,8 +4828,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  by the logit, with its own parameters and random effects for each other category. Neither takes\n\
                  REPEATED_MEASURES; EMMEANS is ignored with a warning. SAVE gives the predicted category, the\n\
                  probabilities (cumulative for an ordinal target), the confidence and the intervals of the\n\
-                 probabilities. Not supported yet: SAVE PEARSON_RESIDUALS of a multinomial target, the spatial and Kronecker\n\
-                 covariance types, KRONECKER_MEASURES, SPCOORDS, GROUPING and INPUTS_CATEGORY_ORDER other than ASCENDING.",
+                 probabilities.",
         example: "GENLINMIXED /DATA_STRUCTURE SUBJECTS=clinic /FIELDS TARGET=cured /TARGET_OPTIONS DISTRIBUTION=BINOMIAL LINK=LOGIT /FIXED EFFECTS=dose /RANDOM USE_INTERCEPT=TRUE SUBJECTS=clinic.",
         parse: genlinmixed::genlinmixed,
     },
@@ -4989,8 +4974,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  probability under other priors) with the return on investment (profit over expense, in percent) and\n\
                  the index over the sample's average profit, node by node and by percentile, and PLOT PROFIT and\n\
                  ROI chart the average profit and the return of the first p percent of the cases, and PLOT MEAN (a\n\
-                 scale dependent) the mean of the first p percent of the cases, the nodes by mean. Not supported yet:\n\
-                 SPLITMERGED=YES, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 scale dependent) the mean of the first p percent of the cases, the nodes by mean.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,
@@ -5044,7 +5028,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  INTERVAL adds such bars to a simple or clustered bar or line chart of MEAN or MEDIAN: CI, SE\n\
                  and STDDEV for a mean as on ERRORBAR, CI only for a median. A median's interval runs between\n\
                  order statistics, interpolated (Hettmansperger and Sheather), so it need not be symmetric; it\n\
-                 needs whole case weights. Counts, percentages and the other functions get no bars yet.\n\
+                 needs whole case weights. Counts, percentages and the other functions get no bars.\n\
                  PARETO counts (COUNT or a bare variable) or adds up (SUM, VALUE), puts the largest category first\n\
                  and stacks several series. CUM, the default, draws the running total as a percentage of the grand\n\
                  total: a line against a second axis from 0 to 100 on the right. NOCUM drops the line and the axis.\n\
@@ -5059,16 +5043,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  frame, the variable before WITH across (every pair of the two lists, or with PAIR the first\n\
                  with the first and so on; no BY group). A list alone draws a matrix: a cell for each pair, the\n\
                  column's variable across and the row's up, the names on the diagonal. x WITH y WITH z has a\n\
-                 third axis; it is not drawn yet and shows as the table of its points. LISTWISE leaves out a\n\
+                 third axis; it shows as the table of its points. LISTWISE leaves out a\n\
                  case missing on any of the variables; with VARIABLE a pair takes the cases valid on both.\n\
                  PANEL repeats the chart for each combination of the categories of the ROWVAR and COLVAR variables,\n\
                  rows first, each a separate chart named in its title. Combinations without cases get no chart, so\n\
                  COLOP and ROWOP change nothing. A case missing on a panel variable is left out unless REPORT.\n\
                  TITLE names the chart (otherwise it is named after what it shows); SUBTITLE goes under the title\n\
                  and FOOTNOTE below the chart. Lines have at most 72 characters. With SPLIT FILE each group gets a\n\
-                 chart. Weighted when a weight variable is set; cases with a zero or missing weight are left out.\n\
-                 Not supported yet: TEMPLATE and HILO with more than three series (GROUPED); each gives an\n\
-                 error.",
+                 chart. Weighted when a weight variable is set; cases with a zero or missing weight are left out.",
         example: "GRAPH /TITLE='Visits per store' /BAR(STACKED)=COUNT BY store BY daypart.",
         parse: graph::graph,
     },
@@ -5817,7 +5799,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  values as valid, and MISSING=LIST leaves out the cases missing on n of the variables. MEDIAN,\n\
                  MODE, FREQUENCY and PERCENT count the whole numbers of the range, cutting decimals off.\n\
                  TOTAL on the first BREAK repeats its first SUMMARY for all cases at the end, under Grand\n\
-                 Total. Formats follow the manual's defaults for each function. TITLE and FOOTNOTE lines (by\n\
+                 Total. Each function has its own default format. TITLE and FOOTNOTE lines (by\n\
                  default the text of the TITLE command) show above and below the report; )PAGE, )DATE and\n\
                  )var in them give the page number, the date and the value label of the first case. OUTFILE\n\
                  writes the report as text, with the column widths, spacing and alignment, instead of\n\
@@ -6286,8 +6268,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the pictures' size and colors. PERCENTSIZE (above 0, at most 200) scales a picture: 100\n\
                  is 1280 pixels wide, the PNG of --charts. GRAYSCALE=YES, DEPTH=GRAYS256 and\n\
                  DEPTH=BLACKWHITE drop the color; the other depths and COMPRESS change nothing. EMF and EPS\n\
-                 are not written yet: a warning, and their charts stay data tables, as does a kind that is\n\
-                 not drawn yet, such as a stem-and-leaf display. /XLS and /XLSM are refused.",
+                 give a warning, and their charts stay data tables, as does a stem-and-leaf display. /XLS and /XLSM are refused.",
         example: "OUTPUT EXPORT /XLSX DOCUMENTFILE='results.xlsx' SHEET='Region 1'.",
         parse: output_docs::output_export,
     },
@@ -6359,7 +6340,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  changes how numbers show, REPLACE puts in a value, HIDE takes the picked rows or columns out.\n\
                  Keywords may be shortened to three letters. Fonts, colors, styles, sizes, column widths,\n\
                  table looks, layers, PIVOT, UNGROUP and chart templates change nothing and say so in a\n\
-                 warning. PARENT and CHILD conditions are not supported. PRINTREPORT=YES adds a table of\n\
+                 warning. PRINTREPORT=YES adds a table of\n\
                  what changed.",
         example: "OUTPUT MODIFY /SELECT TABLES /IF COMMANDS=['Means'] /TABLE SORT=COLLABEL('Mean')\n\
                  \x20 SORTDIRECTION=DESCENDING /TABLECELLS SELECT=['Mean'] SELECTDIMENSION=COLUMNS FORMAT=F8.1.",
@@ -6696,8 +6677,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Empty rows and empty columns without a name are left out; error cells are empty. HIDDEN\n\
                  IGNORE=YES leaves out hidden rows and columns (XLSX only). ASSUMEDSTRWIDTH cuts longer\n\
                  strings (XLS: 255 by default). LEADINGSPACES IGNORE=YES removes leading blanks of strings;\n\
-                 TRAILINGSPACES IGNORE=YES leaves trailing blanks out of the width.\n\
-                 ODBC and OLEDB are not supported yet.",
+                 TRAILINGSPACES IGNORE=YES leaves trailing blanks out of the width.",
         example: "GET DATA /TYPE=TXT /FILE='wave2.csv' /DELIMITERS=\",\" /QUALIFIER='\"' /FIRSTCASE=2\n\
                   \x20 /VARIABLES=id F5 name A20 born SDATE10.\n\
                   GET DATA /TYPE=XLSX /FILE='wave3.xlsx' /SHEET=NAME 'Answers' /CELLRANGE=RANGE 'A1:F200'.",
@@ -6738,8 +6718,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  numeric variables, for whole values up to 2147483620 (80 bytes each for Stata 8). Dates\n\
                  become %td days since 1960, dates with a time %tc milliseconds; times and other numbers\n\
                  are plain. User-missing values stay valid values unless MISSING=RECODE. Text is UTF-8 from\n\
-                 Stata 14 on, else in ENCODING (default: the system's code page).\n\
-                 Other types (SAS, dBASE, ODBC, 1-2-3, SYLK) and APPEND are not supported yet.",
+                 Stata 14 on, else in ENCODING (default: the system's code page).",
         example: "SAVE TRANSLATE OUTFILE='wave2.xlsx' /TYPE=XLS /VERSION=12 /FIELDNAMES /CELLS=LABELS /REPLACE.\n\
                   SAVE TRANSLATE OUTFILE='wave2.csv' /TYPE=CSV /FIELDNAMES /TEXTOPTIONS DECIMAL=COMMA /REPLACE.\n\
                   SAVE TRANSLATE OUTFILE='clinic.dta' /TYPE=STATA /EDITION=SE /DROP=nurse_note /MAP /REPLACE.",
@@ -6791,8 +6770,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  numbers (F with the field's width and decimals), date fields dates (DATE11); memo fields\n\
                  are left out. FIELDNAMES is ignored.\n\
                  XLS (Excel 95 to 2003, read as GET DATA reads it): the first sheet; names are the\n\
-                 column letters without FIELDNAMES.\n\
-                 1-2-3, Symphony and SYLK files (WK, WK1, WKS, WR1, WRK, SYM, SLK) are not supported.",
+                 column letters without FIELDNAMES.",
         example: "GET TRANSLATE FILE='address.dbf' /DROP=phoneno entry /MAP.\n\
                   GET TRANSLATE FILE='wave3.txt' /TYPE=TAB /FIELDNAMES.",
         parse: portable::get_translate,
@@ -6872,7 +6850,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Show the dictionary of a data file without opening it as the active dataset.",
         syntax: "SYSFILE INFO [FILE=] 'path'.\n\
                  A table of the file (label, cases, variables, documents) and the tables of\n\
-                 DISPLAY DICTIONARY. PASSWORD (encrypted files) is not supported yet.",
+                 DISPLAY DICTIONARY.",
         example: "SYSFILE INFO FILE='survey.sav'.",
         parse: output::sysfile_info,
     },
@@ -6940,7 +6918,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  next free numbers; NONE saves nothing unless the procedure's SAVE asks. A procedure that\n\
                  would make more than MXNEWVARS variables saves none, with a warning. PERIOD wins over the\n\
                  period that DATE variables give. MXPREDICT and CNVERGE are kept and shown by TSHOW; no\n\
-                 procedure that reads them is supported yet. NEWVARS is taken as NEWVAR.",
+                 procedure reads them. NEWVARS is taken as NEWVAR.",
         example: "TSET PERIOD=4 MXAUTO=12 NEWVAR=ALL.",
         parse: timeseries::tset,
     },
@@ -6992,8 +6970,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  per slash. A variable in its own print format is followed by a blank; one with a given\n\
                  format or columns is not. System-missing shows as a period. OUTFILE writes the lines to a\n\
                  file, each starting with a blank (the carriage control), replaced on each data pass.\n\
-                 TABLE shows where each variable goes. Formats P, PK, IB, PIB, PIBHEX, RB, RBHEX and Z are\n\
-                 not supported yet.",
+                 TABLE shows where each variable goes.",
         example: "PRINT /id name (A10) score (F6.2).",
         parse: output::print,
     },
@@ -7299,6 +7276,7 @@ General rules:
   Expressions: + - * / **, = <> < > <= >= (or EQ NE LT GT LE GE), AND OR NOT (or & | ~),
   functions such as MEAN(a, b) or SUM(q1 TO q5); LAG(var [, n]) is the value n cases back.
   A function name may be shortened to three or more letters that start no other function.
+  An expression nests at most 64 levels of parentheses and functions and holds at most 5000 operators.
   Scratch variables start with #: they begin at 0 or blank, keep their value from case to case,
   are never saved and are gone when the next procedure starts. $CASENUM is the case number.
 

@@ -40,7 +40,6 @@
 //!   classes' means give bins, cut between neighbouring subsets in proportion to their SDs.
 //! - Continuous inputs with a continuous target: dropped when the t test of their correlation
 //!   with the prepared target has p above PVALUE.
-//! - Choices where the manuals are silent are in docs/differences.md.
 
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::case_weights;

@@ -2677,7 +2677,7 @@ impl Engine {
             if kr.is_none() {
                 warnings.push("MIXED: the Kenward-Roger adjustment cannot be made (the expected information of the covariance parameters is singular or the adjusted covariance is not positive definite), so the degrees of freedom are Satterthwaite's".into());
             } else if command.ml {
-                // the method was derived for REML; with ML it still runs, flagged (docs/differences.md)
+                // the method was derived for REML; with ML it still runs, flagged
                 warnings.push("MIXED: the Kenward-Roger adjustment is meant for REML estimates; with METHOD=ML it is only approximate".into());
             }
             kr

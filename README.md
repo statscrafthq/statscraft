@@ -62,13 +62,11 @@ The [command pages](docs/commands/README.md) list every supported command. In sh
   - multiple correspondence analysis of categorical variables (MULTIPLE CORRESPONDENCE);
   - categorical principal components by optimal scaling (CATPCA);
   - classification trees (TREE), below.
-- **Classification trees.** TREE grows a classification tree for a nominal or ordinal dependent by CHAID or exhaustive CHAID. Predictor categories are merged by significance, splits are Bonferroni-adjusted, scale predictors are cut into groups of equal size, and missing values form a floating category, with the usual growth limits. It shows the tree as a table, the model summary, risk, classification and gain tables, and saves the node, the predicted category and the predicted probabilities. CRT and QUEST are not supported yet.
+- **Classification trees.** TREE grows a classification tree for a nominal or ordinal dependent by CHAID or exhaustive CHAID. Predictor categories are merged by significance, splits are Bonferroni-adjusted, scale predictors are cut into groups of equal size, and missing values form a floating category, with the usual growth limits. It shows the tree as a table, the model summary, risk, classification and gain tables, and saves the node, the predicted category and the predicted probabilities.
 - **Custom tables.** CTABLES with multiple response sets and significance tests, and MULT RESPONSE.
 - **The matrix language.** MATRIX ... END MATRIX, and MATRIX DATA.
 - **Macros and settings.** DEFINE, INCLUDE, INSERT, SET, SHOW, PRESERVE and RESTORE.
 - **Output.** Tables as Markdown, JSON, Excel workbooks, and with OUTPUT EXPORT also HTML, text and CSV. OUTPUT SAVE and OUTPUT OPEN keep output in Statscraft output files (.scout), and OUTPUT MODIFY deletes, hides, renames, sorts, transposes and reformats the items of the output. Charts are drawn in the window and saved as PNG or SVG, and open as editable charts in PowerPoint, Word and Excel.
-
-Not yet: the drawing of three-dimensional scatterplots (they show as a table), grouped high-low charts and chart templates in GRAPH, and the fonts, colors and table looks of OUTPUT MODIFY. [Differences and limits](docs/differences.md) has the details.
 
 ## Documentation
 
@@ -83,7 +81,6 @@ The documentation is online at [docs.statscraft.org](https://docs.statscraft.org
 - [Connect your AI agent](docs/connect.md): `statscraft connect` adds the Statscraft MCP server to the agents on your computer; the bundle for Claude Desktop, the plugin for Claude Code and the agent skill.
 - [Commands](docs/commands/README.md): one page per supported command, generated from the help table.
 - [Plugins](docs/plugins.md): programs of your own that colour and comment the cells of custom tables, and the JSON protocol they speak.
-- [Differences and limits](docs/differences.md): deliberate differences from other implementations, and what is not supported yet.
 
 ## Getting a build
 

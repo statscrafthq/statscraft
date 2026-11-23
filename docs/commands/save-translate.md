@@ -27,8 +27,6 @@ Stata: VERSION is the Stata release that reads the file (default 14; 8 and 9 giv
 
 INTERCOOLED (the default) keeps up to 2047 variables and 80 bytes of each string; SE keeps 32767 variables and 244 bytes before Stata 13, whole strings from 13 on (over 2045 bytes as strL). Names keep their case: characters other than letters, digits and \_ become \_, and names are cut to 32 bytes and made unique; before Stata 14 a name that is not ASCII becomes v and its position. Variable labels and the file label keep 80 bytes. Value labels go with numeric variables, for whole values up to 2147483620 (80 bytes each for Stata 8). Dates become %td days since 1960, dates with a time %tc milliseconds; times and other numbers are plain. User-missing values stay valid values unless MISSING=RECODE. Text is UTF-8 from Stata 14 on, else in ENCODING (default: the system's code page).
 
-Other types (SAS, dBASE, ODBC, 1-2-3, SYLK) and APPEND are not supported yet.
-
 ## Example
 
 ```text

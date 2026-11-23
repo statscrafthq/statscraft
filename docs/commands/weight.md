@@ -11,6 +11,8 @@ WEIGHT BY var.
 WEIGHT OFF.
 ```
 
+Fractional weights are used as they are in counts, percentages and statistics; most significance tests, confidence intervals and standard errors round them. A case whose weight is zero, negative or missing is left out.
+
 ## Example
 
 ```text

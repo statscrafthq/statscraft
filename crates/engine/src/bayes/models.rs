@@ -27,7 +27,7 @@
 //!   g of the conditions and the subjects. The posterior of the condition means is the normal
 //!   large-sample approximation.
 //!
-//! Choices where the manuals are silent or inconsistent are listed in docs/differences.md:
+//! Choices where the manuals are silent or inconsistent:
 //! COMPARE=FULL takes the ratio of the factors against the null model (the manual's own
 //! formulas do not converge for JZS); Rouder's factor uses the closed form of its integrand.
 

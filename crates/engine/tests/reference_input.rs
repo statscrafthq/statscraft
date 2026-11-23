@@ -173,7 +173,7 @@ fn end_file_with_and_without_end_case() {
 #[test]
 #[ignore = "needs PSPP"]
 fn a_generated_index() {
-    // the program that skips its first records differs: see docs/differences.md
+    // the program that skips its first records differs
     compare(
         "generated",
         "INPUT PROGRAM.\n\
@@ -219,7 +219,7 @@ fn end_variables_join_files() {
             ("east.txt", "  Old Square   15 NA\n  Station       4 TA\n"),
         ],
     );
-    // the running total kept with LEAVE differs: see docs/differences.md
+    // the running total kept with LEAVE differs
 }
 
 #[test]

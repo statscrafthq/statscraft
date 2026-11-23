@@ -1,6 +1,6 @@
 //! The numerical core of PREFSCAL: unfolding of row and column objects by minimizing
 //! penalized stress. Rules in our words (from the Command Syntax Reference and the published
-//! definition of penalized stress; see docs/differences.md for the choices made here):
+//! definition of penalized stress):
 //! - The proximities sit in transformation lists: each row of each source (CONDITION=ROW),
 //!   each source (MATRIX) or all of them (UNCONDITIONAL). Similarities are mirrored within
 //!   each list, largest and smallest swapping places.

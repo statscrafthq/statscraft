@@ -27,8 +27,6 @@ RULES (ALL when empty) checks the first chart: beyond a control limit, 2 of 3 pa
 
 STATISTICS (XR, XS, IR, I and CPCHART): CP CPL CPU K CPK CR CPM CZL CZU CZMIN CZMAX CZOUT CZLOUT CZUOUT with the capability sigma, PP PPL PPU PPK PR PPM PZL PZU PZMIN PZMAX PZOUT PZLOUT PZUOUT with the standard deviation of all values, N MEAN STDDEV CAPSIGMA LSL USL TARGET, and AZOUT AZLOUT AZUOUT, the observed percentages at or past the limits. Keywords that need LSL and USL, or TARGET between them, are left out with a warning. CAPSIGMA: RBAR (XR), SBAR (XS) or WITHIN for subgroups, MRBAR for single values. CPCHART without STATISTICS lists its indices in a table. MISSING: REPORT keeps subgroups for missing BY values, INCLUDE counts user-missing process values. Weights count only for units, whole positive ones; each unit of an individuals chart is repeated by its weight. A chart has 2 to 3000 points.
 
-Not supported yet: TEMPLATE.
-
 ## Example
 
 ```text

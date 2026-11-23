@@ -1,7 +1,7 @@
 //! Renders the command table to `docs/commands/` and fails when the pages there are out of date.
 //! Regenerate with `UPDATE_DOCS=1 cargo test -p statscraft-syntax --test command_docs`.
 
-use statscraft_syntax::{CommandSpec, command_specs, help, unsupported_commands};
+use statscraft_syntax::{CommandSpec, command_specs, help};
 use std::path::PathBuf;
 
 /// The index groups every supported command under one area. A new command must be added here.
@@ -395,16 +395,6 @@ fn index() -> String {
         "\n## General rules of the language\n\n```text\n{}```\n",
         rules
     ));
-    // the section is left out while every recognized command runs
-    if !unsupported_commands().is_empty() {
-        out.push_str(
-            "\n## Not supported yet\n\nThese commands of the language are recognized, but Statscraft \
-             does not run them yet. A script that uses one stops with the error \
-             \"... is not supported yet\" at its line, and nothing is changed.\n\n",
-        );
-        out.push_str(&escape(&unsupported_commands().join(", ")));
-        out.push('\n');
-    }
     out
 }
 

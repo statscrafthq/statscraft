@@ -31,7 +31,7 @@
 //!   models), SCOREn for the rated profiles and SIMULn for the simulations (n the position in
 //!   the plan).
 //!
-//! Choices where the manual is silent (see docs/differences.md):
+//! Choices where the manual is silent:
 //! - n in n + 1 - r counts the rated (experimental and holdout) profiles.
 //! - The standard errors divide by the residual degrees of freedom of the fit; the last level of
 //!   a DISCRETE factor uses the variance of minus the sum of the others.

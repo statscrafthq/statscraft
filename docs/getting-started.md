@@ -33,7 +33,7 @@ Run `statscraft-X-windows-x86_64-setup.exe`. It needs no administrator rights an
 - that folder is added to your `PATH`, so `statscraft` works in any terminal you open after the installation
 - .sav and .zsav files open in the window, and .sps files in its syntax editor. Where another program is already the default for one of these types, it stays the default, and Statscraft is offered under **Open with**.
 
-Windows may warn that the installer comes from an unknown publisher, because it is not signed yet. Choose **More info**, then **Run anyway**.
+Windows may warn that the installer comes from an unknown publisher, because it is not signed. Choose **More info**, then **Run anyway**.
 
 To uninstall, open **Settings**, **Apps**, **Installed apps**, find Statscraft and choose **Uninstall**. That removes the programs, the Start menu entry, the `PATH` entry and the file types.
 
@@ -57,7 +57,7 @@ Keep `LICENSE.txt` next to the programs: the updater recognizes the portable cop
 - `statscraft`, the command line
 - `LICENSE` and `README.md`
 
-Statscraft is not signed with an Apple Developer ID yet, so the first time you open it macOS says it cannot verify the app. Click **Done** (not **Move to Trash**), then:
+Statscraft is not signed with an Apple Developer ID, so the first time you open it macOS says it cannot verify the app. Click **Done** (not **Move to Trash**), then:
 
 1. Choose Apple menu > **System Settings**, then **Privacy & Security** in the sidebar.
 2. Under **Security**, find the message about Statscraft and click **Open Anyway**. The button is there for about an hour after you tried to open the app.
@@ -74,7 +74,7 @@ mv ~/Downloads/statscraft-X-macos-universal/statscraft ~/.local/bin/
 
 (add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` if that folder is not on your `PATH` yet). The first `statscraft --version` is blocked; allow it under **Privacy & Security** as above and run it again. Instead of that, you can clear the download mark in the terminal: `xattr -d com.apple.quarantine ~/.local/bin/statscraft`.
 
-Finder offers Statscraft under **Open With** for .sav, .zsav and .sps files. Opening a file this way should open it in the window, as if it had been dropped there; this has not been tried on a Mac yet. If Statscraft starts without the file, use File > Open data, and please report it on the [Issues page](https://github.com/statscrafthq/statscraft/issues) of the GitHub repository. To uninstall, move Statscraft.app to the Bin and delete the `statscraft` program.
+Finder offers Statscraft under **Open With** for .sav, .zsav and .sps files. Opening a file this way should open it in the window, as if it had been dropped there. If Statscraft starts without the file, use File > Open data, and please report it on the [Issues page](https://github.com/statscrafthq/statscraft/issues) of the GitHub repository. To uninstall, move Statscraft.app to the Bin and delete the `statscraft` program.
 
 ### Debian and Ubuntu
 
@@ -258,4 +258,3 @@ The table appears in the output window. See [the command line](command-line.md#t
 - [The command line](command-line.md): every subcommand, flag, JSON shape and exit code.
 - [AI agents](ai-agents.md): how an agent should drive Statscraft.
 - [Commands](commands/README.md): one page per supported command.
-- [Differences and limits](differences.md): where Statscraft differs from other implementations, and what is not supported yet.

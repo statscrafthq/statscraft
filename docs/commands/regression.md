@@ -28,11 +28,9 @@ Weighted when a weight variable is set; REGWGT gives weighted least squares. Cha
 
 PARTIALPLOT plots, for each independent (or those listed), the dependent's residuals against the independent's, both regressed on the other independents; it needs two in the equation. TEMPLATE is ignored with a warning. LABEL changes nothing. TEST enters every variable named in its sets together (Model Variables Entered/Removed says Test), then gives a Subset Tests table: for each set the change in R square when it leaves the equation, the change in the regression sum of squares, df, mean square and F (against the residual mean square of the full equation) with its significance, and a Residual row.
 
-SELECT makes the correlation matrix, the equation and its tests from the cases where the condition holds (a missing value on the variable leaves the case out; the variable is not on VARIABLES, DEPENDENT or METHOD, and its value is quoted for a string variable). The other cases still get predictions, residuals, leverage, Mahalanobis and Cook's distance (formulas of the Algorithms manual for cases outside the fit); the residual statistics, the outlier lists and the plots are of the selected and the unselected cases apart (SEPARATE, the default) or of all of them (POOLED), Casewise Diagnostics list both with a Selected Status, and SAVE fills every case.
+SELECT makes the correlation matrix, the equation and its tests from the cases where the condition holds (a missing value on the variable leaves the case out; the variable is not on VARIABLES, DEPENDENT or METHOD, and its value is quoted for a string variable). The other cases still get predictions, residuals, leverage, Mahalanobis and Cook's distance; the residual statistics, the outlier lists and the plots are of the selected and the unselected cases apart (SEPARATE, the default) or of all of them (POOLED), Casewise Diagnostics list both with a Selected Status, and SAVE fills every case.
 
 MATRIX must come first. OUT writes the records MEAN, STDDEV, N (one record, or a record per variable when pairwise counts differ) and CORR (OCORR with ORIGIN) of every variable on VARIABLES, per split group; \* puts them in the active dataset. IN gives the equation from such records, which have no cases: SAVE, RESIDUALS, CASEWISE, the plots, SELECT and REGWGT are errors then.
-
-Not supported yet: OUTFILE.
 
 ## Example
 

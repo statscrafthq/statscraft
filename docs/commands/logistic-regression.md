@@ -22,8 +22,6 @@ tempvar: PRED PGROUP RESID DEV LRESID SRESID ZRESID LEVER COOK DFBETA. The depen
 
 Weighted when a weight variable is set. CLASSPLOT gives, for every step shown, chart data of the cases counted by their predicted probability of the second category in 40 bins of 0.025, stacked by the observed category. EXTERNAL changes nothing. SELECT fits only the cases where its condition holds (the variable is numeric and none of those on VARIABLES, CATEGORICAL or METHOD; a missing value leaves the case unselected); the Case Processing Summary counts the unselected cases, the Classification Table has a part for each group, and SAVE and CASEWISE (with S or U in Selected Status) cover the unselected cases that have a prediction and an observed value.
 
-Not supported yet: OUTFILE.
-
 DMLOGISTIC is another name for the command.
 
 ## Example

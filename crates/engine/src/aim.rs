@@ -15,7 +15,7 @@
 //! - A case missing (system-missing, or user-missing unless INCLUDE) on the group or any
 //!   variable named is left out.
 //!
-//! Choices where the manual is silent (docs/differences.md): the t test is two-sided; a group
+//! Choices where the manual is silent: the t test is two-sided; a group
 //! that equals the overall mean with no spread has t 0 and significance 1; a test passes when
 //! its significance is at most the adjusted level.
 

@@ -26,8 +26,6 @@
 //!   way to the Pearson chi-square.
 //! - SIZE=AUTO selects round(min(max(30, 2 root L0), L0)) of the L0 ranked predictors; when a
 //!   significance ranks, only those below PCUTOFF (1 is no limit) may be selected.
-//!
-//! Choices where the manual is silent are listed in docs/differences.md.
 
 use crate::chart::{Axis, Category, Chart, ChartKind, Grouping, Series, Statistic};
 use crate::crosstabs::{Key, categories};
