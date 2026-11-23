@@ -278,10 +278,11 @@ fn print(p: &mut Parser, command: &mut Tree) -> PResult<()> {
 fn gain(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     while !at_end(p) {
         if p.eat_keyword("SUMMARYTABLE") {
-            // the summary of a categorical dependent shows profits, which are not supported
-            yes(p)?;
+            // for a categorical dependent the summary shows profits
+            command.gain_summary = yes(p)?;
         } else if p.eat_keyword("CATEGORYTABLE") {
             command.gain_table = yes(p)?;
+            command.gain_table_given = true;
         } else if p.eat_keyword("TYPE") {
             p.eat(Punct::Eq);
             p.expect(Punct::LBracket)?;
@@ -725,6 +726,8 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             tree_table: false,
         },
         gain_table: true,
+        gain_table_given: false,
+        gain_summary: true,
         gain_cumulative: true,
         gain_node: true,
         gain_ptile: false,

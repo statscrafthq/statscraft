@@ -1439,6 +1439,10 @@ pub struct Tree {
     pub print: TreePrint,
     /// `/GAIN CATEGORYTABLE`
     pub gain_table: bool,
+    /// `/GAIN CATEGORYTABLE` was written (a scale dependent has no category tables).
+    pub gain_table_given: bool,
+    /// `/GAIN SUMMARYTABLE`: the summary tables of a scale dependent.
+    pub gain_summary: bool,
     /// `/GAIN CUMULATIVE`
     pub gain_cumulative: bool,
     /// `/GAIN TYPE`: node-by-node tables, percentile tables, or both.

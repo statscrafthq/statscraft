@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- TREE gain summaries for a scale dependent: the node table gains cumulative size, mean and index (CUMULATIVE=NO leaves them out), GAIN TYPE=[PTILE] INCREMENT=n adds the percentile table, SUMMARYTABLE=NO turns the summaries off, and CATEGORYTABLE no longer does.
 - TREE /GAIN TYPE=[NODE, PTILE] INCREMENT=n: percentile gain tables for each target category (and sample), with the cases in each percentile, the gain count and share, response, index and the nodes in it.
 - TREE gain tables and charts with priors that are not the data's (CRT or QUEST with PRIORS EQUAL or CUSTOM, or ADJUST) now count the nodes by their probabilities under those priors, as the manual's second case says: size share, response and index (and the cumulative figures and percentile charts) change; with priors from the data and for CHAID nothing moves.
 - ADP /TRANSFORM CONSTRUCTION=YES(ROOT=name) builds new predictors from groups of correlated continuous inputs (their first principal component) for a continuous target, with the selection of the other inputs by partial correlation, written into the preparation syntax.

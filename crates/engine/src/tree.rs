@@ -975,6 +975,9 @@ impl Engine {
             if command.costs.is_some() {
                 warnings.push(message("COSTS"));
             }
+            if command.gain_table_given {
+                warnings.push(message("GAIN CATEGORYTABLE"));
+            }
             // the CHAID settings of the chi-square tests have nothing to act on
             if !command.binary() {
                 if command.likelihood_ratio {

@@ -1298,3 +1298,149 @@ fn gain_types_choose_the_tables_and_category_table_no_removes_them_all() {
     );
     assert!(none.iter().all(|t| !t.title.starts_with("Gain Summary")));
 }
+
+/// The terminal nodes of a sample as (node, weight, weighted sum of r), from the saved nodes.
+fn scale_nodes(engine: &Engine, sample: Option<f64>) -> Vec<(usize, f64, f64)> {
+    let (node, r, w, tr) = (
+        values(engine, "node"),
+        values(engine, "r"),
+        values(engine, "w"),
+        values(engine, "tr"),
+    );
+    let mut ids: Vec<usize> = node.iter().map(|&n| n as usize).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids.into_iter()
+        .map(|id| {
+            let members = (0..node.len())
+                .filter(|&i| node[i] as usize == id && sample.is_none_or(|s| tr[i] == s));
+            let (n, sum) = members.fold((0.0, 0.0), |(n, s), i| (n + w[i], s + w[i] * r[i]));
+            (id, n, sum)
+        })
+        .collect()
+}
+
+#[test]
+fn the_gain_summaries_of_a_scale_dependent_list_means_cumulatively_and_by_percentile() {
+    for validated in [false, true] {
+        let mut engine = engine();
+        run(&mut engine, "WEIGHT BY w.");
+        let validation = if validated {
+            "/VALIDATION TYPE=SPLITSAMPLE(tr)"
+        } else {
+            ""
+        };
+        let tables = run(
+            &mut engine,
+            &format!(
+                "{SCALE_COMMAND} {SMALL} {validation} /GAIN TYPE=[NODE, PTILE] INCREMENT=20 \
+                 /SAVE NODEID(node) /TREE DISPLAY=NONE."
+            ),
+        );
+        let training = scale_nodes(&engine, validated.then_some(1.0));
+        // the training sample's order: the node means, the largest first
+        let mean = |c: &(usize, f64, f64)| c.2 / c.1;
+        let mut order: Vec<usize> = training.iter().map(|c| c.0).collect();
+        order.sort_by(|&a, &b| {
+            let (x, y) = (
+                training.iter().find(|c| c.0 == a).unwrap(),
+                training.iter().find(|c| c.0 == b).unwrap(),
+            );
+            mean(y).total_cmp(&mean(x))
+        });
+        let samples: Vec<(String, String, Option<f64>)> = if validated {
+            vec![
+                (
+                    "Gain Summary for Nodes (Training Sample)".into(),
+                    "Gain Summary for Percentiles (Training Sample)".into(),
+                    Some(1.0),
+                ),
+                (
+                    "Gain Summary for Nodes (Test Sample)".into(),
+                    "Gain Summary for Percentiles (Test Sample)".into(),
+                    Some(0.0),
+                ),
+            ]
+        } else {
+            vec![(
+                "Gain Summary for Nodes".into(),
+                "Gain Summary for Percentiles".into(),
+                None,
+            )]
+        };
+        for (node_title, percentile_title, sample) in samples {
+            let nodes = scale_nodes(&engine, sample);
+            let total_n: f64 = nodes.iter().map(|c| c.1).sum();
+            let total_sum: f64 = nodes.iter().map(|c| c.2).sum();
+            let overall = total_sum / total_n;
+            let table_of = |title: &str| tables.iter().find(|t| t.title == title).expect(title);
+            // node by node, with the running totals
+            let found = table_of(&node_title);
+            assert_eq!(found.rows.len(), order.len());
+            let (mut cn, mut cs) = (0.0, 0.0);
+            for (row, id) in found.rows.iter().zip(&order) {
+                let (_, n, sum) = *nodes.iter().find(|c| c.0 == *id).unwrap();
+                (cn, cs) = (cn + n, cs + sum);
+                assert_eq!(text_of(&row[0]), id.to_string());
+                assert_eq!(number(&row[1]), n);
+                close(number(&row[2]), 100.0 * n / total_n, 1e-9);
+                if n > 0.0 {
+                    close(number(&row[3]), sum / n, 1e-9);
+                    close(number(&row[4]), 100.0 * (sum / n) / overall, 1e-9);
+                }
+                assert_eq!(number(&row[5]), cn);
+                close(number(&row[7]), cs / cn, 1e-9);
+                close(number(&row[8]), 100.0 * (cs / cn) / overall, 1e-9);
+            }
+            // the last cumulative row holds every case
+            let last = found.rows.last().unwrap();
+            close(number(&last[6]), 100.0, 1e-9);
+            close(number(&last[8]), 100.0, 1e-9);
+            // by percentile of 20 percent: the nodes in order, the one at the cut in proportion
+            let found = table_of(&percentile_title);
+            assert_eq!(found.rows.len(), 5);
+            for (k, row) in found.rows.iter().enumerate() {
+                let cut = total_n * (k + 1) as f64 * 0.2;
+                let (mut taken, mut sum) = (0.0, 0.0);
+                for id in &order {
+                    let (_, n, s) = *nodes.iter().find(|c| c.0 == *id).unwrap();
+                    if taken + n >= cut - 1e-9 {
+                        sum += if n > 0.0 { (cut - taken) / n * s } else { 0.0 };
+                        break;
+                    }
+                    taken += n;
+                    sum += s;
+                }
+                assert_eq!(number(&row[0]), 20.0 * (k + 1) as f64);
+                assert_eq!(number(&row[1]), cut.round());
+                close(number(&row[2]), sum / cut, 1e-9);
+                close(number(&row[3]), 100.0 * (sum / cut) / overall, 1e-9);
+            }
+            let last = found.rows.last().unwrap();
+            close(number(&last[2]), overall, 1e-9);
+            close(number(&last[3]), 100.0, 1e-9);
+        }
+    }
+}
+
+#[test]
+fn summarytable_no_removes_the_scale_summaries_and_category_tables_are_ignored_with_a_warning() {
+    let mut engine = engine();
+    let tables = run(
+        &mut engine,
+        &format!("{SCALE_COMMAND} {SMALL} /GAIN SUMMARYTABLE=NO /TREE DISPLAY=NONE."),
+    );
+    assert!(tables.iter().all(|t| !t.title.starts_with("Gain Summary")));
+    let tables = run(
+        &mut engine,
+        &format!("{SCALE_COMMAND} {SMALL} /GAIN CATEGORYTABLE=NO /TREE DISPLAY=NONE."),
+    );
+    // not turned off by CATEGORYTABLE, which a scale dependent ignores
+    assert!(tables.iter().any(|t| t.title == "Gain Summary for Nodes"));
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("GAIN CATEGORYTABLE"))
+    );
+}

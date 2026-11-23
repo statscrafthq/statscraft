@@ -332,71 +332,14 @@ impl Engine {
             });
         }
 
-        if command.gain_table {
-            // the terminal nodes by the training sample's mean, with the mean over the overall mean
-            // as the index; the test sample's table lists them in the same order
-            let mut order = terminals.clone();
-            order.sort_by(|&a, &b| {
-                let (ma, mb) = (spread(&nodes[a]).0, spread(&nodes[b]).0);
-                if command.gain_ascending {
-                    ma.total_cmp(&mb)
-                } else {
-                    mb.total_cmp(&ma)
-                }
-            });
-            for (label, ns) in &samples {
-                let root_n = ns[0].n;
-                let overall = spread(&ns[0]).0;
-                let rows: Vec<Vec<Cell>> = order
-                    .iter()
-                    .map(|&t| {
-                        let has_cases = ns[t].n > 0.0;
-                        let mean = spread(&ns[t]).0;
-                        vec![
-                            text(format!("{t}")),
-                            Cell::Number(ns[t].n),
-                            percent(ns[t].n, root_n),
-                            if has_cases {
-                                Cell::Number(mean)
-                            } else {
-                                Cell::Empty
-                            },
-                            if overall == 0.0 || !has_cases {
-                                Cell::Empty
-                            } else {
-                                percent(mean, overall)
-                            },
-                        ]
-                    })
-                    .collect();
-                let formats = vec![
-                    vec![
-                        String::new(),
-                        "F8.0".into(),
-                        "F5.1".into(),
-                        "F8.3".into(),
-                        "F6.1".into()
-                    ];
-                    rows.len()
-                ];
-                out.push(Table {
-                    title: if validated {
-                        format!("Gain Summary for Nodes ({label} Sample)")
-                    } else {
-                        "Gain Summary for Nodes".into()
-                    },
-                    row_headers: 1,
-                    columns: ["Node", "N", "Percent", "Mean", "Index"]
-                        .map(String::from)
-                        .to_vec(),
-                    column_groups: vec![Vec::new(); 5],
-                    rows,
-                    formats,
-                    caption: Some(format!("Growing Method: {}.", method_name(command))),
-                    ..Table::default()
-                });
-            }
+        super::gain::MeanContext {
+            command,
+            samples: &samples,
+            training: nodes,
+            terminals: &terminals,
+            validated,
         }
+        .tables(&mut out);
         out
     }
 }
