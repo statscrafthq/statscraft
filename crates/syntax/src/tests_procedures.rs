@@ -1429,6 +1429,7 @@ fn tree_errors() {
         message("TREE y BY x /GAIN TYPE=[DECILE]."),
         "unexpected word DECILE"
     );
+    assert!(message("TREE y BY x /GAIN TYPE=[].").contains("NODE"));
     assert!(message("TREE y BY x /PRINT NONE RISK.").contains("NONE"));
     assert!(message("TREE y BY x /GROWTHLIMIT MINPARENTSIZE=50.").contains("MINCHILDSIZE"));
     assert!(message("TREE y BY x /PRINT RISK /PRINT CPS.").contains("given twice"));

@@ -296,6 +296,9 @@ fn gain(p: &mut Parser, command: &mut Tree) -> PResult<()> {
                 }
                 p.eat(Punct::Comma);
             }
+            if !command.gain_node && !command.gain_ptile {
+                return Err(p.unexpected(&["NODE", "PTILE"]));
+            }
         } else if p.eat_keyword("SORT") {
             command.gain_ascending = choice(p, &["DESCENDING", "ASCENDING"])? == 1;
         } else if p.eat_keyword("INCREMENT") {
