@@ -468,15 +468,60 @@ impl Rules<'_> {
         )
     }
 
-    /// The nodes the rules are written for.
+    /// The nodes the rules are written for: for the top nodes by index, the terminal nodes of the
+    /// first target category with the largest index values, in that order.
     fn scope(&self) -> Vec<usize> {
         use statscraft_syntax::TreeRuleNodes as N;
-        match self.rules.nodes {
-            N::None => Vec::new(),
-            N::All => (0..self.nodes.len()).collect(),
-            _ => (0..self.nodes.len())
-                .filter(|&t| self.nodes[t].children.is_empty())
-                .collect(),
+        let terminals: Vec<usize> = (0..self.nodes.len())
+            .filter(|&t| self.nodes[t].children.is_empty())
+            .collect();
+        let target = self
+            .command
+            .targets
+            .iter()
+            .find_map(|t| self.classes.iter().position(|k| *k == super::key_of(t)));
+        match (self.rules.nodes, target) {
+            (N::None, _) => Vec::new(),
+            (N::All, _) => (0..self.nodes.len()).collect(),
+            (N::TopN(_) | N::TopPercent(_) | N::MinIndex(_), Some(j)) if !self.nodes[0].scale => {
+                let gain = super::gain::Gain {
+                    nodes: self.nodes,
+                    target: j,
+                    empirical: super::empirical_priors(self.command),
+                };
+                let order = gain.order(&terminals, self.command.gain_ascending);
+                match self.rules.nodes {
+                    N::TopN(n) => order.into_iter().take(n).collect(),
+                    N::TopPercent(percent) => {
+                        // the nodes that start before the percent of the cases is reached
+                        let limit = self.nodes[0].n * percent / 100.0;
+                        let mut taken = 0.0;
+                        let mut kept = Vec::new();
+                        for t in order {
+                            if taken >= limit * (1.0 - 1e-12) {
+                                break;
+                            }
+                            taken += self.nodes[t].n;
+                            kept.push(t);
+                        }
+                        kept
+                    }
+                    N::MinIndex(least) => {
+                        let base = gain.base();
+                        order
+                            .into_iter()
+                            .filter(|&t| {
+                                let f = gain.figures(t);
+                                f.w > 0.0
+                                    && base > 0.0
+                                    && 100.0 * (f.a / f.w) / base >= least * (1.0 - 1e-12)
+                            })
+                            .collect()
+                    }
+                    _ => unreachable!("handled above"),
+                }
+            }
+            _ => terminals,
         }
     }
 

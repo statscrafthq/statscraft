@@ -507,15 +507,6 @@ fn string_values_are_quoted_and_a_string_dependent_is_declared() {
 }
 
 #[test]
-fn rules_that_are_not_ready_say_so() {
-    let mut engine = engine();
-    let (commands, _) =
-        parse("TREE y [n] BY x1 [s] /RULES NODES=TOPN(2) /DEPCATEGORIES TARGET=[1].");
-    let error = engine.execute(&commands[0].command).expect_err("an error");
-    assert!(error.0.contains("not supported yet"), "{error}");
-}
-
-#[test]
 fn a_generic_rule_says_a_group_with_the_missing_category_as_a_choice() {
     // the group of a split that holds the missing category with values reads "(x <= v or x is
     // missing)", never "x <= v and x is missing"
@@ -546,4 +537,171 @@ fn a_generic_rule_says_a_group_with_the_missing_category_as_a_choice() {
         }
     }
     assert!(said_or, "no group held the missing category with values");
+}
+
+/// The nodes the rules of `tree` with `NODES=nodes` are written for.
+fn rules_of(engine: &mut Engine, tree: &str, nodes: &str) -> Vec<usize> {
+    rule_nodes(&run(
+        engine,
+        &format!("{tree} /RULES NODES={nodes} /PRINT NONE /TREE DISPLAY=NONE."),
+    ))
+}
+
+/// The nodes a Rules table writes rules for, in the order it lists them.
+fn rule_nodes(tables: &[Table]) -> Vec<usize> {
+    rule_lines(tables)
+        .iter()
+        .filter_map(|l| l.strip_prefix("/* Node "))
+        .map(|rest| {
+            rest.split(' ')
+                .next()
+                .expect("a number")
+                .parse()
+                .expect("a node")
+        })
+        .collect()
+}
+
+#[test]
+fn the_top_nodes_by_index_are_the_rules_of_topn_toppct_and_minindex() {
+    let mut engine = engine();
+    run(&mut engine, "WEIGHT BY w.");
+    let tree = format!(
+        "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT {SMALL} /DEPCATEGORIES TARGET=[1] \
+         /GAIN CATEGORYTABLE=YES CUMULATIVE=YES"
+    );
+    // the gain table lists the terminal nodes by index, highest first
+    let tables = run(
+        &mut engine,
+        &format!("{tree} /PRINT NONE /TREE DISPLAY=NONE."),
+    );
+    let gain = tables
+        .iter()
+        .find(|t| t.title == "Gain Summary for Nodes")
+        .expect("a gain table");
+    let number = |c: &Cell| match c {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    let text = |c: &Cell| match c {
+        Cell::Text(t) => t.parse::<usize>().expect("a node"),
+        other => panic!("{other:?}"),
+    };
+    let order: Vec<usize> = gain.rows.iter().map(|r| text(&r[0])).collect();
+    let index: Vec<f64> = gain.rows.iter().map(|r| number(&r[6])).collect();
+    // the cumulative share of the cases before each node
+    let share_before: Vec<f64> = gain
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(k, _)| {
+            if k == 0 {
+                0.0
+            } else {
+                number(&gain.rows[k - 1][8])
+            }
+        })
+        .collect();
+    assert_eq!(rules_of(&mut engine, &tree, "TOPN(2)"), order[..2]);
+    assert_eq!(rules_of(&mut engine, &tree, "TOPN(1)"), order[..1]);
+    let wanted: Vec<usize> = (0..order.len())
+        .filter(|&k| share_before[k] < 30.0 - 1e-9)
+        .map(|k| order[k])
+        .collect();
+    assert_eq!(rules_of(&mut engine, &tree, "TOPPCT(30)"), wanted);
+    assert!(!wanted.is_empty() && wanted.len() < order.len());
+    let cutoff = (index[0] + index[index.len() - 1]) / 2.0;
+    let wanted: Vec<usize> = (0..order.len())
+        .filter(|&k| index[k] >= cutoff)
+        .map(|k| order[k])
+        .collect();
+    assert_eq!(
+        rules_of(&mut engine, &tree, &format!("MININDEX({cutoff})")),
+        wanted
+    );
+    assert!(!wanted.is_empty() && wanted.len() < order.len());
+    // more nodes than there are: all the terminal nodes, with a warning
+    let mut all = rules_of(&mut engine, &tree, "TOPN(100)");
+    let said = engine.warnings().to_vec();
+    all.sort_unstable();
+    let mut terminal = rules_of(&mut engine, &tree, "TERMINAL");
+    terminal.sort_unstable();
+    assert_eq!(all, terminal);
+    assert!(said.iter().any(|w| w.contains("TOPN(100)")), "{said:?}");
+}
+
+#[test]
+fn top_nodes_need_target_categories() {
+    let mut engine = engine();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] /METHOD TYPE=CRT {SMALL} /RULES NODES=TOPN(1) /PRINT NONE /TREE DISPLAY=NONE."
+        ),
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("target categories"))
+    );
+    assert!(rule_nodes(&tables).len() > 1);
+}
+
+#[test]
+fn selection_rules_of_the_top_nodes_pick_their_cases() {
+    let mut engine = engine();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] o [o] /METHOD TYPE=CRT {SMALL} /DEPCATEGORIES TARGET=[1] \
+             /SAVE NODEID(saved) /RULES NODES=TOPN(2) TYPE=SELECTION /PRINT NONE /TREE DISPLAY=NONE."
+        ),
+    );
+    run(&mut engine, &rule_lines(&tables).join("\n"));
+    let (filter, saved) = (values(&engine, "filter_$"), values(&engine, "saved"));
+    // the cases of two nodes only, which are not all of them
+    let picked = filter.iter().filter(|&&f| f == 1.0).count();
+    assert!(picked > 0 && picked < 150, "{picked}");
+    let nodes: std::collections::BTreeSet<i64> = (0..150)
+        .filter(|&i| filter[i] == 1.0)
+        .map(|i| saved[i] as i64)
+        .collect();
+    assert_eq!(nodes.len(), 2, "{nodes:?}");
+}
+
+#[test]
+fn outfile_writes_the_rules_as_text() {
+    let folder = std::env::temp_dir().join(format!("statscraft-rules-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).expect("a folder");
+    let file = folder.join("rules.sps");
+    let mut engine = engine();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] /METHOD TYPE=CRT {SMALL} /RULES OUTFILE='{}' /PRINT NONE /TREE DISPLAY=NONE.",
+            file.display()
+        ),
+    );
+    let written = std::fs::read_to_string(&file).expect("the file");
+    assert_eq!(written, rule_lines(&tables).join("\n") + "\n");
+    // NODES=NONE writes nothing and says so
+    let other = folder.join("none.sps");
+    run(
+        &mut engine,
+        &format!(
+            "TREE y3 [n] BY x1 [s] /METHOD TYPE=CRT {SMALL} /RULES NODES=NONE OUTFILE='{}' /PRINT NONE /TREE DISPLAY=NONE.",
+            other.display()
+        ),
+    );
+    assert!(!other.exists());
+    assert!(engine.warnings().iter().any(|w| w.contains("NODES=NONE")));
+    // a folder that is not there is an error
+    let (commands, _) = parse(&format!(
+        "TREE y3 [n] BY x1 [s] /METHOD TYPE=CRT {SMALL} /RULES OUTFILE='{}'.",
+        folder.join("missing").join("r.sps").display()
+    ));
+    let error = engine.execute(&commands[0].command).expect_err("an error");
+    assert!(error.0.contains("cannot write"), "{error}");
+    std::fs::remove_dir_all(&folder).ok();
 }

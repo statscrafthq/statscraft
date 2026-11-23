@@ -51,8 +51,8 @@ use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value, Values, Variable};
 use statscraft_syntax::{
-    Level, Tree, TreeCategory, TreeImpurity, TreePriors, TreeRuleSyntax, TreeRules, TreeSave,
-    TreeValidation, VarItem,
+    Level, Tree, TreeCategory, TreeImpurity, TreePriors, TreeRuleNodes, TreeRuleSyntax, TreeRules,
+    TreeSave, TreeValidation, VarItem,
 };
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -830,20 +830,6 @@ impl Engine {
         for message in &command.ignored {
             self.warn(message.clone());
         }
-        if let Some(rules) = &command.rules {
-            use statscraft_syntax::TreeRuleNodes as Nodes;
-            if matches!(
-                rules.nodes,
-                Nodes::TopN(_) | Nodes::TopPercent(_) | Nodes::MinIndex(_)
-            ) {
-                return Err(Error(
-                    "RULES NODES=TOPN, TOPPCT and MININDEX are not supported yet".into(),
-                ));
-            }
-            if rules.outfile.is_some() {
-                return Err(Error("RULES OUTFILE is not supported yet".into()));
-            }
-        }
         let (shown, labels) = (self.shown(), Shown::labels(self.currencies()));
         let scale_min = self.scale_min();
         let data = self.active()?;
@@ -1041,6 +1027,19 @@ impl Engine {
             {
                 warnings.push(message("SAVE PREDPROB"));
             }
+        }
+        if let Some(spec) = &command.rules
+            && matches!(
+                spec.nodes,
+                TreeRuleNodes::TopN(_) | TreeRuleNodes::TopPercent(_) | TreeRuleNodes::MinIndex(_)
+            )
+            && (scale_dep || !command.targets.iter().any(|t| classes.contains(&key_of(t))))
+        {
+            warnings.push(
+                "RULES NODES=TOPN, TOPPCT and MININDEX need a categorical dependent with target \
+                 categories (DEPCATEGORIES TARGET); the terminal nodes are used"
+                    .into(),
+            );
         }
         for target in command.targets.iter().filter(|_| !scale_dep) {
             let key = key_of(target);
@@ -1693,7 +1692,35 @@ impl Engine {
                 dependent: dependent.name(),
                 dependent_label: dependent.label(),
             };
-            tables.extend(rules.table());
+            let table = rules.table();
+            if let TreeRuleNodes::TopN(n) = spec.nodes
+                && n > nodes.iter().filter(|node| node.children.is_empty()).count()
+            {
+                warnings.push(format!(
+                    "RULES NODES=TOPN({n}) is more than the terminal nodes; all of them are used"
+                ));
+            }
+            if let Some(file) = &spec.outfile {
+                if spec.nodes == TreeRuleNodes::None {
+                    warnings.push("RULES OUTFILE is ignored with NODES=NONE".into());
+                } else if !self.dry_run
+                    && let Some(table) = &table
+                {
+                    let text: Vec<String> = table
+                        .rows
+                        .iter()
+                        .map(|r| match &r[0] {
+                            Cell::Text(t) => t.clone(),
+                            _ => String::new(),
+                        })
+                        .collect();
+                    let path = self.path(file);
+                    std::fs::write(&path, text.join("\n") + "\n").map_err(|e| {
+                        Error(format!("RULES cannot write {}: {e}", path.display()))
+                    })?;
+                }
+            }
+            tables.extend(table);
         }
         let total_n: f64 = in_use.iter().map(|&c| weight(c)).sum();
         if command.print.case_summary {
