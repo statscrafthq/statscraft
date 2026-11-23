@@ -20,6 +20,10 @@ A copy built from source does not update itself: pull and build again.
 
 The workflow **Release build** (started by hand: Actions, Release build, Run workflow, or `gh workflow run release.yml`) gives a per-user Windows installer and a portable Windows .zip, a .deb for Debian and Ubuntu, a .tar.gz for other Linux, and a .tar.gz for macOS (Apple silicon and Intel) with Statscraft.app and the command line, each with `statscraft` and `statscraft-gui`, an MCP bundle (.mcpb) for Claude Desktop on each of the three systems, the agent skill as a .zip, and a `SHA256SUMS` of them; ticking **draft release** also attaches them to a draft GitHub Release. [Install and update](docs/install.md) explains how users install and uninstall them. The packaging scripts are in `packaging/`, the icon in `crates/gui/icons/`.
 
+## Changelog
+
+Write each entry in CHANGELOG.md under "Unreleased" for a user: one line per change, saying what a user can now do. No option-by-option lists, no test or verification notes, no comparisons with other software, no internal history. The same holds for the help text and the guides: they describe only what Statscraft does.
+
 ## Releasing a version
 
 1. Set the new version in `[workspace.package]` of the root `Cargo.toml` (for example `version = "0.2.0"`) and in `plugins/statscraft/.claude-plugin/plugin.json` (a test checks that they agree), run `cargo build` so `Cargo.lock` follows, and commit and push to `main`.

@@ -6,7 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
-- MANOVA /PLOT=BOXPLOTS CELLPLOTS NORMAL ZCORR, /PMEANS=PLOT and /RESIDUALS=PLOT: boxplots and cell statistics plots of every variable, normal plots of the scores, a half-normal plot of the within-cells correlations, the predicted means of the cells and the standardized residuals against the observed and predicted values and the case numbers, as chart data.
+- [MANOVA](docs/commands/manova.md) draws boxplots, cell plots, normal plots, predicted means and residual plots.
 
 ## 0.32.0 (2026-11-23)
 
