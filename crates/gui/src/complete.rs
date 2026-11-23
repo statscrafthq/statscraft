@@ -164,11 +164,22 @@ pub fn candidates(
         } else {
             What::Keyword
         };
-        out.extend(list.iter().filter(|w| matches(w)).map(|w| Candidate {
-            text: w.clone(),
-            detail: String::new(),
-            what,
-        }));
+        // where an expression goes, a function named in the help text comes as a function, with "("
+        let function = |w: &str| {
+            EXPRESSIONS.contains(&command)
+                && statscraft_engine::functions()
+                    .iter()
+                    .any(|(name, _)| name.eq_ignore_ascii_case(w))
+        };
+        out.extend(
+            list.iter()
+                .filter(|w| matches(w) && !function(w))
+                .map(|w| Candidate {
+                    text: w.clone(),
+                    detail: String::new(),
+                    what,
+                }),
+        );
     }
     if !slash {
         out.extend(macro_calls(typed).into_iter().filter(|_| !typed.is_empty()));
