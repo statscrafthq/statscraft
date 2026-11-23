@@ -2535,7 +2535,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20   [/REORDERNOMINAL [INPUT=NO | YES] [TARGET=NO | YES]]\n\
                  \x20   [/RESCALE [INPUT=ZSCORE[(MEAN=0 SD=1)] | MINMAX[(MIN=0 MAX=100)] | NONE] [TARGET=BOXCOX[(MEAN=0 SD=1)] | NONE]]\n\
                  \x20   [/TRANSFORM [MERGESUPERVISED=YES[(PVALUE=0.05)] | NO] [MERGEUNSUPERVISED=NO | YES[([ORDINAL] [NOMINAL] [MINPCT=10])]]\n\
-                 \x20               [BINNING=SUPERVISED[(PVALUE=0.05)] | NONE] [SELECTION=YES[(PVALUE=0.05)] | NO] [CONSTRUCTION=NO]]\n\
+                 \x20               [BINNING=SUPERVISED[(PVALUE=0.05)] | NONE] [SELECTION=YES[(PVALUE=0.05)] | NO] [CONSTRUCTION=YES[(ROOT=feature)] | NO]]\n\
                  \x20   [/CRITERIA SUFFIX([TARGET='_transformed'] [INPUT='_transformed'])]\n\
                  \x20   /OUTFILE PREPXML='file'.\n\
                  Every word is written in full and each subcommand given once. ADP looks at the data and\n\
@@ -2558,8 +2558,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  to the target is dropped; continuous inputs are binned at the Scheffe subsets of the\n\
                  target classes' means for a categorical target, or dropped when their correlation with a\n\
                  continuous target is not significant. Without a target, MERGEUNSUPERVISED joins small\n\
-                 neighbouring categories until each holds MINPCT of the cases. CONSTRUCTION=YES is not\n\
-                 supported yet. Frequency weights are rounded; analysis weights weigh means and spreads.\n\
+                 neighbouring categories until each holds MINPCT of the cases. With a continuous target and\n\
+                 CONSTRUCTION=YES the continuous inputs left are grouped by correlation (level 0.9 down to\n\
+                 0.2, at most five to a group) and each group is replaced by its first principal component,\n\
+                 written as a COMPUTE into the syntax file (ROOT names them ROOT1, ROOT2, ...). Frequency weights are rounded; analysis weights weigh means and spreads.\n\
                  SPLIT FILE is not used. The table lists each field, its prepared field and the actions.",
         example: "ADP /FIELDS TARGET=churned INPUT=tenure plan region signup\n\
                   \x20 /PREPDATETIME DATEDURATION=YES(REFERENCE=YMD('2025-01-01') UNIT=MONTHS)\n\

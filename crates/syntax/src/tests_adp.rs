@@ -111,10 +111,6 @@ fn errors() {
     assert!(error(&format!("{base} /FIELDS INPUT=b.")).contains("once"));
     assert!(error(&format!("{base} /SCREENING.")).contains("empty"));
     assert!(
-        error(&format!("{base} /TRANSFORM CONSTRUCTION=YES(ROOT=f)."))
-            .contains("not supported yet")
-    );
-    assert!(
         error(&format!(
             "{base} /ADJUSTLEVEL MAXVALORDINAL=3 MINVALCONTINUOUS=4."
         ))
@@ -135,4 +131,29 @@ fn errors() {
     );
     // words in full
     assert!(!error(&format!("{base} /SCREEN PCTMISSING=NO.")).is_empty());
+}
+
+#[test]
+fn construction_takes_a_root() {
+    let base = "ADP /FIELDS TARGET=y INPUT=a b";
+    let out = "/OUTFILE PREPXML='p.sps'.";
+    assert_eq!(adp(&format!("{base} {out}")).construction, None);
+    assert_eq!(
+        adp(&format!("{base} /TRANSFORM CONSTRUCTION=YES {out}"))
+            .construction
+            .as_deref(),
+        Some("feature")
+    );
+    assert_eq!(
+        adp(&format!(
+            "{base} /TRANSFORM CONSTRUCTION=YES(ROOT=pc) {out}"
+        ))
+        .construction
+        .as_deref(),
+        Some("pc")
+    );
+    assert_eq!(
+        adp(&format!("{base} /TRANSFORM CONSTRUCTION=NO {out}")).construction,
+        None
+    );
 }

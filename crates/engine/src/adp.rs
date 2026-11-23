@@ -146,6 +146,8 @@ struct Field {
     recode: Option<Recode>,
     changed: bool,
     out: String,
+    /// The constructed predictor that replaces this input.
+    replaced_by: Option<String>,
 }
 
 impl Field {
@@ -689,6 +691,187 @@ fn correlation_p(items: &[(f64, f64, f64, f64)]) -> f64 {
     t_p(r * ((n - 2.0) / (1.0 - r * r)).sqrt(), n - 2.0)
 }
 
+/// The weighted covariance of two columns over the cases where both have a value, with the
+/// weight total less one as divisor, and that count of cases: pairwise deletion.
+fn pair_covariance(a: &[Option<f64>], b: &[Option<f64>], used: &[(usize, f64, f64)]) -> (f64, f64) {
+    let (mut sf, mut sw, mut sx, mut sy) = (0.0, 0.0, 0.0, 0.0);
+    for &(c, f, w) in used {
+        if let (Some(x), Some(y)) = (a[c], b[c]) {
+            sf += f;
+            sw += f * w;
+            sx += f * w * x;
+            sy += f * w * y;
+        }
+    }
+    if sw <= 1.0 {
+        return (0.0, sf);
+    }
+    let (mx, my) = (sx / sw, sy / sw);
+    let mut sxy = 0.0;
+    for &(c, f, w) in used {
+        if let (Some(x), Some(y)) = (a[c], b[c]) {
+            sxy += f * w * (x - mx) * (y - my);
+        }
+    }
+    (sxy / (sw - 1.0), sf)
+}
+
+/// The two-sided p of a partial correlation r on `n` cases (n - 3 degrees of freedom).
+fn partial_p(r: f64, n: f64) -> f64 {
+    if n <= 3.0 {
+        return 1.0;
+    }
+    if r * r >= 1.0 {
+        return 0.0;
+    }
+    t_p(r * ((n - 3.0) / (1.0 - r * r)).sqrt(), n - 3.0)
+}
+
+/// ADP feature construction by the Algorithms manual: the scale inputs left are grouped by
+/// their correlation (the correlation of an input with a group is the smallest absolute
+/// correlation with its members; the level starts at 0.9 and falls by 0.1 down to 0.2, a group
+/// taking at most five inputs), each group is replaced by its first principal component of the
+/// covariance matrix (the eigenvector over the root of its eigenvalue), and with selection in
+/// effect the inputs whose partial correlation with the target, given the new predictor, has a p
+/// above the level are dropped. Covariances use pairwise deletion. Returns the groups as the
+/// positions of the fields with their coefficients.
+fn construct(
+    fields: &mut [Field],
+    target: &[Option<Key>],
+    used: &[(usize, f64, f64)],
+    selection: Option<f64>,
+) -> Vec<Vec<(usize, f64)>> {
+    let column = |f: &Field| -> Vec<Option<f64>> { (0..f.values.len()).map(|c| f.x(c)).collect() };
+    let y: Vec<Option<f64>> = target
+        .iter()
+        .map(|k| match k {
+            Some(Key::Number(v)) => Some(*v),
+            _ => None,
+        })
+        .collect();
+    let columns: Vec<Option<Vec<Option<f64>>>> = fields
+        .iter()
+        .map(|f| (!f.target && f.live() && f.level == Measure::Scale).then(|| column(f)))
+        .collect();
+    let mut pool: Vec<usize> = (0..fields.len())
+        .filter(|&i| columns[i].is_some())
+        .collect();
+    let col = |i: usize| columns[i].as_ref().expect("a scale input");
+    let cov = |i: usize, j: usize| pair_covariance(col(i), col(j), used).0;
+    let corr = |i: usize, j: usize| {
+        let d = (cov(i, i) * cov(j, j)).sqrt();
+        if d > 0.0 { cov(i, j) / d } else { 0.0 }
+    };
+    let mut groups: Vec<Vec<(usize, f64)>> = Vec::new();
+    let mut level = 9;
+    while level > 1 {
+        let alpha = f64::from(level) / 10.0;
+        // the two most correlated inputs
+        let mut best: Option<(usize, usize, f64)> = None;
+        for (a, &i) in pool.iter().enumerate() {
+            for &j in &pool[a + 1..] {
+                let r = corr(i, j).abs();
+                if r > alpha && best.is_none_or(|b| r > b.2) {
+                    best = Some((i, j, r));
+                }
+            }
+        }
+        let Some((i, j, _)) = best else {
+            level -= 1;
+            continue;
+        };
+        let mut group = vec![i, j];
+        while group.len() < 5 {
+            let mut next: Option<(usize, f64)> = None;
+            for &x in pool.iter().filter(|x| !group.contains(x)) {
+                let r = group
+                    .iter()
+                    .map(|&g| corr(x, g).abs())
+                    .fold(f64::INFINITY, f64::min);
+                if r > alpha && next.is_none_or(|n| r > n.1) {
+                    next = Some((x, r));
+                }
+            }
+            match next {
+                Some((x, _)) => group.push(x),
+                None => break,
+            }
+        }
+        // the first principal component of the group's covariance matrix
+        let c: crate::matrix::Matrix = group
+            .iter()
+            .map(|&a| group.iter().map(|&b| cov(a, b)).collect())
+            .collect();
+        let (lambda, v) = crate::matrix::symmetric_eigen(&c)
+            .into_iter()
+            .next()
+            .expect("an eigenvalue");
+        // the sign is not given: the largest coefficient is positive
+        let sign = v
+            .iter()
+            .fold(0.0_f64, |m, x| if x.abs() > m.abs() { *x } else { m })
+            .signum();
+        if lambda <= 0.0 {
+            pool.retain(|x| !group.contains(x));
+            continue;
+        }
+        let coefficients: Vec<f64> = v.iter().map(|x| sign * x / lambda.sqrt()).collect();
+        let z: Vec<Option<f64>> = (0..y.len())
+            .map(|case| {
+                group
+                    .iter()
+                    .zip(&coefficients)
+                    .map(|(&g, a)| col(g)[case].map(|x| a * x))
+                    .sum::<Option<f64>>()
+            })
+            .collect();
+        // step 7: the other inputs that no longer relate to the target given the new predictor
+        if let Some(limit) = selection {
+            let czz = pair_covariance(&z, &z, used).0;
+            let cyy = pair_covariance(&y, &y, used).0;
+            let czy = pair_covariance(&z, &y, used).0;
+            let ryz = if czz > 0.0 && cyy > 0.0 {
+                czy / (czz * cyy).sqrt()
+            } else {
+                0.0
+            };
+            for &x in pool
+                .iter()
+                .filter(|x| !group.contains(x))
+                .copied()
+                .collect::<Vec<_>>()
+                .iter()
+            {
+                let (cxy, n) = pair_covariance(col(x), &y, used);
+                let cxx = cov(x, x);
+                let (czx, _) = pair_covariance(&z, col(x), used);
+                if !(cxx > 0.0 && cyy > 0.0 && czz > 0.0) {
+                    continue;
+                }
+                let rxy = cxy / (cxx * cyy).sqrt();
+                let rxz = czx / (czz * cxx).sqrt();
+                let (d1, d2) = (1.0 - rxz * rxz, 1.0 - ryz * ryz);
+                let r = if d1 < 1e-10 || d2 < 1e-10 {
+                    0.0
+                } else {
+                    ((rxy - rxz * ryz) / (d1.sqrt() * d2.sqrt())).clamp(-1.0, 1.0)
+                };
+                let p = partial_p(r, n);
+                if p > limit {
+                    fields[x].exclude(format!(
+                        "not correlated with the target given the constructed predictor (p = {})",
+                        short(p)
+                    ));
+                    pool.retain(|&q| q != x);
+                }
+            }
+        }
+        pool.retain(|x| !group.contains(x));
+        groups.push(group.into_iter().zip(coefficients).collect());
+    }
+    groups
+}
+
 /// Above 0, and not NaN.
 fn positive(x: f64) -> bool {
     x > 0.0
@@ -787,6 +970,7 @@ impl Engine {
                 recode: None,
                 changed: false,
                 out: String::new(),
+                replaced_by: None,
             };
             let format = v.format().to_uppercase();
             let kind = format.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
@@ -826,6 +1010,7 @@ impl Engine {
                     recode: None,
                     changed: false,
                     out: String::new(),
+                    replaced_by: None,
                 }
             };
             let duration = if is_date {
@@ -1435,6 +1620,52 @@ impl Engine {
             f.actions.push(action);
             f.changed = true;
         }
+        // feature construction: the groups of correlated scale inputs become predictors
+        let mut built: Vec<(usize, Vec<(usize, f64)>)> = Vec::new();
+        if let (Some(root), Some(Kind::Scale)) = (&command.construction, target_kind) {
+            let groups = construct(&mut fields, &target_values, &used, command.selection);
+            for (k, group) in groups.into_iter().enumerate() {
+                let name = free_name(&format!("{root}{}", k + 1), |n| taken(n, &fields));
+                let values: Vec<Option<Key>> = (0..cases)
+                    .map(|c| {
+                        group
+                            .iter()
+                            .map(|&(j, a)| fields[j].x(c).map(|x| a * x))
+                            .sum::<Option<f64>>()
+                            .map(Key::Number)
+                    })
+                    .collect();
+                let sources: Vec<String> =
+                    group.iter().map(|&(j, _)| fields[j].name.clone()).collect();
+                let weights: Vec<String> = group.iter().map(|&(_, a)| short(a)).collect();
+                for &(j, _) in &group {
+                    fields[j].replaced_by = Some(name.clone());
+                }
+                built.push((fields.len(), group));
+                fields.push(Field {
+                    name: name.clone(),
+                    derive: Some((String::new(), sources.join(", "))),
+                    target: false,
+                    width: None,
+                    level0: Measure::Scale,
+                    level: Measure::Scale,
+                    values,
+                    excluded: None,
+                    actions: vec![format!(
+                        "constructed from {} with coefficients {}",
+                        sources.join(", "),
+                        weights.join(", ")
+                    )],
+                    continuous: false,
+                    statements: Vec::new(),
+                    missing_to: None,
+                    recode: None,
+                    changed: false,
+                    out: String::new(),
+                    replaced_by: None,
+                });
+            }
+        }
         if !fields.iter().any(|f| !f.target && f.live()) {
             return Err(Error(
                 "ADP: no input is left after preparation: every one was screened out, merged into one category or found unrelated to the target".into(),
@@ -1465,6 +1696,16 @@ impl Engine {
             };
             fields[i].out = out;
         }
+        for (at, group) in &built {
+            let expr = group
+                .iter()
+                .map(|&(j, a)| format!("({}) * {}", literal(a), fields[j].out))
+                .collect::<Vec<_>>()
+                .join(" + ");
+            if let Some((e, _)) = &mut fields[*at].derive {
+                *e = expr;
+            }
+        }
 
         // the syntax file
         let mut syntax = String::from("* Data preparation written by ADP.\n");
@@ -1473,7 +1714,7 @@ impl Engine {
         }
         let prepared: Vec<&str> = fields
             .iter()
-            .filter(|f| f.live())
+            .filter(|f| f.live() && f.replaced_by.is_none())
             .map(|f| f.out.as_str())
             .collect();
         syntax += &format!("EXECUTE.\n* Prepared fields: {}.\n", prepared.join(" "));
@@ -1501,9 +1742,14 @@ impl Engine {
                     (Some((_, from)), _) => format!("Input from {from}"),
                     (None, false) => "Input".to_string(),
                 };
-                let (prepared, level, actions) = match &f.excluded {
-                    Some(reason) => (Cell::Empty, Cell::Empty, format!("Excluded: {reason}")),
-                    None => (
+                let (prepared, level, actions) = match (&f.excluded, &f.replaced_by) {
+                    (Some(reason), _) => (Cell::Empty, Cell::Empty, format!("Excluded: {reason}")),
+                    (None, Some(by)) => (
+                        Cell::Empty,
+                        Cell::Empty,
+                        format!("Replaced by the constructed predictor {by}"),
+                    ),
+                    (None, None) => (
                         text(f.out.clone()),
                         text(level_name(f.level)),
                         match f.actions.is_empty() {

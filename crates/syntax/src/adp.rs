@@ -96,6 +96,8 @@ pub struct Adp {
     pub merge_unsupervised: Option<(AdpLevels, f64)>,
     pub binning: Option<f64>,
     pub selection: Option<f64>,
+    /// CONSTRUCTION=YES(ROOT=name): the root of the names of the constructed predictors.
+    pub construction: Option<String>,
     pub suffix_target: String,
     pub suffix_input: String,
     pub outfile: String,
@@ -336,6 +338,7 @@ pub(crate) fn adp(p: &mut Parser) -> PResult<Command> {
         merge_unsupervised: None,
         binning: Some(0.05),
         selection: Some(0.05),
+        construction: None,
         suffix_target: transformed.clone(),
         suffix_input: transformed,
         outfile: String::new(),
@@ -524,7 +527,6 @@ pub(crate) fn adp(p: &mut Parser) -> PResult<Command> {
                         "SELECTION",
                         "CONSTRUCTION",
                     ];
-                    let at = p.pos;
                     match keyword(p, &mut seen, &names)? {
                         "MERGESUPERVISED" => c.merge_supervised = yes_pvalue(p, "YES", "NO")?,
                         "BINNING" => c.binning = yes_pvalue(p, "SUPERVISED", "NONE")?,
@@ -552,11 +554,15 @@ pub(crate) fn adp(p: &mut Parser) -> PResult<Command> {
                             }
                         }
                         _ => {
+                            c.construction = None;
                             if yes(p)? {
-                                return Err(SyntaxError::new(
-                                    p.span_from(at),
-                                    "CONSTRUCTION=YES (new predictors from principal components) is not supported yet",
-                                ));
+                                let mut root = "feature".to_string();
+                                settings(p, &["ROOT"], |p, _| {
+                                    p.expect(Punct::Eq)?;
+                                    root = p.name("a root name")?;
+                                    Ok(())
+                                })?;
+                                c.construction = Some(root);
                             }
                         }
                     }

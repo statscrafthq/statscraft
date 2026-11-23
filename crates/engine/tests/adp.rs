@@ -640,3 +640,139 @@ fn errors_and_warnings() {
             .contains("does not use SPLIT FILE")
     );
 }
+
+/// Forty cases: x1, x2 and x3 follow one source with different noise, x4 is a second source,
+/// x5 is noise, y depends on the two sources. The expectations are an R implementation of the
+/// manual's steps (cor.test for the p-values, eigen of the covariance matrix, the partial
+/// correlation formula): x5 is dropped for its p with the target, x1 and x2 form the group at
+/// the level 0.9 (x3 is less correlated with them), their component is the new predictor,
+/// x3 is then dropped (partial correlation p 0.414), x4 stays.
+const FEATURES: &str = "DATA LIST FREE /x1 x2 x3 x4 x5 y.\n\
+BEGIN DATA.\n\
+-0.453 -0.691 -0.138 -2.621 -0.114 -3.566 \n\
+1.184 0.862 1.915 2.246 -0.295 4.483 \n\
+-1.274 -0.963 -2.046 0.093 0.989 -2.478 \n\
+0.544 0.063 -0.916 1.627 -0.775 2.472 \n\
+1.597 1.914 2.347 -0.511 0.276 1.979 \n\
+-0.462 -0.816 -0.429 -0.659 0.411 -2.212 \n\
+-0.694 0.244 -0.712 -0.04 0.611 -0.654 \n\
+-0.75 -0.777 0.11 -0.119 0.937 -1.493 \n\
+-0.467 -0.309 -1.106 -0.02 -0.368 -1.398 \n\
+0.121 -0.018 -0.727 -0.486 0.74 0.174 \n\
+1.593 1.505 2.037 -1.44 1.219 1.122 \n\
+-0.755 -1.121 -1.989 0.144 0.629 -1.675 \n\
+-0.825 -0.913 -1.825 -1.235 0.528 -3.034 \n\
+-0.305 0.113 -0.22 -1.753 -0.472 -1.992 \n\
+-1.1 -0.775 -0.632 -0.035 0.824 -3.463 \n\
+-0.37 -0.024 0.134 0.332 -0.428 -1.092 \n\
+-0.409 -0.701 -0.424 1.572 -0.143 -0.347 \n\
+-2.212 -2.346 -2.828 -1.069 1.419 -5.82 \n\
+0.225 0.186 0.63 0.916 0.487 1.759 \n\
+-0.201 -0.277 -0.08 -0.595 0.603 -1.016 \n\
+0.616 0.302 0.423 2.182 0.211 2.527 \n\
+1.156 1.282 0.924 -0.684 -0.033 1.402 \n\
+1.323 1.671 2.776 0.75 2.025 4.224 \n\
+0.831 0.769 1.281 0.974 -0.371 1.775 \n\
+0.629 0.802 0.636 -1.264 -1.578 0.679 \n\
+-0.379 -0.025 -0.545 -0.277 -0.122 0.729 \n\
+0.893 1.35 1.479 -0.189 -1.797 3.242 \n\
+1.423 0.909 1.361 -0.384 -0.476 2.313 \n\
+-0.975 -0.883 -1.506 0.741 -0.884 -1.843 \n\
+-0.923 -0.469 -1.088 -1.168 -3.498 -3.152 \n\
+0.265 0.03 0.884 0.668 -0.382 0.917 \n\
+1.053 1.596 1.561 0.366 0.978 1.823 \n\
+2.302 2.996 1.905 -0.515 -0.558 3.507 \n\
+1.225 1.259 1.702 0.451 -0.626 3.82 \n\
+1.583 1.074 1.111 -0.188 -0.53 4.109 \n\
+0.913 1.191 1.695 1.339 1.898 2.977 \n\
+-0.766 -1.476 -1.212 0.816 1.396 -2.307 \n\
+-1.97 -1.861 -1.283 0.082 -0.746 -3.829 \n\
+-1.715 -1.746 -2.028 -0.651 -0.306 -3.842 \n\
+-0.283 -0.203 -0.031 0.726 1.17 0.21 \n\
+END DATA.\n\
+VARIABLE LEVEL x1 x2 x3 x4 x5 y (SCALE).\n\
+";
+
+#[test]
+fn construction_groups_correlated_inputs_into_a_principal_component() {
+    let (table, syntax, engine) = prepare(
+        FEATURES,
+        &format!("/FIELDS TARGET=y INPUT=x1 x2 x3 x4 x5 /TRANSFORM CONSTRUCTION=YES {PLAIN}"),
+    );
+    close(
+        &numbers(&engine, "feature1"),
+        &[
+            -0.5205257189,
+            0.9203125454,
+            -1.0068100261,
+            0.2675557044,
+            1.5916456886,
+            -0.5827490229,
+            -0.1900880863,
+            -0.6906607007,
+            -0.3485431243,
+            0.0445850728,
+            1.3991930132,
+            -0.8532441497,
+            -0.7869098717,
+            -0.0808514178,
+            -0.8429697372,
+            -0.1731885210,
+            -0.5059236900,
+            -2.0623383835,
+            0.1852372487,
+            -0.2171591391,
+            0.4105164091,
+            1.1038834508,
+            1.3583776615,
+            0.7223950767,
+            0.6493394650,
+            -0.1775952808,
+            1.0204392100,
+            1.0468689756,
+            -0.8385969531,
+            -0.6227969798,
+            0.1300136273,
+            1.2051930587,
+            2.4048139510,
+            1.1233698936,
+            1.1938555656,
+            0.9550601406,
+            -1.0235834839,
+            -1.7302454998,
+            -1.5649778944,
+            -0.2185580263,
+        ],
+    );
+    assert_eq!(
+        row(&table, "x1")[4],
+        "Replaced by the constructed predictor feature1"
+    );
+    assert_eq!(
+        row(&table, "x2")[4],
+        "Replaced by the constructed predictor feature1"
+    );
+    assert!(
+        row(&table, "x3")[4].starts_with(
+            "Excluded: not correlated with the target given the constructed predictor"
+        )
+    );
+    assert!(row(&table, "x5")[4].starts_with("Excluded: not correlated with the target"));
+    assert_eq!(row(&table, "x4")[4], "Unchanged");
+    assert_eq!(row(&table, "feature1")[0], "Input from x1, x2");
+    assert!(syntax.contains("COMPUTE feature1 ="), "{syntax}");
+    assert_eq!(measure(&engine, "feature1"), Measure::Scale);
+    // the root is chosen, and without CONSTRUCTION nothing is built
+    let (_, _, named) = prepare(
+        FEATURES,
+        &format!(
+            "/FIELDS TARGET=y INPUT=x1 x2 x3 x4 x5 /TRANSFORM CONSTRUCTION=YES(ROOT=pc) {PLAIN}"
+        ),
+    );
+    assert_eq!(numbers(&named, "pc1").len(), 40);
+    let (plain, _, _) = prepare(
+        FEATURES,
+        &format!("/FIELDS TARGET=y INPUT=x1 x2 x3 x4 x5 {PLAIN}"),
+    );
+    assert!(plain.rows.iter().all(|r| text(&r[0]) != "feature1"));
+}
