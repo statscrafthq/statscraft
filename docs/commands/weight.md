@@ -11,7 +11,7 @@ WEIGHT BY var.
 WEIGHT OFF.
 ```
 
-Fractional weights are used as they are in counts, percentages and statistics; most significance tests, confidence intervals and standard errors round them. A case whose weight is zero, negative or missing is left out.
+The command makes each case count as many times as its value of var, a numeric variable: a case with weight 2.5 counts as two and a half cases. Weighting stays on until WEIGHT OFF, until the variable is deleted, or until another data file is read, and SAVE stores it with the data. Fractional weights are used as they are in counts, percentages and statistics; most significance tests, confidence intervals and standard errors round them. A case whose weight is zero, negative or missing is left out. SHOW WEIGHT tells which variable weights the data.
 
 ## Example
 

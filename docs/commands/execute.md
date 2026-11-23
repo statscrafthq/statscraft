@@ -10,6 +10,8 @@ Run the pending transformations.
 EXECUTE.
 ```
 
+The command reads the data once so that the pending transformations (COMPUTE, IF, RECODE, SELECT IF and the like) take effect. A procedure does the same, so EXECUTE is needed only before a command that does not read the data, or to see the new values in the data window.
+
 ## Example
 
 ```text

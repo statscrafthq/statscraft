@@ -10,6 +10,8 @@ End a DO IF block.
 END IF.
 ```
 
+Every DO IF needs its own END IF. Blocks may nest.
+
 ## Example
 
 ```text

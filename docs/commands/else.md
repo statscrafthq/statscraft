@@ -10,6 +10,8 @@ Start the branch of a DO IF block for the cases no condition matched.
 ELSE.
 ```
 
+Inside a DO IF block, after the ELSE IF branches: the commands that follow run for the cases no condition of the block matched. A case with a missing condition does not reach it.
+
 ## Example
 
 ```text

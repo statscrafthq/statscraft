@@ -109,103 +109,6 @@ pub struct CommandSpec {
     pub(crate) parse: fn(&mut Parser) -> PResult<Command>,
 }
 
-/// The help syntax of UNIANOVA and GLM, which share their parser.
-macro_rules! glm_syntax {
-    ($name:literal) => {
-        concat!($name, " dependent [BY factors] [WITH covariates]\n\
-                 \x20  [/WSFACTOR=name levels [POLYNOMIAL | contrast] ...] [/WSDESIGN=effects] [/MEASURE=names] (GLM)\n\
-                 \x20  [/METHOD=SSTYPE(1 | 2 | 3 | 4)] [/INTERCEPT=INCLUDE | EXCLUDE] [/MISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/CRITERIA=[EPS(1E-8)] [ALPHA(0.05)]] [/REGWGT=var]\n\
-                 \x20  [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF] [RSSCP] [GEF] [MBP] [BP] [F] [WHITE]\n\
-                 \x20         [TEST([SSCP] [LMATRIX | ESTIMABLE] [MMATRIX | TRANSFORM])]]\n\
-                 \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
-                 \x20            [COMPARE[(factor)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
-                 \x20  [/POSTHOC=factor ... (tests) [VS effect]] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
-                 \x20  DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)] | SPECIAL(matrix)] ...\n\
-                 \x20  [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ...\n\
-                 \x20  [/TEST=effect VS coefficient*effect +/- ... [DF(df)] | value DF(df)] ... (one dependent)\n\
-                 \x20  [/MMATRIX=['label'] dependent value ... | ALL values [; ...]] (GLM) [/KMATRIX=values [; ...]]\n\
-                 \x20  [/SAVE=tempvar[(name)] ...] [/DESIGN=effects]\n\
-                 \x20  [/ROBUST[=HC0 | HC1 | HC2 | HC3 | HC4]] [/RANDOM=factors]\n\
-                 \x20  [/MBPDESIGN[=effects]] [/BPDESIGN[=effects]] [/FDESIGN[=effects]]\n\
-                 \x20  [/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]\n\
-                 \x20         [TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...\n\
-                 effects: INTERCEPT, a factor or covariate, a*b or a BY b, a(b) or a WITHIN b, a(b(c)), x*x, x*a.\n\
-                 tempvar: PRED WPRED RESID WRESID DRESID ZRESID SRESID SEPRED COOK LEVER. tests: as in ONEWAY\n\
-                 /POSTHOC (LSD BONFERRONI SIDAK TUKEY SCHEFFE GH T2 SNK BTUKEY DUNCAN GT2 GABRIEL FREGW QREGW T3 C\n\
-                 DUNNETT DUNNETTL DUNNETTR). VS names another effect of the design (not the intercept, and not a\n\
-                 main effect named on the same POSTHOC) whose mean square and df are the error term of the\n\
-                 pairwise and subset tests, which the tables then say; the tests of separate variances do not use\n\
-                 an error term. Without DESIGN the model is the intercept, the covariates and the full\n\
-                 factorial of the factors. A case missing on any variable is left out; the weight is rounded to a\n\
-                 whole number. The design matrix has one column per effect level (only combinations that occur);\n\
-                 sweeping it gives a generalized inverse, and a column that adds nothing (EPS) is redundant, its\n\
-                 parameter 0. Tables: Between-Subjects Factors, Descriptive Statistics, Levene's Test of Equality\n\
-                 of Error Variances (absolute residuals by cell; based on the mean, the median, the median with\n\
-                 adjusted df and the trimmed mean for a full factorial without covariates), Tests of\n\
-                 Between-Subjects Effects (Type I sequential, II, III or IV sums of squares, with partial eta\n\
-                 squared, noncentrality and observed power), Parameter Estimates, Lack of Fit Tests, Contrast\n\
-                 Results and Test Results for each CONTRAST and LMATRIX, Estimated Marginal Means (cells weighted\n\
-                 equally, covariates at their means or the WITH values) with Pairwise Comparisons and Univariate\n\
-                 Tests, and the post hoc tables of ONEWAY on the observed means with the model's error. T2, T3,\n\
-                 GH and C need a model with one factor. SAVE adds PRE_1, RES_1 and so on, or the names given.\n\
-                 GLM with WSFACTOR: the dependents are the levels of the within-subjects factors (the first\n\
-                 factor's levels change slowest); Multivariate Tests, Mauchly's Test of Sphericity, Tests of\n\
-                 Within-Subjects Effects (sphericity assumed, Greenhouse-Geisser, Huynh-Feldt, lower bound), Tests\n\
-                 of Within-Subjects Contrasts and Tests of Between-Subjects Effects on the average.\n\
-                 GLM with several dependents and no WSFACTOR is the multivariate model: Multivariate Tests of every\n\
-                 effect (Pillai's trace, Wilks' lambda, Hotelling's trace, Roy's largest root, each with F, df and\n\
-                 Sig., and with ETASQ and OPOWER partial eta squared, noncentrality and power), then the univariate\n\
-                 tables with a row per dependent. HOMOGENEITY adds Box's M test of equal covariance matrices in\n\
-                 the cells to Levene's test of each dependent; RSSCP gives the residual SSCP, covariance and\n\
-                 correlation matrices and Bartlett's test of sphericity; TEST(SSCP) the SSCP of each effect and of\n\
-                 the error. A custom test L B M = K takes L from LMATRIX (or the intercept's test when only\n\
-                 MMATRIX or KMATRIX is given), M from MMATRIX (the identity by default; columns end with ';' and\n\
-                 are named by their label or T1, T2, ...) and K from KMATRIX (rows end with ';', zero by default);\n\
-                 CONTRAST always uses the identity; SPECIAL(matrix) takes the k x k matrix of a factor with k levels\n\
-                 column by column, the first column the constant and the others one contrast each (the contrasts\n\
-                 alone, k - 1 columns, also work), without fractions. Each test gives Contrast Results (K Matrix), Multivariate\n\
-                 Test Results and Univariate Test Results; TEST(MMATRIX) shows M. EMMEANS, POSTHOC, PLOT and SAVE\n\
-                 work on each dependent in turn (SAVE without names).\n\
-                 PLOT gives chart data. PROFILE draws the estimated marginal means as a line chart (bars with\n\
-                 TYPE=BAR) over the levels of the first factor, one line per level of a second factor and one chart\n\
-                 per level of a third; MEANREFERENCE adds the grand mean as a flat line. ERRORBAR=CI spans each\n\
-                 mean's confidence interval at 1 minus CRITERIA ALPHA, ERRORBAR=SE(n) n standard errors on each\n\
-                 side (2 by default); YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
-                 cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
-                 gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PROFILE\n\
-                 plots the means of the dependent variables over between-subjects and within-subjects factors and\n\
-                 SPREADLEVEL and RESIDUALS are left out with a warning. GEF gives the general form of the estimable functions: a row per\n\
-                 parameter, a column per free coefficient L1, L2, ... (a redundant parameter is a combination of them).\n\
-                 TEST(LMATRIX) (or ESTIMABLE) gives the L' matrix of every effect of the design for the sum of\n\
-                 squares type in use (a row per parameter, a column per row of L), and of every LMATRIX and\n\
-                 CONTRAST. TEST tests an effect of the design against an error term, either a\n\
-                 linear combination of the mean squares of other effects (coefficients may be fractions;\n\
-                 coefficients of one effect add up) with Satterthwaite's degrees of freedom unless DF(df) gives\n\
-                 them, or a mean square with its DF(df); one table of Hypothesis and Error rows each. It is for one\n\
-                 dependent variable and without WSFACTOR. ROBUST[=HC0 | HC1 | HC2 | HC3 | HC4] (HC3 when none is\n\
-                 named) adds Robust Parameter Estimates and Robust Tests of Between-Subjects Effects (a Wald F of\n\
-                 each effect's hypothesis rows, by the sum of squares type, with the error df) with the\n\
-                 heteroskedasticity-consistent covariance, and a robust set of Contrast Results and Test Results\n\
-                 for CONTRAST and LMATRIX; it is for one dependent variable and is ignored with a warning\n\
-                 otherwise. RANDOM=factors makes those factors random, and every effect containing one (and no\n\
-                 covariate): the Tests of Between-Subjects Effects then give each effect a Hypothesis and an Error row,\n\
-                 the error term being the combination of the mean squares of the random effects and the residual that\n\
-                 has the effect's expected mean square under its null hypothesis (Satterthwaite's df), and an Expected\n\
-                 Mean Squares table gives the coefficient of each variance and the fixed effects of the quadratic term;\n\
-                 not with WSFACTOR, a univariate analysis for each dependent, and the other tables (parameters, means,\n\
-                 contrasts) keep the fixed-effects error with a warning. PRINT=MBP, BP, F and WHITE test for heteroskedasticity: the squared residuals (times\n\
-                 the regression weight) are regressed on an auxiliary model, by default the constant, the\n\
-                 fitted values and their squares, or the terms of MBPDESIGN, BPDESIGN and FDESIGN (a bare one names\n\
-                 the model of DESIGN; an intercept is always in); White's uses every level, square and cross\n\
-                 product of the design columns. One Heteroskedasticity Tests table (for each dependent variable\n\
-                 of GLM) gives the chi-square or F, df and Sig. MEASURE=names (GLM) names the measures of a doubly\n\
-                 multivariate model: the dependents are the cells of the within-subjects design for the first measure, then the\n\
-                 second, and so on, the last WSFACTOR varying fastest; each measure has its own sphericity, averaged,\n\
-                 contrast and between-subjects tests and the multivariate tests take the measures together.")
-    };
-}
-
 /// The help syntax of PPLOT and its other name NPPLOT.
 const PPLOT_SYNTAX: &str = "PPLOT [VARIABLES=] varlist\n\
                  \x20  [/DISTRIBUTION=NORMAL[(a,b)] | EXPONENTIAL[(a)] | WEIBULL[(a,b)] | PARETO[(a,b)] |\n\
@@ -574,8 +477,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "VARIABLE LABELS",
         summary: "Set the labels of variables.",
-        syntax: "VARIABLE LABELS var 'label' [[/] var 'label' ...].",
-        example: "VARIABLE LABELS age 'Age in years' / region 'Home region'.",
+        syntax: "VARIABLE LABELS var 'label' [[/] var 'label' ...].\n\
+                 A label replaces the variable's earlier one and is shown in place of the name in the output. An\n\
+                 empty label ('') clears it. Scratch variables (names that start with #) take no label.",
+        example: "VARIABLE LABELS spend 'Monthly bill in euros' / age_group 'Age band'.",
         parse: commands::variable_labels,
     },
     CommandSpec {
@@ -665,7 +570,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "EXECUTE",
         summary: "Run the pending transformations.",
-        syntax: "EXECUTE.",
+        syntax: "EXECUTE.\n\
+                 The command reads the data once so that the pending transformations (COMPUTE, IF, RECODE, SELECT IF\n\
+                 and the like) take effect. A procedure does the same, so EXECUTE is needed only before a command\n\
+                 that does not read the data, or to see the new values in the data window.",
         example: "EXECUTE.",
         parse: commands::execute,
     },
@@ -716,8 +624,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "DELETE VARIABLES",
         summary: "Remove variables from the dataset.",
-        syntax: "DELETE VARIABLES varlist.",
-        example: "DELETE VARIABLES tmp1 tmp2 q7_1 TO q7_9.",
+        syntax: "DELETE VARIABLES varlist.\n\
+                 The command removes the variables and their values from the active dataset at once. At least one\n\
+                 variable must remain. Deleting the weight variable turns weighting off.",
+        example: "DELETE VARIABLES ch_web TO ch_email.",
         parse: data_commands::delete_variables,
     },
     CommandSpec {
@@ -725,9 +635,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Weight the cases by a variable, or turn weighting off.",
         syntax: "WEIGHT BY var.\n\
                  WEIGHT OFF.\n\
-                 Fractional weights are used as they are in counts, percentages and statistics; most significance\n\
-                 tests, confidence intervals and standard errors round them. A case whose weight is zero,\n\
-                 negative or missing is left out.",
+                 The command makes each case count as many times as its value of var, a numeric variable: a case with\n\
+                 weight 2.5 counts as two and a half cases. Weighting stays on until WEIGHT OFF, until the variable\n\
+                 is deleted, or until another data file is read, and SAVE stores it with the data. Fractional weights\n\
+                 are used as they are in counts, percentages and statistics; most significance tests, confidence\n\
+                 intervals and standard errors round them. A case whose weight is zero, negative or missing is left\n\
+                 out. SHOW WEIGHT tells which variable weights the data.",
         example: "WEIGHT BY weight.",
         parse: data_commands::weight,
     },
@@ -856,8 +769,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "N",
         summary: "Short for N OF CASES.",
-        syntax: "N n.",
-        example: "N 100.",
+        syntax: "N n.\n\
+                 The same command as N OF CASES: the active dataset keeps only its first n cases. A larger n than\n\
+                 before has no effect.",
+        example: "N 50.",
         parse: selection::n_of_cases,
     },
     CommandSpec {
@@ -934,7 +849,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "COMPUTE",
         summary: "Assign the value of an expression to a variable.",
-        syntax: "COMPUTE target = expression.",
+        syntax: "COMPUTE target = expression.\n\
+                 The command sets target to the value of the expression for every case. A new target is numeric with\n\
+                 format F8.2; an existing one keeps its format and labels. A string target must exist first (STRING),\n\
+                 and a longer text is cut to its width.\n\
+                 When a value the expression needs is missing (system-missing, or a user-missing value of the\n\
+                 variable), the result is system-missing, except in functions that skip missing values, such as MEAN,\n\
+                 SUM and NVALID, and in MISSING, SYSMIS and VALUE. Operators and functions are listed under the\n\
+                 general rules on the command index and in statscraft help.\n\
+                 COMPUTE is a transformation: it runs when the next procedure or EXECUTE reads the data.",
         example: "COMPUTE bmi = weight / (height / 100) ** 2.",
         parse: commands::compute,
     },
@@ -942,14 +865,22 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "IF",
         summary: "Assign a value only for the cases where a condition holds.",
         syntax: "IF (condition) target = expression.\n\
-                 The parentheses around the condition are optional.",
+                 The parentheses around the condition are optional. The command sets target only for the cases where\n\
+                 the condition is true; where it is false or missing the target keeps its value. A new target starts\n\
+                 as system-missing (numeric, F8.2) for every case, so cases the condition leaves out stay missing. A\n\
+                 string target must exist first (STRING). Several IF commands in a row are checked one after another,\n\
+                 so a later one may overwrite an earlier one.",
         example: "IF (age >= 65 AND region = 2) senior_south = 1.",
         parse: commands::if_command,
     },
     CommandSpec {
         name: "SELECT IF",
         summary: "Keep only the cases where a condition holds.",
-        syntax: "SELECT IF condition.",
+        syntax: "SELECT IF condition.\n\
+                 The command keeps the cases where the condition is true and drops the others, also those where it is\n\
+                 missing. The cases are gone for every later command; after TEMPORARY the selection holds only for\n\
+                 the next procedure. FILTER hides cases without deleting them. Like other transformations, it runs\n\
+                 when the next procedure or EXECUTE reads the data.",
         example: "SELECT IF age >= 18 AND NOT MISSING(q1).",
         parse: commands::select_if,
     },
@@ -971,16 +902,19 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "STRING",
         summary: "Declare new string variables, filled with empty strings.",
         syntax: "STRING names (Awidth) [/ names (Awidth) ...].\n\
-                 A string variable must exist before COMPUTE or IF can assign text to it.",
-        example: "STRING full_name (A40) / code1 code2 (A8).",
+                 Each name must be new, and every case starts as an empty string. A string variable must exist before\n\
+                 COMPUTE or IF can assign text to it; a longer text is cut to the width.",
+        example: "STRING region_code (A2).",
         parse: commands::string,
     },
     CommandSpec {
         name: "NUMERIC",
         summary: "Declare new numeric variables, filled with system-missing.",
         syntax: "NUMERIC names [(format)] [/ names [(format)] ...].\n\
-                 Without a format the variables get F8.2.",
-        example: "NUMERIC score1 score2 (F5.1) / flag.",
+                 Without a format the variables get F8.2. Each name must be new, and every case starts as\n\
+                 system-missing. COMPUTE and IF make numeric variables too; NUMERIC is needed when a variable must\n\
+                 exist first, for example inside a DO IF block or with a given format.",
+        example: "NUMERIC score (F5.1) / flag.",
         parse: commands::numeric,
     },
     CommandSpec {
@@ -997,21 +931,26 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "ELSE IF",
         summary: "Start the next conditional branch of a DO IF block.",
-        syntax: "ELSE IF (condition).",
+        syntax: "ELSE IF (condition).\n\
+                 Inside a DO IF block: the commands that follow run for the cases where no earlier condition of the\n\
+                 block was true and this one is. A case whose earlier condition was missing runs no later branch.",
         example: "ELSE IF (age < 65).",
         parse: commands::else_if,
     },
     CommandSpec {
         name: "ELSE",
         summary: "Start the branch of a DO IF block for the cases no condition matched.",
-        syntax: "ELSE.",
+        syntax: "ELSE.\n\
+                 Inside a DO IF block, after the ELSE IF branches: the commands that follow run for the cases no\n\
+                 condition of the block matched. A case with a missing condition does not reach it.",
         example: "ELSE.",
         parse: commands::else_command,
     },
     CommandSpec {
         name: "END IF",
         summary: "End a DO IF block.",
-        syntax: "END IF.",
+        syntax: "END IF.\n\
+                 Every DO IF needs its own END IF. Blocks may nest.",
         example: "END IF.",
         parse: commands::end_if,
     },
@@ -1070,133 +1009,130 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "CTABLES",
         summary: "Custom tables: counts, percentages and statistics by categories.",
         syntax: "CTABLES [/FORMAT EMPTY=ZERO|BLANK|'text' MISSING='text']\n\
-                 \x20       [/VLABELS VARIABLES=varlist DISPLAY=DEFAULT|NAME|LABEL|BOTH|NONE]\n\
-                 \x20       [/MRSETS COUNTDUPLICATES=NO|YES]\n\
-                 \x20       [/HIDESMALLCOUNTS [COUNT=5]] [/WEIGHT VARIABLE=varname] [/SMISSING VARIABLE|LISTWISE]\n\
-                 \x20       [/PCOMPUTE &name=EXPR(expression)]\n\
-                 \x20       [/PPROPERTIES &name ... [LABEL='text'] [FORMAT=function format ...] [HIDESOURCECATS=NO|YES]]\n\
-                 \x20       /TABLE [rows] [BY [columns] [BY layers]]\n\
-                 \x20       [/SLABELS POSITION=COLUMN|ROW|LAYER VISIBLE=YES|NO]\n\
-                 \x20       [/CLABELS AUTO|ROWLABELS=OPPOSITE|LAYER|COLLABELS=OPPOSITE|LAYER] [/CRITERIA CILEVEL=95]\n\
-                 \x20       [/CATEGORIES VARIABLES=varlist [ORDER=A|D] [KEY=VALUE|LABEL|function[(var[, n])]]\n\
-                 \x20                    [MISSING=EXCLUDE|INCLUDE]\n\
-                 \x20                    [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
-                 \x20       [/CATEGORIES VARIABLES=varlist [value, low THRU high, OTHERNM, MISSING, &name,\n\
-                 \x20                    SUBTOTAL='label', HSUBTOTAL='label', ...] [TOTAL=YES ...]]\n\
-                 \x20       [/TITLES TITLE='text' ['text' ...] CAPTION='text' ... CORNER='text' ...]\n\
-                 \x20       [/SIGTEST TYPE=CHISQUARE [ALPHA=0.05] [INCLUDEMRSETS=YES|NO] [CATEGORIES=ALLVISIBLE|SUBTOTALS]]\n\
-                 \x20       [/COMPARETEST TYPE=PROP|MEAN [ALPHA=0.05 [0.01]] [ADJUST=BONFERRONI|BH|NONE]\n\
-                 \x20                     [MEANSVARIANCE=ALLCATS|TESTEDCATS] [SHOWSIG=NO|YES] [INCLUDEMRSETS=YES|NO]\n\
-                 \x20                     [CATEGORIES=ALLVISIBLE|SUBTOTALS] [MERGE=NO|YES [STYLE=APA|SIMPLE]]\n\
-                 \x20                     [ORIGIN=COLUMN]]\n\
-                 \x20       [/TABLE ... another table with its own SLABELS, CATEGORIES, TITLES and tests].\n\
-                 rows, columns: variables joined by + (stack) and > (nest), with parentheses. var [C] or var [S]\n\
-                 makes a variable categorical or scale; otherwise SCALE is scale and the other levels categorical.\n\
-                 A numeric variable of unknown level is scale with a currency, date or time format, a fraction, a\n\
-                 negative value, 24 or more distinct values, or no value below 10; else categorical.\n\
-                 /TABLE BY columns leaves the rows empty: one row without a label. Layers (rows BY columns BY\n\
-                 layers, or rows BY BY layers) give a table for every layer category,\n\
-                 for every combination of nested layer variables and every category of stacked ones; its title\n\
-                 names the layer. Within a layer the percentages are of that layer (LAYERPCT: of all its cells;\n\
-                 LAYERROWPCT and LAYERCOLPCT: across its subtables), except TABLEPCT, which spans all layers.\n\
-                 SLABELS POSITION=LAYER makes every summary a layer of its own. Tests run in every layer.\n\
-                 A summary list follows a scale variable or the innermost categorical variable of one axis:\n\
-                 var [function ['label'] [format], ...], such as PCT8.1. Formats: F, PCT, COMMA, DOT (period and\n\
-                 comma swapped), DOLLAR, N (leading zeros), E (scientific), and NEGPAREN (negative numbers in\n\
-                 parentheses), NEQUAL (N= before), PAREN (in parentheses), PCTPAREN (percent in parentheses);\n\
-                 these four show the number as F in the width and add their marks outside it; CCA to CCE and\n\
-                 the date and time formats. By default a summary of a scale variable has the variable's format,\n\
-                 but for dates: STDDEV, SEMEAN and RANGE as days and time (DTIME), SUM and VARIANCE plain;\n\
-                 and VARIANCE of a time variable plain. A function given\n\
-                 twice in a list is two columns, each with its own format.\n\
-                 After a parenthesis, (a + b > c) [COUNT], the summaries go to a and c, before their own ones.\n\
-                 TITLES: several quoted texts are several lines. )DATE in them is today's date (YYYY-MM-DD),\n\
-                 )TIME the time (HH:MM:SS), both local; )TABLE the table expression without levels and\n\
-                 summaries, with variable and set labels in place of names: Gender > Age BY Region.\n\
-                 TOTALS [function ...] inside the list gives the totals and subtotals of that categorical\n\
-                 variable their own summaries (the columns hold both lists); a function of scale variables there,\n\
-                 such as MEAN or MEDIAN, summarizes the variable's own values: var [COUNT TOTALS [MEAN]].\n\
-                 CLABELS ROWLABELS=OPPOSITE moves the categories of the innermost row variables to the columns,\n\
-                 inside the column categories and outside the summary labels, and COLLABELS=OPPOSITE the other\n\
-                 way; the moved variable counts as the innermost one of its new axis, also for percentages.\n\
-                 ROWLABELS=LAYER or COLLABELS=LAYER makes a layer of every category instead; the moved variable\n\
-                 then counts as a layer variable.\n\
-                 Stacked variables whose labels move need the same categories with the same labels; tests are\n\
-                 not available then.\n\
-                 Default: COUNT for categorical tables, MEAN for a scale variable.\n\
-                 Categorical: COUNT, ROWPCT, COLPCT, TABLEPCT, SUBTABLEPCT, LAYERPCT, LAYERROWPCT, LAYERCOLPCT,\n\
-                 each with .COUNT, .VALIDN or .TOTALN (COLPCT.COUNT and so on); COLPCT alone means COLPCT.COUNT.\n\
-                 Scale: also MEAN MEDIAN MODE MINIMUM MAXIMUM RANGE SUM STDDEV VARIANCE SEMEAN PTILE n VALIDN TOTALN\n\
-                 MISSING and the percentages with .SUM. A U prefix (UCOUNT, UMEAN) ignores the weight.\n\
-                 SMISSING LISTWISE: a case missing on one scale variable of a table is missing on all of them\n\
-                 (a table: the sections with the same categorical variables); it still counts in COUNT and TOTALN.\n\
-                 Confidence limits and standard errors: a .LCL, .UCL or .SE suffix (COUNT.LCL, COLPCT.COUNT.UCL,\n\
-                 MEAN.SE); .LCL and .UCL for COUNT, the percentages of COUNT, VALIDN or TOTALN, MEAN, MEDIAN, PTILE\n\
-                 and SUM, .SE for COUNT, those percentages, MEAN and SUM; not for sets or with a U prefix.\n\
-                 CRITERIA CILEVEL (after its /TABLE, default 95) sets the level. A proportion has the Jeffreys\n\
-                 interval (Beta quantiles of w + 0.5 and W - w + 0.5, weights rounded); a count is the table's\n\
-                 weight times the interval of its share of the table; a mean or sum the t interval; a percentile\n\
-                 the percentiles at the limits of the share at or below it.\n\
-                 /WEIGHT VARIABLE=var (before the first /TABLE) weights every table by an effective base weight,\n\
-                 in place of the WEIGHT command's variable. ECOUNT (also for categorical variables and sets),\n\
-                 EVALIDN and ETOTALN are then the effective bases (sum of weights)^2 / (sum of squared weights)\n\
-                 of COUNT, VALIDN and TOTALN, and SEMEAN uses the variance adjusted to the effective base;\n\
-                 without /WEIGHT they equal COUNT, VALIDN and TOTALN. The tests then round nothing: the\n\
-                 chi-square is multiplied by the subtable's weight over its sum of squared weights, and the\n\
-                 column tests are t-tests on the effective bases, comparing two categories when both have a\n\
-                 case and one of them two.\n\
-                 Weighted by the weight variable when one is set; fractional weights are not rounded, and a case\n\
-                 whose weight is zero, negative or missing is left out (also from U functions). MEDIAN and PTILE\n\
-                 use the averaged empirical distribution. A count without cases is 0 unless EMPTY says otherwise.\n\
-                 A total has percentages too: the base of a total row or column takes in every category totaled.\n\
-                 In an explicit list OTHERNM stands for every valid value the list does not name, in ascending\n\
-                 order, and MISSING for every user-missing value; a value named twice takes its last place.\n\
-                 KEY=function sorts the categories of a list without explicit values by that summary of each,\n\
-                 taken over all cases of the category whatever the other variables (COUNT, or MEAN(age),\n\
-                 PTILE(age, 75) for a variable); ORDER=D sorts from the largest, and ties keep value order.\n\
-                 SUBTOTAL='label' in an explicit list sums the listed categories before it, back to the previous\n\
-                 subtotal (with POSITION=BEFORE the ones after it, up to the next); HSUBTOTAL also hides them.\n\
-                 A subtotal counts a case once, like a total, and has every summary and percentage a total has.\n\
-                 A computed category &name stands in an explicit category list of a categorical variable. For\n\
-                 every summary its value is EXPR over the same summary of other categories: [value], [low THRU\n\
-                 high] (the sum of the listed categories in the range), TOTAL (needs TOTAL=YES), numbers, + - * /\n\
-                 ** and parentheses, SUBTOTAL (the only subtotal) or SUBTOTAL[n] (the nth), [OTHERNM] and\n\
-                 [MISSING] (the sums of those categories). Every category it names must be listed. PPROPERTIES gives its label (else\n\
-                 the expression; )LABEL[n] in it is the label of the nth item of the list as written, a range as\n\
-                 'low THRU high'), a format per summary, and HIDESOURCECATS=YES to hide the categories it uses\n\
-                 (not with tests). Totals and tests leave computed categories out.\n\
-                 HIDESMALLCOUNTS COUNT=n (n a whole number from 2, default 5) shows every COUNT, VALIDN, TOTALN or\n\
-                 RESPONSES below n, weighted or with U, as <n in all tables of the command.\n\
-                 User-missing categories are left out unless MISSING=INCLUDE; system-missing ones always are.\n\
-                 A case whose missing value is left out still counts in TOTALN and the .TOTALN percentages; a\n\
-                 case whose valid value an explicit category list leaves out is not in the table at all.\n\
-                 Tests run in every innermost subtable (innermost row by innermost column variable, for each\n\
-                 category of the outer ones), each in a table after the main one. SIGTEST: Pearson chi-square; empty\n\
-                 rows and columns are left out. Tests compare the shown categories, with an HSUBTOTAL in place of\n\
-                 the categories it hides; CATEGORIES=SUBTOTALS puts every subtotal in place of its categories.\n\
-                 COMPARETEST: two-sided pairwise z-tests of column proportions (PROP)\n\
-                 or t-tests of column means (MEAN: a scale variable with MEAN in the rows) in every row of a subtable.\n\
-                 The letter of the column with the smaller value appears in the column with the larger one: uppercase\n\
-                 below the smaller ALPHA, lowercase below the larger; a period marks a column left out (a proportion\n\
-                 of 0 or 1, or less than 2 cases). ADJUST defaults to BONFERRONI, MEANSVARIANCE to ALLCATS. With a\n\
-                 weight variable the tests round the weighted cell counts, column totals or category weights.\n\
-                 MERGE=YES puts the letters in the main table instead, in a column after each compared category\n\
-                 (in the row of MEAN, or of COLPCT or COUNT, when the summaries are in the rows). STYLE=APA (the\n\
-                 default) gives letters that two columns share unless they differ significantly at the smaller\n\
-                 ALPHA; STYLE=SIMPLE gives the keys of the separate table. SHOWSIG=YES keeps the separate table.\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/VLABELS VARIABLES=varlist DISPLAY=DEFAULT|NAME|LABEL|BOTH|NONE]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/MRSETS COUNTDUPLICATES=NO|YES]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/HIDESMALLCOUNTS [COUNT=5]] [/WEIGHT VARIABLE=varname] [/SMISSING VARIABLE|LISTWISE]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/PCOMPUTE &name=EXPR(expression)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/PPROPERTIES &name ... [LABEL='text'] [FORMAT=function format ...] [HIDESOURCECATS=NO|YES]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20/TABLE [rows] [BY [columns] [BY layers]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/SLABELS POSITION=COLUMN|ROW|LAYER VISIBLE=YES|NO]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/CLABELS AUTO|ROWLABELS=OPPOSITE|LAYER|COLLABELS=OPPOSITE|LAYER] [/CRITERIA CILEVEL=95]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/CATEGORIES VARIABLES=varlist [ORDER=A|D] [KEY=VALUE|LABEL|function[(var[, n])]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[MISSING=EXCLUDE|INCLUDE]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/CATEGORIES VARIABLES=varlist [value, low THRU high, OTHERNM, MISSING, &name,\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20SUBTOTAL='label', HSUBTOTAL='label', ...] [TOTAL=YES ...]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/TITLES TITLE='text' ['text' ...] CAPTION='text' ... CORNER='text' ...]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/SIGTEST TYPE=CHISQUARE [ALPHA=0.05] [INCLUDEMRSETS=YES|NO] [CATEGORIES=ALLVISIBLE|SUBTOTALS]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/COMPARETEST TYPE=PROP|MEAN [ALPHA=0.05 [0.01]] [ADJUST=BONFERRONI|BH|NONE]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[MEANSVARIANCE=ALLCATS|TESTEDCATS] [SHOWSIG=NO|YES] [INCLUDEMRSETS=YES|NO]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[CATEGORIES=ALLVISIBLE|SUBTOTALS] [MERGE=NO|YES [STYLE=APA|SIMPLE]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[ORIGIN=COLUMN]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[/TABLE ... another table with its own SLABELS, CATEGORIES, TITLES and tests].\n\
+                 The command builds tables of counts, percentages and statistics. Each /TABLE is rows BY columns BY\n\
+                 layers. On an axis, + stacks variables, > nests them (a > b: b within each category of a), and\n\
+                 parentheses group. A [C] or [S] after a variable makes it categorical or scale. Otherwise level\n\
+                 SCALE is scale and other levels categorical; a numeric variable of unknown level is scale with a\n\
+                 currency, date or time format, a fraction, a negative value, 24 or more distinct values, or no value\n\
+                 below 10. /TABLE BY columns gives one unlabeled row. SLABELS, CLABELS, CATEGORIES, TITLES, CRITERIA\n\
+                 and the tests belong to the /TABLE before them.\n\
+                 The default summary is COUNT, or MEAN for a scale variable. A summary list follows a scale variable\n\
+                 or the innermost categorical variable of an axis: var [function ['label'] [format], ...]; a\n\
+                 function given twice is two columns. In (a + b > c) [COUNT] the summaries go to a and c, before\n\
+                 their own. Categorical functions: COUNT, ROWPCT, COLPCT, TABLEPCT, SUBTABLEPCT, LAYERPCT,\n\
+                 LAYERROWPCT, LAYERCOLPCT; a percentage takes the base .COUNT (default), .VALIDN or .TOTALN. Scale\n\
+                 variables add MEAN MEDIAN MODE MINIMUM MAXIMUM RANGE SUM STDDEV VARIANCE SEMEAN PTILE n VALIDN\n\
+                 TOTALN MISSING and the percentages with .SUM. A U prefix (UCOUNT) ignores the weight. TOTALS\n\
+                 [function ...] in a categorical variable's list gives its totals and subtotals their own summaries\n\
+                 (the columns hold both lists); a scale function there summarizes the variable's own values: var\n\
+                 [COUNT TOTALS [MEAN]].\n\
+                 Formats: F, PCT, COMMA, DOT (period and comma swapped), DOLLAR, N (leading zeros), E, CCA to CCE,\n\
+                 date and time formats, and NEGPAREN (negatives in parentheses), NEQUAL (N= before), PAREN and\n\
+                 PCTPAREN, which show F in the width with their marks outside it. A scale summary has the variable's\n\
+                 format, but for dates STDDEV, SEMEAN and RANGE show DTIME, and SUM and VARIANCE (also of times)\n\
+                 plain numbers.\n\
+                 CATEGORIES VARIABLES=varlist sorts by ORDER=A (default) or D and KEY=VALUE (default), LABEL or\n\
+                 a summary of each category over all its cases (COUNT, MEAN(age), PTILE(age, 75)); ties keep\n\
+                 value order. TOTAL=YES adds a total named by LABEL, placed by POSITION=AFTER (default) or\n\
+                 BEFORE; its percentage base takes in every category totaled. EMPTY=EXCLUDE hides categories\n\
+                 without cases. User-missing categories show only with MISSING=INCLUDE, system-missing ones\n\
+                 never. An empty count shows 0, or blank or text with FORMAT EMPTY; FORMAT MISSING='text' fills\n\
+                 cells that cannot be computed (else blank).\n\
+                 An explicit list fixes the categories and their order: VARIABLES=q1 [3, 1, 4 THRU 6, OTHERNM,\n\
+                 MISSING]. OTHERNM is every valid value not named, ascending; MISSING every user-missing value; a\n\
+                 value named twice takes its last place; KEY does not apply. A case whose valid value is not listed\n\
+                 is not in the table. SUBTOTAL='label' sums the categories before it back to the previous subtotal\n\
+                 (with POSITION=BEFORE, those after it up to the next); HSUBTOTAL also hides them. A subtotal counts\n\
+                 a case once and has every summary a total has.\n\
+                 Layers (rows BY columns BY layers, or rows BY BY layers) give a table per layer category, titled by\n\
+                 it: every combination of nested layer variables and every category of stacked ones. Percentages stay\n\
+                 within the layer (LAYERPCT: all its cells; LAYERROWPCT, LAYERCOLPCT: across its subtables), except\n\
+                 TABLEPCT, which spans all layers. Tests run in every layer.\n\
+                 SLABELS POSITION puts summary labels in the columns (default), rows or layers (each summary a\n\
+                 layer); VISIBLE=NO hides them. CLABELS ROWLABELS=OPPOSITE moves the innermost row categories to\n\
+                 the columns, inside the column categories and outside the summary labels; COLLABELS=OPPOSITE\n\
+                 does the reverse. The moved variable is then the innermost of its new axis, also for\n\
+                 percentages. ROWLABELS=LAYER or COLLABELS=LAYER makes each category a layer and the variable a\n\
+                 layer variable. Moved stacked variables need the same categories and labels, and tests are then\n\
+                 unavailable. AUTO (default) moves nothing.\n\
+                 TITLES takes TITLE, CAPTION and CORNER; several quoted texts are several lines. )DATE is today's\n\
+                 date (YYYY-MM-DD), )TIME the time (HH:MM:SS), both local, and )TABLE the table expression with\n\
+                 labels, without levels and summaries: Gender > Age BY Region. VLABELS sets the headings of the named\n\
+                 variables: DEFAULT, NAME, LABEL, BOTH or NONE.\n\
+                 A case whose missing value is left out still counts in TOTALN and the .TOTALN\n\
+                 percentages. SMISSING LISTWISE (default VARIABLE) makes a case missing on one scale\n\
+                 variable missing on all scale variables of the table (the sections with the same\n\
+                 categorical variables); it still counts in COUNT and TOTALN. The weight variable applies\n\
+                 unrounded; a case with zero, negative or missing weight is left out, also from U\n\
+                 functions. MEDIAN and PTILE use the averaged empirical distribution. HIDESMALLCOUNTS\n\
+                 COUNT=n (whole, from 2, default 5) shows every COUNT, VALIDN, TOTALN or RESPONSES below\n\
+                 n, weighted or with U, as <n in all tables.\n\
+                 Tests run in every innermost subtable (innermost row by innermost column variable, per category of\n\
+                 the outer ones), each in a table after the main one. They compare the shown categories, an\n\
+                 HSUBTOTAL standing for those it hides; CATEGORIES=SUBTOTALS puts every subtotal in place of its\n\
+                 categories. With a weight variable they round the weighted cell counts, column totals or category\n\
+                 weights. SIGTEST TYPE=CHISQUARE (required) gives the Pearson chi-square, without empty rows and\n\
+                 columns.\n\
+                 COMPARETEST TYPE=PROP gives two-sided pairwise z-tests of column proportions, TYPE=MEAN t-tests of\n\
+                 column means (a scale variable with MEAN in the rows), in every row of a subtable; a table may have\n\
+                 one of each. The letter of the smaller column appears in the larger one: uppercase below the smaller\n\
+                 ALPHA, lowercase below the larger (one or two levels, default 0.05). A period marks a column left\n\
+                 out (a proportion of 0 or 1, or under 2 cases). ADJUST is BONFERRONI (default), BH or NONE;\n\
+                 MEANSVARIANCE ALLCATS (default) or TESTEDCATS. ORIGIN=COLUMN changes nothing. MERGE=YES puts the\n\
+                 letters in the main table, in a column after each compared category (in the row of MEAN, COLPCT or\n\
+                 COUNT when summaries are in rows). STYLE=APA (default) gives two columns a shared letter unless they\n\
+                 differ at the smaller ALPHA; SIMPLE gives the separate table's keys. SHOWSIG=YES keeps the separate\n\
+                 table.\n\
                  A multiple response set ($name, see MRSETS) stands where a categorical variable may. A case counts\n\
-                 once in every category it has a response in; the set's total counts the cases with any response.\n\
-                 A dichotomy set lists its variables in set order; /CATEGORIES may list them by name: [q5_3, q5_1].\n\
-                 A set may carry the summaries even with categorical variables nested inside it; of two nested sets\n\
-                 only the inner one may. Sets also have RESPONSES and, for every percentage base above,\n\
-                 base.RESPONSES (responses over the area's responses), base.RESPONSES.COUNT (responses over the\n\
-                 area's count) and base.COUNT.RESPONSES (count over the area's responses). A case without any\n\
-                 response counts only in TOTALN and the .TOTALN percentages. COUNTDUPLICATES=YES counts a value that\n\
-                 a case gives in two variables of a category set twice in the responses; counts never do.\n\
-                 Tests on sets (INCLUDEMRSETS=YES, the default) count each case once in the margins and allow for the\n\
-                 cases two categories of a set share; the means test then pools the variance from the two categories\n\
-                 compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
-                 category set.\n\
+                 once in each category it responds in; the set's total counts cases with any response; a case with\n\
+                 none counts only in TOTALN and the .TOTALN percentages. A dichotomy set lists its variables in set\n\
+                 order, also by name in CATEGORIES: [q5_3, q5_1]. A set may carry the summaries with categorical\n\
+                 variables nested in it; of two nested sets only the inner one may. Sets add RESPONSES and, for every\n\
+                 percentage base, base.RESPONSES (responses over the area's responses), base.RESPONSES.COUNT\n\
+                 (responses over its count) and base.COUNT.RESPONSES (count over its responses). MRSETS\n\
+                 COUNTDUPLICATES=YES counts a value given in two variables of a category set twice in the responses,\n\
+                 never in counts.\n\
+                 Tests include sets (INCLUDEMRSETS=YES, default), counting each case once in the margins and allowing\n\
+                 for cases two categories share; the means test then pools the variance of the two categories\n\
+                 compared. INCLUDEMRSETS=NO, or COUNTDUPLICATES=YES for a category set, leaves sets out.\n\
+                 PCOMPUTE &name=EXPR(expression) defines a computed category for an explicit category list. For every\n\
+                 summary it combines the same summary of [value], [low THRU high] (the sum of the listed categories\n\
+                 in range), TOTAL (needs TOTAL=YES), SUBTOTAL (the only one) or SUBTOTAL[n], [OTHERNM] and [MISSING],\n\
+                 with numbers, + - * / ** and parentheses. Every category it names must be listed. PPROPERTIES sets\n\
+                 its LABEL (default the expression; )LABEL[n] is the label of the nth list item as written, a range\n\
+                 as 'low THRU high'), a FORMAT per summary, and HIDESOURCECATS=YES to hide its source categories (not\n\
+                 with tests). Totals and tests leave computed categories out.\n\
+                 A .LCL, .UCL or .SE suffix gives confidence limits or a standard error (COUNT.LCL, COLPCT.COUNT.UCL,\n\
+                 MEAN.SE): limits for COUNT, the percentages of COUNT, VALIDN or TOTALN, MEAN, MEDIAN, PTILE and SUM;\n\
+                 .SE for COUNT, those percentages, MEAN and SUM; neither for sets or U functions. CRITERIA CILEVEL\n\
+                 (default 95) sets the level of its table. Proportions and counts use the Jeffreys interval (weights\n\
+                 rounded), means and sums the t interval.\n\
+                 /WEIGHT VARIABLE=var (before the first /TABLE) weights all tables by an effective base weight\n\
+                 instead of the WEIGHT command's variable. ECOUNT (also for categorical variables and sets), EVALIDN\n\
+                 and ETOTALN then give the effective bases, (sum of weights)^2 / (sum of squared weights), of COUNT,\n\
+                 VALIDN and TOTALN, which they equal without /WEIGHT. SEMEAN uses the variance adjusted to the\n\
+                 effective base. The tests use the effective bases and round nothing; the column t-tests compare two\n\
+                 categories when both have a case and one has two.\n\
                  DMTABLES is another name for the command.",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
@@ -1253,68 +1189,63 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "CROSSTABS",
         summary: "Contingency tables with percentages, residuals and chi-square tests.",
-        syntax: "CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]\n\
-                 \x20         [/VARIABLES=varlist (min, max) [varlist (min, max) ...]  (before TABLES)]\n\
-                 \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
-                 \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE | REPORT]\n\
-                 \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
-                 \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART]\n\
-                 \x20         [/WRITE[=NONE | CELLS | ALL]]\n\
-                 \x20         [/METHOD=MC [CIN(99)] [SAMPLES(10000)] | EXACT [TIMER(5)]].\n\
-                 First a Case Processing Summary: per table the valid, missing and total cases (weighted).\n\
-                 One table per pair of row and column variable; layer variables split it into blocks.\n\
-                 NOTABLES leaves out the tables, as CELLS=NONE does, keeping the statistics.\n\
-                 COUNT makes weighted counts whole: CASE every case's weight, CELL every cell's count, before\n\
-                 anything is computed; ROUND or TRUNCATE. A keyword left out is CELL or ROUND; without COUNT,\n\
-                 ASIS, weights stay as they are.\n\
-                 CELLS defaults to COUNT; CELLS alone is COUNT ROW COLUMN TOTAL. Percentages are 0 to 100.\n\
-                 STATISTICS alone is CHISQ. DVALUE orders the rows from the highest value; columns stay ascending.\n\
-                 CHISQ: Pearson, likelihood ratio, linear-by-linear (numeric variables), and for a 2 x 2\n\
-                 table Fisher's exact test and the continuity correction.\n\
-                 PHI (phi and Cramer's V), CC (contingency coefficient), BTAU, CTAU (Kendall's tau-b, tau-c),\n\
-                 GAMMA and CORR (Spearman and Pearson, numeric variables only) go in a Symmetric Measures table;\n\
-                 LAMBDA (lambda and Goodman and Kruskal's tau), UC (uncertainty coefficient), D (Somers' d) and\n\
-                 ETA (numeric variables) in a Directional Measures table. MCNEMAR adds to the chi-square table the exact McNemar test (2 x 2) or the\n\
-                 McNemar-Bowker test (larger), for rows and columns with the same values. KAPPA works on\n\
-                 the square table over the values of both variables (same type), unseen pairs counted 0. RISK\n\
-                 gives a Risk Estimate table for 2 x 2 tables: the odds ratio and the risk for each column\n\
-                 category, with 95% intervals. CMH treats the layers as strata of 2 x 2 tables: Breslow-Day\n\
-                 and Tarone (homogeneity), Cochran and Mantel-Haenszel (conditional independence), and the\n\
-                 common odds ratio with its 95% interval, tested against the value in brackets. Each measure\n\
-                 gives its value, asymptotic standard error, approximate T and significance; ALL asks for\n\
-                 every statistic (CMH with 1); a table with one row or column gets no measures.\n\
-                 MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps\n\
-                 user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.\n\
+        syntax: "CROSSTABS [/][TABLES=]rowvars BY colvars [BY layervars ...] [/TABLES=...]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[/VARIABLES=varlist (min, max) [varlist (min, max) ...]  (before TABLES)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] ALL NONE] [/MISSING=TABLE | INCLUDE | REPORT]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[/WRITE[=NONE | CELLS | ALL]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[/METHOD=MC [CIN(99)] [SAMPLES(10000)] | EXACT [TIMER(5)]].\n\
+                 The command makes one contingency table per pair of row and column variable; layer variables split\n\
+                 it into blocks. The first TABLES= keyword may be left out. A Case Processing Summary comes first:\n\
+                 the valid, missing and total cases of each table (weighted). CELLS defaults to COUNT; CELLS alone is\n\
+                 COUNT ROW COLUMN TOTAL. Percentages run from 0 to 100. FORMAT=DVALUE orders the rows from the\n\
+                 highest value; columns stay ascending. NOTABLES, like CELLS=NONE, drops the tables and keeps the\n\
+                 statistics. MISSING=TABLE (default) leaves out a case missing on any variable of the table; INCLUDE\n\
+                 keeps user-missing values as categories.\n\
+                 STATISTICS alone is CHISQ: Pearson, likelihood ratio, linear-by-linear (numeric variables), and for\n\
+                 a 2 x 2 table Fisher's exact test (on whole counts, rounded or truncated by COUNT) and the\n\
+                 continuity correction. ALL is every statistic, CMH with 1. Each measure gives its value, asymptotic\n\
+                 standard error, approximate T and significance; a table with one row or column gets none. Symmetric\n\
+                 Measures holds PHI (phi, Cramer's V), CC (contingency coefficient), BTAU, CTAU (Kendall's tau-b,\n\
+                 tau-c), GAMMA and CORR (Spearman, Pearson; numeric only). Directional Measures holds LAMBDA (lambda,\n\
+                 Goodman and Kruskal's tau), UC (uncertainty coefficient), D (Somers' d) and ETA (numeric).\n\
+                 KAPPA uses the square table over the values of both variables (same type), unseen pairs counted\n\
+                 0. MCNEMAR adds the exact McNemar test (2 x 2) or McNemar-Bowker (larger) to the chi-square\n\
+                 table, for rows and columns with the same values. RISK gives a Risk Estimate table for 2 x 2\n\
+                 tables: the odds ratio and each column's risk, with 95% intervals. CMH treats the layers as\n\
+                 strata of 2 x 2 tables: Breslow-Day and Tarone (homogeneity), Cochran and Mantel-Haenszel\n\
+                 (conditional independence), and the common odds ratio with its 95% interval, tested against the\n\
+                 value in parentheses.\n\
+                 COUNT makes weighted counts whole before anything is computed: CASE each case's weight, CELL each\n\
+                 cell's count, by ROUND or TRUNCATE. A keyword left out is CELL or ROUND. Without COUNT, or with\n\
+                 ASIS, the weights stay as they are.\n\
+                 VARIABLES switches to integer mode: a range follows each list and covers all of it, and values are\n\
+                 cut to whole numbers. Rows and columns are every value of the range, with or without cases; a value\n\
+                 outside it makes the case missing. Statistics use the values that occur. TABLES then names only\n\
+                 variables of VARIABLES, and TO and ALL follow their order there. MISSING=REPORT (integer mode only)\n\
+                 shows user-missing row and column values, marked (missing): their cells hold counts only, stay out\n\
+                 of totals, percentages and statistics, and the cases count as missing.\n\
                  BARCHART adds a clustered bar chart per table: a cluster per row category, a bar per column\n\
-                 category, the counts of the table summed over its layers.\n\
-                 WRITE puts one record per cell in the file named by the PROCEDURE OUTPUT before the command, after\n\
-                 an Output File Summary table: split-file group (from 1), table number and count as whole numbers\n\
-                 in columns 1-16, then the row, column and control values in 8-column fields (whole numbers in\n\
-                 integer mode, else as the variable prints, text to the left), a column of the table at a time,\n\
-                 the last control variable changing slowest. CELLS (also a bare WRITE) writes the non-empty cells\n\
-                 without a missing value, or with them under MISSING=INCLUDE or REPORT; ALL (integer mode only)\n\
-                 every cell of the ranges. A long string variable or more than eight dimensions is an error.\n\
-                 FORMAT also reads BOX NOBOX INDEX NOINDEX PIVOT NOPIVOT, which shaped the old text listing and\n\
-                 change nothing, with one warning.\n\
-                 VARIABLES switches to integer mode: a range follows each list (it covers the whole list) and\n\
-                 values are cut to whole numbers. Rows and columns are every value of the range, with or\n\
-                 without cases; a value outside it makes the case missing. The statistics use the values\n\
-                 that occur. TABLES then names only variables of VARIABLES, and TO and ALL follow their order there.\n\
-                 MISSING=REPORT (integer mode only) shows the user-missing values of the rows and columns\n\
-                 marked (missing): their cells hold counts, nothing else, and stay out of totals, percentages\n\
-                 and statistics; the cases count as missing.\n\
-                 METHOD adds significances computed from the tables that share the observed row and column\n\
-                 totals, next to the asymptotic ones, on whole counts (cells rounded, or truncated with\n\
-                 TRUNCATE). EXACT walks all such tables with a network of partial tables: the chi-square\n\
-                 table gets the exact two-sided significance and the point probability of Pearson, the\n\
-                 likelihood ratio, Fisher's test (any size) and the linear-by-linear association (also\n\
-                 one-sided); the measures tables an Exact Significance column for phi, Cramer's V, the\n\
-                 contingency coefficient, lambda (not the symmetric value), Goodman and Kruskal's tau, the\n\
-                 uncertainty coefficient, Kendall's tau-b and tau-c, Somers' d, Spearman, Pearson's R and\n\
-                 kappa. TIMER(minutes) bounds each statistic (0: no bound); one that runs over, or would\n\
-                 need more memory than an eighth of what is free on the computer (at least 256 MB, at most 8 GB; less under a memory limit of a container), keeps only its asymptotic value, with a warning that gives the amount. MC instead draws SAMPLES random tables with those\n\
-                 totals from the SET SEED generator and shows the share at least as extreme with its\n\
-                 interval at CIN percent. Gamma, eta, McNemar-Bowker and CMH stay asymptotic.",
+                 category, counts summed over the layers. FORMAT also accepts BOX, NOBOX, INDEX, NOINDEX, PIVOT and\n\
+                 NOPIVOT, which change nothing, with one warning.\n\
+                 WRITE writes one record per cell to the file of the PROCEDURE OUTPUT before the command, after an\n\
+                 Output File Summary table. Columns 1-16 hold the split-file group (from 1), table number and count\n\
+                 as whole numbers; then come the row, column and control values in 8-column fields (whole numbers in\n\
+                 integer mode, else as the variable prints, text to the left). Records go a table column at a time,\n\
+                 the last control variable changing slowest. CELLS (also bare WRITE) writes the non-empty cells\n\
+                 without a missing value, or with them under MISSING=INCLUDE or REPORT; ALL (integer mode only) every\n\
+                 cell of the ranges. A long string variable or more than eight dimensions is an error.\n\
+                 METHOD adds significances from the tables with the observed row and column totals, next to the\n\
+                 asymptotic ones, on whole counts (rounded, or truncated with TRUNCATE). EXACT enumerates those\n\
+                 tables: the chi-square table gets the exact two-sided significance and point probability of\n\
+                 Pearson, likelihood ratio, Fisher's test (any size) and linear-by-linear (also one-sided), and the\n\
+                 measures tables an Exact Significance column for every measure except gamma, eta and the symmetric\n\
+                 lambda. TIMER(minutes) bounds each statistic (0: no bound); one that runs over or needs too much\n\
+                 memory keeps only its asymptotic value, with a warning. MC instead draws SAMPLES random tables with\n\
+                 those totals from the SET SEED generator and shows the share at least as extreme, with its interval\n\
+                 at CIN percent. McNemar-Bowker and CMH stay asymptotic.",
         example: "CROSSTABS /TABLES=region BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.",
         parse: procedures::crosstabs,
     },
@@ -2826,66 +2757,68 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "PROXSCAL",
         summary: "Multidimensional scaling of one or more proximity matrices by majorization, with optimal transformations.",
         syntax: "PROXSCAL varlist | /MATRIX=IN('file' | dataset | *)\n\
-                 \x20  [/TABLE=rowvar BY colvar [BY sourcevar] | sourcevar] [/SHAPE=LOWER | UPPER | BOTH]\n\
-                 \x20  [/INITIAL=SIMPLEX | TORGERSON | RANDOM[(n)] | ('file' | dataset) [varlist]] [/WEIGHTS=varlist] [/CONDITION=MATRIX | UNCONDITIONAL]\n\
-                 \x20  [/TRANSFORMATION=RATIO | INTERVAL | ORDINAL[(KEEPTIES | UNTIE)] | SPLINE [DEGREE=2] [INKNOT=1]]\n\
-                 \x20  [/PROXIMITIES=DISSIMILARITIES | SIMILARITIES] [/MODEL=IDENTITY | WEIGHTED | GENERALIZED | REDUCED[(2)]]\n\
-                 \x20  [/RESTRICTIONS=COORDINATES('file' | dataset) [ALL | varlist]\n\
-                 \x20     | VARIABLES('file' | dataset) [ALL | FIRST(n) | varlist] [(kind ...)]]\n\
-                 \x20  [/ACCELERATION=NONE] [/CRITERIA=[DIMENSIONS(2[,max])] [MAXITER(100)] [DIFFSTRESS(.0001)] [MINSTRESS(.0001)]]\n\
-                 \x20  [/PRINT=[NONE] [INPUT] [RANDOM] [HISTORY] [STRESS] [DECOMPOSITION] [COMMON] [DISTANCES] [WEIGHTS]\n\
-                 \x20          [INDIVIDUAL] [TRANSFORMATIONS] [VARIABLES] [CORRELATIONS]]\n\
-                 \x20  [/PLOT=[NONE] [STRESS] [COMMON] [WEIGHTS] [INDIVIDUAL[(sources | ALL)]] [TRANSFORMATIONS[(sources | ALL)]]\n\
-                 \x20         [RESIDUALS[(sources | ALL)]] [VARIABLES[(variables | ALL)]] [CORRELATIONS]]\n\
-                 \x20  [/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)] [VARIABLES(...)]].\n\
-                 The proximities are dissimilarities unless PROXIMITIES=SIMILARITIES. Without TABLE each case is a row of\n\
-                 a square matrix and each variable a column; more cases than variables hold several matrices, one\n\
-                 after the other, each a source. TABLE row BY column [BY source] takes one proximity per case, each\n\
-                 variable a source or the source in a third variable; TABLE=source names the matrix of each case.\n\
-                 SHAPE picks the triangle below or above the diagonal, or BOTH for the weighted mean of the two; the\n\
-                 diagonal is not used. WEIGHTS gives each proximity its weight; a missing proximity or weight counts as\n\
-                 weight 0. MATRIX=IN reads a matrix file of PROXIMITIES or CLUSTER as one source.\n\
-                 The scaling makes the distances fit the transformed proximities in least squares (normalized raw\n\
-                 stress) by majorization. RATIO keeps the proximities as they are (INTERVAL is used, with a warning,\n\
-                 for similarities or negative values), INTERVAL adds an intercept, ORDINAL keeps only their order\n\
-                 (UNTIE lets tied values part) and SPLINE fits a smooth rising curve of the given degree with INKNOT\n\
-                 inner knots at quantiles, plus an intercept. CONDITION=MATRIX fits one transformation per source,\n\
-                 UNCONDITIONAL one for all. MODEL=WEIGHTED gives every source its own weight per dimension, GENERALIZED\n\
-                 its own linear map of the common space and REDUCED(r) a map of rank r; one source always uses\n\
-                 IDENTITY. The start is SIMPLEX, TORGERSON (classical scaling) or RANDOM(n): n random starts from the\n\
-                 session's generator, the best one kept; a file or dataset with one case per object gives the\n\
-                 coordinates to start from (the variables named, or its first numeric ones, one for each dimension;\n\
-                 none may be missing). DIMENSIONS(min,max) solves from max down to min, each\n\
-                 solution starting from the main axes of the one before. Iterations stop after MAXITER, below\n\
-                 MINSTRESS or when the stress improves by no more than DIFFSTRESS.\n\
-                 Tables: Case Processing Summary; Stress and Fit Measures (normalized raw stress, Stress-I, Stress-II,\n\
-                 S-Stress, dispersion accounted for and Tucker's coefficient; without STRESS among PRINT keywords only\n\
-                 the first and the last two); Final Coordinates (COMMON), Dimension Weights or Space Weights (WEIGHTS),\n\
-                 Individual Space Coordinates, Distances, Transformed Proximities, Iteration History, Decomposition of\n\
-                 Normalized Raw Stress, the proximities read (INPUT) and the Random Starts. The identity model's\n\
-                 common space is turned to principal axes; the weighted one has sum of squares n per dimension, the\n\
-                 generalized one Z'Z = nI; every dimension is signed so that the first object is positive. Charts:\n\
-                 Common Space (a scatterplot matrix from three dimensions), Scree Plot of stress by dimensionality\n\
-                 (STRESS), Dimension Weights, Individual Space, Transformation Plot and Residuals Plot. OUTFILE writes\n\
-                 DIM_1, DIM_2, ... for the common space or the weights and OBJ_1, OBJ_2, ... for the distances and the\n\
-                 transformed proximities, the sources one below the other.\n\
+                 \x20\x20\x20[/TABLE=rowvar BY colvar [BY sourcevar] | sourcevar] [/SHAPE=LOWER | UPPER | BOTH]\n\
+                 \x20\x20\x20[/INITIAL=SIMPLEX | TORGERSON | RANDOM[(n)] | ('file' | dataset) [varlist]] [/WEIGHTS=varlist] [/CONDITION=MATRIX | UNCONDITIONAL]\n\
+                 \x20\x20\x20[/TRANSFORMATION=RATIO | INTERVAL | ORDINAL[(KEEPTIES | UNTIE)] | SPLINE [DEGREE=2] [INKNOT=1]]\n\
+                 \x20\x20\x20[/PROXIMITIES=DISSIMILARITIES | SIMILARITIES] [/MODEL=IDENTITY | WEIGHTED | GENERALIZED | REDUCED[(2)]]\n\
+                 \x20\x20\x20[/RESTRICTIONS=COORDINATES('file' | dataset) [ALL | varlist]\n\
+                 \x20\x20\x20\x20\x20\x20| VARIABLES('file' | dataset) [ALL | FIRST(n) | varlist] [(kind ...)]]\n\
+                 \x20\x20\x20[/ACCELERATION=NONE] [/CRITERIA=[DIMENSIONS(2[,max])] [MAXITER(100)] [DIFFSTRESS(.0001)] [MINSTRESS(.0001)]]\n\
+                 \x20\x20\x20[/PRINT=[NONE] [INPUT] [RANDOM] [HISTORY] [STRESS] [DECOMPOSITION] [COMMON] [DISTANCES] [WEIGHTS]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[INDIVIDUAL] [TRANSFORMATIONS] [VARIABLES] [CORRELATIONS]]\n\
+                 \x20\x20\x20[/PLOT=[NONE] [STRESS] [COMMON] [WEIGHTS] [INDIVIDUAL[(sources | ALL)]] [TRANSFORMATIONS[(sources | ALL)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[RESIDUALS[(sources | ALL)]] [VARIABLES[(variables | ALL)]] [CORRELATIONS]]\n\
+                 \x20\x20\x20[/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)] [VARIABLES(...)]].\n\
+                 The command places objects in a space so that their distances fit the transformed proximities in\n\
+                 least squares (normalized raw stress). The proximities are dissimilarities unless\n\
+                 PROXIMITIES=SIMILARITIES. Without TABLE each case is a row of a square matrix and each variable a\n\
+                 column; more cases than variables hold several matrices one after the other, each a source. TABLE\n\
+                 row BY column [BY source] reads one proximity per case, with each variable a source or the source in\n\
+                 a third variable; TABLE=source names the matrix of each case. MATRIX=IN reads a matrix file from\n\
+                 PROXIMITIES or CLUSTER as one source.\n\
+                 SHAPE=LOWER (the default) or UPPER picks a triangle; BOTH takes the weighted mean of the two. The\n\
+                 diagonal is not used. WEIGHTS gives each proximity variable a weight variable; a missing proximity\n\
+                 or weight counts as weight 0.\n\
+                 TRANSFORMATION=RATIO (the default) keeps the proximities as they are; INTERVAL is used instead, with\n\
+                 a warning, for similarities or negative values. INTERVAL adds an intercept, ORDINAL keeps only the\n\
+                 order (UNTIE lets ties part), and SPLINE fits a smooth rising curve of DEGREE (1 to 3) with INKNOT\n\
+                 inner knots at quantiles, plus an intercept. CONDITION=MATRIX (the default) fits one transformation\n\
+                 per source, UNCONDITIONAL one for all.\n\
+                 MODEL=IDENTITY (the default) uses one common space. WEIGHTED gives each source its own weight per\n\
+                 dimension, GENERALIZED its own linear map of the common space and REDUCED(r) a map of rank r; one\n\
+                 source always uses IDENTITY. INITIAL is SIMPLEX (the default), TORGERSON (classical scaling),\n\
+                 RANDOM(n) (n random starts from the session's generator, the best kept), or a file or dataset with\n\
+                 one case per object holding the start coordinates (the variables named, or its first numeric ones,\n\
+                 one per dimension, none missing). DIMENSIONS(min,max) solves from max down to min, each solution\n\
+                 starting from the one before. Iterations stop after MAXITER, below MINSTRESS or when stress gains no\n\
+                 more than DIFFSTRESS.\n\
+                 PRINT shows COMMON, WEIGHTS and STRESS by default (and VARIABLES and CORRELATIONS with\n\
+                 RESTRICTIONS=VARIABLES). Tables: Case Processing Summary; Stress and Fit Measures (normalized raw\n\
+                 stress, Stress-I, Stress-II, S-Stress, dispersion accounted for and Tucker's coefficient; without\n\
+                 STRESS only the first and the last two); Final Coordinates (COMMON); Dimension or Space Weights\n\
+                 (WEIGHTS); Individual Space Coordinates; Distances; Transformed Proximities; Iteration History;\n\
+                 Decomposition of Normalized Raw Stress; the proximities read (INPUT); and the Random Starts. The\n\
+                 identity common space is turned to principal axes, and every dimension is signed so that the first\n\
+                 object is positive.\n\
+                 PLOT shows COMMON and WEIGHTS by default: Common Space (a scatterplot matrix from three dimensions),\n\
+                 Scree Plot of stress by dimensionality (STRESS), Dimension Weights, Individual Space, Transformation\n\
+                 Plot and Residuals Plot. OUTFILE writes DIM_1, DIM_2 and so on for the common space or the weights,\n\
+                 and OBJ_1, OBJ_2 and so on for the distances and transformed proximities, the sources one below the\n\
+                 other.\n\
                  RESTRICTIONS=COORDINATES fixes coordinates of the common space to those of a file with one case per\n\
-                 object (the variables named, or its first numeric ones, one for each dimension; DIMENSIONS(min,max)\n\
-                 uses the first columns for the smaller solutions). A missing value leaves that coordinate free. The\n\
-                 free coordinates are estimated with the fixed ones held, the common space is not turned, so the fixed\n\
-                 coordinates come out exactly as given (the stress does not depend on their scale), and the transformed\n\
-                 proximities and distances are shown at the scale of the file.\n\
-                 RESTRICTIONS=VARIABLES makes the common space a weighted sum of independent variables read from a\n\
-                 file, one case per object: the variables named, the first n, or all. Each variable has a kind in\n\
-                 parentheses, one per variable or one for all (INTERVAL when none): INTERVAL, NOMINAL, ORDINAL with\n\
-                 KEEPTIES or UNTIE, or SPLINE with DEGREE and INKNOT, as for the proximities but without a sign\n\
-                 condition. A missing value takes the fitted value. With fewer variables than dimensions the rest are\n\
-                 free. PRINT VARIABLES gives the transformed variables (centered, sum of squares n) and their\n\
-                 regression weights, CORRELATIONS their correlations with the dimensions; OUTFILE VARIABLES writes the\n\
-                 transformed variables as VAR_1, VAR_2, and so on. PLOT CORRELATIONS (on by default with the variables)\n\
-                 draws each variable at its correlations with the dimensions and PLOT VARIABLES a Transformation Plot of\n\
-                 each variable named (original against transformed values). Both restrictions go with the identity\n\
-                 model only.",
+                 object (the variables named, or its first numeric ones; smaller solutions use the first columns). A\n\
+                 missing value leaves that coordinate free. The common space is not turned, so the fixed coordinates\n\
+                 come out exactly as given, and transformed proximities and distances are shown at the scale of the\n\
+                 file.\n\
+                 RESTRICTIONS=VARIABLES makes the common space a weighted sum of independent variables from a file\n\
+                 with one case per object: the variables named, the first n, or ALL. Each variable has a kind in\n\
+                 parentheses, one per variable or one for all: INTERVAL (the default), NOMINAL, ORDINAL with KEEPTIES\n\
+                 or UNTIE, or SPLINE with DEGREE and INKNOT. A missing value takes the fitted value. With fewer\n\
+                 variables than dimensions the rest are free. PRINT VARIABLES gives the transformed variables and\n\
+                 their regression weights, CORRELATIONS their correlations with the dimensions, and OUTFILE VARIABLES\n\
+                 writes them as VAR_1, VAR_2 and so on. PLOT CORRELATIONS (also on by default) draws each variable at\n\
+                 its correlations with the dimensions, and PLOT VARIABLES a Transformation Plot of each variable\n\
+                 named. Both restrictions need the identity model.",
         example: "PROXSCAL brand1 TO brand6 /TRANSFORMATION=ORDINAL /CRITERIA=DIMENSIONS(1,3) /PRINT=COMMON STRESS HISTORY /PLOT=COMMON STRESS.",
         parse: proxscal::proxscal,
     },
@@ -3235,70 +3168,72 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "NOMREG",
         summary: "Multinomial logistic regression: a nominal dependent variable on factors and covariates.",
         syntax: "NOMREG dependent [(BASE=FIRST | LAST | value  ORDER=ASCENDING | DATA | DESCENDING)]\n\
-                 \x20  [BY factors] [WITH covariates]\n\
-                 \x20  [/MODEL=[effects] [| BACKWARD | FORWARD | BSTEP | FSTEP = effects] | /FULLFACTORIAL]\n\
-                 \x20  [/STEPWISE=[RULE(SINGLE | SFACTOR | CONTAINMENT | NONE)] [MINEFFECT(0)] [MAXEFFECT(n)]\n\
-                 \x20             [PIN(0.05)] [POUT(0.1)] [ENTRYMETHOD(LR | SCORE)] [REMOVALMETHOD(LR | WALD)]]\n\
-                 \x20  [/INTERCEPT=INCLUDE | EXCLUDE]\n\
-                 \x20  [/CRITERIA=[CIN(95)] [DELTA(0)] [MXITER(100)] [MXSTEP(5)] [LCONVERGE(0)] [PCONVERGE(1E-6)]\n\
-                 \x20             [SINGULAR(1E-8)] [BIAS(0)] [CHKSEP(20)]]\n\
-                 \x20  [/PRINT=[CPS] [MFI] [PARAMETER] [LRT] [FIT] [SUMMARY] [CLASSTABLE] [IC] [KERNEL] [COVB] [CORB]\n\
-                 \x20         [STEP] [NONE]]\n\
-                 \x20  [/SAVE=[ESTPROB[(root[:n])]] [PREDCAT[(name)]] [PCPROB[(name)]] [ACPROB[(name)]]]\n\
-                 \x20  [/SCALE=1 | n | DEVIANCE | PEARSON] [/SUBPOP=varlist] [/MISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/TEST[(constants)]=['label'] effect values ... | ALL values [; ...]].\n\
-                 effects: a factor or covariate, a*b or a BY b, a(b) or a WITHIN b, x*x. The dependent and the\n\
-                 factors may be numeric or string; covariates are numeric. The categories of the dependent are\n\
-                 sorted by ORDER (DATA keeps the order in which they first occur); one of them, the last unless\n\
-                 BASE says otherwise, is the reference and has no parameters. Without MODEL the model is the\n\
-                 intercept, the covariates and the main effects of the factors; FULLFACTORIAL adds every\n\
-                 interaction of the factors. A factor gets one parameter per level and an interaction one per\n\
-                 level combination that occurs; a parameter that repeats others (SINGULAR) is redundant and\n\
-                 set to 0, so the last level of a factor is the reference. A case missing on any variable is\n\
-                 left out, as is one with a weight of 0 or less; weights are used as they are. The cases are\n\
-                 grouped into subpopulations by the factors and covariates, or by the SUBPOP variables, which\n\
-                 must include every variable of the model. The fit is Newton-Raphson with step-halving (MXSTEP),\n\
-                 starting from the intercept-only fit; it stops when the log likelihood changes by less than\n\
-                 LCONVERGE, no parameter changes by PCONVERGE or more, or after MXITER iterations. DELTA is added\n\
-                 to empty cells of a subpopulation and BIAS to every cell. Tables: Case Processing Summary (CPS),\n\
-                 Model Fitting Information against the intercept-only model, or the model of equal\n\
-                 probabilities without intercept (MFI, with AIC and BIC under IC), Pseudo R-Square with Cox and\n\
-                 Snell, Nagelkerke and McFadden (SUMMARY), Goodness-of-Fit with Pearson and deviance\n\
-                 chi-square (FIT), Likelihood Ratio Tests of each effect against the model without it (LRT),\n\
-                 Parameter Estimates with Wald tests and the CIN interval of Exp(B) (PARAMETER), the\n\
-                 Classification table (CLASSTABLE) and the covariance or correlation matrix of the estimates\n\
-                 (COVB, CORB). Without PRINT: CPS, MFI and STEP. -2 log likelihoods include the multinomial constant\n\
-                 of the subpopulations; KERNEL leaves it out. SCALE multiplies the covariance matrix by the\n\
-                 value, or by the Pearson or deviance chi-square over its df. SAVE adds the probability of each\n\
-                 response category (EST1_1, EST2_1, ... or root1, root2, ...; the first n, 25 by default), the\n\
-                 predicted category (PRE_1), its probability (PCP_1) and the probability of the observed\n\
-                 category (ACP_1), for every case with valid factors and covariates.\n\
-                 Stepwise: the intercept and the effects before | are always in; the method picks among the\n\
-                 effects after it. FORWARD adds, BACKWARD starts with all of them and drops, FSTEP adds one and\n\
-                 then drops while it can, BSTEP starts with all, drops while it can and then adds one. An effect\n\
-                 is added when its p (likelihood ratio, or the score test with ENTRYMETHOD(SCORE)) is the smallest\n\
-                 and below PIN, and dropped when its p (likelihood ratio, or Wald with REMOVALMETHOD(WALD)) is the\n\
-                 largest and above POUT; on a tie the effect listed first goes (entry p values too small to\n\
-                 hold are compared by their logarithms). The steps stop when nothing qualifies or a model would\n\
-                 repeat. RULE(SINGLE) holds an effect back until the listed effects made of a part of its\n\
-                 variables are in, SFACTOR does that only for effects of factors alone, CONTAINMENT waits for the\n\
-                 effects it contains (same covariates, fewer factors), NONE never waits; an effect that another\n\
-                 one in the model needs is not dropped. MAXEFFECT limits adding under FORWARD and FSTEP,\n\
-                 MINEFFECT dropping under BACKWARD and BSTEP, counting effects without the intercept. The Step\n\
-                 Summary (STEP, shown by default) lists each step with the -2 log likelihood after it and the\n\
-                 test that decided it; the other tables describe the final model, which without the intercept\n\
-                 can be the null model of equal probabilities. HISTORY(n) adds an Iteration History table of the final\n\
-                 model: -2 log likelihood and the parameters at iteration 0 (the intercept-only start), every n-th\n\
-                 iteration and the last. ASSOCIATION, for a response with two categories, counts the pairs of cases with\n\
-                 different observed categories as concordant, discordant or tied by the predicted probability\n\
-                 of the non-base category (cut to 1/500) and gives Somers' D, Goodman and Kruskal's gamma,\n\
-                 Kendall's tau-a and the concordance index C. CELLPROB gives, for every subpopulation and response\n\
-                 category, the observed and predicted count and proportion and the raw and standardized residual\n\
-                 (observed minus n times the predicted probability, over the square root of n p (1 - p)).\n\
-                 TEST=[(constants)] ['label'] effect values ; ... (or ALL values) tests linear combinations of the\n\
-                 parameters, the values one per parameter of the effect (redundant ones included, INTERCEPT one), by\n\
-                 Wald chi-squares for each logit (df the rank of the rows) and for all logits together; constants\n\
-                 default to 0 and a number may be a fraction.",
+                 \x20\x20\x20[BY factors] [WITH covariates]\n\
+                 \x20\x20\x20[/MODEL=[effects] [| BACKWARD | FORWARD | BSTEP | FSTEP = effects] | /FULLFACTORIAL]\n\
+                 \x20\x20\x20[/STEPWISE=[RULE(SINGLE | SFACTOR | CONTAINMENT | NONE)] [MINEFFECT(0)] [MAXEFFECT(n)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[PIN(0.05)] [POUT(0.1)] [ENTRYMETHOD(LR | SCORE)] [REMOVALMETHOD(LR | WALD)]]\n\
+                 \x20\x20\x20[/INTERCEPT=INCLUDE | EXCLUDE]\n\
+                 \x20\x20\x20[/CRITERIA=[CIN(95)] [DELTA(0)] [MXITER(100)] [MXSTEP(5)] [LCONVERGE(0)] [PCONVERGE(1E-6)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[SINGULAR(1E-8)] [BIAS(0)] [CHKSEP(20)]]\n\
+                 \x20\x20\x20[/PRINT=[CPS] [MFI] [PARAMETER] [LRT] [FIT] [SUMMARY] [CLASSTABLE] [IC] [KERNEL] [COVB] [CORB]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[STEP] [HISTORY[(n)]] [ASSOCIATION] [CELLPROB] [NONE]]\n\
+                 \x20\x20\x20[/SAVE=[ESTPROB[(root[:n])]] [PREDCAT[(name)]] [PCPROB[(name)]] [ACPROB[(name)]]]\n\
+                 \x20\x20\x20[/SCALE=1 | n | DEVIANCE | PEARSON] [/SUBPOP=varlist] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20\x20\x20[/TEST[(constants)]=['label'] effect values ... | ALL values [; ...]] [/TEST ...].\n\
+                 The command fits a multinomial logistic regression: one logit for each category of a nominal\n\
+                 dependent against a reference category. The dependent and the factors may be numeric or string;\n\
+                 covariates are numeric. ORDER sorts the categories (ASCENDING by default; DATA keeps the order of\n\
+                 first occurrence). BASE names the reference category (LAST by default), which has no parameters.\n\
+                 Without MODEL the model is the intercept, the covariates and the main effects of the\n\
+                 factors. FULLFACTORIAL adds every interaction of the factors and cannot be given\n\
+                 with MODEL. An effect is a factor or covariate, a*b (a BY b), a(b) (a WITHIN b) or\n\
+                 x*x. INTERCEPT=EXCLUDE drops the intercept. A factor gets one parameter per level,\n\
+                 an interaction one per level combination that occurs. A parameter that repeats\n\
+                 others (by SINGULAR) is redundant and set to 0, so a factor's last level is its\n\
+                 reference.\n\
+                 A case missing on any variable, or with a weight of 0 or less, is left out; weights are not\n\
+                 rounded. MISSING=INCLUDE treats user-missing values as valid. Cases form subpopulations by the\n\
+                 factors and covariates, or by the SUBPOP variables, which must include every model variable. DELTA\n\
+                 (0 to below 1) is added to a subpopulation's empty cells and BIAS (same range) to every cell. The\n\
+                 fit is Newton-Raphson from the intercept-only fit, with up to MXSTEP step halvings. It stops when\n\
+                 the log likelihood changes by less than LCONVERGE, no parameter changes by PCONVERGE or more, or\n\
+                 after MXITER iterations.\n\
+                 Without PRINT the output is CPS, MFI and STEP; a PRINT list replaces them, and NONE turns all\n\
+                 off. MFI tests against the intercept-only model (without the intercept, the model of equal\n\
+                 probabilities); IC adds AIC and BIC. SUMMARY gives the Cox and Snell, Nagelkerke and McFadden\n\
+                 pseudo R-squares, FIT the Pearson and deviance chi-squares, LRT a likelihood ratio test of each\n\
+                 effect, PARAMETER the estimates with Wald tests and the CIN interval of Exp(B), CLASSTABLE the\n\
+                 classification table. The -2 log likelihoods include the multinomial constant; KERNEL leaves it\n\
+                 out. SCALE multiplies the covariance matrix by the value, or by the Pearson or deviance\n\
+                 chi-square over its df.\n\
+                 SAVE writes, for every case with valid factors and covariates, the probability of each category\n\
+                 (ESTPROB: EST1_1, EST2_1 and so on, or root1, root2 and so on; the first n, 25 by default), the\n\
+                 predicted category (PREDCAT: PRE_1), its probability (PCPROB: PCP_1) and the probability of the\n\
+                 observed category (ACPROB: ACP_1).\n\
+                 Stepwise: the intercept and the effects before | always stay in; the method chooses among those\n\
+                 after it. FORWARD adds, BACKWARD starts with all and drops, FSTEP adds one and then drops while it\n\
+                 can, BSTEP starts with all, drops while it can, then adds one. The effect with the smallest p below\n\
+                 PIN enters (likelihood ratio, or score with ENTRYMETHOD(SCORE)); the one with the largest p above\n\
+                 POUT leaves (likelihood ratio, or Wald with REMOVALMETHOD(WALD)). A tie goes to the effect listed\n\
+                 first. Stepping stops when nothing qualifies or a model would repeat. MAXEFFECT caps adding under\n\
+                 FORWARD and FSTEP, MINEFFECT dropping under BACKWARD and BSTEP, not counting the intercept.\n\
+                 RULE(SINGLE), the default, holds an effect back until the listed effects made of part of its\n\
+                 variables are in; SFACTOR does that only for effects of factors alone; CONTAINMENT waits for the\n\
+                 effects it contains (same covariates, fewer factors); NONE never waits. An effect that another in\n\
+                 the model needs is not dropped. The Step Summary lists each step with its -2 log likelihood and\n\
+                 deciding test; the other tables describe the final model, which without the intercept can be the\n\
+                 model of equal probabilities.\n\
+                 HISTORY(n) shows the -2 log likelihood and parameters of the final model at iteration 0, every n-th\n\
+                 iteration and the last. ASSOCIATION, for a two-category response, gives Somers' D, gamma, tau-a and\n\
+                 C over the pairs of cases with different observed categories, compared by the predicted probability\n\
+                 of the non-base category (rounded down to a multiple of 1/500). CELLPROB gives observed and\n\
+                 predicted counts and proportions, with raw and standardized residuals, per subpopulation and\n\
+                 category.\n\
+                 TEST tests linear combinations of the parameters. A row gives an effect and one value per\n\
+                 parameter of it (redundant ones included, one for INTERCEPT), or ALL and a value per parameter;\n\
+                 the two forms do not mix in one TEST. Semicolons separate rows. Constants default to 0, and a\n\
+                 value may be a fraction. It gives a Wald chi-square per logit (df the rank of the rows) and one\n\
+                 for all logits. TEST may be repeated.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
     },
@@ -3444,135 +3379,96 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "MANOVA",
         summary: "Analysis of variance and covariance for one or several dependents, with nested and pooled terms, partitions and chosen error terms.",
         syntax: "MANOVA dependents [BY factors (min,max) [factors (min,max) ...]] [WITH covariates] [(covariates)]\n\
-                 \x20  [/WSFACTORS=name [name ...] (levels) ...] [/WSDESIGN=term [term ...]] [/MEASURE=names]\n\
-                 \x20  [/TRANSFORM[(varlist [/varlist ...])]=[ORTHONORM] [CONTRAST | BASIS] type] [/RENAME=name | * ...]\n\
-                 \x20  [/ERROR=WITHIN | RESIDUAL | WR | n] [/METHOD=[UNIQUE | SEQUENTIAL] [CONSTANT | NOCONSTANT] [QR | CHOLESKY]]\n\
-                 \x20  [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] | DIFFERENCE | HELMERT | REPEATED |\n\
-                 \x20                     POLYNOMIAL[(metric)] | SPECIAL(matrix)] ... [/PARTITION(factor)[=(n, m*k ...)]] ...\n\
-                 \x20  [/PRINT | NOPRINT=[CELLINFO[(MEANS SSCP COV COR ALL)]] [HOMOGENEITY[(BARTLETT COCHRAN BOXM ALL)]]\n\
-                 \x20        [PARAMETERS[(ESTIM NEGSUM ORTHO COR EFSIZE ALL)]] [DESIGN[(OVERALL ONEWAY)]] [TRANSFORM]\n\
-                 \x20        [SIGNIF(MULTIV UNIV EIGEN DIMENR HYPOTH STEPDOWN BRIEF SINGLEDF AVERF AVONLY GG HF EFSIZE)]\n\
-                 \x20        [ERROR[(SSCP COV COR STDDEV)]]]\n\
-                 \x20  [/OMEANS=[VARIABLES(varlist)] TABLES(factor [BY factor] | CONSTANT, ...)]\n\
-                 \x20  [/PMEANS[=[VARIABLES(dependents)] [TABLES(factor [BY factor] | CONSTANT, ...)] [PLOT]]]\n\
-                 \x20  [/CINTERVAL=[INDIVIDUAL | JOINT][(level)]\n\
-                 \x20             [UNIVARIATE(SCHEFFE | BONFER) | MULTIVARIATE(ROY | PILLAI | WILKS | HOTELLING | BONFER)]]\n\
-                 \x20  [/POWER[=[F(alpha)] [T(alpha)] [APPROXIMATE | EXACT]]] [/RESIDUALS[=CASEWISE] [PLOT]]\n\
-                 \x20  [/PLOT=[BOXPLOTS] [CELLPLOTS] [NORMAL] [ZCORR]]\n\
-                 \x20  [/PCOMPS=[COR] [COV] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX | NOROTATE)]] [NCOMP(n)]\n\
-                 \x20           [MINEIGEN(value)] [ALL]]\n\
-                 \x20  [/DISCRIM[=[RAW] [STAN] [ESTIM] [COR] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX)]] [ALL]\n\
-                 \x20            [ALPHA(value)]]]\n\
-                 \x20  [/ANALYSIS[(CONDITIONAL | UNCONDITIONAL)]=dependents [WITH covariates]\n\
-                 \x20     | (dependents [WITH covariates] [/ ...]) [WITH covariates]]\n\
-                 \x20  [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]] [/MATRIX=IN(file | dataset | *) OUT(file | dataset | *)]\n\
-                 \x20  [/DESIGN=term [term ...]] [/DESIGN ...].\n\
-                 term: effect [+ effect ...] [= n] [VS WITHIN | RESIDUAL | WR | n], or CONSTANT, or MUPLUS before a term;\n\
-                 effect: item [BY item ...] [WITHIN item [BY item ...] ...], or MWITHIN factor(n); item: factor[(n)],\n\
-                 a continuous variable or POOL(varlist).\n\
-                 Factors take every whole number of their range (values are cut to whole numbers); a case outside\n\
-                 a range or missing on any listed variable is left out. Case weights are used as they are. Settings\n\
-                 carry over to every later DESIGN; when the command does not end with DESIGN, a full factorial\n\
-                 design (all main effects and interactions) is added. Each factor is coded by its contrast\n\
-                 (DEVIATION by default, the last level left out): the design columns are the inverse of the matrix\n\
-                 whose first row is the level mean and whose other rows are the contrasts, so each parameter\n\
-                 estimates its contrast. In a term, a(n) keeps partition n of the factor's degrees of freedom (one\n\
-                 each, or as PARTITION groups them); after WITHIN (or W, or MWITHIN) a factor stands for each of its\n\
-                 levels, or level n alone for b(n), and a term that starts with MWITHIN b(n) is the constant at that\n\
-                 level; '+' pools effects into one test; '= n' makes the term error term n (1 to 10);\n\
-                 VS (or AGAINST) names the error a term is tested against. A continuous variable on DESIGN must be\n\
-                 a dependent or covariate that ANALYSIS leaves out. The constant is fitted first and shown only\n\
-                 when written as CONSTANT (or when there are no factors); NOCONSTANT drops it unless written.\n\
-                 UNIQUE sums of squares adjust each term for all others; SEQUENTIAL for the terms before it.\n\
-                 Error terms: WITHIN, the pooled within-cell matrix (df N less the non-empty cells); RESIDUAL,\n\
-                 the part of the cell model the design leaves out; WR, both together; n, a numbered term. The\n\
-                 default is WITHIN, RESIDUAL when no cell holds two cases, WR when DESIGN has a continuous variable.\n\
-                 Covariates are taken out of every test by regression within the error term, which loses a df\n\
-                 for each, and are tested as a regression with their coefficients.\n\
-                 TRANSFORM replaces the continuous variables (all, or each list in turn with one matrix) by\n\
-                 combinations named T1, T2 and so on: with CONTRAST the first is their mean and the others the\n\
-                 contrasts of the type, SPECIAL takes the square matrix as written, BASIS uses the transposed\n\
-                 inverse of that matrix, ORTHONORM makes its rows orthonormal and drops a row the others span.\n\
-                 RENAME gives every continuous variable of the list a name in order ('*' keeps the old one);\n\
-                 ANALYSIS and later subcommands use the new names, OMEANS the original variables.\n\
-                 Repeated measures: WSFACTORS (first after the variable list) reads the dependents as the cells of\n\
-                 the within-subjects factors, the last factor changing fastest, once per measure (MEASURE names\n\
-                 them). Each factor's contrast (POLYNOMIAL unless CONTRAST says otherwise) is made orthonormal\n\
-                 together with the mean, and the dependents are replaced by their Kronecker products. The\n\
-                 between-subjects tests analyze the mean column; each WSDESIGN term (by default every main effect\n\
-                 and interaction) is the constant of an analysis of its own columns, the DESIGN terms crossed with\n\
-                 it. Covariates outside parentheses come in sets, one per within-subjects cell, and are transformed\n\
-                 the same way; those in parentheses stay as they are. An effect with more than one column gets\n\
-                 Mauchly's test with the Greenhouse-Geisser, Huynh-Feldt and lower-bound epsilons, and averaged\n\
-                 tests (AVERF, by default): the sums of the hypothesis and error sums of squares over its columns\n\
-                 with the df times their number, per measure, and with several measures their multivariate tests.\n\
-                 GG and HF add the significance with both df times the epsilon; AVONLY drops the multivariate tests\n\
-                 of such effects. SIGNIF(UNIV) is off by default with WSFACTORS.\n\
-                 Tables: Cases; with one dependent, Tests of Significance (each error term and the terms tested\n\
-                 against it, the regression, (Model), (Total), R-squared); with several, Multivariate Tests of\n\
-                 Significance (Pillais, Wilks, Hotellings with their F approximations, and Roys as the largest\n\
-                 root over one plus it) and Univariate F-tests. SIGNIF adds Eigenvalues and Canonical Correlations\n\
-                 (EIGEN), Dimension Reduction Analysis (DIMENR), the Hypothesis SSCP Matrix (HYPOTH), Roy-Bargmann\n\
-                 Stepdown F-tests (STEPDOWN), a test for each degree of freedom of a term, each column entered after\n\
-                 the ones before it (SINGLEDF), partial eta squared for every F and t test (EFSIZE), or only a Wilks\n\
-                 table (BRIEF); NOPRINT SIGNIF(MULTIV) or (UNIV) drops a default table. PARAMETERS gives each design\n\
-                 column's estimate with its standard error from the term's error term, t, Sig. and an interval\n\
-                 (CINTERVAL: INDIVIDUAL at the level given, 0.95 by default; JOINT with Scheffe or Bonferroni\n\
-                 multipliers over the term's parameters), NEGSUM minus their sum per term, ORTHO the orthogonal\n\
-                 estimates of the design columns in order (their squares add up to the sequential sums of squares),\n\
-                 COR the covariance factors and correlations of the estimates; ERROR the error matrices after the\n\
-                 covariates; TRANSFORM the transformation matrix; DESIGN the design matrix of the cells (OVERALL)\n\
-                 and each factor's one-way basis (ONEWAY). CELLINFO gives cell means with 95% intervals and the\n\
-                 within-cell matrices; HOMOGENEITY Cochran's C, the Bartlett-Box F and Box's M; OMEANS weighted and\n\
-                 unweighted means over the factors named; PMEANS observed, adjusted and estimated cell means with\n\
-                 residuals, for the VARIABLES named, and with TABLES the adjusted means over the other factors,\n\
-                 weighted by cell size and not; RESIDUALS each case's observed and predicted values and residuals.\n\
-                 POWER adds two columns to every F test (alpha .05, or F(alpha)) and every t test of an estimate\n\
-                 (two-sided, alpha .05, or T(alpha)): the noncentrality, F times its hypothesis df or |t|, and the\n\
-                 observed power from the noncentral F or t, always computed exactly. In the multivariate tests,\n\
-                 APPROXIMATE (the default) uses each criterion's eta squared over one less it, times the error df\n\
-                 of its F, and gives Roys none; EXACT gives all four the noncentrality of Hotelling's T-squared,\n\
-                 the trace times the error df, when the effect has one hypothesis df, and gives nothing otherwise.\n\
-                 With several dependents, CINTERVAL MULTIVARIATE widens the intervals of the estimates so they hold\n\
-                 for all dependents together: PILLAI, WILKS and HOTELLING find the critical largest root through\n\
-                 that statistic's F approximation, BONFER splits alpha over the dependents and the family. With\n\
-                 INDIVIDUAL the family is one parameter, and ROY, PILLAI, WILKS and HOTELLING then all give\n\
-                 Hotelling's T-squared interval; with JOINT it is the term's parameters. With one dependent\n\
-                 MULTIVARIATE is ignored.\n\
-                 PCOMPS, with several dependents, finds the principal components of the error matrix after the\n\
-                 covariates, as correlations (COR) or as variances and covariances (COV): the eigenvalues with\n\
-                 their share of the total, and loadings (each eigenvector times the root of its eigenvalue) for\n\
-                 the components whose eigenvalue reaches MINEIGEN (0 by default). ROTATE turns the first NCOMP\n\
-                 of them (all by default, at least 2) by VARIMAX unless another type is named, with Kaiser\n\
-                 normalization; a rotation carries over to later PCOMPS until NOROTATE. ALL means COR, COV and\n\
-                 ROTATE.\n\
-                 DISCRIM describes every multivariate effect, and the covariates, by its discriminant functions:\n\
-                 the eigenvectors of the hypothesis matrix relative to the error matrix, scaled to a variance of 1\n\
-                 within the error. Functions are kept in order while the dimension reduction test of a function\n\
-                 and the ones after it has Sig. at most ALPHA (0.25 by default; 1 keeps all, 0 none). RAW gives the\n\
-                 coefficients, STAN the coefficients times the error standard deviations, ESTIM the effect's\n\
-                 parameter estimates (or the covariates' coefficients) times the coefficients, COR each\n\
-                 dependent's correlation with each function within the error, ROTATE those correlations rotated\n\
-                 when two or more functions are kept. DISCRIM alone gives RAW, STAN, ESTIM and COR; ALL also ROTATE.\n\
-                 ANALYSIS picks which variables are dependents and which covariates (also with WSFACTORS, where its\n\
-                 dependents are the cells and its covariates after WITH the constant ones). Several groups in\n\
-                 parentheses separated by slashes are separate analyses, each with its own tables; CONDITIONAL makes the\n\
-                 variables of the earlier groups covariates of the later ones, and covariates after the closing\n\
-                 parenthesis go to every group. A variable is named once on the subcommand.\n\
-                 MATRIX=OUT(file | dataset | *) writes the cells and the pooled within-cells moments: records N (the total),\n\
-                 N and MEAN of every non-empty cell with its factor values between ROWTYPE_ and VARNAME_, STDDEV (the\n\
-                 root of the within-cells mean square) and CORR (the within-cells correlations) over the dependents and\n\
-                 covariates. MATRIX=IN(file | dataset | *) runs the analyses from such a file, with the tables the data\n\
-                 would give. CELLINFO, HOMOGENEITY, RESIDUALS and PLOT need the cases and are refused with IN. A file\n\
-                 CORRELATIONS wrote (N, MEAN, STDDEV, CORR) is one cell without factors.\n\
-                 PLOT draws, once for the command and from the cases, a box for every cell of each variable (BOXPLOTS;\n\
-                 alone it is the default), the cell means against the cell variances and standard deviations and a\n\
-                 histogram of the cell means (CELLPLOTS), the normal and detrended normal plots of each variable's\n\
-                 scores (NORMAL, the i-th of n at the normal quantile of i / (n + 1)) and a half-normal plot of Fisher's z\n\
-                 of the within-cells correlations of the dependents (ZCORR). PMEANS PLOT draws the adjusted predicted\n\
-                 mean of each cell. RESIDUALS PLOT draws, for each dependent, the standardized residuals against the\n\
-                 observed values, the predicted values and the case numbers, and their normal and detrended normal plots;\n\
-                 RESIDUALS=PLOT alone leaves out the casewise listing. Each design draws its own, its number in the title.",
+                 \x20\x20\x20[/WSFACTORS=name [name ...] (levels) ...] [/WSDESIGN=term [term ...]] [/MEASURE=names]\n\
+                 \x20\x20\x20[/TRANSFORM[(varlist [/varlist ...])]=[ORTHONORM] [CONTRAST | BASIS] type] [/RENAME=name | * ...]\n\
+                 \x20\x20\x20[/ERROR=WITHIN | RESIDUAL | WR | n] [/METHOD=[UNIQUE | SEQUENTIAL] [CONSTANT | NOCONSTANT] [QR | CHOLESKY]]\n\
+                 \x20\x20\x20[/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] | DIFFERENCE | HELMERT | REPEATED |\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20POLYNOMIAL[(metric)] | SPECIAL(matrix)] ... [/PARTITION(factor)[=(n, m*k ...)]] ...\n\
+                 \x20\x20\x20[/PRINT | NOPRINT=[CELLINFO[(MEANS SSCP COV COR ALL)]] [HOMOGENEITY[(BARTLETT COCHRAN BOXM ALL)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[PARAMETERS[(ESTIM NEGSUM ORTHO COR EFSIZE ALL)]] [DESIGN[(OVERALL ONEWAY)]] [TRANSFORM]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[SIGNIF(MULTIV UNIV EIGEN DIMENR HYPOTH STEPDOWN BRIEF SINGLEDF AVERF AVONLY GG HF EFSIZE)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[ERROR[(SSCP COV COR STDDEV)]]]\n\
+                 \x20\x20\x20[/OMEANS=[VARIABLES(varlist)] TABLES(factor [BY factor] | CONSTANT, ...)]\n\
+                 \x20\x20\x20[/PMEANS[=[VARIABLES(dependents)] [TABLES(factor [BY factor] | CONSTANT, ...)] [PLOT]]]\n\
+                 \x20\x20\x20[/CINTERVAL=[INDIVIDUAL | JOINT][(level)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[UNIVARIATE(SCHEFFE | BONFER) | MULTIVARIATE(ROY | PILLAI | WILKS | HOTELLING | BONFER)]]\n\
+                 \x20\x20\x20[/POWER[=[F(alpha)] [T(alpha)] [APPROXIMATE | EXACT]]] [/RESIDUALS[=CASEWISE] [PLOT]]\n\
+                 \x20\x20\x20[/PLOT=[BOXPLOTS] [CELLPLOTS] [NORMAL] [ZCORR]]\n\
+                 \x20\x20\x20[/PCOMPS=[COR] [COV] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX | NOROTATE)]] [NCOMP(n)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[MINEIGEN(value)] [ALL]]\n\
+                 \x20\x20\x20[/DISCRIM[=[RAW] [STAN] [ESTIM] [COR] [ROTATE[(VARIMAX | EQUAMAX | QUARTIMAX)]] [ALL]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[ALPHA(value)]]]\n\
+                 \x20\x20\x20[/ANALYSIS[(CONDITIONAL | UNCONDITIONAL)]=dependents [WITH covariates]\n\
+                 \x20\x20\x20\x20\x20\x20| (dependents [WITH covariates] [/ ...]) [WITH covariates]]\n\
+                 \x20\x20\x20[/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]] [/MATRIX=IN(file | dataset | *) OUT(file | dataset | *)]\n\
+                 \x20\x20\x20[/DESIGN=term [term ...]] [/DESIGN ...].\n\
+                 The command fits a linear model to one or more dependents, with factors after BY and covariates\n\
+                 after WITH. A range (min,max) applies to every factor before it, with one level per whole number;\n\
+                 values are cut to whole numbers. Cases outside a range or missing on any listed variable are left\n\
+                 out (MISSING=INCLUDE keeps user-missing values). Weights are used as they are. Each DESIGN runs one\n\
+                 analysis with the settings given before it, which carry over. Without a final DESIGN, a full\n\
+                 factorial design is added. With one dependent the output is Tests of Significance (each error term\n\
+                 with its terms, the covariate regression, (Model), (Total), R-squared); with several, Multivariate\n\
+                 Tests of Significance (Pillai, Wilks, Hotelling, Roy) and Univariate F-tests.\n\
+                 Design terms, separated by spaces or commas: an item is a factor, a continuous variable or\n\
+                 POOL(varlist); items are crossed with BY and nested with WITHIN (or W). A factor written a(n) keeps\n\
+                 partition n of its df, one df each or as PARTITION(a)=(n, m*k) groups them. After WITHIN, b(n) means\n\
+                 level n of b alone; a term that starts with MWITHIN b(n) is the constant at that level. A plus sign\n\
+                 pools effects into one test, '= n' makes the term error term n (1 to 10), VS (or AGAINST, VERSUS)\n\
+                 names its error, and MUPLUS joins the constant to the next term. A continuous variable on DESIGN\n\
+                 must be a dependent or covariate that ANALYSIS leaves out. The constant is fitted first but shown\n\
+                 only when written as CONSTANT or without factors; METHOD=NOCONSTANT drops it unless written.\n\
+                 ERROR picks the error term: WITHIN (W), the pooled within-cell matrix; RESIDUAL (R), what the design\n\
+                 leaves out of the cell model; WR (RW), both; or a numbered term. The default is WITHIN, RESIDUAL\n\
+                 when no cell holds two cases, and WR when DESIGN has a continuous variable. METHOD=UNIQUE (the\n\
+                 default) adjusts each term for all others, SEQUENTIAL for the terms before it. CONTRAST(factor) sets\n\
+                 the coding, DEVIATION by default (last level left out). Covariates are removed from every test\n\
+                 within the error term (one df each) and tested as a regression.\n\
+                 TRANSFORM replaces the continuous variables (all, or each list in turn) by T1, T2 and so on, from a\n\
+                 contrast type whose first row is the mean (SPECIAL takes a square matrix); BASIS uses its transposed\n\
+                 inverse, ORTHONORM makes the rows orthonormal. RENAME names every continuous variable in order ('*'\n\
+                 keeps a name); later subcommands use the new names, OMEANS the originals. ANALYSIS picks the\n\
+                 dependents and covariates. Groups in parentheses, separated by slashes, are separate analyses;\n\
+                 CONDITIONAL makes earlier groups covariates of later ones, and covariates after the closing\n\
+                 parenthesis go to every group.\n\
+                 Repeated measures: WSFACTORS, the first subcommand, reads the dependents as the cells of the\n\
+                 within-subjects factors (2 or more levels each), the last changing fastest, once per measure named\n\
+                 on MEASURE. Contrasts are POLYNOMIAL unless CONTRAST says otherwise; between-subjects tests use the\n\
+                 cell mean. WSDESIGN lists within-subjects terms (all main effects and interactions by default), each\n\
+                 crossed with the DESIGN terms. Covariates outside parentheses come one per cell; those in\n\
+                 parentheses are constant. An effect with several df gets Mauchly's test with Greenhouse-Geisser,\n\
+                 Huynh-Feldt and lower-bound epsilons, and averaged F tests (AVERF, the default). GG and HF add tests\n\
+                 with epsilon-scaled df; AVONLY drops the multivariate tests. SIGNIF(UNIV) is off by default here.\n\
+                 PRINT adds tables, NOPRINT removes them; a keyword alone means its defaults. SIGNIF adds EIGEN\n\
+                 (eigenvalues, canonical correlations), DIMENR (dimension reduction), HYPOTH (hypothesis SSCP),\n\
+                 STEPDOWN (stepdown F), SINGLEDF (a test per df), EFSIZE (partial eta squared, also under\n\
+                 PARAMETERS) or BRIEF (Wilks only); MULTIV and UNIV are on by default. PARAMETERS gives estimates\n\
+                 with standard error, t, Sig. and interval (ESTIM, default), NEGSUM (minus their sum), ORTHO\n\
+                 (orthogonal estimates) or COR (their correlations). ERROR prints error matrices (COV, COR, STDDEV\n\
+                 by default, or SSCP), TRANSFORM the transformation matrix, DESIGN the design matrix (OVERALL,\n\
+                 default) or ONEWAY bases. CELLINFO gives cell MEANS (default), SSCP, COV or COR; HOMOGENEITY gives\n\
+                 BARTLETT, COCHRAN and BOXM (all by default).\n\
+                 OMEANS gives weighted and unweighted means of the VARIABLES over the factors on TABLES; alone it\n\
+                 gives cell means. PMEANS gives observed, adjusted and estimated cell means with residuals, and with\n\
+                 TABLES adjusted means over the other factors. RESIDUALS lists each case's predictions and\n\
+                 residuals. CINTERVAL sets estimate intervals: INDIVIDUAL at the level given (0.95 by default), or\n\
+                 JOINT over a term's parameters by SCHEFFE or BONFER. MULTIVARIATE widens them to cover all\n\
+                 dependents (ignored with one). POWER adds noncentrality and observed power to F tests (alpha\n\
+                 F(.05)) and t tests (T(.05)); multivariate tests use APPROXIMATE power, or EXACT power only for\n\
+                 one-df effects.\n\
+                 With several dependents, PCOMPS gives principal components of the error matrix as COR or COV, for\n\
+                 eigenvalues of at least MINEIGEN (0). ROTATE turns the first NCOMP (all) by VARIMAX unless named,\n\
+                 until NOROTATE. ALL means COR, COV and ROTATE. DISCRIM gives discriminant functions of each\n\
+                 multivariate effect and the covariates, kept while their dimension reduction Sig. is at most ALPHA\n\
+                 (0.25). It shows RAW and STAN coefficients, ESTIM (estimates times coefficients) and COR\n\
+                 (dependent-function correlations), all four by default; ALL adds ROTATE.\n\
+                 MATRIX=OUT writes N (total and per cell), each cell's MEAN with its factor values between ROWTYPE_\n\
+                 and VARNAME_, and the within-cell STDDEV and CORR. MATRIX=IN analyzes such a file, or a CORRELATIONS\n\
+                 file as one cell; CELLINFO, HOMOGENEITY, RESIDUALS and PLOT are refused then. PLOT draws, once per\n\
+                 command, BOXPLOTS (the default), CELLPLOTS (cell means against spreads), NORMAL (normal and\n\
+                 detrended plots) and ZCORR (half-normal plot of within-cell correlations). PMEANS PLOT draws\n\
+                 adjusted predicted cell means; RESIDUALS PLOT draws standardized residuals against observed,\n\
+                 predicted and case number, with normal plots. RESIDUALS=PLOT alone skips the listing.",
         example: "MANOVA score1 score2 BY method(1,3) school(1,2) WITH pretest /PRINT=SIGNIF(EIGEN) /DESIGN.\n\
                   MANOVA t1 t2 t3 BY method(1,3) /WSFACTORS=trial(3) /PRINT=SIGNIF(GG HF) /DESIGN.",
         parse: manova::manova,
@@ -4275,76 +4171,72 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "CATPCA",
         summary: "Categorical principal components: quantify each variable by optimal scaling (spline, ordinal, nominal, multiple nominal or numeric) and reduce them to a few components.",
         syntax: "CATPCA [/VARIABLES=] varlist\n\
-                 \x20  /ANALYSIS=varlist [([WEIGHT=n] [LEVEL=SPORD | SPNOM | ORDI | NOMI | MNOM | NUME]\n\
-                 \x20                     [DEGREE=2 | n] [INKNOT=2 | n])] [varlist [(...)] ...]\n\
-                 \x20  [/DISCRETIZATION=[varlist [([GROUPING] [NCAT=7 | n] [DISTR=NORMAL | UNIFORM] | [EQINTV=width]\n\
-                 \x20                              | RANKING | MULTIPLYING)] ...]]\n\
-                 \x20  [/MISSING=[varlist | ALL [([PASSIVE] [MODEIMPU | EXTRACAT | RANDIMPU]\n\
-                 \x20                              | ACTIVE [MODEIMPU | EXTRACAT | RANDIMPU] | LISTWISE)] ...]]\n\
-                 \x20  [/SUPPLEMENTARY=[OBJECT(case numbers)] [VARIABLE(varlist)]]\n\
-                 \x20  [/CONFIGURATION=[INITIAL | FIXED]('file' | dataset)] [/DIMENSION=2 | n]\n\
-                 \x20  [/NORMALIZATION=VPRINCIPAL | OPRINCIPAL | SYMMETRICAL | INDEPENDENT | q]\n\
-                 \x20  [/MAXITER=100 | n] [/CRITITER=.00001 | value]\n\
-                 \x20  [/ROTATION=[NOROTATE | VARIMAX | EQUAMAX | QUARTIMAX | PROMAX[(4 | kappa)] | OBLIMIN[(0 | delta)]]\n\
-                 \x20             [KAISER | NOKAISER]]\n\
-                 \x20  [/RESAMPLE=NONE | BOOTSTRAP[(samples, percent, BALANCED | UNBALANCED, PROCRU | REFLEC)]]\n\
-                 \x20  [/PRINT=[DESCRIP[(varlist)]] [LOADING[(SORT | NOSORT)]] [CORR] [VAF] [OCORR] [QUANT[(varlist)]]\n\
-                 \x20         [HISTORY] [OBJECT[([(labelvar)] varlist)]] [NONE]]\n\
-                 \x20  [/PLOT=[OBJECT[(varlist)][(len)]] [LOADING[(varlist [(CENTR[(varlist)])])][(len)]]\n\
-                 \x20        [CATEGORY(varlist)[(len)]] [JOINTCAT[(varlist)][(len)]] [TRANS(var[(n)] ...)[(len)]]\n\
-                 \x20        [RESID(var[(n)] ...)[(len)]] [BIPLOT[(LOADING | CENTR[(varlist)])][(varlist)][(len)]]\n\
-                 \x20        [TRIPLOT[(varlist[(varlist)])][(len)]] [PROJCENTR(var, varlist)[(len)]] [VAF]\n\
-                 \x20        [NDIM(first, last)] [NONE]]\n\
-                 \x20  [/SAVE=[TRDATA[(root[(n)])]] [OBJECT[(root[(n)])]] [APPROX[(root)]]]\n\
-                 \x20  [/OUTFILE=[DISCRDATA('file' | dataset)] [TRDATA('file' | dataset)] [OBJECT('file' | dataset)]\n\
-                 \x20           [APPROX('file' | dataset)]].\n\
-                 Variables are coded as for MULTIPLE CORRESPONDENCE: whole codes from 1, lower codes and\n\
-                 missing values missing, strings coded in sorted order, fractions cut into 7 groups unless\n\
-                 DISCRETIZATION says otherwise; DISCRETIZATION, MISSING, SUPPLEMENTARY, CONFIGURATION, DIMENSION,\n\
-                 MAXITER and CRITITER work as there. Each variable gets a value for each category, chosen so\n\
-                 that the components explain the quantified variables as well as they can. LEVEL says what the\n\
-                 values must respect: NUME equal steps between codes (plain principal components when every\n\
-                 variable is numeric), ORDI the order of the codes, NOMI nothing but the grouping, SPORD (the\n\
-                 default) and SPNOM a smooth curve through the codes, a spline of DEGREE pieces joined at INKNOT\n\
-                 interior knots placed at quantiles of the cases' codes (SPORD keeps it rising), and MNOM a\n\
-                 separate value per component, the centroid of the category's cases. WEIGHT gives a variable\n\
-                 more say. The fit starts from the exact numeric solution (iteration 0), then alternates\n\
-                 quantifications and component scores until the variance accounted for gains less than\n\
-                 CRITITER. An extra category from ACTIVE EXTRACAT is left out of the level's restriction after\n\
-                 iteration 0. The components are then turned to principal axes, and a component is reflected\n\
-                 when its negative loadings have the larger mean square. Supplementary variables are fitted to\n\
-                 the final scores. NORMALIZATION q gives the scores the power (1 + q)/2 of the root of each\n\
-                 eigenvalue and the loadings and multiple nominal centroids the power (1 - q)/2 less one, so\n\
-                 that scores times loadings stay the same: VPRINCIPAL -1 (standard scores, loadings are\n\
-                 correlations), OPRINCIPAL 1, SYMMETRICAL 0; INDEPENDENT scales the scores only. ROTATION turns\n\
-                 the loadings of the variables that have loadings, with Kaiser normalization unless NOKAISER,\n\
-                 and the scores and centroids with them. SPLIT FILE does not apply.\n\
-                 Tables: Case Processing Summary, Iteration History (iteration 0 and the last, or all with\n\
-                 HISTORY: variance accounted for, its increase, and the loss split into the centroid part and\n\
-                 the part from holding single variables to a line) and Model Summary (Cronbach's alpha,\n\
-                 eigenvalue and percent of variance per dimension and in total) always; DESCRIP frequencies,\n\
-                 missing count and mode; QUANT per variable the quantification, centroid and vector\n\
-                 coordinates; VAF the variance each variable accounts for, by centroids and by vectors; OCORR\n\
-                 and CORR the correlations of the original and of the quantified variables (one matrix per\n\
-                 dimension when a variable is MNOM), with eigenvalues; OBJECT the component scores; LOADING the\n\
-                 component loadings (SORT groups them by their largest loading), with the rotated loadings and\n\
-                 transformation matrix, or pattern, structure and component correlations after an oblique\n\
-                 rotation. Without PRINT, or with PRINT alone: DESCRIP LOADING CORR.\n\
-                 Charts (OBJECT and LOADING by default): component scores, colored by the categories of each\n\
-                 named variable; loadings, with MNOM centroids after CENTR; category centroids and vectors of\n\
-                 each variable; all centroids together (JOINTCAT); quantification by code (TRANS); quantified\n\
-                 value against its approximation (RESID); scores with loadings or centroids (BIPLOT) or with\n\
-                 both (TRIPLOT), scores and centroids shrunk to the loadings, neither with INDEPENDENT; the\n\
-                 centroids of one variable projected on the loading direction of others (PROJCENTR, also as a\n\
-                 table); bars of each variable's variance accounted for per dimension and in total (VAF). Two\n\
-                 dimensions give one scatter, more a scatterplot matrix, NDIM(a, b) one scatter of a against\n\
-                 each of a+1 to b. A label length of 0 shows values and names instead of labels.\n\
-                 SAVE adds the quantified variables rootK_S (TRA, K the place on ANALYSIS, S the first free set\n\
-                 number; an MNOM variable gives rootK_D_S per dimension D with the root cut to 3 characters),\n\
-                 the scores rootD_S (OBSCO) and the approximations rootK_S (APP: scores times loadings, the\n\
-                 first score for an MNOM variable). Excluded cases and passive missing values are\n\
-                 system-missing. OUTFILE writes the codes (DISCRDATA), TRAK or TRAK_D, OBSCOD and APPK; a file\n\
-                 with no keyword means TRDATA.",
+                 \x20\x20\x20/ANALYSIS=varlist [([WEIGHT=n] [LEVEL=SPORD | SPNOM | ORDI | NOMI | MNOM | NUME]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[DEGREE=2 | n] [INKNOT=2 | n])] [varlist [(...)] ...]\n\
+                 \x20\x20\x20[/DISCRETIZATION=[varlist [([GROUPING] [NCAT=7 | n] [DISTR=NORMAL | UNIFORM] | [EQINTV=width]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20| RANKING | MULTIPLYING)] ...]]\n\
+                 \x20\x20\x20[/MISSING=[varlist | ALL [([PASSIVE] [MODEIMPU | EXTRACAT | RANDIMPU]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20| ACTIVE [MODEIMPU | EXTRACAT | RANDIMPU] | LISTWISE)] ...]]\n\
+                 \x20\x20\x20[/SUPPLEMENTARY=[OBJECT(case numbers)] [VARIABLE(varlist)]]\n\
+                 \x20\x20\x20[/CONFIGURATION=[INITIAL | FIXED]('file' | dataset)] [/DIMENSION=2 | n]\n\
+                 \x20\x20\x20[/NORMALIZATION=VPRINCIPAL | OPRINCIPAL | SYMMETRICAL | INDEPENDENT | q]\n\
+                 \x20\x20\x20[/MAXITER=100 | n] [/CRITITER=.00001 | value]\n\
+                 \x20\x20\x20[/ROTATION=[NOROTATE | VARIMAX | EQUAMAX | QUARTIMAX | PROMAX[(4 | kappa)] | OBLIMIN[(0 | delta)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[KAISER | NOKAISER]]\n\
+                 \x20\x20\x20[/PRINT=[DESCRIP[(varlist)]] [LOADING[(SORT | NOSORT)]] [CORR] [VAF] [OCORR] [QUANT[(varlist)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[HISTORY] [OBJECT[([(labelvar)] varlist)]] [NONE]]\n\
+                 \x20\x20\x20[/PLOT=[OBJECT[(varlist)][(len)]] [LOADING[(varlist [(CENTR[(varlist)])])][(len)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[CATEGORY(varlist)[(len)]] [JOINTCAT[(varlist)][(len)]] [TRANS(var[(n)] ...)[(len)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[RESID(var[(n)] ...)[(len)]] [BIPLOT[(LOADING | CENTR[(varlist)])][(varlist)][(len)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[TRIPLOT[(varlist[(varlist)])][(len)]] [PROJCENTR(var, varlist)[(len)]] [VAF]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[NDIM(first, last)] [NONE]]\n\
+                 \x20\x20\x20[/SAVE=[TRDATA[(root[(n)])]] [OBJECT[(root[(n)])]] [APPROX[(root)]]]\n\
+                 \x20\x20\x20[/OUTFILE=[DISCRDATA('file' | dataset)] [TRDATA('file' | dataset)] [OBJECT('file' | dataset)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[APPROX('file' | dataset)]].\n\
+                 The command gives each category of each variable a value (its quantification) so that a few\n\
+                 principal components explain the quantified variables as well as they can. ANALYSIS is required and\n\
+                 names the active variables with their options. Variables are coded as for MULTIPLE CORRESPONDENCE:\n\
+                 whole codes from 1, lower codes and missing values missing, strings coded in sorted order, fractions\n\
+                 cut into 7 groups unless DISCRETIZATION says otherwise. DISCRETIZATION, MISSING, SUPPLEMENTARY,\n\
+                 CONFIGURATION, DIMENSION, MAXITER and CRITITER work as there. SPLIT FILE does not apply.\n\
+                 LEVEL says what the values must respect. NUME keeps equal steps between codes (all numeric gives\n\
+                 plain principal components). ORDI keeps the order of the codes and NOMI only the grouping. SPORD\n\
+                 (the default) and SPNOM fit a smooth spline of DEGREE pieces joined at INKNOT interior knots, placed\n\
+                 at quantiles of the codes; SPORD keeps it rising. MNOM gives a separate value per component, the\n\
+                 centroid of the category's cases. WEIGHT gives a variable more say.\n\
+                 The fit starts from the numeric solution (iteration 0) and iterates until the variance accounted for\n\
+                 gains less than CRITITER, at most MAXITER times. An extra category from ACTIVE EXTRACAT is free of\n\
+                 the level's restriction after iteration 0. The components come out on principal axes, each signed so\n\
+                 that its positive loadings have the larger mean square. Supplementary variables are fitted to the\n\
+                 final scores.\n\
+                 NORMALIZATION shares the eigenvalues between scores and loadings, so that scores times loadings\n\
+                 stay the same. VPRINCIPAL (the default, q = -1) gives standard scores and loadings that are\n\
+                 correlations. OPRINCIPAL (q = 1) puts the eigenvalues in the scores, SYMMETRICAL (q = 0) splits\n\
+                 them evenly, and a number q from -1 to 1 lies between. INDEPENDENT scales the scores only. ROTATION\n\
+                 turns the loadings of the variables that have them, and the scores and centroids with them, with\n\
+                 Kaiser normalization unless NOKAISER.\n\
+                 Always shown: Case Processing Summary, Iteration History (iteration 0 and the last, or all with\n\
+                 HISTORY) and Model Summary (Cronbach's alpha, eigenvalue and percent of variance per dimension and\n\
+                 in total). PRINT adds: DESCRIP frequencies, missing count and mode; QUANT each variable's\n\
+                 quantifications, centroids and vector coordinates; VAF each variable's variance accounted for, by\n\
+                 centroids and vectors; OCORR and CORR the correlations of the original and of the quantified\n\
+                 variables with eigenvalues (one matrix per dimension when a variable is MNOM); OBJECT the component\n\
+                 scores; LOADING the component loadings (SORT groups them by largest loading), with the rotated\n\
+                 loadings, or pattern, structure and component correlations after an oblique rotation. Without PRINT,\n\
+                 or with PRINT alone: DESCRIP LOADING CORR.\n\
+                 Charts (OBJECT and LOADING by default): OBJECT the component scores, colored by the categories of\n\
+                 each named variable; LOADING the loadings, with MNOM centroids after CENTR; CATEGORY the centroids\n\
+                 and vectors of each variable; JOINTCAT all centroids together; TRANS the quantification by code;\n\
+                 RESID the quantified value against its approximation; BIPLOT scores with loadings or centroids and\n\
+                 TRIPLOT with both, scaled to the loadings (not with INDEPENDENT); PROJCENTR the centroids of one\n\
+                 variable projected on the loading directions of others (also a table); VAF bars of each variable's\n\
+                 variance accounted for. Two dimensions give one scatter, more give a scatterplot matrix, and NDIM(a,\n\
+                 b) plots a against each of a+1 to b. A label length of 0 shows values and names instead of labels.\n\
+                 SAVE adds the quantified variables rootK_S (root TRA, K the place on ANALYSIS, S the first free\n\
+                 set number; an MNOM variable gives rootK_D_S per dimension D, with the root cut to 3 characters),\n\
+                 the scores rootD_S (OBSCO) and the approximations rootK_S (APP, the first score for an MNOM\n\
+                 variable). Excluded cases and passive missing values are system-missing. OUTFILE writes the codes\n\
+                 (DISCRDATA), TRAK or TRAK_D, OBSCOD and APPK; a file with no keyword means TRDATA.",
         example: "CATPCA pace crowd parking shade /ANALYSIS=pace crowd(LEVEL=ORDI) parking(LEVEL=NOMI) shade(LEVEL=SPNOM INKNOT=1) /MISSING=shade(ACTIVE EXTRACAT) /ROTATION=VARIMAX /PRINT=LOADING(SORT) VAF QUANT(parking) /PLOT=BIPLOT TRANS(shade) /SAVE=OBJECT.",
         parse: catpca::catpca,
     },
@@ -4352,70 +4244,66 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "CATREG",
         summary: "Categorical regression: quantify a response and its predictors by optimal scaling (spline, ordinal, nominal or numeric) so that a linear model fits best, with ridge, lasso and elastic net penalties.",
         syntax: "CATREG VARIABLES=varlist\n\
-                 \x20  /ANALYSIS=response [([LEVEL=SPORD | SPNOM | ORDI | NOMI | NUME] [DEGREE=2 | n] [INKNOT=2 | n])]\n\
-                 \x20            WITH varlist [(...)] [varlist [(...)] ...]\n\
-                 \x20  [/DISCRETIZATION=[varlist [([GROUPING] [NCAT=7 | n] [DISTR=NORMAL | UNIFORM] | [EQINTV=width]\n\
-                 \x20                              | RANKING | MULTIPLYING)] ...]]\n\
-                 \x20  [/MISSING=[varlist | ALL [(LISTWISE | MODEIMPU | EXTRACAT)] ...]]\n\
-                 \x20  [/SUPPLEMENTARY=OBJECT(case numbers)]\n\
-                 \x20  [/INITIAL=NUMERICAL | RANDOM | MULTISTART[(50 | threshold | ALL)]('file' | dataset)\n\
-                 \x20            | FIXSIGNS(row)('file' | dataset)]\n\
-                 \x20  [/MAXITER=100 | n] [/CRITITER=.00001 | value]\n\
-                 \x20  [/REGULARIZATION=NONE | RIDGE[(start, stop, step)][('file')] | LASSO[(start, stop, step)][('file')]\n\
-                 \x20                   | ENET[(start, stop, step)(start, stop, step)][('file')]]\n\
-                 \x20  [/RESAMPLE=NONE | CROSSVAL[(10 | folds)] | BOOTSTRAP[(50 | samples)]]\n\
-                 \x20  [/PRINT=[R] [COEFF] [DESCRIP[(varlist)]] [HISTORY] [ANOVA] [CORR] [OCORR] [QUANT[(varlist)]]\n\
-                 \x20         [REGU] [NONE]]\n\
-                 \x20  [/PLOT=[TRANS(varlist)[(len)]] [RESID(varlist)[(len)]] [REGU[(values | ALL)]]]\n\
-                 \x20  [/SAVE=[TRDATA[(root)]] [PRED[(root)]] [RES[(root)]]]\n\
-                 \x20  [/OUTFILE=[TRDATA('file' | dataset)] [DISCRDATA('file' | dataset)]].\n\
-                 Variables are coded as for CATPCA: whole codes from 1, lower codes and missing values\n\
-                 missing, strings coded in sorted order, fractions cut into 7 groups unless DISCRETIZATION says\n\
-                 otherwise. MISSING drops cases with a gap (LISTWISE, the default) or fills the gap first with\n\
-                 the most frequent code (MODEIMPU) or with a new code above all others (EXTRACAT, kept out of\n\
-                 the level's restriction). Each variable gets a value for each category, and each predictor a\n\
-                 coefficient, so that the weighted squared error of the quantified response is least, every\n\
-                 quantified variable having mean 0 and variance 1. LEVEL says what the values must respect:\n\
-                 NUME equal steps (all numeric is plain regression on standardized variables), ORDI the order\n\
-                 of the codes, NOMI nothing but the grouping, SPORD (the default) and SPNOM a spline of DEGREE\n\
-                 joined at INKNOT interior knots (SPORD rising). The fit updates the response and then each\n\
-                 predictor in turn until the error drops less than CRITITER, at most MAXITER times.\n\
-                 INITIAL=NUMERICAL first fits every variable as numeric (iteration 0 of the history); RANDOM\n\
-                 starts the levels at once from the standardized codes with the correlations as coefficients.\n\
-                 MULTISTART tries sign patterns for the coefficients of the ordinal and spline ordinal\n\
-                 predictors from a nominal start, all of them (ALL) or those a step-by-step search allows (a\n\
-                 predictor may turn negative only when its order restriction costs more than the threshold\n\
-                 percent of its variance), keeps the best and writes each pattern with its R square to the\n\
-                 file; FIXSIGNS takes the signs from a row of such a file. REGULARIZATION shrinks the\n\
-                 coefficients: RIDGE divides by 1 plus the penalty, LASSO moves them half the penalty towards\n\
-                 0 (to 0 when they would cross), ENET does both; each value from start to stop by step gives a\n\
-                 model. With more than one model and neither RESAMPLE nor supplementary cases only the REGU\n\
-                 table and chart are shown; with them the model with the least prediction error is reported.\n\
-                 RESAMPLE estimates the prediction error by K-fold cross validation or by the .632 bootstrap;\n\
-                 supplementary cases give a test error. Supplementary cases get the quantifications of the\n\
-                 active ones; a code only they have is interpolated between neighbouring codes for numeric and\n\
-                 spline levels and extrapolated along the line for numeric ones, otherwise the case gets no\n\
-                 prediction. SPLIT FILE does not apply.\n\
-                 Tables: Case Processing Summary always; DESCRIP frequencies, missing count and mode; HISTORY\n\
-                 R square and apparent prediction error by iteration; R the Model Summary (multiple R, R\n\
-                 square, adjusted R square with the predictor count and with the optimal scaling degrees of\n\
-                 freedom, the apparent and, with resampling or test cases, the expected prediction error);\n\
-                 ANOVA two tables, one with the predictor count and one with the optimal scaling degrees of\n\
-                 freedom; COEFF the coefficients with a standard error from 1000 bootstrap samples, degrees\n\
-                 of freedom, F and significance, and the zero-order, partial and part correlations, Pratt's\n\
-                 importance and the tolerance after and before the quantification; CORR and OCORR the\n\
-                 correlations of the quantified and of the original predictors with eigenvalues; QUANT the\n\
-                 quantification of each category; REGU per model the penalties, R square, the prediction\n\
-                 error when estimated, and the coefficients, also written to the REGULARIZATION file.\n\
-                 Without PRINT, or with PRINT alone: R COEFF DESCRIP ANOVA.\n\
-                 Charts (none by default): TRANS the quantification by code; RESID per predictor its\n\
-                 coefficient times quantification and the residuals of the other predictors by code; REGU\n\
-                 the coefficient paths against the standardized sum of coefficients (one chart per listed\n\
-                 ridge penalty for ENET). A label length of 0 shows codes instead of labels; above 60 it is 60.\n\
-                 SAVE adds the quantified variables rootK_S (TRA, K the place on ANALYSIS with the response\n\
-                 first, S the first free set number), the predictions root_S (PRE) and the residuals root_S\n\
-                 (RES); excluded cases are system-missing. OUTFILE writes the quantified variables TRAK\n\
-                 (TRDATA, also a file with no keyword) and the coded variables under their names (DISCRDATA).",
+                 \x20\x20\x20/ANALYSIS=response [([LEVEL=SPORD | SPNOM | ORDI | NOMI | NUME] [DEGREE=2 | n] [INKNOT=2 | n])]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20WITH varlist [(...)] [varlist [(...)] ...]\n\
+                 \x20\x20\x20[/DISCRETIZATION=[varlist [([GROUPING] [NCAT=7 | n] [DISTR=NORMAL | UNIFORM] | [EQINTV=width]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20| RANKING | MULTIPLYING)] ...]]\n\
+                 \x20\x20\x20[/MISSING=[varlist | ALL [(LISTWISE | MODEIMPU | EXTRACAT)] ...]]\n\
+                 \x20\x20\x20[/SUPPLEMENTARY=OBJECT(case numbers)]\n\
+                 \x20\x20\x20[/INITIAL=NUMERICAL | RANDOM | MULTISTART[(50 | threshold | ALL)]('file' | dataset)\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20| FIXSIGNS(row)('file' | dataset)]\n\
+                 \x20\x20\x20[/MAXITER=100 | n] [/CRITITER=.00001 | value]\n\
+                 \x20\x20\x20[/REGULARIZATION=NONE | RIDGE[(start, stop, step)][('file')] | LASSO[(start, stop, step)][('file')]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20| ENET[(start, stop, step)(start, stop, step)][('file')]]\n\
+                 \x20\x20\x20[/RESAMPLE=NONE | CROSSVAL[(10 | folds)] | BOOTSTRAP[(50 | samples)]]\n\
+                 \x20\x20\x20[/PRINT=[R] [COEFF] [DESCRIP[(varlist)]] [HISTORY] [ANOVA] [CORR] [OCORR] [QUANT[(varlist)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[REGU] [NONE]]\n\
+                 \x20\x20\x20[/PLOT=[TRANS(varlist)[(len)]] [RESID(varlist)[(len)]] [REGU[(values | ALL)]]]\n\
+                 \x20\x20\x20[/SAVE=[TRDATA[(root)]] [PRED[(root)]] [RES[(root)]]]\n\
+                 \x20\x20\x20[/OUTFILE=[TRDATA('file' | dataset)] [DISCRDATA('file' | dataset)]].\n\
+                 The command gives each category a value (its quantification) and each predictor a coefficient so\n\
+                 that the quantified response is predicted with the least weighted squared error; every quantified\n\
+                 variable has mean 0 and variance 1. VARIABLES comes first and ANALYSIS is required: one response,\n\
+                 WITH, then the predictors. Variables are coded as for CATPCA: whole codes from 1, lower codes and\n\
+                 missing values missing, strings coded in sorted order, fractions cut into 7 groups unless\n\
+                 DISCRETIZATION says otherwise. SPLIT FILE does not apply.\n\
+                 LEVEL says what the values must respect. NUME keeps equal steps (all numeric gives plain regression\n\
+                 on standardized variables), ORDI the order of the codes and NOMI only the grouping. SPORD (the\n\
+                 default) and SPNOM fit a spline of DEGREE (2) joined at INKNOT (2) interior knots; SPORD keeps it\n\
+                 rising. MISSING drops cases with a gap (LISTWISE, the default) or fills the gap first with the most\n\
+                 frequent code (MODEIMPU) or with a new code above all others (EXTRACAT, free of the level's\n\
+                 restriction).\n\
+                 Iterations stop when the error drops less than CRITITER, or after MAXITER. INITIAL=NUMERICAL (the\n\
+                 default) first fits every variable as numeric (iteration 0 of the history); RANDOM starts at once\n\
+                 from the standardized codes. MULTISTART tries sign patterns for the coefficients of ordinal and\n\
+                 spline ordinal predictors: ALL of them, or those a stepwise search allows with the threshold percent\n\
+                 (50 by default). It keeps the best and writes each pattern with its R square to the file. FIXSIGNS\n\
+                 takes the signs from a row of such a file.\n\
+                 REGULARIZATION shrinks the coefficients: RIDGE divides them by 1 plus the penalty, LASSO moves\n\
+                 them half the penalty towards 0 (stopping at 0), and ENET does both. Each penalty from start to\n\
+                 stop by step gives a model; the default range is (0, 1, 0.02), and (0, 1, 0.1) for the ENET ridge\n\
+                 part. With several models and neither RESAMPLE nor supplementary cases, only the REGU table and\n\
+                 chart are shown; otherwise the model with the least prediction error is reported. RESAMPLE\n\
+                 estimates the prediction error by K-fold cross validation (10 folds) or by the .632 bootstrap (50\n\
+                 samples). Supplementary cases give a test error. They get the quantifications of the active cases;\n\
+                 a code only they have is interpolated for numeric and spline levels (and extrapolated for numeric\n\
+                 ones), otherwise the case gets no prediction.\n\
+                 The Case Processing Summary is always shown. PRINT adds: DESCRIP frequencies, missing count and\n\
+                 mode; HISTORY R square and apparent prediction error by iteration; R the Model Summary (multiple R,\n\
+                 R square, two adjusted R squares and the prediction error); ANOVA two tables, by predictor count and\n\
+                 by optimal scaling degrees of freedom; COEFF the coefficients with bootstrap standard errors, F\n\
+                 tests, correlations, Pratt's importance and tolerance; CORR and OCORR the correlations of the\n\
+                 quantified and of the original predictors with eigenvalues; QUANT the quantification of each\n\
+                 category; REGU per model the penalties, R square, prediction error and coefficients, also written to\n\
+                 the REGULARIZATION file. Without PRINT, or with PRINT alone: R COEFF DESCRIP ANOVA.\n\
+                 Charts (none by default): TRANS the quantification by code; RESID per predictor its coefficient\n\
+                 times quantification and the partial residuals, by code; REGU the coefficient paths against the\n\
+                 standardized sum of coefficients (one chart per listed ridge penalty for ENET). A label length of 0\n\
+                 shows codes instead of labels; above 60 it is 60.\n\
+                 SAVE adds the quantified variables rootK_S (root TRA, K the place on ANALYSIS with the response\n\
+                 first, S the first free set number), the predictions root_S (PRE) and the residuals root_S (RES);\n\
+                 excluded cases are system-missing. OUTFILE writes the quantified variables TRAK (TRDATA, also a file\n\
+                 with no keyword) and the coded variables under their names (DISCRDATA).",
         example: "CATREG VARIABLES=rating taste price area /ANALYSIS=rating(LEVEL=ORDI) WITH taste price(LEVEL=NUME) area(LEVEL=NOMI) /MISSING=price(MODEIMPU) /PRINT=R COEFF ANOVA QUANT(area) /PLOT=TRANS(area) /SAVE=PRED RES.",
         parse: catreg::catreg,
     },
@@ -4557,108 +4445,205 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "GENLIN",
         summary: "Generalized linear models: normal, binomial, Poisson, gamma, inverse Gaussian, negative binomial and ordinal responses.",
         syntax: "GENLIN dependent [(REFERENCE=LAST | FIRST | value)] [(ORDER=ASCENDING | DESCENDING | DATA)]\n\
-                 \x20  | events OF trials-variable | n\n\
-                 \x20  [BY factors [(ORDER=ASCENDING | DESCENDING | DATA)]] [WITH covariates]\n\
-                 \x20  [/MODEL [effects] [INTERCEPT=YES | NO] [OFFSET=variable | value] [SCALEWEIGHT=variable]\n\
-                 \x20          [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | IGAUSS | POISSON | NEGBIN[(k | MLE)] | MULTINOMIAL]\n\
-                 \x20          [LINK=IDENTITY | LOG | LOGIT | PROBIT | CLOGLOG | NLOGLOG | LOGC | NEGBIN | POWER(a) |\n\
-                 \x20                ODDSPOWER(a) | CUMLOGIT | CUMPROBIT | CUMCLOGLOG | CUMNLOGLOG | CUMCAUCHIT]]\n\
-                 \x20  [/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]] [INITIAL=numbers]\n\
-                 \x20             [COVB=MODEL | ROBUST] [HCONVERGE=0] [LCONVERGE=0] [PCONVERGE=1E-6] (each [(ABSOLUTE | RELATIVE)])\n\
-                 \x20             [LIKELIHOOD=FULL | KERNEL] [MAXITERATIONS=100] [MAXSTEPHALVING=5]\n\
-                 \x20             [METHOD=FISHER[(n)] | NEWTON] [SCALE=MLE | DEVIANCE | PEARSON | value] [SINGULAR=1E-12]]\n\
-                 \x20  [/EMMEANS [TABLES=factor[*factor...]] [CONTROL=covariate(value | MEAN) ...]\n\
-                 \x20            [SCALE=ORIGINAL | TRANSFORMED] [COMPARE=factor[*factor...]]\n\
-                 \x20            [CONTRAST=PAIRWISE | DEVIATION[(value)] | DIFFERENCE | HELMERT | POLYNOMIAL[(metric)] |\n\
-                 \x20                      REPEATED | SIMPLE[(value)]]\n\
-                 \x20            [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]] ...\n\
-                 \x20  [/REPEATED SUBJECT=variable[*variable...] [WITHINSUBJECT=variable[*variable...]] [SORT=YES | NO]\n\
-                 \x20            [CORRTYPE=INDEPENDENT | AR(1) | EXCHANGEABLE | MDEPENDENT(m) | UNSTRUCTURED | FIXED(list)]\n\
-                 \x20            [ADJUSTCORR=YES | NO] [COVB=ROBUST | MODEL] [HCONVERGE=0] [MAXITERATIONS=100]\n\
-                 \x20            [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [UPDATECORR=1]]\n\
-                 \x20  [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB]\n\
-                 \x20          [GEF] [HISTORY[(n)]] [LAGRANGE] [LMATRIX] [WORKINGCORR] | NONE]\n\
-                 \x20  [/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]\n\
-                 \x20         [PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]].\n\
-                 Every keyword is written in full and every subcommand but EMMEANS appears at most once. The\n\
-                 response is one dependent variable or a count of events out of a number of trials (a variable or\n\
-                 a constant); covariates, offset and scale weight are numeric, factors and a categorical dependent\n\
-                 may be strings. Without DISTRIBUTION, events/trials is binomial and anything else normal; without\n\
-                 LINK each distribution takes its own (identity, logit, inverse, inverse square, log, cumulative\n\
-                 logit), and pairs the model cannot use are an error. A case is left out when its rounded weight is\n\
-                 below 1, a variable is missing (CLASSMISSING=INCLUDE keeps user-missing factor values), the scale\n\
-                 weight is not positive, or the response is out of range: not above 0 for GAMMA and IGAUSS, not a\n\
-                 whole number of 0 or more for POISSON and NEGBIN, events above the trials. A binary dependent must\n\
-                 have two values; the procedure models the lower one unless REFERENCE names another reference.\n\
-                 Effects are written as in UNIANOVA; a factor has one column per level and the column of the last\n\
-                 level (in the ORDER given) is redundant and shown as 0. The estimates maximize the log likelihood\n\
-                 by Newton steps from weighted least squares start values: Fisher scoring for the first n\n\
-                 iterations of METHOD=FISHER(n) (1 by default), the observed information after; a step is halved\n\
-                 while the log likelihood falls. The scale is estimated with the coefficients (MLE, the default for\n\
-                 NORMAL, GAMMA and IGAUSS), set from the deviance or Pearson chi-square over its degrees of freedom,\n\
-                 or fixed (1 for the other distributions). NEGBIN(MLE) estimates k jointly; NEGBIN alone fixes k at\n\
-                 1. ROBUST gives the sandwich covariance.\n\
-                 Tables: Model Information, Case Processing Summary, Categorical and Continuous Variable Information,\n\
-                 Goodness of Fit (deviance and Pearson chi-square, raw and scaled, over the subpopulations of a\n\
-                 binary response; the log likelihood, full or KERNEL; AIC, AICC, BIC and CAIC), Omnibus Test (a\n\
-                 likelihood ratio test against the intercept-only model), Tests of Model Effects (Type I and III,\n\
-                 Wald or likelihood ratio; with SCALE=DEVIANCE or PEARSON the likelihood ratio is divided by the\n\
-                 scale and an F test added) and Parameter Estimates with Wald intervals and Exp(B), then the\n\
-                 covariance and correlation of the estimates. The ordinal multinomial model puts the link of the\n\
-                 cumulative probability at each threshold minus the effects, without an intercept. EMMEANS gives\n\
-                 the predicted means of the factor cells (covariates at their means or CONTROL values), on the\n\
-                 response or the linear predictor scale, with pairwise or contrast comparisons and an overall\n\
-                 Wald test. SAVE names the new variables after the keyword (XBPredicted, MeanPredicted, Residual\n\
-                 and so on, a suffix _1 when taken) or as given; the multinomial ones are numbered per category.\n\
-                 REPEATED fits generalized estimating equations for measurements that are correlated within a\n\
-                 subject. A subject is a combination of the SUBJECT values; WITHINSUBJECT values put its cases in\n\
-                 order, and a value a subject lacks counts as a missing measurement. Without WITHINSUBJECT the file\n\
-                 order is kept. SORT=NO takes each run of equal SUBJECT values in the file as one subject and\n\
-                 ignores WITHINSUBJECT. The fit starts from the plain model and then updates the estimates and the\n\
-                 working correlation matrix in turn: AR(1), EXCHANGEABLE, MDEPENDENT(m) and UNSTRUCTURED are\n\
-                 estimated from the Pearson residuals (with ADJUSTCORR=YES each count in a denominator is less the\n\
-                 number of parameters), FIXED takes the correlations below the diagonal row by row. UPDATECORR=n\n\
-                 re-estimates the matrix every n iterations, 0 never. SCALE=MLE becomes the Pearson moment of the\n\
-                 residuals; another scale and an estimated NEGBIN k stay at the plain model's value. COVB=ROBUST\n\
-                 (the default) gives sandwich standard errors, MODEL the model-based ones; the CRITERIA COVB is not\n\
-                 used. FIT then shows QIC and QICC instead of the likelihood statistics, SUMMARY only the Wald\n\
-                 tests of the effects, CPS adds the Correlated Data Summary, WORKINGCORR the Working Correlation\n\
-                 Matrix. A frequency weight must be the same for all cases of a subject. SAVE has no leverage,\n\
-                 deviance-based or standardized residuals or Cook's distance here.\n\
-                 LAGRANGE tests a fixed scale (normal, gamma, inverse Gaussian with SCALE a number, DEVIANCE or\n\
-                 PEARSON) or a fixed NEGBIN k: the Lagrange multiplier statistic with 1 df, or for k = 0 the z of the\n\
-                 dispersion regression with its three p-values.\n\
-                 HISTORY(n) lists the iterations of the last fit (every n-th from iteration 0, and the last) with\n\
-                 the log likelihood, then the last gradient and Hessian.\n\
-                 GEF gives the general estimable function and LMATRIX the L' matrix of each effect's test (and of each\n\
-                 estimated marginal mean), not for the ordinal model.\n\
-                 INITIAL gives the starting values of all parameters in the order of the Parameter Estimates table,\n\
-                 redundant ones included (a count that differs is an error); it is ignored with a warning for the normal\n\
-                 distribution with the identity link and for the ordinal model, and a file or dataset is not read.\n\
-                 CITYPE=PROFILE gives the profile likelihood interval of each regression parameter (the values the\n\
-                 likelihood ratio test does not reject, the other parameters refitted, a scale estimated by maximum\n\
-                 likelihood or an estimated NEGBIN k re-estimated, a scale from DEVIANCE or PEARSON held at the\n\
-                 full fit's) in place of the Wald one, and for Exp(B); the interval of an estimated scale or NEGBIN k is\n\
-                 its profile too (the coefficients refitted at each value),\n\
-                 and the ordinal model and REPEATED keep Wald intervals with a warning. The tolerance only sets how\n\
-                 closely the limits are solved. A limit the profile never reaches is left empty.\n\
-                 With REPEATED, ANALYSISTYPE=1(LR) or 3(LR) gives generalized score chi-squares instead of likelihood ratios\n\
-                 (the equations solved under L b = 0, T = s' M L' (L C L')^- L M s with the model-based M and robust C).",
+                 \x20\x20\x20| events OF trials-variable | n\n\
+                 \x20\x20\x20[BY factors [(ORDER=ASCENDING | DESCENDING | DATA)]] [WITH covariates]\n\
+                 \x20\x20\x20[/MODEL [effects] [INTERCEPT=YES | NO] [OFFSET=variable | value] [SCALEWEIGHT=variable]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | IGAUSS | POISSON | NEGBIN[(k | MLE)] | MULTINOMIAL]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[LINK=IDENTITY | LOG | LOGIT | PROBIT | CLOGLOG | NLOGLOG | LOGC | NEGBIN | POWER(a) |\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20ODDSPOWER(a) | CUMLOGIT | CUMPROBIT | CUMCLOGLOG | CUMNLOGLOG | CUMCAUCHIT]]\n\
+                 \x20\x20\x20[/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]] [INITIAL=numbers]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[COVB=MODEL | ROBUST] [HCONVERGE=0] [LCONVERGE=0] [PCONVERGE=1E-6] (each [(ABSOLUTE | RELATIVE)])\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[LIKELIHOOD=FULL | KERNEL] [MAXITERATIONS=100] [MAXSTEPHALVING=5]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[METHOD=FISHER[(n)] | NEWTON] [SCALE=MLE | DEVIANCE | PEARSON | value] [SINGULAR=1E-12]]\n\
+                 \x20\x20\x20[/EMMEANS [TABLES=factor[*factor...]] [CONTROL=covariate(value | MEAN) ...]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[SCALE=ORIGINAL | TRANSFORMED] [COMPARE=factor[*factor...]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[CONTRAST=PAIRWISE | DEVIATION[(value)] | DIFFERENCE | HELMERT | POLYNOMIAL[(metric)] |\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20REPEATED | SIMPLE[(value)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]] ...\n\
+                 \x20\x20\x20[/REPEATED SUBJECT=variable[*variable...] [WITHINSUBJECT=variable[*variable...]] [SORT=YES | NO]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[CORRTYPE=INDEPENDENT | AR(1) | EXCHANGEABLE | MDEPENDENT(m) | UNSTRUCTURED | FIXED(list)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[ADJUSTCORR=YES | NO] [COVB=ROBUST | MODEL] [HCONVERGE=0] [MAXITERATIONS=100]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [UPDATECORR=1]]\n\
+                 \x20\x20\x20[/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20\x20\x20[/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[GEF] [HISTORY[(n)]] [LAGRANGE] [LMATRIX] [WORKINGCORR] | NONE]\n\
+                 \x20\x20\x20[/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20(each [(name)]; the first five [(root[:n])])].\n\
+                 The command fits a generalized linear model with factors after BY and covariates after WITH. The\n\
+                 response is one dependent variable or events OF trials, where trials is a variable or a whole number\n\
+                 of 1 or more. Covariates, the offset and the scale weight are numeric; factors and a categorical\n\
+                 dependent may be strings. TO is not accepted: name every variable. Keywords are written in full, and\n\
+                 every subcommand but EMMEANS appears at most once. Effects are written as in UNIANOVA.\n\
+                 Without DISTRIBUTION, events/trials is BINOMIAL (the only one it allows) and any other response\n\
+                 NORMAL. The default LINK is IDENTITY for NORMAL, LOGIT for BINOMIAL, POWER(-1) for GAMMA, POWER(-2)\n\
+                 for IGAUSS, LOG for POISSON and NEGBIN, CUMLOGIT for MULTINOMIAL. MULTINOMIAL (an ordinal response)\n\
+                 allows only the CUM links, BINOMIAL every other link but NEGBIN, NEGBIN also its own link unless k\n\
+                 is 0, and the rest IDENTITY, LOG or POWER; another pair is an error. NEGBIN alone fixes k at 1,\n\
+                 NEGBIN(MLE) estimates it.\n\
+                 A binary dependent must have two values; the model gives the probability of the one that is not the\n\
+                 REFERENCE (LAST by default, in the ORDER given). A factor has one column per level, and the column\n\
+                 of its last level is redundant and shown as 0. The ordinal model has thresholds instead of an\n\
+                 intercept.\n\
+                 A case is left out when its rounded weight is below 1, a variable is missing, the scale weight is\n\
+                 not positive, or the response is out of range: not above 0 for GAMMA and IGAUSS, not a whole number\n\
+                 of 0 or more for POISSON and NEGBIN, or events above trials. CLASSMISSING=INCLUDE keeps user-missing\n\
+                 factor values.\n\
+                 Without PRINT the output is MODELINFO, CPS, DESCRIPTIVES, FIT, SUMMARY and SOLUTION; a PRINT list\n\
+                 replaces this set, and NONE stands alone. FIT gives the deviance, Pearson chi-square, log likelihood\n\
+                 (full or KERNEL) and information criteria. SUMMARY gives the Omnibus Test against the intercept-only\n\
+                 model and the Tests of Model Effects: Type III by default (ANALYSISTYPE=1, 3 or ALL), Wald unless\n\
+                 (LR) is given. SOLUTION gives the Parameter Estimates with Wald intervals; (EXPONENTIATED) adds\n\
+                 Exp(B). COVB and CORB add the matrices of the estimates.\n\
+                 METHOD=FISHER(n) uses Fisher scoring for the first n iterations and Newton-Raphson after:\n\
+                 FISHER(1) is the default, FISHER alone scores throughout. A step is halved, at most\n\
+                 MAXSTEPHALVING times, while the log likelihood falls. At least one of HCONVERGE, LCONVERGE and\n\
+                 PCONVERGE must be above 0. SCALE=MLE estimates the scale; it is the default for NORMAL, GAMMA and\n\
+                 IGAUSS and an error for the others, which fix it at 1. DEVIANCE or PEARSON set it to that\n\
+                 chi-square over its df, then divide the likelihood ratio statistics by it and add an F test. A\n\
+                 number fixes the scale. COVB=ROBUST gives the sandwich covariance.\n\
+                 EMMEANS gives the estimated marginal means of the TABLES cells, covariates at their means or the\n\
+                 CONTROL values, on the response scale (ORIGINAL) or the linear predictor (TRANSFORMED). COMPARE\n\
+                 takes factors from TABLES and adds pairwise comparisons, or the CONTRAST given, adjusted by PADJUST\n\
+                 (LSD by default), with an overall Wald test. CONTRAST needs COMPARE, and crossed COMPARE factors\n\
+                 allow only PAIRWISE.\n\
+                 SAVE names each variable as given or after its keyword (XBPredicted, MeanPredicted, Residual and so\n\
+                 on, with the suffix _1 when taken). For a multinomial response the first five keywords give one\n\
+                 variable per category, at most n (25 by default).\n\
+                 REPEATED fits generalized estimating equations for cases correlated within a subject: one\n\
+                 combination of the SUBJECT values (required). WITHINSUBJECT values order a subject's cases, and\n\
+                 a value a subject lacks is a missing measurement; without it the file order is kept. SORT=NO\n\
+                 takes each run of equal SUBJECT values as a subject and ignores WITHINSUBJECT. A frequency\n\
+                 weight must be equal within a subject. CORRTYPE is INDEPENDENT by default; the other estimated\n\
+                 structures use the Pearson residuals, and ADJUSTCORR=YES (the default) subtracts the number of\n\
+                 parameters in each denominator. FIXED lists the correlations below the diagonal row by row, each\n\
+                 from 0 to 1. UPDATECORR=n re-estimates the matrix every n iterations (0 never), at most\n\
+                 MAXITERATIONS.\n\
+                 With REPEATED, its own COVB applies (ROBUST by default) and the CRITERIA COVB is ignored. SCALE=MLE\n\
+                 becomes the Pearson estimate; another scale and an estimated k keep the value of the model without\n\
+                 REPEATED. FIT shows QIC and QICC, SUMMARY only the Wald tests of the effects, CPS adds the\n\
+                 Correlated Data Summary, and WORKINGCORR (used only here) the working correlation matrix. (LR) gives\n\
+                 generalized score chi-squares. SAVE gives no leverage, deviance-based or standardized residuals, or\n\
+                 Cook's distance.\n\
+                 LAGRANGE tests a fixed scale (NORMAL, GAMMA or IGAUSS) or a fixed NEGBIN k with 1 df; for k = 0 it\n\
+                 gives the z of the dispersion regression. HISTORY(n) lists every n-th iteration and the last, then\n\
+                 the final gradient and Hessian. GEF shows the general estimable function and LMATRIX the L' matrix\n\
+                 of each test and marginal mean, neither for the ordinal model.\n\
+                 INITIAL gives numbers (not a file) for all parameters in table order, redundant ones included;\n\
+                 another count is an error. It is ignored with a warning for NORMAL with IDENTITY and for the ordinal\n\
+                 model. CITYPE=PROFILE replaces the Wald intervals of the parameters, Exp(B) and an estimated scale\n\
+                 or k with profile likelihood intervals, refitting the other parameters (a DEVIANCE or PEARSON scale\n\
+                 is held); its tolerance sets how closely the limits are solved, and a limit never reached is left\n\
+                 empty. The ordinal model and REPEATED keep Wald intervals with a warning.",
         example: "GENLIN visits BY clinic WITH age /MODEL clinic age DISTRIBUTION=NEGBIN(MLE) LINK=LOG OFFSET=logdays /PRINT FIT SUMMARY SOLUTION(EXPONENTIATED) /EMMEANS TABLES=clinic COMPARE=clinic.",
         parse: genlin::genlin,
     },
     CommandSpec {
         name: "UNIANOVA",
         summary: "General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression.",
-        syntax: glm_syntax!("UNIANOVA"),
+        syntax: "UNIANOVA dependent [BY factors] [WITH covariates]\n\
+                 \x20\x20\x20[/DESIGN=effects] [/METHOD=SSTYPE(1 | 2 | 3 | 4)] [/INTERCEPT=INCLUDE | EXCLUDE]\n\
+                 \x20\x20\x20[/MISSING=EXCLUDE | INCLUDE] [/CRITERIA=[EPS(1E-8)] [ALPHA(0.05)]] [/REGWGT=var]\n\
+                 \x20\x20\x20[/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF] [GEF] [MBP] [BP] [F] [WHITE]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[TEST(LMATRIX | ESTIMABLE)]]\n\
+                 \x20\x20\x20[/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[COMPARE[(factor)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
+                 \x20\x20\x20[/POSTHOC=factor ... (tests) [VS effect]] ...\n\
+                 \x20\x20\x20[/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] | DIFFERENCE | HELMERT | REPEATED |\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20POLYNOMIAL[(metric)] | SPECIAL(matrix)] ...\n\
+                 \x20\x20\x20[/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ... [/KMATRIX=values [; ...]]\n\
+                 \x20\x20\x20[/TEST=effect VS coefficient*effect +/- ... [DF(df)] | value DF(df)] ...\n\
+                 \x20\x20\x20[/ROBUST[=HC0 | HC1 | HC2 | HC3 | HC4]] [/RANDOM=factors]\n\
+                 \x20\x20\x20[/MBPDESIGN[=effects]] [/BPDESIGN[=effects]] [/FDESIGN[=effects]]\n\
+                 \x20\x20\x20[/SAVE=tempvar[(name)] ...]\n\
+                 \x20\x20\x20[/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...\n\
+                 The command fits a general linear model to one dependent variable: analysis of variance with factors\n\
+                 after BY, analysis of covariance with covariates after WITH, or regression. Without DESIGN the model\n\
+                 is the intercept, the covariates and the full factorial of the factors. Effects on DESIGN:\n\
+                 INTERCEPT, a factor or covariate, a*b or a BY b (interaction), a(b) or a WITHIN b (nesting, also\n\
+                 a(b(c))), x*x and x*a. Sums of squares are Type III unless METHOD says otherwise (Type I is\n\
+                 sequential). A case missing on any variable is left out (MISSING=INCLUDE keeps user-missing values),\n\
+                 and the weight is rounded to a whole number. A design column that adds nothing (CRITERIA EPS) is\n\
+                 redundant and its parameter is 0. For several dependent variables or repeated measures use GLM.\n\
+                 The main table is Tests of Between-Subjects Effects; ETASQ adds partial eta squared and OPOWER the\n\
+                 noncentrality and observed power. DESCRIPTIVE gives cell means, PARAMETER the parameter estimates,\n\
+                 LOF a lack of fit test. HOMOGENEITY gives Levene's test on the absolute residuals by cell; for a\n\
+                 full factorial without covariates also its versions based on the median, the median with adjusted df\n\
+                 and the trimmed mean.\n\
+                 EMMEANS gives estimated marginal means with the cells weighted equally and the covariates at\n\
+                 their means or the WITH values; COMPARE adds pairwise comparisons and univariate tests, adjusted\n\
+                 by ADJ. POSTHOC runs the post hoc tests of ONEWAY on the observed means with the model's error:\n\
+                 LSD BONFERRONI SIDAK TUKEY SCHEFFE GH T2 SNK BTUKEY DUNCAN GT2 GABRIEL FREGW QREGW T3 C DUNNETT\n\
+                 DUNNETTL DUNNETTR. T2, T3, GH and C need a model with one factor. VS names another effect of the\n\
+                 design (not the intercept, nor a main effect on the same POSTHOC) as the error term of the\n\
+                 pairwise and subset tests.\n\
+                 CONTRAST(factor) tests the factor's levels by a contrast type (DEVIATION by default);\n\
+                 SPECIAL(matrix) takes a k x k matrix for k levels, column by column, the first column the constant\n\
+                 (the k - 1 contrast columns alone also work), without fractions. LMATRIX gives custom contrasts of\n\
+                 the parameters, rows ending with ';', and KMATRIX their hypothesized values (0 by default). Each\n\
+                 gives Contrast Results and Test Results. TEST(LMATRIX) shows the L matrix of every effect, LMATRIX\n\
+                 and CONTRAST; GEF gives the general form of the estimable functions.\n\
+                 TEST=effect VS ... tests an effect against an error term: a combination of the mean squares of other\n\
+                 effects (coefficients may be fractions) with Satterthwaite's degrees of freedom unless DF(df) gives\n\
+                 them, or a value with its DF(df). RANDOM=factors makes those factors random, with every effect that\n\
+                 holds one: each effect is tested against the combination of mean squares that matches its expected\n\
+                 mean square (Satterthwaite's df), and an Expected Mean Squares table is added. The other tables keep\n\
+                 the fixed-effects error, with a warning.\n\
+                 ROBUST (HC3 when no type is named) adds Robust Parameter Estimates and Robust Tests of\n\
+                 Between-Subjects Effects with a heteroskedasticity-consistent covariance, and robust results for\n\
+                 CONTRAST and LMATRIX. PRINT=MBP, BP, F and WHITE test for heteroskedasticity by regressing the\n\
+                 squared residuals on the fitted values and their squares, or on the effects of MBPDESIGN, BPDESIGN\n\
+                 or FDESIGN (bare: the effects of DESIGN); WHITE uses every column, square and cross product of the\n\
+                 design.\n\
+                 SAVE adds variables to the data: PRED WPRED RESID WRESID DRESID ZRESID SRESID SEPRED COOK LEVER,\n\
+                 named PRE_1, RES_1 and so on unless a name is given. PLOT gives chart data. PROFILE draws the\n\
+                 estimated marginal means over the levels of the first factor, one line per level of a second\n\
+                 factor and one chart per level of a third (TYPE=BAR for bars); MEANREFERENCE adds the grand mean,\n\
+                 ERRORBAR=CI the confidence intervals at 1 minus ALPHA, and SE(n) n standard errors (2 by\n\
+                 default). SPREADLEVEL plots each cell's mean against its standard deviation and variance;\n\
+                 RESIDUALS plots the observed, predicted and standardized residual values.",
         example: "UNIANOVA score BY method school WITH pretest /PRINT=DESCRIPTIVE ETASQ PARAMETER /EMMEANS=TABLES(method) COMPARE ADJ(BONFERRONI) /DESIGN=pretest method school method*school.",
         parse: glm::unianova,
     },
     CommandSpec {
         name: "GLM",
         summary: "General linear model: one dependent variable as in UNIANOVA, several (multivariate analysis of variance and covariance), or repeated measures with WSFACTOR.",
-        syntax: glm_syntax!("GLM"),
+        syntax: "GLM dependents [BY factors] [WITH covariates]\n\
+                 \x20\x20\x20[/WSFACTOR=name levels [POLYNOMIAL | contrast] ...] [/WSDESIGN=effects] [/MEASURE=names]\n\
+                 \x20\x20\x20[/MMATRIX=['label'] dependent value ... | ALL values [; ...]] [/KMATRIX=values [; ...]]\n\
+                 \x20\x20\x20[/PRINT=... [RSSCP] [TEST([SSCP] [LMATRIX | ESTIMABLE] [MMATRIX | TRANSFORM])]]\n\
+                 \x20\x20\x20[/every other subcommand of UNIANOVA]\n\
+                 The command is the general linear model of UNIANOVA extended to several dependent variables and to\n\
+                 repeated measures. With one dependent and no WSFACTOR it is UNIANOVA: the same subcommands,\n\
+                 defaults, rules and tables, all described under UNIANOVA. This page gives only what is added.\n\
+                 Several dependents without WSFACTOR make the multivariate model, a multivariate analysis of variance\n\
+                 or covariance. Every effect gets Multivariate Tests (Pillai's trace, Wilks' lambda, Hotelling's\n\
+                 trace and Roy's largest root, each with F, df and Sig.; with ETASQ and OPOWER also partial eta\n\
+                 squared, noncentrality and power), then the univariate tables with a row per dependent. HOMOGENEITY\n\
+                 adds Box's M test of equal covariance matrices to Levene's test of each dependent. RSSCP gives the\n\
+                 residual SSCP, covariance and correlation matrices and Bartlett's test of sphericity; TEST(SSCP)\n\
+                 gives the SSCP of each effect and of the error. EMMEANS, POSTHOC, PLOT and SAVE work on each\n\
+                 dependent in turn (SAVE without names).\n\
+                 MMATRIX transforms the dependents for a custom test L B M = K: each column ends with ';' and is\n\
+                 named by its label or T1, T2, ... (the identity by default). L comes from LMATRIX (the intercept's\n\
+                 test when only MMATRIX or KMATRIX is given) and K from KMATRIX (rows end with ';', zero by\n\
+                 default). CONTRAST always uses the identity. Each test gives Contrast Results (K Matrix),\n\
+                 Multivariate Test Results and Univariate Test Results; TEST(MMATRIX) shows M.\n\
+                 WSFACTOR makes the dependents the levels of within-subjects factors, for example GLM t1 t2 t3 t4 t5\n\
+                 t6 /WSFACTOR=time 3 task 2: the first factor's levels change slowest, and the number of dependents\n\
+                 must be the product of the levels (times the number of measures). The factor's contrast (POLYNOMIAL\n\
+                 by default) gives the within-subjects contrasts. WSDESIGN lists the within-subjects effects (by\n\
+                 default their full factorial). The tables are Multivariate Tests, Mauchly's Test of Sphericity,\n\
+                 Tests of Within-Subjects Effects (sphericity assumed, Greenhouse-Geisser, Huynh-Feldt and lower\n\
+                 bound), Tests of Within-Subjects Contrasts, and Tests of Between-Subjects Effects on the average of\n\
+                 the levels. PROFILE may plot within-subjects factors too; SPREADLEVEL and RESIDUALS are left out\n\
+                 with a warning.\n\
+                 MEASURE=names makes a doubly multivariate model: the dependents are the cells of the within-subjects\n\
+                 design for the first measure, then for the second, and so on. Each measure gets its own sphericity,\n\
+                 within-subjects, contrast and between-subjects tests, and the multivariate tests take the measures\n\
+                 together. TEST, ROBUST and RANDOM are for one dependent without WSFACTOR; ROBUST is ignored with a\n\
+                 warning otherwise, and RANDOM runs a univariate analysis of each dependent.",
         example: "GLM t1 t2 t3 BY group /WSFACTOR=time 3 POLYNOMIAL /WSDESIGN=time /DESIGN=group.",
         parse: glm::glm,
     },
@@ -4666,79 +4651,66 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "MIXED",
         summary: "Linear mixed model: fixed effects with random effects of subjects and correlated repeated measures.",
         syntax: "MIXED dependent [BY factors] [WITH covariates]\n\
-                 \x20  [/FIXED=[effects] [| [NOINT] [SSTYPE(3 | 1)]]] [/METHOD=REML | ML] [/MISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/RANDOM=effects [| [SUBJECT(var[*var...])] [COVTYPE(type)] [SOLUTION]]] ...\n\
-                 \x20  [/REPEATED=var[*var...] | SUBJECT(var[*var...]) [COVTYPE(type)]] [/REGWGT=var]\n\
-                 \x20  [/CRITERIA=[CIN(95)] [MXITER(100)] [MXSTEP(10)] [SCORING(1)] [SINGULAR(1E-12)]\n\
-                 \x20            [PCONVERGE(1E-6[, ABSOLUTE | RELATIVE])] [LCONVERGE(0[, ...])] [HCONVERGE(0[, ...])]\n\
-                 \x20            [DFMETHOD(SATTERTHWAITE | RESIDUAL | KENWARDROGER)]]\n\
-                 \x20  [/PRINT=[SOLUTION] [TESTCOV] [G] [R] [COVB] [CORB] [CPS] [DESCRIPTIVES] [HISTORY[(n)]] [LMATRIX]]\n\
-                 \x20  [/SAVE=tempvar[(name)] ...]\n\
-                 \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
-                 \x20            [COMPARE[(factor)] [REFCAT(value | FIRST | LAST)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
-                 \x20  [/TEST[(constants)]=['label'] effect values ... [| effect values ...] [DIVISOR=n]; ...\n\
-                 \x20         | ALL values ... [| values ...] ...] ...\n\
-                 effects: INTERCEPT (first), a factor or covariate, a*b or a BY b, a(b) or a WITHIN b.\n\
-                 type: VC (the RANDOM default: one variance per effect), ID (one variance for the block), DIAG (the\n\
-                 REPEATED default: one variance per level), UN (every variance and covariance), CS (a diagonal\n\
-                 offset plus one common covariance), CSR (one variance and one correlation), CSH (a variance per\n\
-                 level and one correlation), AR1 (a variance and a correlation that is raised to the power of the\n\
-                 distance between levels), ARH1 (the same with a variance per level), ARMA11 (a variance, a\n\
-                 correlation gamma between neighbours and a factor rho for each step further), TP and TPH (a\n\
-                 correlation for each distance, with one variance or a variance per level), AD1 (a variance per\n\
-                 level; two levels correlate by the product of the neighbour correlations between them), UNR (a\n\
-                 variance per level and a correlation per pair), HF (a variance per level; two levels have their\n\
-                 mean variance less lambda as covariance), FA1 and FAH1 (the loadings of one factor plus a\n\
-                 diagonal offset, common or per level). Variances that scale correlations stay above 0, other\n\
-                 variances and offsets at least 0, correlations between -1 and 1. VC on REPEATED is DIAG.\n\
-                 tempvar: FIXPRED (X b), PRED (X b plus the predicted random effects), RESID (dependent minus\n\
-                 PRED), SEFIXP and DFFIXP (the standard error and degrees of freedom of FIXPRED), SEPRED and\n\
-                 DFPRED (the same for PRED, counting the prediction error of the random effects).\n\
-                 The fixed part is the intercept unless NOINT, plus the FIXED effects. Each RANDOM adds one\n\
-                 covariance block per subject, the same for every subject; subjects are independent, and so are\n\
-                 the RANDOM subcommands. Without SUBJECT the whole file is one subject. REPEATED orders the\n\
-                 levels of its variables and gives each subject a residual block of that structure; without it\n\
-                 the residuals have one variance. Each subject variable of RANDOM must be a subject variable of\n\
-                 REPEATED. A case missing on any variable named is left out; the weight is rounded and counts\n\
-                 the case that many times (with REPEATED only a weight of 1). REGWGT divides the residual\n\
-                 covariance of a case by its value. The covariance parameters maximize the restricted (REML) or\n\
-                 full (ML) likelihood by Newton steps, the first SCORING ones with the expected Hessian, halving\n\
-                 a step up to MXSTEP times when it fails to improve; the fit stops when the change of every\n\
-                 parameter is below PCONVERGE, or by LCONVERGE or HCONVERGE when set. Tables: Model Dimension,\n\
-                 Information Criteria (-2 log likelihood, AIC, AICC, CAIC, BIC; for REML n is the cases less the\n\
-                 fixed parameters and only covariance parameters count), Type III Tests of Fixed Effects (Type I\n\
-                 with SSTYPE(1): each effect after the effects listed before it), Estimates of Fixed Effects\n\
-                 (SOLUTION) and Estimates of Covariance Parameters (with TESTCOV the standard errors from the\n\
-                 observed Hessian, Wald Z and intervals on the log scale for variances and the Fisher z scale for\n\
-                 correlations). Degrees of freedom are Satterthwaite's, or the cases less the rank of the fixed\n\
-                 design with DFMETHOD(RESIDUAL). DFMETHOD(KENWARDROGER) gives every standard error and test of\n\
-                 fixed effects the Kenward-Roger adjusted covariance, and each F its scale and denominator df\n\
-                 from that method, built on the expected information of the covariance parameters. EMMEANS\n\
-                 averages the fitted cells equally over the factors left out, covariates at their means or the\n\
-                 WITH values; each mean and each difference gets its own degrees of freedom. COMPARE lists every\n\
-                 pair of levels, or each level against REFCAT, with Bonferroni or Sidak adjustment over that\n\
-                 number of comparisons, and an F test of the compared factor at each level of the others. TEST\n\
-                 takes coefficients for the parameters of named fixed effects (redundant ones included) or ALL\n\
-                 of them, one row per combination; the constants in parentheses are the values tested against\n\
-                 (0 by default) and DIVISOR divides a row. ALL and effect names never mix in one TEST: the\n\
-                 first of them decides whether the rows use ALL or name their effects. After | come\n\
-                 coefficients for one subject's random effects, by effect or as bare values for all of them\n\
-                 over the RANDOM subcommands in order; the bare values fit either form, even as a whole row,\n\
-                 and in a TEST that uses ALL, ALL may come before them. An effect on two RANDOM subcommands\n\
-                 needs the bare values. With SUBJECT they are shared equally among the subjects, so the row\n\
-                 speaks of their average. TEST gives each row's estimate with a t test and the joint F test; a\n\
-                 row whose fixed part is not estimable is dropped with a warning. SOLUTION on RANDOM lists the\n\
-                 predicted random effects of every subject with the\n\
-                 standard error of their prediction error, df, a t test and an interval. Rows with random\n\
-                 effects, and the other rows of their TEST, keep the unadjusted covariance and Satterthwaite's df\n\
-                 (from numerical derivatives) even with KENWARDROGER. PRINT G and R show the covariance of one\n\
-                 subject's random effects and repeated levels, COVB and CORB the covariance and correlation of\n\
-                 the fixed estimates (adjusted with KENWARDROGER). CPS counts the cases at each value of the\n\
-                 factors and of the repeated and subject variables; DESCRIPTIVES gives the count, mean and\n\
-                 standard deviation of the dependent and covariates in each cell of the factors; HISTORY(n) lists\n\
-                 the start and every n-th iteration (update type, step halvings, -2 log likelihood and every\n\
-                 parameter) and always the last;\n\
-                 LMATRIX shows the coefficients of each test of a fixed effect and of each TEST.",
+                 \x20\x20\x20[/FIXED=[effects] [| [NOINT] [SSTYPE(3 | 1)]]] [/METHOD=REML | ML] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20\x20\x20[/RANDOM=effects [| [SUBJECT(var[*var...])] [COVTYPE(type)] [SOLUTION]]] ...\n\
+                 \x20\x20\x20[/REPEATED=var[*var...] | SUBJECT(var[*var...]) [COVTYPE(type)]] [/REGWGT=var]\n\
+                 \x20\x20\x20[/CRITERIA=[CIN(95)] [MXITER(100)] [MXSTEP(10)] [SCORING(1)] [SINGULAR(1E-12)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[PCONVERGE(1E-6[, ABSOLUTE | RELATIVE])] [LCONVERGE(0[, ...])] [HCONVERGE(0[, ...])]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[DFMETHOD(SATTERTHWAITE | RESIDUAL | KENWARDROGER)]]\n\
+                 \x20\x20\x20[/PRINT=[SOLUTION] [TESTCOV] [G] [R] [COVB] [CORB] [CPS] [DESCRIPTIVES] [HISTORY[(n)]] [LMATRIX]]\n\
+                 \x20\x20\x20[/SAVE=tempvar[(name)] ...]\n\
+                 \x20\x20\x20[/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[COMPARE[(factor)] [REFCAT(value | FIRST | LAST)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
+                 \x20\x20\x20[/TEST[(constants)]=['label'] effect values ... [| effect values ...] [DIVISOR=n]; ...\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20| ALL values ... [| values ...] ...] ...\n\
+                 The command fits a linear mixed model to one dependent. The fixed part is the intercept (unless\n\
+                 NOINT) plus the FIXED effects, written as INTERCEPT (first), a factor or covariate, a*b (a BY b) or\n\
+                 a(b) (a WITHIN b). RANDOM, EMMEANS and TEST may repeat; for other subcommands the last one wins. A\n\
+                 case missing on any variable named is left out (INCLUDE keeps user-missing values). Weights are\n\
+                 rounded to frequency counts; REPEATED allows only a weight of 1. REGWGT divides the residual\n\
+                 covariance of a case by its value.\n\
+                 Each RANDOM adds one covariance block per subject, the same for all; subjects and RANDOM subcommands\n\
+                 are independent, and INTERCEPT is never implied there. Without SUBJECT the whole file is one\n\
+                 subject. REPEATED orders the levels of its variables and gives each SUBJECT (required) a residual\n\
+                 block; without it the residuals share one variance. A RANDOM subject variable must also be a\n\
+                 REPEATED subject variable. COVTYPE is VC on RANDOM (one variance per effect) and DIAG on REPEATED\n\
+                 (one variance per level; VC there means DIAG). Other types: ID (one variance), UN (unstructured), CS\n\
+                 (a common covariance plus a diagonal offset), CSR (one variance, one correlation), AR1 (first-order\n\
+                 autoregressive), ARMA11, TP (Toeplitz), AD1 (antedependence), UNR (a correlation per pair), HF\n\
+                 (Huynh-Feldt), FA1 (one factor plus a diagonal offset). CSH, ARH1, TPH and FAH1 are CSR, AR1, TP and\n\
+                 FA1 with a variance (FAH1: an offset) per level.\n\
+                 METHOD=REML (the default) maximizes the restricted likelihood, ML the full one. The fit takes up to\n\
+                 MXITER Newton steps (the first SCORING with the expected Hessian), halving a step up to MXSTEP\n\
+                 times. It stops when every parameter changes less than PCONVERGE, or by LCONVERGE or HCONVERGE when\n\
+                 set (ABSOLUTE by default, or RELATIVE). CIN sets the interval level. DFMETHOD picks the df:\n\
+                 Satterthwaite (the default), RESIDUAL (cases less the rank of the fixed design), or KENWARDROGER,\n\
+                 which also adjusts the fixed standard errors and F tests.\n\
+                 Tables: Model Dimension, Information Criteria (-2 log likelihood, AIC, AICC, CAIC, BIC; for REML\n\
+                 only covariance parameters count), Type III Tests of Fixed Effects (Type I with SSTYPE(1), each\n\
+                 effect after those before it) and Estimates of Covariance Parameters. PRINT adds SOLUTION (fixed\n\
+                 estimates), TESTCOV (Wald Z and intervals for covariance parameters), G and R (one subject's random\n\
+                 and repeated covariance), COVB and CORB (fixed estimates, adjusted with KENWARDROGER), CPS (case\n\
+                 counts), DESCRIPTIVES (cell statistics), HISTORY(n) (every n-th iteration, 1 by default, and the\n\
+                 last) and LMATRIX (test coefficients). SOLUTION on RANDOM lists every subject's predicted random\n\
+                 effects with tests and intervals.\n\
+                 EMMEANS averages the fitted cells equally over the factors left out, covariates at their means or\n\
+                 the WITH values; each mean and difference gets its own df. COMPARE tests every pair of levels, or\n\
+                 each level against REFCAT, with LSD, BONFERRONI or SIDAK adjustment, plus an F test of the compared\n\
+                 factor at each level of the others.\n\
+                 TEST takes coefficients for the parameters of named fixed effects (redundant ones included), or ALL\n\
+                 of them; rows are separated by semicolons. Constants in parentheses are the tested values (0 by\n\
+                 default); DIVISOR divides a row. ALL and effect names never mix in one TEST: the first decides the\n\
+                 form. After | come coefficients for one subject's random effects, by effect or as bare values over\n\
+                 the RANDOM subcommands in order; bare values fit either form, and an effect on two RANDOM\n\
+                 subcommands needs them. With SUBJECT they are shared among subjects, so the row tests their\n\
+                 average. Each row gets an estimate and t test, plus a joint F test; a row with a non-estimable\n\
+                 fixed part is dropped with a warning. A TEST with random effects keeps Satterthwaite df even with\n\
+                 KENWARDROGER.\n\
+                 SAVE adds casewise variables: FIXPRED (fixed-part prediction), PRED (with the predicted random\n\
+                 effects), RESID (dependent minus PRED), SEFIXP and DFFIXP (standard error and df of FIXPRED), SEPRED\n\
+                 and DFPRED (the same for PRED). Default names are FXPRED_1, PRED_1, RESID_1, SEFIXP_1 and so on\n\
+                 (first free number); a name in parentheses replaces it. Each is saved once, and an existing name is\n\
+                 an error.",
         example: "MIXED yield BY plot_type WITH rain /FIXED=plot_type rain /RANDOM=INTERCEPT rain | SUBJECT(farm) COVTYPE(UN) /PRINT=SOLUTION TESTCOV.",
         parse: mixed::mixed,
     },
@@ -4976,66 +4948,59 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "GRAPH",
         summary: "One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram, a scatterplot or a scatterplot matrix.",
         syntax: "GRAPH [/TITLE='line' ['line']] [/SUBTITLE='line'] [/FOOTNOTE='line' ['line']]\n\
-                 \x20     /BAR[(SIMPLE | GROUPED | STACKED | RANGE)]=spec | /PIE=spec\n\
-                 \x20     | /LINE[(SIMPLE | MULTIPLE | AREA | DROP | DIFFERENCE)]=spec | /HILO[(SIMPLE | GROUPED)]=spec\n\
-                 \x20     | /PARETO[(CUM | NOCUM)][(SIMPLE | STACKED)]=spec\n\
-                 \x20     | /ERRORBAR[(CI [95] | STERROR [2] | STDDEV [2])]=varlist [BY var] | var BY var BY var\n\
-                 \x20     | /HISTOGRAM[(NORMAL)]=var\n\
-                 \x20     | /SCATTERPLOT[(BIVARIATE | OVERLAY | MATRIX | XYZ)]=x WITH y | xlist WITH ylist [(PAIR)]\n\
-                 \x20         | varlist | x WITH y WITH z, then [BY group] [BY id (NAME | IDENTIFY)]\n\
-                 \x20     [/INTERVAL CI[(95)] | SE[(2)] | STDDEV[(2)]]\n\
-                 \x20     [/PANEL [COLVAR=varlist [COLOP=CROSS | NEST]] [ROWVAR=varlist [ROWOP=CROSS | NEST]]]\n\
-                 \x20     [/MISSING=[LISTWISE | VARIABLE] [NOREPORT | REPORT] [EXCLUDE | INCLUDE]].\n\
-                 spec: COUNT | PCT | CUFREQ | CUPCT BY var [BY var]; var alone (COUNT BY var); func(varlist) ...\n\
-                 [BY var [BY var]]; VALUE(varlist) [BY var]. func: MEAN MEDIAN GMEDIAN MODE SUM CUSUM N MINIMUM\n\
-                 MAXIMUM STDDEV VARIANCE, PTILE(varlist, p), PLT PGT NLT NGT(varlist, x), PIN NIN(varlist, low, high).\n\
-                 Keywords may be cut to three letters (MIN, MAX, ERR, STE); the first subcommand needs no slash.\n\
-                 The shape of the spec sets the layout: one function by one variable gives one series; one function\n\
-                 by two variables gives a series per value of the second; several functions by one variable give a\n\
-                 series per function; several functions without BY give one bar or slice each. A list such as\n\
-                 SUM(a b) is SUM(a) SUM(b). SIMPLE, GROUPED and MULTIPLE change nothing; STACKED stacks the series\n\
-                 and AREA fills under the lines and stacks them. A pie takes a single series.\n\
-                 COUNT and N add up the case weights; PCT is a share of all cases in the chart; CUFREQ, CUSUM and\n\
-                 CUPCT add up along the categories of each series, CUPCT ending at 100 per series. PLT, PGT and PIN\n\
-                 give the share of a category's valid values below x, above x or from low to high; NLT, NGT and NIN\n\
-                 the weighted count. MEDIAN and PTILE use (W + 1) p as FREQUENCIES does; MODE is the smallest of\n\
-                 tied values; GMEDIAN takes the values as group midpoints. VALUE draws a bar per case and a series\n\
-                 per variable, unweighted; missing values leave a gap and the BY variable names the cases.\n\
-                 Categories ascend by value. A case missing a category value is left out unless REPORT, which adds\n\
-                 categories for missing values after the valid ones. LISTWISE drops a case missing on any function\n\
-                 variable of the chart, VARIABLE only from that variable's functions; INCLUDE makes user-missing\n\
-                 values valid. A category empty in every series is left out; at most 3000 categories.\n\
-                 ERRORBAR shows each mean as a point with a bar around it, laid out as MEAN(varlist) would be: a\n\
-                 list by one BY variable or one variable by two puts the points side by side. CI is a confidence\n\
-                 interval at the level (50 to 99.9) from Student's t with W - 1 degrees of freedom; STERROR (also\n\
-                 SE) and STDDEV reach n standard errors or deviations each way. The number may sit in parentheses.\n\
-                 A mean whose cases weigh 1 or less in total has no bar.\n\
-                 INTERVAL adds such bars to a simple or clustered bar or line chart of MEAN or MEDIAN: CI, SE\n\
-                 and STDDEV for a mean as on ERRORBAR, CI only for a median. A median's interval runs between\n\
-                 order statistics, interpolated (Hettmansperger and Sheather), so it need not be symmetric; it\n\
-                 needs whole case weights. Counts, percentages and the other functions get no bars.\n\
-                 PARETO counts (COUNT or a bare variable) or adds up (SUM, VALUE), puts the largest category first\n\
-                 and stacks several series. CUM, the default, draws the running total as a percentage of the grand\n\
-                 total: a line against a second axis from 0 to 100 on the right. NOCUM drops the line and the axis.\n\
-                 The range charts read their ends from the series: BAR(RANGE) floats a bar between each pair (two\n\
-                 functions, or a second BY variable with two values); LINE(DROP) joins the lowest and the highest\n\
-                 series of a category; LINE(DIFFERENCE) shades between two series; HILO takes high, low and an\n\
-                 optional close as two or three series.\n\
+                 \x20\x20\x20\x20\x20\x20/BAR[(SIMPLE | GROUPED | STACKED | RANGE)]=spec | /PIE=spec\n\
+                 \x20\x20\x20\x20\x20\x20| /LINE[(SIMPLE | MULTIPLE | AREA | DROP | DIFFERENCE)]=spec | /HILO[(SIMPLE | GROUPED)]=spec\n\
+                 \x20\x20\x20\x20\x20\x20| /PARETO[(CUM | NOCUM)][(SIMPLE | STACKED)]=spec\n\
+                 \x20\x20\x20\x20\x20\x20| /ERRORBAR[(CI [95] | STERROR [2] | STDDEV [2])]=varlist [BY var] | var BY var BY var\n\
+                 \x20\x20\x20\x20\x20\x20| /HISTOGRAM[(NORMAL)]=var\n\
+                 \x20\x20\x20\x20\x20\x20| /SCATTERPLOT[(BIVARIATE | OVERLAY | MATRIX | XYZ)]=x WITH y | xlist WITH ylist [(PAIR)]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20| varlist | x WITH y WITH z, then [BY group] [BY id (NAME | IDENTIFY)]\n\
+                 \x20\x20\x20\x20\x20\x20[/INTERVAL CI[(95)] | SE[(2)] | STDDEV[(2)]]\n\
+                 \x20\x20\x20\x20\x20\x20[/PANEL [COLVAR=varlist [COLOP=CROSS | NEST]] [ROWVAR=varlist [ROWOP=CROSS | NEST]]]\n\
+                 \x20\x20\x20\x20\x20\x20[/MISSING=[LISTWISE | VARIABLE] [NOREPORT | REPORT] [EXCLUDE | INCLUDE]].\n\
+                 The command draws one chart. The first subcommand needs no slash, and keywords may be cut to three\n\
+                 letters (MIN, MAX, ERR, STE). A spec is COUNT, PCT, CUFREQ or CUPCT BY var [BY var]; a bare variable\n\
+                 (COUNT BY var); func(varlist) [BY var [BY var]]; or VALUE(varlist) [BY var]. The functions are MEAN,\n\
+                 MEDIAN, GMEDIAN, MODE, SUM, CUSUM, N, MINIMUM, MAXIMUM, STDDEV, VARIANCE, PTILE(varlist, p), PLT,\n\
+                 PGT, NLT, NGT(varlist, x), PIN and NIN(varlist, low, high). SUM(a b) means SUM(a) SUM(b).\n\
+                 The spec sets the layout. One function by one variable gives one series; by two variables, a series\n\
+                 per value of the second. Several functions give a series each by one variable, or one bar or slice\n\
+                 each without BY. SIMPLE, GROUPED and MULTIPLE change nothing; STACKED stacks the series and AREA\n\
+                 fills and stacks them. A pie takes one series.\n\
+                 COUNT and N add up the case weights; PCT is a share of all cases in the chart. CUFREQ, CUSUM and\n\
+                 CUPCT add up along each series (CUPCT ends at 100). PLT, PGT and PIN give the share of valid\n\
+                 values below x, above x or from low to high; NLT, NGT and NIN the weighted count. MEDIAN and PTILE\n\
+                 work as in FREQUENCIES, MODE takes the smallest tied value, and GMEDIAN treats values as group\n\
+                 midpoints. VALUE draws an unweighted bar per case and a series per variable; a missing value\n\
+                 leaves a gap and the BY variable names the cases.\n\
+                 Categories ascend by value. A case missing a category value is left out unless MISSING=REPORT, which\n\
+                 adds missing categories after the valid ones. LISTWISE drops a case missing on any function\n\
+                 variable; VARIABLE drops it only from that variable's functions. INCLUDE makes user-missing values\n\
+                 valid. Categories empty in every series are left out; at most 3000 categories. Cases with a zero or\n\
+                 missing weight are left out. SPLIT FILE gives a chart per group.\n\
+                 ERRORBAR shows each mean as a point with a bar, laid out as MEAN(varlist). CI (the default, level\n\
+                 95, from 50 to 99.9) uses Student's t with W - 1 degrees of freedom; STERROR (or SE) and STDDEV\n\
+                 reach n (default 2) standard errors or deviations each way. A mean whose cases weigh 1 or less gets\n\
+                 no bar. INTERVAL adds such bars to a simple or clustered bar or line chart of MEAN, or of MEDIAN\n\
+                 with CI only. A median's interval comes from interpolated order statistics, need not be symmetric\n\
+                 and needs whole case weights.\n\
+                 PARETO counts or sums (COUNT, a bare variable, SUM or VALUE), largest category first, several series\n\
+                 stacked. CUM, the default, adds the running total as a percentage line on a right axis from 0 to\n\
+                 100; NOCUM leaves it off. BAR(RANGE) floats a bar between two series (two functions, or a second BY\n\
+                 variable with two values). LINE(DROP) joins the lowest and highest series of each category,\n\
+                 LINE(DIFFERENCE) shades between two series, and HILO takes high, low and an optional close as two or\n\
+                 three series.\n\
                  HISTOGRAM bins the valid values as FREQUENCIES does; NORMAL adds the normal curve. SCATTERPLOT\n\
-                 draws each case valid on both variables once, colored by the BY group variable; BY id (NAME)\n\
-                 labels the points with that variable's values, (IDENTIFY) leaves them off. The variables set\n\
-                 the kind, as for bars: lists around WITH lay a colored group of points for each pair into one\n\
-                 frame, the variable before WITH across (every pair of the two lists, or with PAIR the first\n\
-                 with the first and so on; no BY group). A list alone draws a matrix: a cell for each pair, the\n\
-                 column's variable across and the row's up, the names on the diagonal. x WITH y WITH z has a\n\
-                 third axis; it shows as the table of its points. LISTWISE leaves out a\n\
-                 case missing on any of the variables; with VARIABLE a pair takes the cases valid on both.\n\
-                 PANEL repeats the chart for each combination of the categories of the ROWVAR and COLVAR variables,\n\
-                 rows first, each a separate chart named in its title. Combinations without cases get no chart, so\n\
-                 COLOP and ROWOP change nothing. A case missing on a panel variable is left out unless REPORT.\n\
-                 TITLE names the chart (otherwise it is named after what it shows); SUBTITLE goes under the title\n\
-                 and FOOTNOTE below the chart. Lines have at most 72 characters. With SPLIT FILE each group gets a\n\
-                 chart. Weighted when a weight variable is set; cases with a zero or missing weight are left out.",
+                 colors points by the BY group variable; BY id (NAME) labels them with the id values, (IDENTIFY) does\n\
+                 not. Lists around WITH put every pair into one frame (with PAIR, first with first and so on, and no\n\
+                 BY group), the variable before WITH across. A list without WITH draws a matrix with the names on the\n\
+                 diagonal. x WITH y WITH z has a third axis and shows as a table of its points. LISTWISE needs a case\n\
+                 valid on all variables; VARIABLE needs it valid on the pair.\n\
+                 PANEL repeats the chart for each combination of ROWVAR and COLVAR categories, rows first, each named\n\
+                 in its title. Empty combinations get no chart, so COLOP and ROWOP change nothing. A case missing on\n\
+                 a panel variable is left out unless REPORT. TITLE names the chart (by default after its content),\n\
+                 SUBTITLE goes under it and FOOTNOTE below. TITLE and FOOTNOTE take up to two lines, SUBTITLE one,\n\
+                 each at most 72 characters.",
         example: "GRAPH /TITLE='Visits per store' /BAR(STACKED)=COUNT BY store BY daypart.",
         parse: graph::graph,
     },
@@ -5534,78 +5499,73 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "CSCOXREG",
         summary: "Cox proportional hazards regression on a complex sample, with design-based standard errors and tests.",
         syntax: "CSCOXREG [start] end [BY factors] [WITH covariates]\n\
-                 \x20  /VARIABLES STATUS=var(values) [ID=var] [BASELINESTRATA=var] /PLAN FILE='file'\n\
-                 \x20  [/MODEL effects]\n\
-                 \x20  [/CUSTOM [LABEL='text'] LMATRIX=effect coefficients ... [; ...] [KMATRIX=k [; k ...]]]\n\
-                 \x20  [/CRITERIA [CILEVEL=95] [DF=n] [LCONVERGE=[0 RELATIVE | ABSOLUTE]] [MXITER=100]\n\
-                 \x20             [MXSTEP=5] [PCONVERGE=[1E-6 RELATIVE | ABSOLUTE]] [SINGULAR=1E-12]\n\
-                 \x20             [TIES=EFRON | BRESLOW]]\n\
-                 \x20  [/STATISTICS [PARAMETER] [EXP] [SE] [TTEST] [CINTERVAL] [DEFF] [DEFFSQRT]]\n\
-                 \x20  [/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
-                 \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
-                 \x20  [/TESTASSUMPTIONS [PROPHAZARD=KM | IDENTITY | LOG | RANK] [PARAMETER] [COVB]]\n\
-                 \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/PRINT [SAMPLEINFO] [EVENTINFO] [RISKINFO] [HISTORY[(n)]] [GEF] [LMATRIX] [COVB]\n\
-                 \x20          [CORB] [BASELINE] [NONE]]\n\
-                 \x20  [/SURVIVALMETHOD [BASELINE=EFRON | BRESLOW | PRODUCTLIMIT] [CI=ORIGINAL | LOG | LML]]\n\
-                 \x20  [/SAVE keyword[(name)] ... | keyword[(root[:n])] ...]\n\
-                 \x20  [/PLOT [SURVIVAL] [CUMHAZARD] [LML] [OMS] [CI=NO | YES]]\n\
-                 \x20  [/PATTERN [end(times)] var(value or values) ... [BY factor]] [/PATTERN ...]\n\
-                 \x20  [/OUTFILE [COVB='file' | CORB='file'] [MODEL='file'] [SURVIVAL='file']]\n\
-                 \x20  [/JOINTPROB FILE='file' | dataset].\n\
-                 A record is at risk after its start time up to and including its end time; with one time\n\
-                 variable it is at risk from the beginning. A status among the event values means the\n\
-                 event happened at the end time; any other valid status is censored. A negative time, or a\n\
-                 start time not below the end time, leaves the record out. The hazard is h0(t) exp(x'b)\n\
-                 without an intercept, which the baseline hazard h0 absorbs, so the last level of each\n\
-                 factor is the reference. BASELINESTRATA gives each of its values its own baseline hazard\n\
-                 while the coefficients are shared. The estimates maximize the weighted partial\n\
-                 likelihood, tied event times treated by Efron's method (TIES=BRESLOW: Breslow's), by\n\
-                 Newton-Raphson with step-halving from b = 0. The covariance is a sandwich: the inverse\n\
-                 information on both sides of the design covariance of the total of the records' score\n\
-                 residuals. Design, df, domains, TEST, CUSTOM and design effects work as in CSGLM. The\n\
-                 default output is the sample design information with the event and censored counts, the\n\
-                 events and censored records of each baseline stratum, the -2 log pseudo likelihood and\n\
-                 the Tests of Model Effects; the parameter table needs STATISTICS. RISKINFO lists, per\n\
-                 event time, the events and the records at risk. PRINT GEF shows the general\n\
-                 estimable function: one column per nonredundant parameter.\n\
-                 ID names the subject of each record. The records of a subject are summed before the\n\
-                 design variance, and where the plan's last stage has no clusters the subjects are its\n\
-                 units. With ID and one time variable, a subject's first record starts at the\n\
-                 beginning and each later one where the previous record (in time) ended.\n\
-                 Factors and covariates may come from a TIME PROGRAM: each record is then split at the\n\
-                 event times of its baseline stratum and the program runs on every piece with T_ set to\n\
-                 the piece's event time. With such covariates there are no baseline functions, plots,\n\
-                 PATTERN or SURVIVAL file, and SAVE writes only SCHOENFELD, SCORE, DFBETA, their\n\
-                 aggregated forms and XBETA. TESTASSUMPTIONS fits a larger model in which every\n\
-                 predictor also enters multiplied by g(t), one minus the weighted Kaplan-Meier survival\n\
-                 of all records (KM, the default), t, ln(t) or the rank of the event time plus one, and\n\
-                 gives the Wald test (as TEST says) that those extra coefficients are 0; PARAMETER and\n\
-                 COVB show the larger model's estimates, standard errors and covariances.\n\
-                 Baseline functions are computed per baseline stratum at the reference values (each\n\
-                 factor at its last level, each covariate at its weighted mean): the cumulative hazard\n\
-                 by Efron's or Breslow's sum (as TIES unless SURVIVALMETHOD says otherwise) or minus the\n\
-                 log of the product-limit survival. Their standard errors are design-based, from the\n\
-                 design variance of the total of each record's influence on the cumulative hazard, the\n\
-                 same for all three estimates. The survival interval uses the normal quantile on the\n\
-                 scale CI names: the survival itself, its log (default) or the log of minus its log,\n\
-                 cut to 0 and 1. PRINT BASELINE tabulates them; PLOT draws the step functions for the\n\
-                 reference values and for each PATTERN line (BY gives one line per factor level;\n\
-                 variables a PATTERN leaves out stay at the reference). SAVE writes, for the records\n\
-                 analyzed: SCHOENFELD, SCORE and DFBETA (one variable per parameter, root_1, root_2 ...,\n\
-                 25 at most unless :n says), MARTINGALE, DEVIANCE, COXSNELL, XBETA, and SURVIVAL,\n\
-                 CUMHAZARD and their LCL_ and UCL_ limits at each record's own end time and values.\n\
-                 Default names: Resid_Schoenfeld, Resid_Score, Resid_DFBETA, Resid_Martingale,\n\
-                 Resid_Deviance, Resid_CoxSnell, XBETA, Survival, CumHazard, LCL_Survival and so on; a\n\
-                 taken default name gets a suffix. AGGMARTINGALE, AGGDEVIANCE, AGGCOXSNELL, AGGSCORE\n\
-                 and AGGDFBETA (default names AggResid_...) total a subject's records and are written on\n\
-                 its last record; the deviance comes from the summed martingale residual and events.\n\
-                 Without ID they are skipped with a warning. A PATTERN that gives the end time a list\n\
-                 of ascending times is a path: each other variable takes one value, or one per time,\n\
-                 held up to that time, and the curve stops at the last time. OUTFILE COVB or CORB writes\n\
-                 the matrix file of CSGLM, MODEL a JSON file with the estimates, covariances, reference\n\
-                 values and baseline functions, SURVIVAL a data file of the curves of PLOT at every event\n\
-                 time. JOINTPROB works as in CSDESCRIPTIVES.",
+                 \x20\x20\x20/VARIABLES STATUS=var(values) [ID=var] [BASELINESTRATA=var] /PLAN FILE='file'\n\
+                 \x20\x20\x20[/MODEL effects]\n\
+                 \x20\x20\x20[/CUSTOM [LABEL='text'] LMATRIX=effect coefficients ... [; ...] [KMATRIX=k [; k ...]]]\n\
+                 \x20\x20\x20[/CRITERIA [CILEVEL=95] [DF=n] [LCONVERGE=[0 RELATIVE | ABSOLUTE]] [MXITER=100]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[MXSTEP=5] [PCONVERGE=[1E-6 RELATIVE | ABSOLUTE]] [SINGULAR=1E-12]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[TIES=EFRON | BRESLOW]]\n\
+                 \x20\x20\x20[/STATISTICS [PARAMETER] [EXP] [SE] [TTEST] [CINTERVAL] [DEFF] [DEFFSQRT]]\n\
+                 \x20\x20\x20[/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
+                 \x20\x20\x20[/TESTASSUMPTIONS [PROPHAZARD=KM | IDENTITY | LOG | RANK] [PARAMETER] [COVB]]\n\
+                 \x20\x20\x20[/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20\x20\x20[/PRINT [SAMPLEINFO] [EVENTINFO] [RISKINFO] [HISTORY[(n)]] [GEF] [LMATRIX] [COVB]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[CORB] [BASELINE] [NONE]]\n\
+                 \x20\x20\x20[/SURVIVALMETHOD [BASELINE=EFRON | BRESLOW | PRODUCTLIMIT] [CI=ORIGINAL | LOG | LML]]\n\
+                 \x20\x20\x20[/SAVE keyword[(name)] ... | keyword[(root[:n])] ...]\n\
+                 \x20\x20\x20[/PLOT [SURVIVAL] [CUMHAZARD] [LML] [OMS] [CI=NO | YES]]\n\
+                 \x20\x20\x20[/PATTERN [end(times)] var(value or values) ... [BY factor]] [/PATTERN ...]\n\
+                 \x20\x20\x20[/OUTFILE [COVB='file' | CORB='file'] [MODEL='file'] [SURVIVAL='file']]\n\
+                 \x20\x20\x20[/JOINTPROB FILE='file' | dataset].\n\
+                 The command fits a Cox proportional hazards model to a complex sample, with design-based standard\n\
+                 errors and tests. VARIABLES STATUS and PLAN FILE are required. STATUS lists the event values (values\n\
+                 or THRU ranges); any other valid status is censored at the end time. A record is at risk after its\n\
+                 start time up to and including its end time, or from the beginning with one time variable. A\n\
+                 negative time, or a start time not below the end time, leaves the record out.\n\
+                 The hazard is h0(t) exp(x'b) without an intercept, so the last level of each factor is the\n\
+                 reference, and a CUSTOM row must name an effect or ALL (CUSTOM needs LMATRIX). BASELINESTRATA gives\n\
+                 each of its values its own baseline hazard with shared coefficients. The estimates maximize the\n\
+                 weighted partial likelihood by Newton-Raphson with step-halving from b = 0; tied event times use\n\
+                 Efron's method, or Breslow's with TIES=BRESLOW. The covariance is a sandwich around the design\n\
+                 covariance of the score residuals. Design, df, domains, TEST, CUSTOM and design effects work as in\n\
+                 CSGLM, and JOINTPROB as in CSDESCRIPTIVES.\n\
+                 The Model Summary (-2 log pseudo likelihood) and the Tests of Model Effects are always\n\
+                 shown. Without PRINT the output also has SAMPLEINFO (the design, with event and censored\n\
+                 counts) and EVENTINFO (events and censored records per baseline stratum); a PRINT list\n\
+                 replaces these. The parameter table needs STATISTICS. RISKINFO lists the events and records\n\
+                 at risk at each event time; GEF has one column per nonredundant parameter.\n\
+                 ID names the subject of each record. A subject's records are summed before the design variance, and\n\
+                 where the plan's last stage has no clusters the subjects are its units. With ID and one time\n\
+                 variable, a subject's first record starts at the beginning and each later one where the previous\n\
+                 record in time ended.\n\
+                 Factors and covariates may come from a TIME PROGRAM: each record is split at the event times of its\n\
+                 baseline stratum and the program runs on every piece with T_ set to that event time. Then there are\n\
+                 no baseline functions, plots, PATTERN or SURVIVAL file, and SAVE writes only SCHOENFELD, SCORE,\n\
+                 DFBETA, their AGG forms and XBETA.\n\
+                 TESTASSUMPTIONS refits with every predictor also multiplied by g(t): one minus the weighted\n\
+                 Kaplan-Meier survival (KM, the default), t (IDENTITY), ln(t) (LOG) or the event time's rank plus one\n\
+                 (RANK). A Wald test of the TEST type checks that the extra coefficients are 0; PARAMETER and COVB\n\
+                 show the larger model's estimates and covariances.\n\
+                 Baseline functions are computed per baseline stratum at the reference values (factors at their last\n\
+                 level, covariates at their weighted means). The cumulative hazard is Efron's or Breslow's sum (as\n\
+                 TIES, unless SURVIVALMETHOD BASELINE says otherwise) or minus the log of the product-limit survival,\n\
+                 with design-based standard errors. The survival interval is normal on the CI scale: ORIGINAL, LOG\n\
+                 (the default) or LML (log of minus log), cut to 0 and 1. PRINT BASELINE tabulates them. PLOT draws\n\
+                 them for the reference values and for each PATTERN, whose BY gives one line per factor level;\n\
+                 variables a PATTERN leaves out stay at the reference. A PATTERN giving the end time ascending times\n\
+                 above 0 is a path: each other variable takes one value or one per time (held up to that time), and\n\
+                 the curve stops at the last time.\n\
+                 SAVE writes, for the records analyzed, SCHOENFELD, SCORE and DFBETA (one variable per parameter,\n\
+                 root_1, root_2 and so on, at most n, 25 by default), MARTINGALE, DEVIANCE, COXSNELL, XBETA, and\n\
+                 SURVIVAL, CUMHAZARD and their LCL_ and UCL_ limits at each record's own end time and values. Default\n\
+                 names are Resid_Schoenfeld, Resid_Score, Resid_DFBETA, Resid_Martingale, Resid_Deviance,\n\
+                 Resid_CoxSnell, XBETA, Survival, CumHazard, LCL_Survival and so on, with a suffix when taken. The\n\
+                 AGG keywords (default names AggResid_...) total a subject's records onto its last record; without ID\n\
+                 they are skipped with a warning.\n\
+                 OUTFILE COVB or CORB (one of them) writes the matrix file as CSGLM does, MODEL a JSON file with the\n\
+                 estimates, covariances, reference values and baseline functions, SURVIVAL a data file of the PLOT\n\
+                 curves at every event time.",
         example: "CSCOXREG months BY clinic WITH dose /VARIABLES STATUS=relapse(1) /PLAN FILE='trial_plan.json' /STATISTICS PARAMETER EXP SE CINTERVAL /PRINT RISKINFO.",
         parse: complex_samples::cscoxreg,
     },
@@ -6559,7 +6519,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "DROP DOCUMENTS",
         summary: "Remove the documents of the data file.",
-        syntax: "DROP DOCUMENTS.",
+        syntax: "DROP DOCUMENTS.\n\
+                 The command removes every document line that DOCUMENT or ADD DOCUMENT stored with the data. The\n\
+                 change is saved with the next SAVE.",
         example: "DROP DOCUMENTS.",
         parse: dictionary::drop_documents,
     },

@@ -10,10 +10,12 @@ Short for N OF CASES.
 N n.
 ```
 
+The same command as N OF CASES: the active dataset keeps only its first n cases. A larger n than before has no effect.
+
 ## Example
 
 ```text
-N 100.
+N 50.
 ```
 
 `statscraft help N` prints the same text in the terminal. [All commands](README.md)

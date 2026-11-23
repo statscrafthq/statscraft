@@ -10,6 +10,8 @@ Remove the documents of the data file.
 DROP DOCUMENTS.
 ```
 
+The command removes every document line that DOCUMENT or ADD DOCUMENT stored with the data. The change is saved with the next SAVE.
+
 ## Example
 
 ```text

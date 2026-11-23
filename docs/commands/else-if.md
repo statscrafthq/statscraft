@@ -10,6 +10,8 @@ Start the next conditional branch of a DO IF block.
 ELSE IF (condition).
 ```
 
+Inside a DO IF block: the commands that follow run for the cases where no earlier condition of the block was true and this one is. A case whose earlier condition was missing runs no later branch.
+
 ## Example
 
 ```text
