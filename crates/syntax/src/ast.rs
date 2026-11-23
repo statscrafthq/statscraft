@@ -1441,6 +1441,11 @@ pub struct Tree {
     pub gain_table: bool,
     /// `/GAIN CUMULATIVE`
     pub gain_cumulative: bool,
+    /// `/GAIN TYPE`: node-by-node tables, percentile tables, or both.
+    pub gain_node: bool,
+    pub gain_ptile: bool,
+    /// `/GAIN INCREMENT`: the width of the percentile groups, in percent.
+    pub gain_increment: usize,
     /// `/GAIN SORT=ASCENDING`
     pub gain_ascending: bool,
     /// `/PLOT GAIN`, `RESPONSE` and `INDEX`: line charts over percentile groups.

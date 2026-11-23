@@ -285,12 +285,13 @@ fn gain(p: &mut Parser, command: &mut Tree) -> PResult<()> {
         } else if p.eat_keyword("TYPE") {
             p.eat(Punct::Eq);
             p.expect(Punct::LBracket)?;
+            (command.gain_node, command.gain_ptile) = (false, false);
             while !p.eat(Punct::RBracket) {
-                let start = p.pos;
                 if p.eat_keyword("PTILE") {
-                    return Err(not_supported(p, start, "GAIN TYPE PTILE"));
-                }
-                if !p.eat_keyword("NODE") {
+                    command.gain_ptile = true;
+                } else if p.eat_keyword("NODE") {
+                    command.gain_node = true;
+                } else {
                     return Err(p.unexpected(&["NODE", "PTILE", "']'"]));
                 }
                 p.eat(Punct::Comma);
@@ -299,7 +300,14 @@ fn gain(p: &mut Parser, command: &mut Tree) -> PResult<()> {
             command.gain_ascending = choice(p, &["DESCENDING", "ASCENDING"])? == 1;
         } else if p.eat_keyword("INCREMENT") {
             // applies to percentile tables only
-            number(p, "INCREMENT", 1.0, 25.0)?;
+            let n = number(p, "INCREMENT", 1.0, 100.0)?;
+            if [1.0, 2.0, 5.0, 10.0, 20.0, 25.0].contains(&n) {
+                command.gain_increment = n as usize;
+            } else {
+                let message =
+                    format!("GAIN INCREMENT={n} is not 1, 2, 5, 10, 20 or 25; 10 is used");
+                command.ignored.push(message);
+            }
         } else if p.eat_keyword("CUMULATIVE") {
             command.gain_cumulative = yes(p)?;
         } else {
@@ -715,6 +723,9 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         },
         gain_table: true,
         gain_cumulative: true,
+        gain_node: true,
+        gain_ptile: false,
+        gain_increment: 10,
         gain_ascending: false,
         plot_gain: false,
         plot_response: false,

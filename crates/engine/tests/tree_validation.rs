@@ -1082,3 +1082,219 @@ fn the_last_percentile_holds_every_case_whatever_the_priors() {
         close(last(2), 100.0, 1e-9);
     }
 }
+
+/// A percentile row: the percentile, rounded size, gain count, gain %, response %, index % and
+/// the nodes.
+type PercentileRow = (usize, f64, f64, f64, f64, f64, Vec<usize>);
+
+/// The percentile rows of target class `target` from class counts, worked out by walking the
+/// nodes in `order`: (percentile, rounded size, gain count, gain %, response %, index %, nodes).
+fn percentile_rows(
+    counts: &[(usize, [f64; 3])],
+    priors: [f64; 3],
+    target: usize,
+    order: &[usize],
+    q: usize,
+) -> Vec<PercentileRow> {
+    let totals: Vec<f64> = (0..3)
+        .map(|j| counts.iter().map(|c| c.1[j]).sum())
+        .collect();
+    let n: f64 = totals.iter().sum();
+    let node = |id: usize| -> (f64, f64, f64, f64) {
+        let c = counts.iter().find(|c| c.0 == id).expect("a node").1;
+        let w: f64 = (0..3).map(|j| priors[j] * c[j] / totals[j]).sum();
+        (
+            c.iter().sum(),
+            c[target],
+            w,
+            priors[target] * c[target] / totals[target],
+        )
+    };
+    let mut rows = Vec::new();
+    let mut previous = 0.0;
+    for percent in (q..=100).step_by(q) {
+        let cut = n * percent as f64 / 100.0;
+        // walk the nodes, taking the part of the straddling node below the cut
+        let (mut taken, mut gain, mut w, mut a) = (0.0, 0.0, 0.0, 0.0);
+        let mut holds = order.len() - 1;
+        for (k, &id) in order.iter().enumerate() {
+            let (size, g, wt, at) = node(id);
+            if taken + size >= cut - 1e-9 {
+                let part = if size > 0.0 {
+                    (cut - taken) / size
+                } else {
+                    0.0
+                };
+                (gain, w, a) = (gain + part * g, w + part * wt, a + part * at);
+                holds = k;
+                break;
+            }
+            (taken, gain, w, a) = (taken + size, gain + g, w + wt, a + at);
+        }
+        // the nodes that hold the previous cut and this one: from the first node that ends after
+        // the previous cut
+        let mut ends = 0.0;
+        let mut from = 0;
+        if percent > q {
+            from = order.len() - 1;
+            for (k, &id) in order.iter().enumerate() {
+                ends += node(id).0;
+                if ends > previous + 1e-9 {
+                    from = k;
+                    break;
+                }
+            }
+        }
+        let score = a / w;
+        rows.push((
+            percent,
+            cut.round(),
+            gain,
+            100.0 * gain / totals[target],
+            100.0 * score,
+            100.0 * score / priors[target],
+            order[from.min(holds)..=holds].to_vec(),
+        ));
+        previous = cut;
+    }
+    rows
+}
+
+#[test]
+fn percentile_gain_tables_follow_the_manuals_interpolation() {
+    for (clause, priors, validated, q) in [
+        ("/PRIORS EQUAL", [1.0 / 3.0; 3], false, 10),
+        (
+            "/PRIORS CUSTOM=1 [5] 2 [3] 3 [2]",
+            [0.5, 0.3, 0.2],
+            false,
+            20,
+        ),
+        ("/PRIORS EQUAL", [1.0 / 3.0; 3], true, 25),
+    ] {
+        let mut engine = engine();
+        run(&mut engine, "WEIGHT BY w.");
+        let validation = if validated {
+            "/VALIDATION TYPE=SPLITSAMPLE(tr)"
+        } else {
+            ""
+        };
+        let tables = run(
+            &mut engine,
+            &format!(
+                "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT {clause} {validation} {SMALL} \
+                 /DEPCATEGORIES TARGET=[1 3] /GAIN TYPE=[PTILE] INCREMENT={q} /SAVE NODEID(node) /TREE DISPLAY=NONE."
+            ),
+        );
+        // only the percentile tables
+        assert!(
+            tables
+                .iter()
+                .all(|t| !t.title.starts_with("Gain Summary for Nodes"))
+        );
+        for (k, target) in [0usize, 2].into_iter().enumerate() {
+            let training = terminal_counts(&engine, validated.then_some(1.0));
+            let score = |node: usize| {
+                let rows = gain_rows(&training, priors, target, &[node]);
+                (rows[0][4] / 100.0 * 1e12).round() as i64
+            };
+            let mut order: Vec<usize> = training.iter().map(|c| c.0).collect();
+            order.sort_by_key(|&n| std::cmp::Reverse(score(n)));
+            let samples: Vec<(String, Option<f64>)> = if validated {
+                vec![
+                    (
+                        "Gain Summary for Percentiles (Training Sample)".into(),
+                        Some(1.0),
+                    ),
+                    (
+                        "Gain Summary for Percentiles (Test Sample)".into(),
+                        Some(0.0),
+                    ),
+                ]
+            } else {
+                vec![("Gain Summary for Percentiles".into(), None)]
+            };
+            for (title, sample) in samples {
+                let found = tables
+                    .iter()
+                    .filter(|t| t.title == title)
+                    .collect::<Vec<_>>()[k];
+                let counts = terminal_counts(&engine, sample);
+                let want = percentile_rows(&counts, priors, target, &order, q);
+                assert_eq!(found.rows.len(), want.len(), "{title}");
+                for (row, want) in found.rows.iter().zip(&want) {
+                    let at = |c: usize| number(&row[c]);
+                    assert_eq!(at(0), want.0 as f64);
+                    assert_eq!(at(1), want.1, "{title} size");
+                    close(at(2), want.2, 1e-9);
+                    close(at(3), want.3, 1e-9);
+                    close(at(4), want.4, 1e-9);
+                    close(at(5), want.5, 1e-9);
+                    let nodes = match &row[6] {
+                        Cell::Text(t) => t.clone(),
+                        other => panic!("{other:?}"),
+                    };
+                    let listed: Vec<String> = want.6.iter().map(|n| n.to_string()).collect();
+                    assert_eq!(nodes, listed.join(", "), "{title} nodes of {}", want.0);
+                }
+                // the 100% row holds every case: gain 100%, the response of the sample, index 100
+                let last = found.rows.last().expect("a row");
+                close(number(&last[3]), 100.0, 1e-9);
+                close(number(&last[5]), 100.0, 1e-9);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_cut_on_a_node_boundary_starts_the_next_percentile_with_the_next_node() {
+    // two nodes of 50 cases each: the 25% and 50% cuts end inside or at the end of the first,
+    // 75% and 100% belong to the second
+    let mut source = String::from("DATA LIST FREE / y a.\nBEGIN DATA\n");
+    for i in 0..50 {
+        source.push_str(&format!("{} 1\n", if i < 40 { 1 } else { 2 }));
+    }
+    for i in 0..50 {
+        source.push_str(&format!("{} 2\n", if i < 10 { 1 } else { 2 }));
+    }
+    source.push_str("END DATA.\n");
+    let mut engine = Engine::default();
+    run(&mut engine, &source);
+    let tables = run(
+        &mut engine,
+        "TREE y [n] BY a [n] /GROWTHLIMIT MINPARENTSIZE=20 MINCHILDSIZE=10 /DEPCATEGORIES TARGET=[1] \
+         /GAIN TYPE=[PTILE] INCREMENT=25 /TREE DISPLAY=NONE.",
+    );
+    let t = table(&tables, "Gain Summary for Percentiles");
+    let nodes: Vec<String> = t.rows.iter().map(|r| text_of(&r[6])).collect();
+    assert_eq!(nodes, ["1", "1", "2", "2"]);
+    let gains: Vec<f64> = t.rows.iter().map(|r| number(&r[2])).collect();
+    assert_eq!(gains, [20.0, 40.0, 45.0, 50.0]);
+    let sizes: Vec<f64> = t.rows.iter().map(|r| number(&r[1])).collect();
+    assert_eq!(sizes, [25.0, 50.0, 75.0, 100.0]);
+}
+
+#[test]
+fn gain_types_choose_the_tables_and_category_table_no_removes_them_all() {
+    let mut engine = engine();
+    let both = run(
+        &mut engine,
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] /METHOD TYPE=CRT {SMALL} /DEPCATEGORIES TARGET=[1] \
+             /GAIN TYPE=[NODE, PTILE] /TREE DISPLAY=NONE."
+        ),
+    );
+    let titles: Vec<&str> = both.iter().map(|t| t.title.as_str()).collect();
+    assert!(
+        titles.contains(&"Gain Summary for Nodes")
+            && titles.contains(&"Gain Summary for Percentiles")
+    );
+    let none = run(
+        &mut engine,
+        &format!(
+            "TREE y3 [n] BY x1 [s] x2 [s] /METHOD TYPE=CRT {SMALL} /DEPCATEGORIES TARGET=[1] \
+             /GAIN CATEGORYTABLE=NO TYPE=[NODE, PTILE] /TREE DISPLAY=NONE."
+        ),
+    );
+    assert!(none.iter().all(|t| !t.title.starts_with("Gain Summary")));
+}

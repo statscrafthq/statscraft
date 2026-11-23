@@ -102,8 +102,15 @@ impl Gain<'_> {
 
 /// One row of a percentile gain table.
 pub(super) struct Percentile {
+    /// The percentile, p q.
+    pub percent: usize,
+    /// The number of cases in it, rounded (halves away from zero).
+    pub size: f64,
+    pub gain: f64,
     pub gain_share: f64,
     pub score: f64,
+    /// The terminal nodes that belong to it.
+    pub nodes: Vec<usize>,
 }
 
 impl Gain<'_> {
@@ -120,13 +127,15 @@ impl Gain<'_> {
             cumulative.push(running);
         }
         let last = order.len() - 1;
-        // the first node whose cumulative count reaches the cut
+        // the first node whose cumulative count reaches the cut, and the first that passes it
         let reaching = |cut: f64| {
             (0..=last)
                 .find(|&k| cumulative[k] >= cut * (1.0 - 1e-12))
                 .unwrap_or(last)
         };
+        let passing = |cut: f64| (0..=last).find(|&k| cumulative[k] > cut * (1.0 + 1e-12));
         let mut rows = Vec::new();
+        let mut previous_cut = 0.0;
         for percent in (q..=100).step_by(q) {
             let cut = total * percent as f64 / 100.0;
             let k = reaching(cut);
@@ -143,14 +152,26 @@ impl Gain<'_> {
                 before(|f| f.w) + part * f.w,
                 before(|f| f.a) + part * f.a,
             );
+            // the nodes from the one that holds the previous cut (the next one when that cut falls
+            // on a boundary) to the one that holds this cut
+            let from = if percent == q {
+                0
+            } else {
+                passing(previous_cut).unwrap_or(last)
+            };
             rows.push(Percentile {
+                percent,
+                size: cut.round(),
+                gain,
                 gain_share: if target > 0.0 {
                     gain / target
                 } else {
                     f64::NAN
                 },
                 score: if w > 0.0 { a / w } else { f64::NAN },
+                nodes: order[from.min(k)..=k].to_vec(),
             });
+            previous_cut = cut;
         }
         rows
     }
@@ -186,7 +207,8 @@ impl Context<'_> {
         empirical_priors(self.command)
     }
 
-    /// The node-by-node gain tables, a table for each sample and target category.
+    /// The gain tables, node by node and by percentile as asked, a table for each sample and target
+    /// category.
     pub(super) fn node_tables(&self, out: &mut Vec<Table>) {
         if !self.command.gain_table {
             return;
@@ -203,7 +225,12 @@ impl Context<'_> {
                     target: j,
                     empirical: self.empirical(),
                 };
-                out.push(self.node_table(label, &gain, &training));
+                if self.command.gain_node {
+                    out.push(self.node_table(label, &gain, &training));
+                }
+                if self.command.gain_ptile {
+                    out.push(self.percentile_table(label, &gain, &training));
+                }
             }
         }
     }
@@ -303,6 +330,84 @@ impl Context<'_> {
             row_headers: 1,
             columns,
             column_groups: groups,
+            rows,
+            formats,
+            caption: Some(format!(
+                "Target category: {}. Dependent variable: {}.",
+                self.class_labels[j], self.dependent
+            )),
+            outline: None,
+            hidden: false,
+            cell_stats: None,
+            decorations: Vec::new(),
+            style: Default::default(),
+        }
+    }
+
+    /// The percentile gain table of a sample and target category: for every percentile the number
+    /// of cases, the gain count and share, the response and the index, and the terminal nodes that
+    /// belong to it.
+    fn percentile_table(&self, label: &str, gain: &Gain, training: &Gain) -> Table {
+        let j = gain.target;
+        let base = gain.base();
+        let order = training.order(self.terminals, self.command.gain_ascending);
+        let rows: Vec<Vec<Cell>> = gain
+            .percentiles(&order, self.command.gain_increment)
+            .iter()
+            .map(|r| {
+                let valid = |x: f64| (!x.is_nan()).then_some(x);
+                vec![
+                    Cell::Number(r.percent as f64),
+                    Cell::Number(r.size),
+                    Cell::Number(r.gain),
+                    valid(r.gain_share).map_or(Cell::Empty, |g| Cell::Number(100.0 * g)),
+                    valid(r.score).map_or(Cell::Empty, |s| Cell::Number(100.0 * s)),
+                    match valid(r.score) {
+                        Some(s) if base > 0.0 => Cell::Number(100.0 * s / base),
+                        _ => Cell::Empty,
+                    },
+                    text(
+                        r.nodes
+                            .iter()
+                            .map(|t| t.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                ]
+            })
+            .collect();
+        let columns: Vec<String> = [
+            "Percentile",
+            "N",
+            "Gain N",
+            "Gain Percent",
+            "Response",
+            "Index",
+            "Nodes",
+        ]
+        .map(String::from)
+        .to_vec();
+        let formats = vec![
+            vec![
+                "F8.0".to_string(),
+                "F8.0".into(),
+                "F8.2".into(),
+                "PCT6.1".into(),
+                "PCT6.1".into(),
+                "PCT6.1".into(),
+                String::new(),
+            ];
+            rows.len()
+        ];
+        Table {
+            title: if self.validated {
+                format!("Gain Summary for Percentiles ({label} Sample)")
+            } else {
+                "Gain Summary for Percentiles".into()
+            },
+            row_headers: 1,
+            column_groups: vec![Vec::new(); columns.len()],
+            columns,
             rows,
             formats,
             caption: Some(format!(

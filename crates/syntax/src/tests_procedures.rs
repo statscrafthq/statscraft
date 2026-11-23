@@ -1371,6 +1371,26 @@ fn tree_costs() {
 }
 
 #[test]
+fn tree_gain_types() {
+    let t = tree_of("TREE y BY x.");
+    assert_eq!(
+        (t.gain_node, t.gain_ptile, t.gain_increment),
+        (true, false, 10)
+    );
+    let t = tree_of("TREE y BY x /GAIN TYPE=[PTILE] INCREMENT=5.");
+    assert_eq!(
+        (t.gain_node, t.gain_ptile, t.gain_increment),
+        (false, true, 5)
+    );
+    let t = tree_of("TREE y BY x /GAIN TYPE=[NODE, PTILE].");
+    assert_eq!((t.gain_node, t.gain_ptile), (true, true));
+    // another increment keeps 10, with a warning
+    let t = tree_of("TREE y BY x /GAIN INCREMENT=15.");
+    assert_eq!(t.gain_increment, 10);
+    assert_eq!(t.ignored.len(), 1, "{:?}", t.ignored);
+}
+
+#[test]
 fn tree_errors() {
     let message = |source: &str| err(source).message;
     assert_eq!(
@@ -1405,7 +1425,10 @@ fn tree_errors() {
         message("TREE y BY x /COSTS CUSTOM=1."),
         "unexpected end of command"
     );
-    assert!(message("TREE y BY x /GAIN TYPE=[PTILE].").contains("PTILE"));
+    assert_eq!(
+        message("TREE y BY x /GAIN TYPE=[DECILE]."),
+        "unexpected word DECILE"
+    );
     assert!(message("TREE y BY x /PRINT NONE RISK.").contains("NONE"));
     assert!(message("TREE y BY x /GROWTHLIMIT MINPARENTSIZE=50.").contains("MINCHILDSIZE"));
     assert!(message("TREE y BY x /PRINT RISK /PRINT CPS.").contains("given twice"));

@@ -4932,8 +4932,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the tree, assign its nodes and weigh the risk. The gain tables and charts of a CRT or QUEST tree whose priors are not the data's\n\
                  (EQUAL, CUSTOM, or altered by costs) count the nodes by their probabilities under the priors: the size\n\
                  share, the response (the probability of the target category in the node) and the index (over the\n\
-                 prior of the target category); priors from the data, and CHAID, count cases. Not supported yet:\n\
-                 SPLITMERGED=YES, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
+                 prior of the target category); priors from the data, and CHAID, count cases. GAIN TYPE=[NODE, PTILE] chooses the tables: NODE lists the terminal nodes (with cumulative\n\
+                 figures unless CUMULATIVE=NO), PTILE the percentile groups of INCREMENT percent (1, 2, 5, 10, 20 or 25,\n\
+                 10 by default) with the cases in each, the gain count and share, the response, the index and the nodes\n\
+                 it holds; the node at a cut counts in proportion to the part of it below the cut. Not supported yet:\n\
+                 SPLITMERGED=YES, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,
