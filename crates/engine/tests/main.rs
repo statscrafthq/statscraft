@@ -66,6 +66,7 @@ mod manova;
 mod matrix;
 mod matrix_data;
 mod matrix_files;
+mod means_r;
 mod mixed;
 mod mult_response;
 mod multiple_correspondence;
