@@ -1651,11 +1651,6 @@ fn not_yet(what: &str) -> Error {
 
 impl Engine {
     pub(crate) fn genlinmixed(&mut self, command: &GenLinMixed) -> Result<Vec<Table>, Error> {
-        if command.random.is_empty() && command.repeated.is_empty() {
-            return Err(not_yet(
-                "a model without RANDOM or REPEATED_MEASURES (use GENLIN for a model with fixed effects only)",
-            ));
-        }
         let scale_min = self.scale_min();
         let data = self.active()?;
         let same = |a: &str, b: &str| a.eq_ignore_ascii_case(b);

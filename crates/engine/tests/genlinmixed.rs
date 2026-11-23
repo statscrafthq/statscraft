@@ -265,10 +265,6 @@ fn normal_identity_is_mixed_itself() {
 fn errors_for_what_is_not_supported_or_wrong() {
     let cases = [
         (
-            format!("{BINARY}GENLINMIXED /FIELDS TARGET=cured /FIXED EFFECTS=dose."),
-            "without RANDOM or REPEATED_MEASURES",
-        ),
-        (
             format!(
                 "{COUNTS}GENLINMIXED /DATA_STRUCTURE SUBJECTS=person REPEATED_MEASURES=person /FIELDS TARGET=score."
             ),
@@ -1125,5 +1121,111 @@ GENLINMIXED /DATA_STRUCTURE SUBJECTS=grp /FIELDS TARGET=r TRIALS=FIELD(m)
             r,
             "Pearson residual",
         );
+    }
+}
+
+#[test]
+fn a_model_with_fixed_effects_only_is_a_generalized_linear_model() {
+    // R: glm(I(cured == 0) ~ dose + relevel(factor(arm), "2"), binomial) with epsilon 1e-14, the
+    // t tests on n - p = 93 degrees of freedom
+    let tables = run(&format!(
+        "{BINARY}GENLINMIXED /FIELDS TARGET=cured\n/FIXED EFFECTS=dose arm /BUILD_OPTIONS PCONVERGE=1E-10."
+    ));
+    let fixed = "Estimates of Fixed Effects";
+    for (row, b, se, t, sig) in [
+        (
+            "Intercept",
+            -0.0250061190935,
+            0.625059604912,
+            -0.0400059752653,
+            0.9681741208815,
+        ),
+        (
+            "dose",
+            -0.3076394568578,
+            0.197113647426,
+            -1.5607212431758,
+            0.1219861701231,
+        ),
+        (
+            "[arm=1]",
+            0.8714343766572,
+            0.438794326699,
+            1.9859745754077,
+            0.0499804797509,
+        ),
+    ] {
+        close(value(&tables, fixed, row, "Estimate"), b, row);
+        close(value(&tables, fixed, row, "Std. Error"), se, row);
+        close(value(&tables, fixed, row, "t"), t, row);
+        close(value(&tables, fixed, row, "Sig."), sig, row);
+        close(value(&tables, fixed, row, "df"), 93.0, row);
+    }
+    close(
+        nth(&tables, fixed, 2, "Lower Bound"),
+        7.58065738209e-5,
+        "lower",
+    );
+    close(
+        nth(&tables, fixed, 2, "Upper Bound"),
+        1.7427929467405,
+        "upper",
+    );
+    let tests = "Type III Tests of Fixed Effects";
+    close(
+        value(&tables, tests, "arm", "F"),
+        1.9859745754077_f64.powi(2),
+        "F of arm",
+    );
+    // the scale of a binomial model is 1: no covariance parameter, so no such table
+    assert!(
+        tables
+            .iter()
+            .all(|t| t.title != "Estimates of Covariance Parameters")
+    );
+    // a normal target: lm() with the residual variance on n - p degrees of freedom
+    let tables = run(&format!(
+        "{COUNTS}GENLINMIXED /FIELDS TARGET=score\n/FIXED EFFECTS=treat time /BUILD_OPTIONS PCONVERGE=1E-10."
+    ));
+    for (row, b, se) in [
+        ("Intercept", 10.478880952380937, 0.483183605105),
+        ("[treat=1]", 0.182333333333, 0.474779770899),
+        ("time", 1.519571428571, 0.695006419582),
+    ] {
+        close(value(&tables, fixed, row, "Estimate"), b, row);
+        close(value(&tables, fixed, row, "Std. Error"), se, row);
+        close(value(&tables, fixed, row, "df"), 57.0, row);
+    }
+    let covariance = table(&tables, "Estimates of Covariance Parameters");
+    assert_eq!(covariance.rows.len(), 1);
+    close(
+        nth(&tables, "Estimates of Covariance Parameters", 0, "Estimate"),
+        3.381237462824,
+        "residual",
+    );
+}
+
+#[test]
+fn a_nominal_target_with_fixed_effects_only_is_the_multinomial_logit() {
+    // R: nnet::multinom, the last category (c) as the reference; its optimizer is good to
+    // about 1e-6, so these agree to 1e-5
+    let tables = run(&format!(
+        "{NOMINAL}GENLINMIXED /FIELDS TARGET=choice\n/FIXED EFFECTS=x2 /BUILD_OPTIONS PCONVERGE=1E-10."
+    ));
+    let fixed = "Estimates of Fixed Effects";
+    for (row, b, se) in [
+        ("choice = a: Intercept", 0.197608165, 0.4632699355),
+        ("choice = a: x2", -0.4221423171, 0.2004291782),
+        ("choice = b: Intercept", 0.432773240, 0.4826063795),
+        ("choice = b: x2", -0.7362171148, 0.2374469122),
+    ] {
+        let near = |got: f64, want: f64| (got - want).abs() < 1e-5;
+        let (got_b, got_se) = (
+            value(&tables, fixed, row, "Estimate"),
+            value(&tables, fixed, row, "Std. Error"),
+        );
+        assert!(near(got_b, b), "{row}: {got_b} vs {b}");
+        assert!(near(got_se, se), "{row}: {got_se} vs {se}");
+        close(value(&tables, fixed, row, "df"), 116.0, row);
     }
 }

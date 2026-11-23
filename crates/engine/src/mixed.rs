@@ -3466,13 +3466,16 @@ impl Engine {
         for (k, groups) in random_groups.iter().enumerate() {
             push_block(&model.blocks[k + 1], groups.clone());
         }
-        tables.push(table(
-            "Estimates of Covariance Parameters",
-            2,
-            columns,
-            cov_rows,
-            Some(caption.clone()),
-        ));
+        // a generalized linear model with fixed effects only and a fixed scale has none
+        if !cov_rows.is_empty() {
+            tables.push(table(
+                "Estimates of Covariance Parameters",
+                2,
+                columns,
+                cov_rows,
+                Some(caption.clone()),
+            ));
+        }
         if command.print.g && command.random.is_empty() {
             warnings.push("MIXED: PRINT G needs a RANDOM subcommand and is ignored".into());
         }

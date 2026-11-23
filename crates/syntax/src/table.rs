@@ -4793,7 +4793,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  function, by restricted likelihood as MIXED does, then updates the means with the predicted\n\
                  random effects, until no covariance parameter changes by more than PCONVERGE relative to its\n\
                  size. REPEATED_MEASURES orders the cases of each subject by these fields and lets their residuals\n\
-                 be correlated as COVARIANCE_TYPE says; a model needs RANDOM or REPEATED_MEASURES. The scale is 1\n\
+                 be correlated as COVARIANCE_TYPE says; a model with neither is a generalized linear model of the fixed effects. The scale is 1\n\
                  for BINOMIAL, POISSON and NEGATIVE_BINOMIAL without repeated measures and estimated otherwise;\n\
                  NORMAL with IDENTITY is MIXED itself. NEGATIVE_BINOMIAL takes its k from the model without\n\
                  random effects and keeps it. Each RANDOM must name subjects from DATA_STRUCTURE. MAX_ITERATIONS\n\
@@ -4814,9 +4814,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  by the logit, with its own parameters and random effects for each other category. Neither takes\n\
                  REPEATED_MEASURES; EMMEANS is ignored with a warning. SAVE gives the predicted category, the\n\
                  probabilities (cumulative for an ordinal target), the confidence and the intervals of the\n\
-                 probabilities. Not supported yet: SAVE PEARSON_RESIDUALS of a multinomial target, a model with\n\
-                 neither RANDOM nor REPEATED_MEASURES, the spatial and Kronecker covariance types,\n\
-                 KRONECKER_MEASURES, SPCOORDS, GROUPING and INPUTS_CATEGORY_ORDER other than ASCENDING.",
+                 probabilities. Not supported yet: SAVE PEARSON_RESIDUALS of a multinomial target, the spatial and Kronecker\n\
+                 covariance types, KRONECKER_MEASURES, SPCOORDS, GROUPING and INPUTS_CATEGORY_ORDER other than ASCENDING.",
         example: "GENLINMIXED /DATA_STRUCTURE SUBJECTS=clinic /FIELDS TARGET=cured /TARGET_OPTIONS DISTRIBUTION=BINOMIAL LINK=LOGIT /FIXED EFFECTS=dose /RANDOM USE_INTERCEPT=TRUE SUBJECTS=clinic.",
         parse: genlinmixed::genlinmixed,
     },
