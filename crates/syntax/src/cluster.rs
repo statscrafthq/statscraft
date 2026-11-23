@@ -337,7 +337,8 @@ fn cluster_keyword(p: &mut Parser) -> bool {
 /// `(file | dataset | *)` of MATRIX IN or OUT: None for `*`.
 pub(crate) fn matrix_source(p: &mut Parser) -> PResult<Option<String>> {
     p.expect(Punct::LParen)?;
-    let source = if p.eat(Punct::Star) {
+    // empty parentheses name the active dataset too (MANOVA's manual allows them)
+    let source = if p.eat(Punct::Star) || p.at(Punct::RParen) {
         None
     } else {
         Some(crate::files::dataset_or_file(p)?)

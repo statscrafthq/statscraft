@@ -1236,7 +1236,7 @@ impl Engine {
                 file.push("N", "", of(&|g| g.w));
                 level_values.extend([Some(*level); 3]);
             }
-            file.factor = Some((factor.name().to_string(), level_values));
+            file.factors = vec![(factor.name().to_string(), level_values)];
             *matrix_part = Some(self.matrix_part("ONEWAY", &file)?);
         }
         self.charts.extend(charts);

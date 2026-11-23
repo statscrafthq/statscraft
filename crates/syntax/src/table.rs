@@ -3464,7 +3464,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20            [ALPHA(value)]]]\n\
                  \x20  [/ANALYSIS[(CONDITIONAL | UNCONDITIONAL)]=dependents [WITH covariates]\n\
                  \x20     | (dependents [WITH covariates] [/ ...]) [WITH covariates]]\n\
-                 \x20  [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]]\n\
+                 \x20  [/MISSING=[LISTWISE] [EXCLUDE | INCLUDE]] [/MATRIX=IN(file | dataset | *) OUT(file | dataset | *)]\n\
                  \x20  [/DESIGN=term [term ...]] [/DESIGN ...].\n\
                  term: effect [+ effect ...] [= n] [VS WITHIN | RESIDUAL | WR | n], or CONSTANT, or MUPLUS before a term;\n\
                  effect: item [BY item ...] [WITHIN item [BY item ...] ...], or MWITHIN factor(n); item: factor[(n)],\n\
@@ -3557,7 +3557,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  dependents are the cells and its covariates after WITH the constant ones). Several groups in\n\
                  parentheses separated by slashes are separate analyses, each with its own tables; CONDITIONAL makes the\n\
                  variables of the earlier groups covariates of the later ones, and covariates after the closing\n\
-                 parenthesis go to every group. A variable is named once on the subcommand.",
+                 parenthesis go to every group. A variable is named once on the subcommand.\n\
+                 MATRIX=OUT(file | dataset | *) writes the cells and the pooled within-cells moments: records N (the total),\n\
+                 N and MEAN of every non-empty cell with its factor values between ROWTYPE_ and VARNAME_, STDDEV (the\n\
+                 root of the within-cells mean square) and CORR (the within-cells correlations) over the dependents and\n\
+                 covariates. MATRIX=IN(file | dataset | *) runs the analyses from such a file, with the tables the data\n\
+                 would give. CELLINFO, HOMOGENEITY, RESIDUALS and PLOT need the cases and are refused with IN. A file\n\
+                 CORRELATIONS wrote (N, MEAN, STDDEV, CORR) is one cell without factors.",
         example: "MANOVA score1 score2 BY method(1,3) school(1,2) WITH pretest /PRINT=SIGNIF(EIGEN) /DESIGN.\n\
                   MANOVA t1 t2 t3 BY method(1,3) /WSFACTORS=trial(3) /PRINT=SIGNIF(GG HF) /DESIGN.",
         parse: manova::manova,

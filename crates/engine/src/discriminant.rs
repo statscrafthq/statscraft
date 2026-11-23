@@ -676,7 +676,7 @@ fn discriminant_matrix(
         file.push("CORR", &name, row);
         by_group.push(None);
     }
-    file.factor = Some((group.to_string(), by_group));
+    file.factors = vec![(group.to_string(), by_group)];
     file
 }
 

@@ -1641,3 +1641,203 @@ fn analysis_with_wsfactors_names_the_cells_and_the_covariates() {
     let expected = [main("y1 y2 y3 BY g(1,2)", ""), second].concat();
     assert_eq!(conditional, expected);
 }
+
+fn matrix_path(name: &str) -> String {
+    let dir = std::env::temp_dir().join(format!("statscraft-manova-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join("m.sav").display().to_string()
+}
+
+/// Two runs' tables agree: the same titles and shapes, texts equal, numbers to 1e-8 relative.
+fn same_tables(got: &[Table], want: &[Table]) {
+    assert_eq!(got.len(), want.len(), "number of tables");
+    for (g, w) in got.iter().zip(want) {
+        assert_eq!((&g.title, &g.columns), (&w.title, &w.columns));
+        assert_eq!(g.rows.len(), w.rows.len(), "{}", g.title);
+        for (rg, rw) in g.rows.iter().zip(&w.rows) {
+            for (cg, cw) in rg.iter().zip(rw) {
+                match (cg, cw) {
+                    (Cell::Number(a), Cell::Number(b)) => assert!(
+                        (a - b).abs() <= 1e-8 * b.abs().max(1.0),
+                        "{} {rg:?} against {rw:?}",
+                        g.title
+                    ),
+                    (a, b) => assert_eq!(format!("{a:?}"), format!("{b:?}"), "{}", g.title),
+                }
+            }
+        }
+    }
+}
+
+fn after_cases(t: Vec<Table>) -> Vec<Table> {
+    t.into_iter().skip(1).collect()
+}
+
+fn engine_after(source: &str) -> Engine {
+    let (commands, errors) = parse(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    for command in &commands {
+        engine
+            .execute(&command.command)
+            .unwrap_or_else(|e| panic!("line {}: {e}", command.first_line));
+    }
+    engine
+}
+
+fn column(engine: &Engine, name: &str) -> Vec<Option<f64>> {
+    match engine.dataset().unwrap().variable(name).unwrap().values() {
+        statscraft_data::Values::Numeric(v) => v.iter().collect(),
+        _ => panic!("{name} is not numeric"),
+    }
+}
+
+/// MATRIX=OUT: the records N (total), N and MEAN of every cell with its factor values, STDDEV
+/// and CORR of the within-cells moments. Base R: the cell means and sizes, and from the
+/// residuals of lm(cbind(y1, y2, x) ~ a * b) (27 df) the pooled standard deviations and
+/// correlations.
+#[test]
+fn matrix_out_writes_the_cells_and_the_within_cells_moments() {
+    let path = matrix_path("out");
+    let engine = engine_after(&format!(
+        "{DATA}\nMANOVA y1 y2 BY a(1,3) b(1,2) WITH x /MATRIX=OUT('{path}') /DESIGN.\nGET FILE='{path}'."
+    ));
+    let names: Vec<&str> = engine.dataset().unwrap().variable_names().collect();
+    assert_eq!(names, ["ROWTYPE_", "a", "b", "VARNAME_", "y1", "y2", "x"]);
+    assert_eq!(engine.dataset().unwrap().case_count(), 17);
+    let (a, b) = (column(&engine, "a"), column(&engine, "b"));
+    let (y1, y2, x) = (
+        column(&engine, "y1"),
+        column(&engine, "y2"),
+        column(&engine, "x"),
+    );
+    let close = |got: Option<f64>, want: f64, what: &str| {
+        let got = got.unwrap_or(f64::NAN);
+        assert!((got - want).abs() < 1e-9, "{what}: {got} against {want}");
+    };
+    // the total number, with no factor values
+    assert_eq!(
+        (a[0], b[0], y1[0], x[0]),
+        (None, None, Some(33.0), Some(33.0))
+    );
+    // cell (1, 1): N then MEAN
+    assert_eq!((a[1], b[1], y1[1]), (Some(1.0), Some(1.0), Some(5.0)));
+    close(y1[2], 17.14, "mean y1");
+    close(y2[2], 37.12, "mean y2");
+    close(x[2], 5.48, "mean x");
+    // cell (3, 2), the last
+    assert_eq!((a[11], b[11], y1[11]), (Some(3.0), Some(2.0), Some(6.0)));
+    close(y1[12], 24.3833333333333, "mean y1");
+    close(y2[12], 38.6166666666667, "mean y2");
+    close(x[12], 5.18333333333333, "mean x");
+    // the pooled records have no factor values
+    assert!(a[13..].iter().chain(&b[13..]).all(Option::is_none));
+    close(y1[13], 2.83953786885, "sd y1");
+    close(y2[13], 3.02584341879, "sd y2");
+    close(x[13], 1.97966514191, "sd x");
+    close(y2[14], 0.479721471633, "r y1 y2");
+    close(x[14], 0.724991550578, "r y1 x");
+    close(x[15], 0.628366252904, "r y2 x");
+    close(y1[16], 0.724991550578, "r x y1");
+    std::fs::remove_file(&path).ok();
+}
+
+/// An analysis from the matrix equals the analysis of the data: designs with and without a
+/// covariate, the univariate and multivariate tests, parameter estimates and adjusted means.
+#[test]
+fn an_analysis_from_the_matrix_equals_the_analysis_of_the_data() {
+    let path = matrix_path("in");
+    let body = "MANOVA y1 y2 BY a(1,3) b(1,2) WITH x";
+    let options = "/PRINT=SIGNIF(UNIV EIGEN) PARAMETERS(ESTIM) ERROR(COR) /PMEANS /DESIGN /DESIGN a b /DESIGN a BY b";
+    let data = after_cases(run(&format!(
+        "{DATA}\n{body} /MATRIX=OUT('{path}') {options}."
+    )));
+    let from = after_cases(run(&format!(
+        "{DATA}\n{body} /MATRIX=IN('{path}') {options}."
+    )));
+    assert!(data.len() > 10);
+    same_tables(&from, &data);
+    // the active dataset can be the matrix file: IN(*) and IN()
+    let star = after_cases(run(&format!(
+        "GET FILE='{path}'.\n{body} /MATRIX=IN(*) {options}."
+    )));
+    same_tables(&star, &data);
+    let empty = after_cases(run(&format!(
+        "GET FILE='{path}'.\n{body} /MATRIX=IN() {options}."
+    )));
+    same_tables(&empty, &data);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn a_repeated_measures_analysis_from_the_matrix() {
+    let path = matrix_path("rm");
+    let body = "MANOVA y1 y2 y3 BY g(1,2) /WSFACTORS=t(3)";
+    let options = "/PRINT=SIGNIF(UNIV AVERF HF GG) /DESIGN";
+    let data = after_cases(run(&format!(
+        "{TIMES}\n{body} /MATRIX=OUT('{path}') {options}."
+    )));
+    let from = after_cases(run(&format!(
+        "{TIMES}\n{body} /MATRIX=IN('{path}') {options}."
+    )));
+    assert!(data.len() > 3);
+    same_tables(&from, &data);
+    std::fs::remove_file(&path).ok();
+}
+
+/// A matrix of correlations (CORRELATIONS writes N, MEAN, STDDEV and CORR) is read as one cell
+/// without factors.
+#[test]
+fn a_correlations_matrix_is_one_cell() {
+    let path = matrix_path("corr");
+    let data = after_cases(run(&format!(
+        "{DATA}\nMANOVA y1 WITH y2 x /PRINT=SIGNIF(UNIV) PARAMETERS(ESTIM) /DESIGN."
+    )));
+    let from = after_cases(run(&format!(
+        "{DATA}\nCORRELATIONS y1 y2 x /MATRIX=OUT('{path}').\n\
+         MANOVA y1 WITH y2 x /MATRIX=IN('{path}') /PRINT=SIGNIF(UNIV) PARAMETERS(ESTIM) /DESIGN."
+    )));
+    // the CORRELATIONS tables that came first are not part of the comparison
+    let from: Vec<Table> = from
+        .into_iter()
+        .filter(|t| {
+            [
+                "Tests of Significance",
+                "Regression Coefficients",
+                "Parameter Estimates",
+            ]
+            .contains(&t.title.as_str())
+        })
+        .collect();
+    same_tables(&from, &data);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn matrix_input_refuses_what_needs_the_cases() {
+    let path = matrix_path("err");
+    run(&format!(
+        "{DATA}\nMANOVA y1 y2 BY a(1,3) b(1,2) /MATRIX=OUT('{path}') /DESIGN."
+    ));
+    for (tail, words) in [
+        ("/PRINT=CELLINFO(MEANS) /DESIGN", "CELLINFO"),
+        ("/PRINT=HOMOGENEITY /DESIGN", "HOMOGENEITY"),
+        ("/RESIDUALS=CASEWISE /DESIGN", "RESIDUALS"),
+    ] {
+        let message = run_error(&format!(
+            "{DATA}\nMANOVA y1 y2 BY a(1,3) b(1,2) /MATRIX=IN('{path}') {tail}."
+        ));
+        assert!(message.contains(words), "{tail}: {message}");
+    }
+    for (list, words) in [
+        ("y1 y2 BY a(1,3) zz(1,2)", "zz"),
+        ("y1 y9 BY a(1,3) b(1,2)", "y9"),
+        ("y1 y2 BY a(1,3)", "does not name as a factor"),
+    ] {
+        let message = run_error(&format!(
+            "{DATA}\nMANOVA {list} /MATRIX=IN('{path}') /DESIGN."
+        ));
+        assert!(message.contains(words), "{list}: {message}");
+    }
+    std::fs::remove_file(&path).ok();
+}

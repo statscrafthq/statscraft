@@ -25,9 +25,9 @@ use statscraft_syntax::Command;
 pub(crate) struct MatrixRows {
     pub names: Vec<String>,
     pub labels: Vec<Option<String>>,
-    /// A variable between ROWTYPE_ and VARNAME_ (ONEWAY's independent variable): its name and
-    /// its value in each record.
-    pub factor: Option<(String, Vec<Option<f64>>)>,
+    /// Variables between ROWTYPE_ and VARNAME_ (ONEWAY's independent variable, MANOVA's
+    /// factors): each with its name and its value in every record.
+    pub factors: Vec<(String, Vec<Option<f64>>)>,
     pub rows: Vec<(String, String, Vec<f64>)>,
 }
 
@@ -36,7 +36,7 @@ impl MatrixRows {
         Self {
             names,
             labels,
-            factor: None,
+            factors: Vec::new(),
             rows: Vec::new(),
         }
     }
@@ -104,6 +104,37 @@ impl Materials {
                 level
                     .is_finite()
                     .then(|| (level, names.iter().map(|n| self.number(n, r)).collect()))
+            })
+            .collect()
+    }
+
+    /// The variables between ROWTYPE_ and VARNAME_, in the order of the file.
+    pub(crate) fn grouping_names(&self) -> Vec<String> {
+        let names: Vec<&str> = self.data.variable_names().collect();
+        let at = |n: &str| names.iter().position(|x| *x == n);
+        match (at(&self.rowtype), at(&self.varname)) {
+            (Some(r), Some(v)) if v > r => names[r + 1..v].iter().map(|n| n.to_string()).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Every record of `kind` with its values of the grouping variables `groups` (None where
+    /// missing) and of the variables `names`, in the order of the file.
+    pub(crate) fn records(
+        &self,
+        kind: &str,
+        groups: &[String],
+        names: &[String],
+    ) -> Vec<(Vec<Option<f64>>, Vec<f64>)> {
+        self.of_kind(kind)
+            .map(|r| {
+                (
+                    groups
+                        .iter()
+                        .map(|g| Some(self.number(g, r)).filter(|v| v.is_finite()))
+                        .collect(),
+                    names.iter().map(|n| self.number(n, r)).collect(),
+                )
             })
             .collect()
     }
@@ -302,7 +333,7 @@ impl Engine {
         let n = m.rows.len();
         let mut part = Dataset::new(n);
         part.set_string_values("ROWTYPE_", 8, m.rows.iter().map(|r| r.0.clone()).collect())?;
-        if let Some((name, values)) = &m.factor {
+        for (name, values) in &m.factors {
             part.set_numeric_values(name, values.clone())?;
         }
         let width = m.names.iter().map(String::len).max().unwrap_or(0).max(8);

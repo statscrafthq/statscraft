@@ -36,7 +36,7 @@ use crate::matrix::{Matrix, inverse};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::Values;
+use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{
     Contrast, FactorCriteria, Manova, ManovaAnalysis, ManovaCriterion, ManovaDesign, ManovaDiscrim,
     ManovaEffect, ManovaError, ManovaInterval, ManovaItem, ManovaPcomps, ManovaPower, ManovaPrint,
@@ -383,8 +383,26 @@ fn rao(lambda: f64, p: f64, q: f64, ne: f64) -> (f64, f64, f64) {
     ((1.0 - root) * df2 / (root * p * q), p * q, df2)
 }
 
+mod matrix;
+
 impl Engine {
     pub(crate) fn manova(&mut self, c: &Manova) -> Result<Vec<Table>, Error> {
+        let mut part = None;
+        let result = self.manova_inner(c, &mut part);
+        if let (Ok(_), Some(part)) = (&result, part) {
+            self.matrix_parts.1.push(part);
+        }
+        result
+    }
+
+    fn manova_inner(
+        &mut self,
+        c: &Manova,
+        matrix_part: &mut Option<Dataset>,
+    ) -> Result<Vec<Table>, Error> {
+        if let Some(source) = &c.matrix.input {
+            return self.manova_from_matrix(c, source.as_ref(), matrix_part);
+        }
         let data = self.active()?;
         let deps = self.expand(&c.dependents)?;
         let mut covs = self.expand(&c.covariates)?;
@@ -504,6 +522,21 @@ impl Engine {
             n,
         };
         tables.extend(setup.cell_tables(c, deps.len())?);
+        if c.matrix.output.is_some() {
+            *matrix_part = Some(self.manova_matrix_out(&setup)?);
+        }
+        self.manova_designs(c, &setup, tables, deps.len(), nvary)
+    }
+
+    /// The designs of the command on the cases `setup` holds.
+    fn manova_designs(
+        &mut self,
+        c: &Manova,
+        setup: &Setup,
+        mut tables: Vec<Table>,
+        ndeps: usize,
+        nvary: usize,
+    ) -> Result<Vec<Table>, Error> {
         if c.implicit_design {
             self.warn(
                 "MANOVA: the command does not end with DESIGN, so a full factorial design is added",
@@ -516,9 +549,9 @@ impl Engine {
                 String::new()
             };
             if c.wsfactors.is_empty() {
-                tables.extend(self.transformed_design(&setup, d, deps.len(), &caption)?);
+                tables.extend(self.transformed_design(setup, d, ndeps, &caption)?);
             } else {
-                tables.extend(self.repeated_design(&setup, c, d, deps.len(), nvary, &caption)?);
+                tables.extend(self.repeated_design(setup, c, d, ndeps, nvary, &caption)?);
             }
         }
         Ok(tables)

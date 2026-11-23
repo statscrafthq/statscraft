@@ -295,9 +295,11 @@ pub struct Manova {
     /// HOMOGENEITY: Bartlett-Box F, Cochran's C, Box's M.
     pub homogeneity: [bool; 3],
     pub omeans: Option<ManovaOmeans>,
+    /// MATRIX: the matrix data file read (IN) and written (OUT).
+    pub matrix: crate::matrix_io::MatrixIo,
 }
 
-const KNOWN: [&str; 2] = ["PLOT", "MATRIX"];
+const KNOWN: [&str; 1] = ["PLOT"];
 
 /// `(VARIMAX | EQUAMAX | QUARTIMAX | NOROTATE)` after ROTATE; VARIMAX when no parentheses follow.
 fn rotate(p: &mut Parser) -> PResult<Rotation> {
@@ -761,6 +763,7 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
         cellinfo: [false; 4],
         homogeneity: [false; 3],
         omeans: None,
+        matrix: crate::matrix_io::MatrixIo::default(),
     };
     let mut d = ManovaDesign {
         terms: None,
@@ -1190,6 +1193,8 @@ pub(crate) fn manova(p: &mut Parser) -> PResult<Command> {
             d.pmeans = Some(o);
         } else if p.eat_keyword("ANALYSIS") {
             d.analysis = Some(analysis(p)?);
+        } else if p.eat_keyword("MATRIX") {
+            crate::matrix_io::matrix_io(p, &mut m.matrix, "MANOVA", false, false)?;
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
             while !at_end(p) {
@@ -1236,6 +1241,20 @@ mod tests {
         let (_, mut errors) = parse(source);
         assert_eq!(errors.len(), 1, "{source}: {errors:?}");
         errors.remove(0).message
+    }
+
+    #[test]
+    fn matrix_in_and_out() {
+        let m = manova("MANOVA a b BY f(1,2) /MATRIX=IN('in.sav') OUT(*) /DESIGN.");
+        assert_eq!(m.matrix.input, Some(Some("in.sav".to_string())));
+        assert_eq!(m.matrix.output, Some(None));
+        let m = manova("MANOVA a b BY f(1,2) /MATRIX=OUT() /MATRIX IN(set) /DESIGN.");
+        assert_eq!(m.matrix.output, Some(None));
+        assert_eq!(m.matrix.input, Some(Some("set".to_string())));
+        let m = manova("MANOVA a b BY f(1,2) /DESIGN.");
+        assert_eq!(m.matrix.input, None);
+        assert!(error("MANOVA a b BY f(1,2) /MATRIX=IN(x) IN(y) /DESIGN.").contains("only once"));
+        assert!(error("MANOVA a b BY f(1,2) /MATRIX=NONE /DESIGN.").contains("unexpected"));
     }
 
     #[test]
