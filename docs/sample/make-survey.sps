@@ -42,10 +42,13 @@ IF (satisfaction < 1) satisfaction = 1.
 IF (satisfaction > 5) satisfaction = 5.
 IF (RV.UNIFORM(0, 1) < 0.06) satisfaction = 9.
 
-* Three yes or no questions.
-COMPUTE recommend = RV.UNIFORM(0, 1) < 0.15 + 0.15 * MIN(satisfaction, 5).
+* Three yes or no questions. Those who did not know how satisfied they are
+* answer as a neutral customer would.
+COMPUTE #sat = satisfaction.
+IF (satisfaction = 9) #sat = 3.
+COMPUTE recommend = RV.UNIFORM(0, 1) < 0.15 + 0.15 * #sat.
 COMPUTE contacted = RV.UNIFORM(0, 1) < 0.45.
-COMPUTE switching = RV.UNIFORM(0, 1) < 0.55 - 0.09 * MIN(satisfaction, 5).
+COMPUTE switching = RV.UNIFORM(0, 1) < 0.55 - 0.09 * #sat.
 
 * Channels used to reach the provider, one variable per channel.
 COMPUTE ch_web = RV.UNIFORM(0, 1) < 0.7.
