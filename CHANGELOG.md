@@ -2,11 +2,13 @@
 
 ## Unreleased
 
+## 0.30.0 (2026-11-23)
+
 - TREE /PLOT MEAN for a scale dependent: the mean of the first p percent of the cases at each percentile group.
 - TREE /PROFITS CUSTOM=category [revenue expense] ...: profit summary tables (average profit, ROI and index by node, cumulatively and by percentile) for a categorical dependent, and /PLOT PROFIT and ROI.
 - GENLINMIXED accepts a model with neither RANDOM nor REPEATED_MEASURES: a generalized linear model of the fixed effects (it was an error that sent users to GENLIN).
 - TREE /RULES NODES=TOPN(n), TOPPCT(p) and MININDEX(v) write rules for the terminal nodes with the largest index values of the first target category, and OUTFILE='file' writes the rules to a text file.
-- TREE /RULES NODES=TERMINAL | ALL SYNTAX=INTERNAL | SQL | GENERIC TYPE=SCORING | SELECTION SURROGATES LABELS: the tree as rules, in a Rules table: DO IF blocks of the command language (run in the tests and agreeing with SAVE), SQL, or sentences with labels; surrogates and the larger side route cases with missing values as the tree does. TOPN, TOPPCT, MININDEX and OUTFILE come next.
+- TREE /RULES NODES=TERMINAL | ALL SYNTAX=INTERNAL | SQL | GENERIC TYPE=SCORING | SELECTION SURROGATES LABELS: the tree as rules, in a Rules table: DO IF blocks of the command language (run in the tests and agreeing with SAVE), SQL, or sentences with labels; surrogates and the larger side route cases with missing values as the tree does.
 - TREE gain summaries for a scale dependent: the node table gains cumulative size, mean and index (CUMULATIVE=NO leaves them out), GAIN TYPE=[PTILE] INCREMENT=n adds the percentile table, SUMMARYTABLE=NO turns the summaries off, and CATEGORYTABLE no longer does.
 - GENLIN with REPEATED takes ANALYSISTYPE=1(LR) and 3(LR): the generalized score chi-square of each effect (the estimating equations solved under the effect's L matrix) in the Tests of Model Effects.
 - TREE /GAIN TYPE=[NODE, PTILE] INCREMENT=n: percentile gain tables for each target category (and sample), with the cases in each percentile, the gain count and share, response, index and the nodes in it.
@@ -14,14 +16,14 @@
 - ADP /TRANSFORM CONSTRUCTION=YES(ROOT=name) builds new predictors from groups of correlated continuous inputs (their first principal component) for a continuous target, with the selection of the other inputs by partial correlation, written into the preparation syntax.
 - TREE CHAID and exhaustive CHAID accept a scale dependent: categories merge and nodes split by the ANOVA F test of the dependent's means, with the same node tables, risk, gain summary, SAVE and validation as CRT. A numeric dependent without a level is scale, so the default method no longer stops with a request for a level.
 - TREE /PRIORS ADJUST=YES: the priors of a CRT or QUEST tree are altered by the misclassification costs (each prior times the sum of its category's costs), which then count as equal for growing, assignment and risk.
-- TREE /COSTS CUSTOM=actual predicted [cost] ...: nodes are assigned the category of least expected cost, the risk and its error are the mean cost of the assignments (also in split-sample and cross-validation), CRT with the Gini measure counts the costs in its impurity, and pruning uses them. PRIORS ADJUST with custom costs comes next.
+- TREE /COSTS CUSTOM=actual predicted [cost] ...: nodes are assigned the category of least expected cost, the risk and its error are the mean cost of the assignments (also in split-sample and cross-validation), CRT with the Gini measure counts the costs in its impurity, and pruning uses them.
 - GLM EMMEANS COMPARE gives the test of the compared factor: Multivariate Tests in the multivariate model (the four statistics over all dependents), and with WSFACTOR a Univariate Tests table for a between-subjects factor and a Multivariate Tests table for a within-subjects one.
 - TREE validation (split sample and cross-validation) also works for a scale dependent under CRT: the risk is the mean squared deviation from the training node means, with its standard error.
 - GLM with WSFACTOR takes SAVE: the predicted values, residuals and the other keywords of each dependent variable.
 - GLM with WSFACTOR takes CONTRAST, LMATRIX, KMATRIX, MMATRIX, TEST(MMATRIX) and POSTHOC: the hypotheses and multiple comparisons of the between-subjects factors on the average of the cells (or on the transformation MMATRIX gives).
 - TREE /VALIDATION TYPE=CROSSVALIDATION(folds): the Risk table gives the cross-validated estimate (the pooled misses of the fold trees) next to the resubstitution one.
 - GLM with WSFACTOR takes EMMEANS: estimated marginal means of between-subjects and within-subjects factors and their crossings, with pairwise comparisons (COMPARE, ADJ) that use the covariance of the dependent variables.
-- TREE /VALIDATION TYPE=SPLITSAMPLE(percent or variable) with OUTPUT=BOTHSAMPLES or TESTSAMPLE for every method: the tree grows on the training cases, the Risk, Classification and gain tables and charts come for both samples, the test sample's risk drives PRUNE, and SAVE covers all cases. Scale dependents and cross-validation come next.
+- TREE /VALIDATION TYPE=SPLITSAMPLE(percent or variable) with OUTPUT=BOTHSAMPLES or TESTSAMPLE for every method: the tree grows on the training cases, the Risk, Classification and gain tables and charts come for both samples, the test sample's risk drives PRUNE, and SAVE covers all cases.
 - GLM with WSFACTOR takes PRINT HOMOGENEITY, PARAMETER, LOF, RSSCP, TEST(SSCP), TEST(LMATRIX) and GEF: the tables of the original dependent variables under the between-subjects design (Box's M and Levene's tests, parameter estimates, lack of fit, design and SSCP matrices), as the multivariate model prints them.
 
 ## 0.29.0 (2026-11-23)
