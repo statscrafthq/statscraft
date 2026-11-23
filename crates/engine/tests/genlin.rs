@@ -2271,10 +2271,6 @@ fn repeated_errors() {
             "/REPEATED SUBJECT=id WITHINSUBJECT=visits.",
             "cannot be a SUBJECT",
         ),
-        (
-            "/CRITERIA ANALYSISTYPE=3(LR) /REPEATED SUBJECT=id.",
-            "generalized score tests",
-        ),
     ] {
         let e = run_error(&format!(
             "{PANEL}{model} {tail}
@@ -3202,5 +3198,151 @@ fn profile_intervals_of_the_scale_and_of_the_negative_binomial_k() {
             1e-6,
             &format!("{row} upper"),
         );
+    }
+}
+
+/// Twenty-four subjects of four waves: the generalized score statistics come from an own R
+/// implementation of the Algorithms manual's steps for a normal response with the identity link
+/// (the constrained equations solved on the reduced design, the scale from the Pearson moment,
+/// ADJUSTCORR taking off the six parameters of the whole model,
+/// the working correlation re-estimated at every iteration, T = s' M L' (L C L')^- L M s).
+const SCORE_PANEL: &str = "DATA LIST FREE /subj time group x y.\n\
+BEGIN DATA.\n\
+1 1 1 -0.23 3.224 \n\
+1 2 1 0.75 3.801 \n\
+1 3 1 0.33 4.412 \n\
+1 4 1 -1.12 4.317 \n\
+2 1 1 -0.71 2.95 \n\
+2 2 1 -0.73 4.256 \n\
+2 3 1 -1.83 2.3 \n\
+2 4 1 -0.41 3.409 \n\
+3 1 1 0.03 4.201 \n\
+3 2 1 0.91 6.334 \n\
+3 3 1 1.63 6.264 \n\
+3 4 1 0.06 6.777 \n\
+4 1 1 1.85 2.239 \n\
+4 2 1 0.08 2.889 \n\
+4 3 1 1.42 3.096 \n\
+4 4 1 1.46 4.583 \n\
+5 1 1 0.06 4.074 \n\
+5 2 1 -1.52 4.5 \n\
+5 3 1 -0.05 4.292 \n\
+5 4 1 -0.21 5 \n\
+6 1 1 2.1 4.999 \n\
+6 2 1 0.2 3.069 \n\
+6 3 1 0.52 3.33 \n\
+6 4 1 1.68 5.87 \n\
+7 1 1 0.39 0.893 \n\
+7 2 1 -1.28 -0.415 \n\
+7 3 1 -0.58 2.137 \n\
+7 4 1 1.77 2.34 \n\
+8 1 1 -0.21 1.517 \n\
+8 2 1 -0.35 2.522 \n\
+8 3 1 0.59 3.201 \n\
+8 4 1 1.01 2.817 \n\
+9 1 1 -0.02 1.8 \n\
+9 2 1 -0.9 2.772 \n\
+9 3 1 0.91 4.413 \n\
+9 4 1 1.16 4.912 \n\
+10 1 1 -0.46 3.335 \n\
+10 2 1 0.93 2.906 \n\
+10 3 1 -2.1 2.702 \n\
+10 4 1 -1.68 2.024 \n\
+11 1 1 1.77 1.587 \n\
+11 2 1 0.79 1.228 \n\
+11 3 1 -0.48 0.752 \n\
+11 4 1 1.93 1.307 \n\
+12 1 1 -0.38 3.023 \n\
+12 2 1 -1.59 3.578 \n\
+12 3 1 0.21 5.741 \n\
+12 4 1 -1.14 4.655 \n\
+13 1 2 0.49 0.242 \n\
+13 2 2 -1.75 0.619 \n\
+13 3 2 0.5 3.275 \n\
+13 4 2 0.09 1.311 \n\
+14 1 2 0.19 1.888 \n\
+14 2 2 0.83 1.188 \n\
+14 3 2 -0.68 1.901 \n\
+14 4 2 0.3 2.989 \n\
+15 1 2 1.11 2.938 \n\
+15 2 2 0.36 3.35 \n\
+15 3 2 -0.27 3.395 \n\
+15 4 2 -0.2 2.133 \n\
+16 1 2 0.07 3.589 \n\
+16 2 2 -0.87 2.956 \n\
+16 3 2 -0.36 3.873 \n\
+16 4 2 -1.14 3.622 \n\
+17 1 2 -0.82 1.806 \n\
+17 2 2 1.31 3.671 \n\
+17 3 2 -0.26 3.246 \n\
+17 4 2 0.61 4.115 \n\
+18 1 2 0.31 3.313 \n\
+18 2 2 0.05 3.912 \n\
+18 3 2 1.13 4.766 \n\
+18 4 2 -0.56 4.405 \n\
+19 1 2 1.54 1.046 \n\
+19 2 2 -0.06 1.247 \n\
+19 3 2 0.02 1.832 \n\
+19 4 2 -2.09 2.195 \n\
+20 1 2 -0.81 0.813 \n\
+20 2 2 -2.94 1.36 \n\
+20 3 2 -0.02 2.461 \n\
+20 4 2 -0.35 3.71 \n\
+21 1 2 0.04 3.011 \n\
+21 2 2 0.49 1.842 \n\
+21 3 2 -0.66 3.166 \n\
+21 4 2 1 3.962 \n\
+22 1 2 1.07 2.398 \n\
+22 2 2 0.76 2.803 \n\
+22 3 2 -1.46 1.724 \n\
+22 4 2 0.94 4.236 \n\
+23 1 2 -1.87 -0.181 \n\
+23 2 2 -0.25 0.973 \n\
+23 3 2 -0.29 2.195 \n\
+23 4 2 0.22 2.125 \n\
+24 1 2 -1.36 2.138 \n\
+24 2 2 -0.12 0.645 \n\
+24 3 2 -0.45 1.263 \n\
+24 4 2 0.1 0.867 \n\
+END DATA.\n\
+";
+
+#[test]
+fn generalized_score_tests_under_repeated() {
+    for (corr, expected) in [
+        (
+            "INDEPENDENT",
+            [
+                ("group", 3.19291615, 1.0),
+                ("x", 3.96402229, 1.0),
+                ("time", 14.31412766, 3.0),
+            ],
+        ),
+        (
+            "EXCHANGEABLE",
+            [
+                ("group", 2.95464221, 1.0),
+                ("x", 9.70599582, 1.0),
+                ("time", 14.45305757, 3.0),
+            ],
+        ),
+    ] {
+        let t = tables_of(&format!(
+            "{SCORE_PANEL}GENLIN y BY group time WITH x
+  /MODEL group x time DISTRIBUTION=NORMAL LINK=IDENTITY
+  /CRITERIA ANALYSISTYPE=3(LR)
+  /REPEATED SUBJECT=subj WITHINSUBJECT=time CORRTYPE={corr} PCONVERGE=1E-12 MAXITERATIONS=200
+  /PRINT SUMMARY."
+        ));
+        for (row, chi, df) in expected {
+            let tests = "Tests of Model Effects";
+            close(
+                get(&t, tests, row, "Type III / Generalized Score Chi-Square"),
+                chi,
+                1e-6,
+                &format!("{corr} {row}"),
+            );
+            close(get(&t, tests, row, "Type III / df"), df, 1e-12, row);
+        }
     }
 }

@@ -4612,8 +4612,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  its profile too (the coefficients refitted at each value),\n\
                  and the ordinal model and REPEATED keep Wald intervals with a warning. The tolerance only sets how\n\
                  closely the limits are solved. A limit the profile never reaches is left empty.\n\
-                 Not supported yet: OUTFILE, TWEEDIE, INITIAL from a file, and with REPEATED the multinomial distribution and generalized score tests\n\
-                 (ANALYSISTYPE with LR).",
+                 With REPEATED, ANALYSISTYPE=1(LR) or 3(LR) gives generalized score chi-squares instead of likelihood ratios\n\
+                 (the equations solved under L b = 0, T = s' M L' (L C L')^- L M s with the model-based M and robust C).\n\
+                 Not supported yet: OUTFILE, TWEEDIE, INITIAL from a file, and with REPEATED the multinomial distribution.",
         example: "GENLIN visits BY clinic WITH age /MODEL clinic age DISTRIBUTION=NEGBIN(MLE) LINK=LOG OFFSET=logdays /PRINT FIT SUMMARY SOLUTION(EXPONENTIATED) /EMMEANS TABLES=clinic COMPARE=clinic.",
         parse: genlin::genlin,
     },

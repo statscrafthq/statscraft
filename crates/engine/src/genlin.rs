@@ -1733,17 +1733,10 @@ impl Engine {
             None => ScaleMode::Fixed(1.0),
         };
         let repeated = command.repeated.as_ref();
-        if repeated.is_some() {
-            if multinomial {
-                return Err(Error(
-                    "GENLIN: REPEATED with DISTRIBUTION=MULTINOMIAL (ordinal generalized estimating equations) is not supported yet".into(),
-                ));
-            }
-            if crit.lr {
-                return Err(Error(
-                    "GENLIN: ANALYSISTYPE with (LR) under REPEATED (generalized score tests) is not supported yet; use (WALD)".into(),
-                ));
-            }
+        if repeated.is_some() && multinomial {
+            return Err(Error(
+                "GENLIN: REPEATED with DISTRIBUTION=MULTINOMIAL (ordinal generalized estimating equations) is not supported yet".into(),
+            ));
         }
         // the variables, each in one role
         let (response_names, events) = match &command.response {
@@ -2466,20 +2459,14 @@ impl Engine {
         // generalized estimating equations from the fit so far
         let gee_fit = match (repeated, &subjects, glm_fit.as_mut()) {
             (Some(r), Some(s), Some(f)) => {
-                let set = gee::Settings {
-                    family,
-                    link: command.link,
-                    k: result.k,
-                    correlation: &r.correlation,
-                    adjust: r.adjust,
-                    update_scale: scale == ScaleMode::Mle,
-                    maxiterations: r.maxiterations,
-                    pconverge: r.pconverge,
-                    hconverge: r.hconverge,
-                    updatecorr: r.updatecorr,
-                    singular: crit.singular,
-                };
-                let g = gee::fit(&c, &x, s, &set, &result.b, phi).map_err(Error)?;
+                let set = gee::Settings::of(
+                    r,
+                    (family, command.link, result.k),
+                    scale == ScaleMode::Mle,
+                    crit.singular,
+                );
+                let g =
+                    gee::fit(&c, &x, s, &set, (&result.b, phi), result.b.len()).map_err(Error)?;
                 if g.halving_failed {
                     warnings.push("The generalized estimating equations stopped: no shortened step kept every mean valid; the results may not be final".into());
                 } else if !g.converged {
@@ -3390,7 +3377,9 @@ impl Engine {
             let mut blank_lr = false;
             for &t in &types {
                 let group = format!("Type {}", if t == 1 { "I" } else { "III" });
-                let first = if crit.lr {
+                let first = if crit.lr && repeated.is_some() {
+                    "Generalized Score Chi-Square"
+                } else if crit.lr {
                     "Likelihood Ratio Chi-Square"
                 } else {
                     "Wald Chi-Square"
@@ -3410,7 +3399,24 @@ impl Engine {
                 for (slot, &e) in tested.iter().enumerate() {
                     let effect = &design.effects[e];
                     let l: Matrix = l_rows(t, e, &type1).iter().map(|r| restrict(r)).collect();
-                    let (chi, df) = if crit.lr {
+                    let (chi, df) = if crit.lr
+                        && let (Some(r), Some(sub), Some((g, _, _))) =
+                            (repeated, &subjects, &gee_fit)
+                    {
+                        // REPEATED: the generalized score statistic of L b = 0
+                        let basis = null_space(&l, px);
+                        let df = px - basis.first().map_or(0, Vec::len);
+                        let set = gee::Settings::of(
+                            r,
+                            (family, command.link, result.k),
+                            scale == ScaleMode::Mle,
+                            crit.singular,
+                        );
+                        let chi =
+                            gee::score_statistic(&c, &x, sub, &set, &l, &basis, &g.beta, g.phi)
+                                .map_err(Error)?;
+                        (chi, df)
+                    } else if crit.lr {
                         let (pair, df) = if t == 1 {
                             // the model of the effects up to this one, with and without it
                             let columns_up_to = |last: usize| -> Vec<Vec<f64>> {

@@ -171,6 +171,30 @@ pub(super) struct Settings<'a> {
     pub(super) singular: f64,
 }
 
+impl<'a> Settings<'a> {
+    /// The settings of REPEATED `r` for a fit of `family` and `link` at the negative binomial k.
+    pub(super) fn of(
+        r: &'a statscraft_syntax::GenlinRepeated,
+        (family, link, k): (Family, GenlinLink, f64),
+        update_scale: bool,
+        singular: f64,
+    ) -> Self {
+        Settings {
+            family,
+            link,
+            k,
+            correlation: &r.correlation,
+            adjust: r.adjust,
+            update_scale,
+            maxiterations: r.maxiterations,
+            pconverge: r.pconverge,
+            hconverge: r.hconverge,
+            updatecorr: r.updatecorr,
+            singular,
+        }
+    }
+}
+
 pub(super) struct GeeFit {
     pub(super) beta: Vec<f64>,
     pub(super) mu: Vec<f64>,
@@ -465,21 +489,23 @@ pub(super) fn independent_information(
     Some(h)
 }
 
-/// Fits the generalized estimating equations from `beta0` and the scale `phi0`.
+/// Fits the generalized estimating equations from `beta0` and the scale `phi0`; `parameters` is
+/// the number of parameters of the model that ADJUSTCORR takes off the counts (the width of `x`,
+/// except under a constraint, which keeps the parameters of the whole model).
 pub(super) fn fit(
     c: &Cases,
     x: &[Vec<f64>],
     s: &Subjects,
     set: &Settings,
-    beta0: &[f64],
-    phi0: f64,
+    (beta0, phi0): (&[f64], f64),
+    parameters: usize,
 ) -> Result<GeeFit, String> {
     let q = beta0.len();
     let failed =
         || "GENLIN: REPEATED: the estimating equations give a case an invalid mean".to_string();
     let mut beta = beta0.to_vec();
     let mut mu = means(c, x, set, &beta).ok_or_else(failed)?;
-    let (mut r, _, mut adjusted) = estimate(c, s, set, q, &mu)?;
+    let (mut r, _, mut adjusted) = estimate(c, s, set, parameters, &mu)?;
     // the scale of the first fit; with SCALE=MLE each iteration replaces it by the moment
     let mut phi = phi0;
     // the inverse of R over the positions of a subject, once per pattern while R stays
@@ -520,7 +546,7 @@ pub(super) fn fit(
         );
         let update = estimated && set.updatecorr > 0 && iteration % set.updatecorr == 0;
         if update {
-            let (nr, m, now) = estimate(c, s, set, q, &mu)?;
+            let (nr, m, now) = estimate(c, s, set, parameters, &mu)?;
             r = nr;
             adjusted = now;
             inverses.clear();
@@ -528,7 +554,7 @@ pub(super) fn fit(
                 phi = m;
             }
         } else if set.update_scale {
-            phi = moment(c, s, set, q, &residuals(c, set, &mu));
+            phi = moment(c, s, set, parameters, &residuals(c, set, &mu));
         }
         let change = super::largest_change(&beta, &next, set.pconverge.relative);
         beta = next;
@@ -564,6 +590,63 @@ pub(super) fn fit(
         score,
         information: h,
     })
+}
+
+/// The generalized score statistic of L b = 0 (the Algorithms manual): the estimating equations
+/// are solved under the constraint, here by fitting the model of the null space of L (b = N g,
+/// N an orthonormal basis, so the constrained equations N' s = 0 are the equations of the
+/// reduced design), and with s, the model-based covariance M = H^-1 and the robust covariance C
+/// at the constrained estimates, T = s' M L' (L C L')^- L M s on the rank of L degrees of
+/// freedom. None when the constrained estimates give a case an invalid mean.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn score_statistic(
+    c: &Cases,
+    x: &[Vec<f64>],
+    s: &Subjects,
+    set: &Settings,
+    l: &Matrix,
+    basis: &Matrix,
+    beta0: &[f64],
+    phi0: f64,
+) -> Result<Option<f64>, String> {
+    let p = beta0.len();
+    let r = basis.first().map_or(0, Vec::len);
+    let reduced = super::times(x, basis);
+    let gamma0: Vec<f64> = (0..r)
+        .map(|j| (0..p).map(|i| basis[i][j] * beta0[i]).sum())
+        .collect();
+    let constrained = fit(c, &reduced, s, set, (&gamma0, phi0), p)?;
+    let beta: Vec<f64> = (0..p)
+        .map(|i| (0..r).map(|j| basis[i][j] * constrained.beta[j]).sum())
+        .collect();
+    let Some(mu) = means(c, x, set, &beta) else {
+        return Ok(None);
+    };
+    let mut inverses: HashMap<Vec<usize>, Matrix> = HashMap::new();
+    let (score, h, meat) = parts(
+        c,
+        x,
+        s,
+        set,
+        &mu,
+        &constrained.r,
+        constrained.phi,
+        &mut inverses,
+    );
+    let model = ginverse(&h, set.singular).0;
+    let robust = multiply(&multiply(&model, &meat), &model);
+    let ms = mat_vec(&model, &score);
+    let lms: Vec<f64> = l.iter().map(|row| super::dot(row, &ms)).collect();
+    let lcl: Matrix = l
+        .iter()
+        .map(|a| {
+            l.iter()
+                .map(|b| super::dot(a, &mat_vec(&robust, b)))
+                .collect()
+        })
+        .collect();
+    let (inverse, _) = ginverse(&lcl, 1e-12);
+    Ok(Some(super::dot(&lms, &mat_vec(&inverse, &lms))))
 }
 
 /// The quasi-likelihood of one case per unit of prior weight at scale 1: the kernel, or the
