@@ -21,14 +21,18 @@
 use crate::chart::{Axis, Category, ChartKind, Series, Statistic};
 use crate::descriptives::number;
 use crate::matrix::{Matrix, multiply};
-use crate::mds::{self, Criteria, Model, Problem, Solution, Transform, distances, zeros};
+use crate::mds::{
+    self, Criteria, Model, Problem, Restriction, Solution, Transform, distances, zeros,
+};
+use crate::mds_variables::{self as mdsv, Kind, Variables};
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::plot::{CaseGroup, CaseValues, Plot, Point, PointGroup};
 use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{
-    ProxShape, ProxTransformation, Proxscal, ProxscalTable, ScalingModel, ScalingStart, VarItem,
+    ProxShape, ProxTransformation, Proxscal, ProxscalTable, ProxscalVariables, ScalingModel,
+    ScalingStart, VarItem, VariableTransformation,
 };
 
 /// What to read the proximities from.
@@ -342,6 +346,75 @@ impl Engine {
         })
     }
 
+    /// The independent variables of RESTRICTIONS=VARIABLES: those named, the first n, or every
+    /// variable of the file, one case per object; a user-missing value counts as missing.
+    fn independent_variables(
+        &self,
+        spec: &ProxscalVariables,
+        objects: usize,
+    ) -> Result<Variables, Error> {
+        let data = self.data_file(&spec.file)?;
+        let names: Vec<String> = match (spec.variables.is_empty(), spec.first) {
+            (false, _) => crate::expand_in(&data, &spec.variables)?,
+            (true, Some(first)) => data
+                .variable_names()
+                .take(first)
+                .map(str::to_string)
+                .collect(),
+            (true, None) => data.variable_names().map(str::to_string).collect(),
+        };
+        if names.is_empty() {
+            return Err(Error(format!(
+                "PROXSCAL: {} holds no independent variables",
+                spec.file
+            )));
+        }
+        if spec.first.is_some_and(|first| names.len() < first) {
+            return Err(Error(format!(
+                "PROXSCAL: FIRST({}) asks for more variables than {} has, {}",
+                spec.first.unwrap_or(0),
+                spec.file,
+                names.len()
+            )));
+        }
+        if data.case_count() != objects {
+            return Err(Error(format!(
+                "PROXSCAL: {} has {} cases for the independent variables, but there are {objects} objects",
+                spec.file,
+                data.case_count()
+            )));
+        }
+        let kinds: Vec<Kind> = match spec.kinds.len() {
+            0 => vec![Kind::Interval; names.len()],
+            1 => vec![kind_of(spec.kinds[0]); names.len()],
+            k if k == names.len() => spec.kinds.iter().map(|&t| kind_of(t)).collect(),
+            k => {
+                return Err(Error(format!(
+                    "PROXSCAL: {k} transformations are named for {} independent variables; \
+                     name one for each variable, or one for all of them",
+                    names.len()
+                )));
+            }
+        };
+        let mut values = Vec::with_capacity(names.len());
+        for name in &names {
+            let variable = data.variable(name)?;
+            let Values::Numeric(column) = variable.values() else {
+                return Err(Error(format!(
+                    "PROXSCAL: {name} in {} is a string variable, not an independent variable",
+                    spec.file
+                )));
+            };
+            values.push(
+                column
+                    .iter()
+                    .map(|v| v.filter(|v| !variable.is_user_missing(*v)))
+                    .collect(),
+            );
+        }
+        Ok(Variables::new(names, values, kinds))
+    }
+
     pub(crate) fn proxscal(&mut self, command: &Proxscal) -> Result<Vec<Table>, Error> {
         let input = self.proximity_input(&Reading {
             who: "PROXSCAL",
@@ -415,6 +488,17 @@ impl Engine {
                 Some(fixed)
             }
         };
+        let variables: Option<Variables> = match &command.restrict_variables {
+            None => None,
+            Some(spec) => {
+                if model != Model::Identity {
+                    return Err(Error(
+                        "PROXSCAL: RESTRICTIONS go with MODEL=IDENTITY only".into(),
+                    ));
+                }
+                Some(self.independent_variables(spec, n)?)
+            }
+        };
         let groups = match command.unconditional {
             true => vec![(0..m).collect()],
             false => (0..m).map(|k| vec![k]).collect(),
@@ -471,15 +555,34 @@ impl Engine {
             let pinned: Option<Vec<Vec<Option<f64>>>> = restricted
                 .as_ref()
                 .map(|f| f.iter().map(|r| r[..p].to_vec()).collect());
+            let restriction = |start: Option<mdsv::Fit>| match (&pinned, &variables) {
+                (Some(f), _) => Some(Restriction::Coordinates(f)),
+                (None, Some(v)) => Some(Restriction::Variables(v, start)),
+                _ => None,
+            };
             let raw = match solutions.last() {
-                Some((_, raw, _)) => {
-                    let (z, a) = match restricted {
+                // the next smaller dimensionality goes on from the last one on principal axes
+                Some((_, _, done)) => {
+                    let (z, a, start) = match (&restricted, &variables) {
                         // fixed coordinates keep the axes: the last dimension goes
-                        Some(_) => (
-                            raw.z.iter().map(|r| r[..p].to_vec()).collect(),
+                        (Some(_), _) => (
+                            done.z.iter().map(|r| r[..p].to_vec()).collect(),
                             vec![mds::identity(p); m],
+                            None,
                         ),
-                        None => mds::reduce(model, raw),
+                        (None, Some(v)) => {
+                            let fit = done.variables.as_ref().expect("restricted solution");
+                            let t = v.count() + p.saturating_sub(v.count());
+                            let kept = mdsv::Fit {
+                                q: fit.q.iter().map(|r| r[..t].to_vec()).collect(),
+                                b: fit.b[..t].iter().map(|r| r[..p].to_vec()).collect(),
+                            };
+                            (mdsv::space(&kept), vec![mds::identity(p); m], Some(kept))
+                        }
+                        _ => {
+                            let (z, a) = mds::reduce(model, done);
+                            (z, a, None)
+                        }
                     };
                     mds::iterate(
                         &problem,
@@ -488,7 +591,7 @@ impl Engine {
                         z,
                         a,
                         start_dhat.clone(),
-                        pinned.as_deref(),
+                        restriction(start).as_ref(),
                     )
                 }
                 None => match command.initial {
@@ -504,7 +607,7 @@ impl Engine {
                             z,
                             vec![mds::start_weights(model, p); m],
                             start_dhat.clone(),
-                            pinned.as_deref(),
+                            restriction(None).as_ref(),
                         )
                     }
                     ScalingStart::Random(starts) => {
@@ -520,7 +623,7 @@ impl Engine {
                                 z,
                                 vec![mds::start_weights(model, p); m],
                                 start_dhat.clone(),
-                                pinned.as_deref(),
+                                restriction(None).as_ref(),
                             );
                             let stress = s.history.last().copied().unwrap_or(1.0);
                             random_stress.push(stress);
@@ -535,10 +638,18 @@ impl Engine {
                     }
                 },
             };
-            // principal axes would move the fixed coordinates
-            let done = match restricted {
-                Some(_) => raw.clone(),
-                None => mds::finish(model, raw.clone()),
+            // principal axes would move the fixed coordinates; with independent variables the
+            // weights turn with the space
+            let done = match (&restricted, &variables) {
+                (Some(_), _) => raw.clone(),
+                (None, Some(_)) => {
+                    let mut done = raw.clone();
+                    if let Some(fit) = done.variables.as_mut() {
+                        done.z = mdsv::orient(fit);
+                    }
+                    done
+                }
+                _ => mds::finish(model, raw.clone()),
             };
             solutions.push((p, raw, done));
         }
@@ -552,6 +663,32 @@ impl Engine {
                     &input.objects,
                     &input.delta[k],
                     Some(&input.w[k]),
+                ));
+            }
+        }
+        if print.input {
+            let dims_cols: Vec<String> = (1..=max_dim).map(|d| format!("Dimension {d}")).collect();
+            if let Some(fixed) = &restricted {
+                let given: Matrix = fixed
+                    .iter()
+                    .map(|r| r.iter().map(|v| v.unwrap_or(f64::NAN)).collect())
+                    .collect();
+                tables.push(coordinates(
+                    "Fixed Coordinates".into(),
+                    &input.objects,
+                    &given,
+                    &dims_cols,
+                ));
+            }
+            if let Some(vs) = &variables {
+                let original: Matrix = (0..n)
+                    .map(|i| vs.values.iter().map(|c| c[i].unwrap_or(f64::NAN)).collect())
+                    .collect();
+                tables.push(coordinates(
+                    "Independent Variables".into(),
+                    &input.objects,
+                    &original,
+                    &vs.names,
                 ));
             }
         }
@@ -635,6 +772,33 @@ impl Engine {
                     &done.z,
                     &dims_cols,
                 ));
+            }
+            if let (Some(vs), Some(fit)) = (&variables, &done.variables) {
+                let h = vs.count();
+                if print.variables {
+                    let q: Matrix = fit.q.iter().map(|r| r[..h].to_vec()).collect();
+                    tables.push(coordinates(
+                        suffix("Transformed Independent Variables"),
+                        &input.objects,
+                        &q,
+                        &vs.names,
+                    ));
+                    let b: Matrix = fit.b[..h].to_vec();
+                    tables.push(coordinates(
+                        suffix("Regression Weights"),
+                        &vs.names,
+                        &b,
+                        &dims_cols,
+                    ));
+                }
+                if print.correlations {
+                    tables.push(coordinates(
+                        suffix("Correlations"),
+                        &vs.names,
+                        &mdsv::correlations(fit, h, &done.z),
+                        &dims_cols,
+                    ));
+                }
             }
             if print.weights && model != Model::Identity {
                 let after = match several {
@@ -847,6 +1011,24 @@ impl Engine {
             }
             self.write_data_file(file, data)?;
         }
+        if let Some(file) = &out.variables {
+            match (&variables, &done.variables) {
+                (Some(vs), Some(fit)) => {
+                    let mut data = Dataset::new(n);
+                    for j in 0..vs.count() {
+                        data.set_numeric_values(
+                            &format!("VAR_{}", j + 1),
+                            fit.q.iter().map(|r| Some(r[j])).collect(),
+                        )?;
+                    }
+                    self.write_data_file(file, data)?;
+                }
+                _ => warnings.push(
+                    "PROXSCAL: OUTFILE VARIABLES needs RESTRICTIONS=VARIABLES, so no file is written"
+                        .into(),
+                ),
+            }
+        }
         if let Some(file) = &out.weights {
             if model == Model::Identity {
                 warnings.push("PROXSCAL: the identity model has no space weights to save".into());
@@ -969,6 +1151,15 @@ pub(crate) fn square(
     }
 }
 
+fn kind_of(t: VariableTransformation) -> Kind {
+    match t {
+        VariableTransformation::Interval => Kind::Interval,
+        VariableTransformation::Nominal => Kind::Nominal,
+        VariableTransformation::Ordinal { untie } => Kind::Ordinal { untie },
+        VariableTransformation::Spline { degree, inknot } => Kind::Spline { degree, inknot },
+    }
+}
+
 pub(crate) fn coordinates(title: String, objects: &[String], z: &Matrix, dims: &[String]) -> Table {
     let mut columns = vec![String::new()];
     columns.extend(dims.iter().cloned());
@@ -980,7 +1171,8 @@ pub(crate) fn coordinates(title: String, objects: &[String], z: &Matrix, dims: &
             .zip(z)
             .map(|(name, r)| {
                 let mut row = vec![text(name.clone())];
-                row.extend(r.iter().map(|v| Cell::Number(*v)));
+                // a missing value (fixed coordinates, independent variables) stays empty
+                row.extend(r.iter().map(|v| number(Some(*v))));
                 row
             })
             .collect(),

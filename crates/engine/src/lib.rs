@@ -73,6 +73,7 @@ mod matrix_file;
 mod matrix_functions;
 mod matrix_lang;
 mod mds;
+mod mds_variables;
 mod means;
 mod merge;
 mod mixed;

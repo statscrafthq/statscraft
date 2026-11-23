@@ -481,6 +481,7 @@ impl Engine {
                                 a: previous.a.clone(),
                                 dhat: Vec::new(),
                                 history: Vec::new(),
+                                variables: None,
                             };
                             mds::reduce(model, &as_solution)
                         }
@@ -539,6 +540,7 @@ impl Engine {
                 a: fit.a.clone(),
                 dhat: Vec::new(),
                 history: Vec::new(),
+                variables: None,
             };
             // principal axes would move the fixed coordinates
             let done = match restricted {

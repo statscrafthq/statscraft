@@ -29,6 +29,7 @@
 //!   object's coordinate (the first that is not 0) positive; diagonal weights are positive.
 
 use crate::matrix::{Matrix, inverse, multiply, symmetric_eigen, transpose};
+use crate::mds_variables::{self as variables, Variables};
 use crate::unfolding::{align_to, pin, pinned_step};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +80,17 @@ pub(crate) struct Solution {
     pub dhat: Vec<Matrix>,
     /// Normalized raw stress after every iteration, the start first.
     pub history: Vec<f64>,
+    /// With independent variables restricting the space: their transformed values and weights.
+    pub variables: Option<variables::Fit>,
+}
+
+/// A restriction of the common space.
+pub(crate) enum Restriction<'a> {
+    /// Fixed coordinates, `None` where free.
+    Coordinates(&'a [Vec<Option<f64>>]),
+    /// The space is a weighted sum of independent variables; with the fit to start from, when
+    /// the iterations go on from an earlier solution.
+    Variables(&'a Variables, Option<variables::Fit>),
 }
 
 pub(crate) fn zeros(r: usize, c: usize) -> Matrix {
@@ -826,7 +838,7 @@ pub(crate) fn iterate(
     mut z: Matrix,
     mut a: Vec<Matrix>,
     mut dhat: Vec<Matrix>,
-    fixed: Option<&[Vec<Option<f64>>]>,
+    restriction: Option<&Restriction>,
 ) -> Solution {
     let n = problem.n;
     let p = z.first().map_or(0, Vec::len);
@@ -835,6 +847,22 @@ pub(crate) fn iterate(
     let (v, vinv) = mean_laplacian(problem).expect("checked before");
     let laplacians: Vec<Matrix> = problem.w.iter().map(laplacian).collect();
     let mut scale = 1.0;
+    let fixed = match restriction {
+        Some(Restriction::Coordinates(f)) => Some(*f),
+        _ => None,
+    };
+    let mut fit: Option<variables::Fit> = None;
+    let vars = match restriction {
+        Some(Restriction::Variables(vs, start)) => {
+            fit = Some(match start {
+                Some(f) => f.clone(),
+                None => variables::start(vs, &z),
+            });
+            Some(*vs)
+        }
+        _ => None,
+    };
+    let lambda = vars.map_or(0.0, |_| variables::largest_eigenvalue(&v));
     // with one Laplacian for all sources, or identity weights, Z = V^- T S^-1 is exact
     let same_weights = model == Model::Identity || problem.w.windows(2).all(|w| w[0] == w[1]);
     match fixed {
@@ -843,12 +871,15 @@ pub(crate) fn iterate(
             pin(&mut z, fixed);
             scale = dilate_fixed(problem, &dhat, &mut z, &a, fixed);
         }
-        None => dilate(problem, &dhat, &mut z, &a),
+        None => match fit.as_mut() {
+            Some(f) => z = variables::dilate(problem, &dhat, f, &a),
+            None => dilate(problem, &dhat, &mut z, &a),
+        },
     }
     let mut x = spaces(&z, &a);
     let mut stress = raw_stress(&sums(problem, &dhat, &x));
     let mut history = vec![stress];
-    let relaxed = criteria.acceleration && model == Model::Identity && fixed.is_none();
+    let relaxed = criteria.acceleration && model == Model::Identity && restriction.is_none();
     for _ in 0..criteria.max_iterations {
         if stress <= criteria.min_stress {
             break;
@@ -859,10 +890,25 @@ pub(crate) fn iterate(
                 .map(|r| r.iter().map(|g| g.map(|g| g * scale)).collect())
                 .collect()
         });
-        let step = |relax: bool, z: &Matrix, a: &[Matrix]| -> (Matrix, Vec<Matrix>) {
-            let mut znew = match &held {
-                Some(held) => pinned_step(&v, &vinv, &c, z, held),
-                None => update_z(&laplacians, &vinv, same_weights, &c, z, a),
+        let step = |relax: bool,
+                    z: &Matrix,
+                    a: &[Matrix]|
+         -> (Matrix, Vec<Matrix>, Option<variables::Fit>) {
+            let mut changed = fit.clone();
+            let mut znew = match (&held, vars, changed.as_mut()) {
+                (Some(held), _, _) => pinned_step(&v, &vinv, &c, z, held),
+                (None, Some(vs), Some(f)) => {
+                    let mut mean = zeros(n, p);
+                    for ck in &c {
+                        for i in 0..n {
+                            for d in 0..p {
+                                mean[i][d] += ck[i][d] / m as f64;
+                            }
+                        }
+                    }
+                    variables::step(f, vs, &v, lambda, &mean)
+                }
+                _ => update_z(&laplacians, &vinv, same_weights, &c, z, a),
             };
             if relax {
                 for i in 0..n {
@@ -875,10 +921,10 @@ pub(crate) fn iterate(
                 Model::Identity => a.to_vec(),
                 _ => update_a(model, &laplacians, &c, &znew, a),
             };
-            (znew, anew)
+            (znew, anew, changed)
         };
         let attempt = |relax: bool| {
-            let (mut znew, anew) = step(relax, &z, &a);
+            let (mut znew, anew, mut fitted) = step(relax, &z, &a);
             let mut xnew = spaces(&znew, &anew);
             let mut dnew = dhat.clone();
             transform(problem, &xnew, &mut dnew, &basis);
@@ -887,15 +933,20 @@ pub(crate) fn iterate(
                 factor = dilate_fixed(problem, &dnew, &mut znew, &anew, fixed);
                 xnew = spaces(&znew, &anew);
             }
+            if let Some(f) = fitted.as_mut() {
+                znew = variables::dilate(problem, &dnew, f, &anew);
+                xnew = spaces(&znew, &anew);
+            }
             let s = raw_stress(&sums(problem, &dnew, &xnew));
-            (znew, anew, xnew, dnew, s, factor)
+            (znew, anew, xnew, dnew, s, factor, fitted)
         };
         let mut next = attempt(relaxed);
         if relaxed && next.4 > stress {
             next = attempt(false);
         }
-        let (znew, anew, xnew, dnew, s, factor) = next;
+        let (znew, anew, xnew, dnew, s, factor, fitted) = next;
         scale *= factor;
+        fit = fitted;
         let gain = stress - s;
         (z, a, x, dhat, stress) = (znew, anew, xnew, dnew, s);
         history.push(stress);
@@ -913,6 +964,7 @@ pub(crate) fn iterate(
         a,
         dhat,
         history,
+        variables: fit,
     }
 }
 
@@ -1017,7 +1069,7 @@ pub(crate) fn update_z(
 }
 
 /// The Moore-Penrose inverse of a symmetric matrix that is not of full rank.
-fn pseudo_inverse(a: &Matrix) -> Matrix {
+pub(crate) fn pseudo_inverse(a: &Matrix) -> Matrix {
     let p = a.len();
     let eigen = symmetric_eigen(a);
     let top = eigen.first().map_or(0.0, |e| e.0.abs());
@@ -1104,15 +1156,19 @@ fn low_rank(a: &Matrix, r: usize) -> Matrix {
     multiply(a, &proj)
 }
 
-/// The rotation of z to principal axes, largest variance first.
-pub(crate) fn principal_axes(z: &Matrix) -> Matrix {
+/// The rotation that turns z to principal axes, largest variance first.
+pub(crate) fn principal_rotation(z: &Matrix) -> Matrix {
     let ztz = multiply(&transpose(z), z);
     let eigen = symmetric_eigen(&ztz);
     let p = ztz.len();
-    let rot: Matrix = (0..p)
+    (0..p)
         .map(|i| (0..p).map(|a| eigen[a].1[i]).collect())
-        .collect();
-    multiply(z, &rot)
+        .collect()
+}
+
+/// z turned to principal axes, largest variance first.
+pub(crate) fn principal_axes(z: &Matrix) -> Matrix {
+    multiply(z, &principal_rotation(z))
 }
 
 /// Turns each dimension so the first object with a coordinate other than 0 is positive;

@@ -2833,13 +2833,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/INITIAL=SIMPLEX | TORGERSON | RANDOM[(n)]] [/WEIGHTS=varlist] [/CONDITION=MATRIX | UNCONDITIONAL]\n\
                  \x20  [/TRANSFORMATION=RATIO | INTERVAL | ORDINAL[(KEEPTIES | UNTIE)] | SPLINE [DEGREE=2] [INKNOT=1]]\n\
                  \x20  [/PROXIMITIES=DISSIMILARITIES | SIMILARITIES] [/MODEL=IDENTITY | WEIGHTED | GENERALIZED | REDUCED[(2)]]\n\
-                 \x20  [/RESTRICTIONS=COORDINATES('file' | dataset) [ALL | varlist]]\n\
+                 \x20  [/RESTRICTIONS=COORDINATES('file' | dataset) [ALL | varlist]\n\
+                 \x20     | VARIABLES('file' | dataset) [ALL | FIRST(n) | varlist] [(kind ...)]]\n\
                  \x20  [/ACCELERATION=NONE] [/CRITERIA=[DIMENSIONS(2[,max])] [MAXITER(100)] [DIFFSTRESS(.0001)] [MINSTRESS(.0001)]]\n\
                  \x20  [/PRINT=[NONE] [INPUT] [RANDOM] [HISTORY] [STRESS] [DECOMPOSITION] [COMMON] [DISTANCES] [WEIGHTS]\n\
-                 \x20          [INDIVIDUAL] [TRANSFORMATIONS]]\n\
+                 \x20          [INDIVIDUAL] [TRANSFORMATIONS] [VARIABLES] [CORRELATIONS]]\n\
                  \x20  [/PLOT=[NONE] [STRESS] [COMMON] [WEIGHTS] [INDIVIDUAL[(sources | ALL)]] [TRANSFORMATIONS[(sources | ALL)]]\n\
                  \x20         [RESIDUALS[(sources | ALL)]]]\n\
-                 \x20  [/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)]].\n\
+                 \x20  [/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)] [VARIABLES(...)]].\n\
                  The proximities are dissimilarities unless PROXIMITIES=SIMILARITIES. Without TABLE each case is a row of\n\
                  a square matrix and each variable a column; more cases than variables hold several matrices, one\n\
                  after the other, each a source. TABLE row BY column [BY source] takes one proximity per case, each\n\
@@ -2874,9 +2875,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  uses the first columns for the smaller solutions). A missing value leaves that coordinate free. The\n\
                  free coordinates are estimated with the fixed ones held, the common space is not turned, so the fixed\n\
                  coordinates come out exactly as given (the stress does not depend on their scale), and the transformed\n\
-                 proximities and distances are shown at the scale of the file. It goes with the identity model only.\n\
-                 Not supported yet: RESTRICTIONS=VARIABLES, a start from a file, and the VARIABLES and CORRELATIONS\n\
-                 keywords of PRINT and PLOT.",
+                 proximities and distances are shown at the scale of the file.\n\
+                 RESTRICTIONS=VARIABLES makes the common space a weighted sum of independent variables read from a\n\
+                 file, one case per object: the variables named, the first n, or all. Each variable has a kind in\n\
+                 parentheses, one per variable or one for all (INTERVAL when none): INTERVAL, NOMINAL, ORDINAL with\n\
+                 KEEPTIES or UNTIE, or SPLINE with DEGREE and INKNOT, as for the proximities but without a sign\n\
+                 condition. A missing value takes the fitted value. With fewer variables than dimensions the rest are\n\
+                 free. PRINT VARIABLES gives the transformed variables (centered, sum of squares n) and their\n\
+                 regression weights, CORRELATIONS their correlations with the dimensions; OUTFILE VARIABLES writes the\n\
+                 transformed variables as VAR_1, VAR_2, and so on. Both restrictions go with the identity model only.\n\
+                 Not supported yet: a start from a file, and the VARIABLES and CORRELATIONS keywords of PLOT.",
         example: "PROXSCAL brand1 TO brand6 /TRANSFORMATION=ORDINAL /CRITERIA=DIMENSIONS(1,3) /PRINT=COMMON STRESS HISTORY /PLOT=COMMON STRESS.",
         parse: proxscal::proxscal,
     },

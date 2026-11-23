@@ -2,6 +2,7 @@
 //! CORRESPONDENCE.
 
 use super::*;
+use crate::VariableTransformation;
 
 fn one(source: &str) -> Command {
     let (mut parsed, errors) = parse(source);
@@ -571,6 +572,46 @@ fn proxscal_defaults_and_keywords() {
         .restrict_coordinates
         .unwrap();
     assert_eq!((c.file.as_str(), c.variables.len()), ("set", 0));
+    let c = proxscal(
+        "PROXSCAL a b c /RESTRICTIONS=VARIABLES('v.sav') x y z (ORDINAL(UNTIE) NOMINAL SPLINE DEGREE=3 INKNOT=2) \
+         /PRINT=VARIABLES /OUTFILE=VARIABLES(q).",
+    );
+    let v = c.restrict_variables.unwrap();
+    assert_eq!(
+        (v.file.as_str(), v.variables.len(), v.first),
+        ("v.sav", 3, None)
+    );
+    assert_eq!(
+        v.kinds,
+        [
+            VariableTransformation::Ordinal { untie: true },
+            VariableTransformation::Nominal,
+            VariableTransformation::Spline {
+                degree: 3,
+                inknot: 2
+            },
+        ]
+    );
+    assert!(c.print.variables && !c.print.correlations);
+    assert_eq!(c.outfile.variables.as_deref(), Some("q"));
+    let v = proxscal("PROXSCAL a b c /RESTRICTIONS=VARIABLES(f) FIRST(2) (INTERVAL).")
+        .restrict_variables
+        .unwrap();
+    assert_eq!(
+        (v.first, v.kinds),
+        (Some(2), vec![VariableTransformation::Interval])
+    );
+    let v = proxscal("PROXSCAL a b c /RESTRICTIONS=VARIABLES(f) ALL.")
+        .restrict_variables
+        .unwrap();
+    assert!(v.variables.is_empty() && v.first.is_none() && v.kinds.is_empty());
+    // the last RESTRICTIONS wins
+    let c = proxscal("PROXSCAL a b c /RESTRICTIONS=VARIABLES(f) /RESTRICTIONS=COORDINATES(g).");
+    assert!(c.restrict_variables.is_none() && c.restrict_coordinates.is_some());
+    let c = proxscal("PROXSCAL a b c /PRINT=NONE.");
+    assert!(!c.print.variables && !c.print.correlations);
+    let c = proxscal("PROXSCAL a b c.");
+    assert!(c.print.variables && c.print.correlations);
 }
 
 #[test]
@@ -579,8 +620,9 @@ fn proxscal_errors() {
     assert!(err("PROXSCAL a b c /CRITERIA=DIFFSTRESS(2).").contains("from 0 to 1"));
     assert!(err("PROXSCAL a b c /TRANSFORMATION=SPLINE DEGREE=4.").contains("1 to 3"));
     assert!(err("PROXSCAL a b c /MODEL=REDUCED(2).").contains("rank"));
-    assert!(err("PROXSCAL a b c /RESTRICTIONS=VARIABLES('f.sav').").contains("not supported"));
     assert!(err("PROXSCAL a b c /RESTRICTIONS=PLANE('f.sav').").contains("word PLANE"));
+    assert!(err("PROXSCAL a b c /RESTRICTIONS=VARIABLES('f.sav') (RATIO).").contains("word RATIO"));
+    assert!(err("PROXSCAL a b c /RESTRICTIONS=VARIABLES('f.sav') ().").contains("unexpected"));
     assert!(err("PROXSCAL /SHAPE=UPPER.").contains("variable list"));
 }
 

@@ -636,3 +636,301 @@ fn restrictions_need_the_identity_model_and_a_file_of_the_right_size() {
     assert!(messages[1].contains("MODEL=IDENTITY only"), "{messages:?}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// A data file of independent variables, one column each; `.` is a missing value.
+fn variable_file(dir: &std::path::Path, name: &str, columns: &[(&str, [&str; 8])]) -> String {
+    let path = dir.join(name);
+    let names: Vec<&str> = columns.iter().map(|c| c.0).collect();
+    let rows: Vec<String> = (0..8)
+        .map(|i| columns.iter().map(|c| c.1[i]).collect::<Vec<_>>().join(" "))
+        .collect();
+    let source = format!(
+        "DATA LIST FREE /{}.\nBEGIN DATA.\n{}\nEND DATA.\nSAVE OUTFILE='{}'.\n",
+        names.join(" "),
+        rows.join("\n"),
+        path.display()
+    );
+    run_on(&mut Engine::default(), &source);
+    path.display().to_string()
+}
+
+const V1: [&str; 8] = ["0.5", "5.2", "4.1", "3.9", "1.1", "-0.4", "1.4", "2.4"];
+const V2: [&str; 8] = ["1.6", "4.1", "-1.7", "3.8", "3.3", "-6.5", "3.6", "0.9"];
+
+fn column(tables: &[Table], title: &str, j: usize) -> Vec<f64> {
+    table(tables, title)
+        .rows
+        .iter()
+        .map(|r| number(&r[1 + j]))
+        .collect()
+}
+
+#[test]
+fn interval_variables_reach_the_minimum_of_a_linear_space() {
+    let dir = folder("vars");
+    let file = variable_file(&dir, "v.sav", &[("east", V1), ("north", V2)]);
+    let tables = run(
+        PLACES,
+        &format!(
+            "PROXSCAL o1 TO o8 /RESTRICTIONS=VARIABLES('{file}') /INITIAL=TORGERSON \
+             /CRITERIA=MAXITER(100000) DIFFSTRESS(0) MINSTRESS(0) \
+             /PRINT=COMMON STRESS VARIABLES CORRELATIONS HISTORY."
+        ),
+    );
+    // base R: the minimum of normalized raw stress over Z = V C, BFGS from 40 starts, gradient 1e-10
+    let got = stress(&tables, "Stress and Fit Measures");
+    assert!((got - 0.008143361916).abs() < 1e-8, "{got}");
+    // the space is the weighted sum of the transformed variables
+    let z = [
+        column(&tables, "Final Coordinates", 0),
+        column(&tables, "Final Coordinates", 1),
+    ];
+    let weights = &table(&tables, "Regression Weights").rows;
+    let q = [
+        column(&tables, "Transformed Independent Variables", 0),
+        column(&tables, "Transformed Independent Variables", 1),
+    ];
+    for d in 0..2 {
+        for i in 0..8 {
+            let sum: f64 = (0..2).map(|j| q[j][i] * number(&weights[j][1 + d])).sum();
+            assert!((sum - z[d][i]).abs() < 1e-9, "dimension {d} object {i}");
+        }
+    }
+    // an interval variable is its values, centered and scaled to a sum of squares of 8
+    for (j, values) in [V1, V2].iter().enumerate() {
+        let v: Vec<f64> = values.iter().map(|s| s.parse().unwrap()).collect();
+        let mean = v.iter().sum::<f64>() / 8.0;
+        let ss: f64 = v.iter().map(|x| (x - mean).powi(2)).sum();
+        let sign = (q[j][1] * (v[1] - mean)).signum();
+        for i in 0..8 {
+            let want = sign * (v[i] - mean) * (8.0 / ss).sqrt();
+            assert!((q[j][i] - want).abs() < 1e-9, "variable {j} object {i}");
+        }
+    }
+    // correlations of a variable with the dimensions
+    let r = &table(&tables, "Correlations").rows;
+    for j in 0..2 {
+        for d in 0..2 {
+            let mq = q[j].iter().sum::<f64>() / 8.0;
+            let mz = z[d].iter().sum::<f64>() / 8.0;
+            let cov: f64 = (0..8).map(|i| (q[j][i] - mq) * (z[d][i] - mz)).sum();
+            let sq: f64 = q[j].iter().map(|x| (x - mq).powi(2)).sum();
+            let sz: f64 = z[d].iter().map(|x| (x - mz).powi(2)).sum();
+            close(number(&r[j][1 + d]), cov / (sq * sz).sqrt(), "correlation");
+        }
+    }
+    let history: Vec<f64> = table(&tables, "Iteration History")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    assert!(
+        history.windows(2).all(|w| w[1] <= w[0] + 1e-12),
+        "{history:?}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// One variable for two dimensions: the second dimension is a free dummy variable, so one
+/// direction of the space is the variable and the other is free.
+#[test]
+fn a_dimension_the_variables_leave_over_is_free() {
+    let dir = folder("dummy");
+    let file = variable_file(&dir, "v.sav", &[("east", V1), ("pad", V2)]);
+    let tables = run(
+        PLACES,
+        &format!(
+            "PROXSCAL o1 TO o8 /RESTRICTIONS=VARIABLES('{file}') east /INITIAL=TORGERSON \
+             /CRITERIA=MAXITER(100000) DIFFSTRESS(0) MINSTRESS(0) /PRINT=COMMON STRESS VARIABLES."
+        ),
+    );
+    // base R: Z = v b1' + u b2' with u free, 40 BFGS starts
+    let got = stress(&tables, "Stress and Fit Measures");
+    assert!((got - 0.007788004451).abs() < 1e-8, "{got}");
+    assert_eq!(table(&tables, "Regression Weights").rows.len(), 1);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+const REG: [&str; 8] = ["1", "3", "2", "3", "1", "2", "1", "2"];
+const RANK: [&str; 8] = ["1", "3", "2", "4", "1", "4", "2", "3"];
+
+fn variables_run(dir: &std::path::Path, columns: &[(&str, [&str; 8])], rest: &str) -> Vec<Table> {
+    let file = variable_file(dir, "v.sav", columns);
+    run(
+        PLACES,
+        &format!(
+            "PROXSCAL o1 TO o8 /RESTRICTIONS=VARIABLES('{file}') {rest} /INITIAL=TORGERSON \
+             /CRITERIA=MAXITER(100000) DIFFSTRESS(0) MINSTRESS(0) /PRINT=COMMON STRESS VARIABLES HISTORY."
+        ),
+    )
+}
+
+fn never_rises(tables: &[Table]) {
+    let history: Vec<f64> = table(tables, "Iteration History")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    assert!(history.len() > 5);
+    assert!(
+        history.windows(2).all(|w| w[1] <= w[0] + 1e-12),
+        "{history:?}"
+    );
+}
+
+/// A nominal and an ordinal variable: the quantifications are the same within a category and
+/// rise with the ordinal values (ties kept), the stress never rises, and the solution is a local
+/// minimum of the model in base R (Z = Y1[reg] b1' + Y2[rank] b2' with free nominal values and
+/// squared increments for the ordinal ones): the stress evaluated there is the engine's and BFGS
+/// from this point moves it by 1e-16. Random starts in R find lower local minima, 0.1103.
+#[test]
+fn nominal_and_ordinal_variables_are_quantified_in_their_classes() {
+    let dir = folder("cat");
+    let tables = variables_run(&dir, &[("reg", REG), ("rank", RANK)], "(NOMINAL ORDINAL)");
+    never_rises(&tables);
+    let q = [
+        column(&tables, "Transformed Independent Variables", 0),
+        column(&tables, "Transformed Independent Variables", 1),
+    ];
+    let same = |a: usize, b: usize, j: usize| (q[j][a] - q[j][b]).abs() < 1e-12;
+    // reg: objects 1, 5, 7 | 3, 6, 8 | 2, 4
+    assert!(same(0, 4, 0) && same(0, 6, 0) && same(2, 5, 0) && same(2, 7, 0) && same(1, 3, 0));
+    // rank: 1 at objects 1, 5; 2 at 3, 7; 3 at 2, 8; 4 at 4, 6
+    assert!(same(0, 4, 1) && same(2, 6, 1) && same(1, 7, 1) && same(3, 5, 1));
+    assert!(q[1][0] <= q[1][2] && q[1][2] <= q[1][1] && q[1][1] <= q[1][3]);
+    // normalized: mean 0, sum of squares 8
+    for col in &q {
+        assert!(col.iter().sum::<f64>().abs() < 1e-9);
+        assert!((col.iter().map(|x| x * x).sum::<f64>() - 8.0).abs() < 1e-9);
+    }
+    let got = stress(&tables, "Stress and Fit Measures");
+    assert!((got - 0.135826464171).abs() < 1e-8, "{got}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// UNTIE lets tied values part: it can only fit at least as well as KEEPTIES from the same
+/// start, and a missing value takes the fitted target, so the variable still has all objects.
+#[test]
+fn untied_ordinal_missing_values_and_splines_work() {
+    let dir = folder("cat2");
+    let ties = variables_run(
+        &dir,
+        &[("rank", RANK), ("east", V1)],
+        "(ORDINAL(KEEPTIES) INTERVAL)",
+    );
+    let untied = variables_run(
+        &dir,
+        &[("rank", RANK), ("east", V1)],
+        "(ORDINAL(UNTIE) INTERVAL)",
+    );
+    never_rises(&ties);
+    never_rises(&untied);
+    let kept = column(&ties, "Transformed Independent Variables", 0);
+    assert!((kept[0] - kept[4]).abs() < 1e-12);
+    assert!(
+        stress(&untied, "Stress and Fit Measures")
+            <= stress(&ties, "Stress and Fit Measures") + 1e-9
+    );
+    let gap: [&str; 8] = ["1", "3", ".", "4", "1", "4", "2", "3"];
+    let missing = variables_run(&dir, &[("rank", gap), ("east", V1)], "(ORDINAL INTERVAL)");
+    never_rises(&missing);
+    assert_eq!(
+        table(&missing, "Transformed Independent Variables")
+            .rows
+            .len(),
+        8
+    );
+    let spline = variables_run(
+        &dir,
+        &[("east", V1), ("north", V2)],
+        "(SPLINE DEGREE=2 INKNOT=2 SPLINE)",
+    );
+    never_rises(&spline);
+    // a monotone spline is a nondecreasing function of the values
+    let q = column(&spline, "Transformed Independent Variables", 0);
+    let x: Vec<f64> = V1.iter().map(|s| s.parse().unwrap()).collect();
+    for i in 0..8 {
+        for j in 0..8 {
+            if x[i] < x[j] {
+                assert!(q[i] <= q[j] + 1e-9, "objects {i} and {j}");
+            }
+        }
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn variables_with_fewer_dimensions_outfile_and_input() {
+    let dir = folder("misc");
+    let file = variable_file(&dir, "v.sav", &[("east", V1), ("north", V2)]);
+    let out = dir.join("q.sav").display().to_string();
+    let tables = run(
+        PLACES,
+        &format!(
+            "PROXSCAL o1 TO o8 /RESTRICTIONS=VARIABLES('{file}') /CRITERIA=DIMENSIONS(1,2) \
+             /PRINT=INPUT VARIABLES CORRELATIONS /OUTFILE=VARIABLES('{out}')."
+        ),
+    );
+    assert_eq!(
+        table(&tables, "Independent Variables").columns,
+        ["", "east", "north"]
+    );
+    for suffix in ["(1 Dimensions)", "(2 Dimensions)"] {
+        for title in [
+            "Transformed Independent Variables",
+            "Regression Weights",
+            "Correlations",
+        ] {
+            table(&tables, &format!("{title} {suffix}"));
+        }
+    }
+    // one dimension: both variables weigh the one axis; the file holds the last solution
+    assert_eq!(
+        table(&tables, "Regression Weights (1 Dimensions)")
+            .columns
+            .len(),
+        2
+    );
+    let written = run(
+        "",
+        &format!("GET FILE='{out}'.\nDESCRIPTIVES VAR_1 VAR_2 /STATISTICS=MEAN STDDEV.\n"),
+    );
+    let rows = &table(&written, "Descriptive Statistics").rows;
+    let labels: Vec<String> = rows.iter().map(|r| format!("{:?}", r[0])).collect();
+    assert!(
+        labels.iter().any(|l| l.contains("VAR_1")) && labels.iter().any(|l| l.contains("VAR_2"))
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn variable_restrictions_check_their_file() {
+    let dir = folder("verr");
+    let file = variable_file(&dir, "v.sav", &[("east", V1), ("north", V2)]);
+    let short = coordinate_file(&dir, "short.sav", &FIXED_PLACES[..5]);
+    let mut engine = Engine::default();
+    let (commands, errors) = parse(&format!(
+        "{PLACES}PROXSCAL o1 TO o8 /RESTRICTIONS=VARIABLES('{short}').\n\
+         PROXSCAL o1 TO o8 /RESTRICTIONS=VARIABLES('{file}') (NOMINAL ORDINAL INTERVAL).\n\
+         PROXSCAL o1 TO o8 /RESTRICTIONS=VARIABLES('{file}') FIRST(3).\n\
+         {JUDGES}PROXSCAL a1 TO a7 /MODEL=WEIGHTED /RESTRICTIONS=VARIABLES('{file}').\n"
+    ));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut messages = Vec::new();
+    for command in &commands {
+        if let Err(e) = engine.execute(&command.command) {
+            messages.push(e.to_string());
+        }
+    }
+    assert!(
+        messages[0].contains("5 cases") && messages[0].contains("8 objects"),
+        "{messages:?}"
+    );
+    assert!(
+        messages[1].contains("3 transformations") && messages[1].contains("2 independent"),
+        "{messages:?}"
+    );
+    assert!(messages[2].contains("FIRST(3)"), "{messages:?}");
+    assert!(messages[3].contains("MODEL=IDENTITY only"), "{messages:?}");
+    std::fs::remove_dir_all(&dir).ok();
+}

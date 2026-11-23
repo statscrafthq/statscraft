@@ -386,7 +386,7 @@ pub use proportions::{Proportions, ProportionsAnalysis, ProportionsGroups, Propo
 pub use proximities::{Proximities, Standardize};
 pub use proxscal::{
     ProxShape, ProxTransformation, Proxscal, ProxscalOutfile, ProxscalPlot, ProxscalPrint,
-    ProxscalTable, ScalingModel, ScalingStart,
+    ProxscalTable, ProxscalVariables, ScalingModel, ScalingStart, VariableTransformation,
 };
 pub use quantile_regression::{QrMethod, QrSave, QuantileRegression};
 pub use ratio_statistics::{RatioOrder, RatioRequest, RatioStatistics};

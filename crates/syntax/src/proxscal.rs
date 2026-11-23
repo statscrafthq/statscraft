@@ -13,7 +13,11 @@
 //!   from 0. PROXIMITIES=DISSIMILARITIES (default) or SIMILARITIES.
 //! - MODEL=IDENTITY (default), WEIGHTED, GENERALIZED or REDUCED[(2)]. ACCELERATION=NONE.
 //! - RESTRICTIONS=COORDINATES(file | dataset) [ALL | varlist]: fixed coordinates of the common
-//!   space. RESTRICTIONS=VARIABLES(...) is recognized and refused until it is built.
+//!   space. RESTRICTIONS=VARIABLES(file | dataset) [ALL | FIRST(n) | varlist] [(kinds)]: the common
+//!   space is a weighted sum of independent variables, each with a transformation (INTERVAL,
+//!   NOMINAL, ORDINAL[(KEEPTIES | UNTIE)] or SPLINE [DEGREE=n] [INKNOT=n]); one keyword for each
+//!   variable, or one for all of them (INTERVAL when none is given). A later RESTRICTIONS replaces
+//!   an earlier one.
 //! - CRITERIA=DIMENSIONS(min[,max]) (2), MAXITER(n) (100), DIFFSTRESS(v) and MINSTRESS(v)
 //!   (0.0001, from 0 to 1).
 //! - PRINT: without the subcommand or keywords COMMON, WEIGHTS, STRESS (and VARIABLES,
@@ -76,6 +80,32 @@ pub struct ProxscalTable {
     pub source: Option<String>,
 }
 
+/// The transformation of an independent variable of RESTRICTIONS=VARIABLES.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VariableTransformation {
+    Interval,
+    Nominal,
+    /// `UNTIE`: tied values may get different quantifications.
+    Ordinal {
+        untie: bool,
+    },
+    Spline {
+        degree: usize,
+        inknot: usize,
+    },
+}
+
+/// RESTRICTIONS=VARIABLES: the file of the independent variables, the variables chosen (all of
+/// them when `variables` is empty and `first` is not given, or the first `first`), and one
+/// transformation for each variable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProxscalVariables {
+    pub file: String,
+    pub variables: Vec<VarItem>,
+    pub first: Option<usize>,
+    pub kinds: Vec<VariableTransformation>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ProxscalPrint {
     pub input: bool,
@@ -88,6 +118,10 @@ pub struct ProxscalPrint {
     pub weights: bool,
     pub individual: bool,
     pub transformations: bool,
+    /// The transformed independent variables and their regression weights (VARIABLES).
+    pub variables: bool,
+    /// The correlations of the independent variables with the dimensions.
+    pub correlations: bool,
 }
 
 /// Plots of PROXSCAL; the source lists are None when not asked for and empty for ALL.
@@ -108,6 +142,7 @@ pub struct ProxscalOutfile {
     pub weights: Option<String>,
     pub distances: Option<String>,
     pub transformations: Option<String>,
+    pub variables: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,6 +159,8 @@ pub struct Proxscal {
     pub acceleration: bool,
     /// The file or dataset that holds the fixed coordinates of the common space.
     pub restrict_coordinates: Option<PrefscalFile>,
+    /// The independent variables the common space is a weighted sum of.
+    pub restrict_variables: Option<ProxscalVariables>,
     pub dimensions: (usize, usize),
     pub max_iterations: usize,
     pub diff_stress: f64,
@@ -202,6 +239,52 @@ fn sources(p: &mut Parser) -> PResult<Vec<String>> {
     })
 }
 
+/// What follows VARIABLES in RESTRICTIONS=VARIABLES.
+fn restriction_variables(p: &mut Parser) -> PResult<ProxscalVariables> {
+    let file = out_target(p)?;
+    let (mut variables, mut first) = (Vec::new(), None);
+    // ALL, like a list left out, takes every variable of the file
+    if p.eat_keyword("ALL") {
+    } else if p.eat_keyword("FIRST") {
+        first = Some(whole_in_parens(p, "the number of variables", 1)?);
+    } else if !at_end(p) && !p.at(Punct::LParen) {
+        variables = p.var_list()?;
+    }
+    let mut kinds = Vec::new();
+    if p.eat(Punct::LParen) {
+        while !p.at(Punct::RParen) {
+            kinds.push(if p.eat_keyword("INTERVAL") {
+                VariableTransformation::Interval
+            } else if p.eat_keyword("NOMINAL") {
+                VariableTransformation::Nominal
+            } else if p.at_keyword("ORDINAL") || p.at_keyword("SPLINE") {
+                match transformation(p)? {
+                    ProxTransformation::Ordinal { untie } => {
+                        VariableTransformation::Ordinal { untie }
+                    }
+                    ProxTransformation::Spline { degree, inknot } => {
+                        VariableTransformation::Spline { degree, inknot }
+                    }
+                    _ => unreachable!("only ORDINAL and SPLINE get here"),
+                }
+            } else {
+                return Err(p.unexpected(&["INTERVAL", "NOMINAL", "ORDINAL", "SPLINE"]));
+            });
+            p.eat(Punct::Comma);
+        }
+        p.expect(Punct::RParen)?;
+        if kinds.is_empty() {
+            return Err(p.unexpected(&["INTERVAL", "NOMINAL", "ORDINAL", "SPLINE"]));
+        }
+    }
+    Ok(ProxscalVariables {
+        file,
+        variables,
+        first,
+        kinds,
+    })
+}
+
 /// TRANSFORMATION=... after the equals sign.
 pub(crate) fn transformation(p: &mut Parser) -> PResult<ProxTransformation> {
     if p.eat_keyword("RATIO") {
@@ -273,8 +356,10 @@ fn print(p: &mut Parser) -> PResult<ProxscalPrint> {
             print.individual = true;
         } else if p.eat_keyword("TRANSFORMATIONS") || p.eat_keyword("TRANSFORMATION") {
             print.transformations = true;
-        } else if p.eat_keyword("VARIABLES") || p.eat_keyword("CORRELATIONS") {
-            // they need RESTRICTIONS, which is not supported: nothing to show
+        } else if p.eat_keyword("VARIABLES") {
+            print.variables = true;
+        } else if p.eat_keyword("CORRELATIONS") {
+            print.correlations = true;
         } else {
             return Err(p.unexpected(&[
                 "NONE",
@@ -288,6 +373,8 @@ fn print(p: &mut Parser) -> PResult<ProxscalPrint> {
                 "WEIGHTS",
                 "INDIVIDUAL",
                 "TRANSFORMATIONS",
+                "VARIABLES",
+                "CORRELATIONS",
             ]));
         }
         p.eat(Punct::Comma);
@@ -300,6 +387,8 @@ fn defaults() -> ProxscalPrint {
         stress: true,
         common: true,
         weights: true,
+        variables: true,
+        correlations: true,
         ..ProxscalPrint::default()
     }
 }
@@ -329,7 +418,7 @@ fn plot(p: &mut Parser) -> PResult<ProxscalPlot> {
         } else if p.eat_keyword("RESIDUALS") {
             plot.residuals = Some(source_lists(p)?);
         } else if p.eat_keyword("CORRELATIONS") || p.eat_keyword("VARIABLES") {
-            // they need RESTRICTIONS, which is not supported: nothing to plot
+            // the plots of the independent variables are not drawn yet: read and ignored
             sources(p)?;
         } else {
             return Err(p.unexpected(&[
@@ -368,6 +457,7 @@ pub(crate) fn proxscal(p: &mut Parser) -> PResult<Command> {
         model: ScalingModel::Identity,
         acceleration: true,
         restrict_coordinates: None,
+        restrict_variables: None,
         dimensions: (2, 2),
         max_iterations: 100,
         diff_stress: 0.0001,
@@ -494,11 +584,10 @@ pub(crate) fn proxscal(p: &mut Parser) -> PResult<Command> {
                     false => p.var_list()?,
                 };
                 command.restrict_coordinates = Some(PrefscalFile { file, variables });
-            } else if p.at_keyword("VARIABLES") {
-                return Err(SyntaxError::new(
-                    p.span(),
-                    "RESTRICTIONS=VARIABLES is not supported yet",
-                ));
+                command.restrict_variables = None;
+            } else if p.eat_keyword("VARIABLES") {
+                command.restrict_variables = Some(restriction_variables(p)?);
+                command.restrict_coordinates = None;
             } else {
                 return Err(p.unexpected(&["COORDINATES", "VARIABLES"]));
             }
@@ -557,17 +646,15 @@ pub(crate) fn proxscal(p: &mut Parser) -> PResult<Command> {
                     &mut command.outfile.distances
                 } else if p.eat_keyword("TRANSFORMATIONS") || p.eat_keyword("TRANSFORMATION") {
                     &mut command.outfile.transformations
-                } else if p.at_keyword("VARIABLES") {
-                    return Err(SyntaxError::new(
-                        p.span(),
-                        "OUTFILE VARIABLES needs RESTRICTIONS, which is not supported yet",
-                    ));
+                } else if p.eat_keyword("VARIABLES") {
+                    &mut command.outfile.variables
                 } else {
                     return Err(p.unexpected(&[
                         "COMMON",
                         "WEIGHTS",
                         "DISTANCES",
                         "TRANSFORMATIONS",
+                        "VARIABLES",
                     ]));
                 };
                 *slot = Some(out_target(p)?);

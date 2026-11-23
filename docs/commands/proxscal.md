@@ -12,13 +12,14 @@ PROXSCAL varlist | /MATRIX=IN('file' | dataset | *)
    [/INITIAL=SIMPLEX | TORGERSON | RANDOM[(n)]] [/WEIGHTS=varlist] [/CONDITION=MATRIX | UNCONDITIONAL]
    [/TRANSFORMATION=RATIO | INTERVAL | ORDINAL[(KEEPTIES | UNTIE)] | SPLINE [DEGREE=2] [INKNOT=1]]
    [/PROXIMITIES=DISSIMILARITIES | SIMILARITIES] [/MODEL=IDENTITY | WEIGHTED | GENERALIZED | REDUCED[(2)]]
-   [/RESTRICTIONS=COORDINATES('file' | dataset) [ALL | varlist]]
+   [/RESTRICTIONS=COORDINATES('file' | dataset) [ALL | varlist]
+      | VARIABLES('file' | dataset) [ALL | FIRST(n) | varlist] [(kind ...)]]
    [/ACCELERATION=NONE] [/CRITERIA=[DIMENSIONS(2[,max])] [MAXITER(100)] [DIFFSTRESS(.0001)] [MINSTRESS(.0001)]]
    [/PRINT=[NONE] [INPUT] [RANDOM] [HISTORY] [STRESS] [DECOMPOSITION] [COMMON] [DISTANCES] [WEIGHTS]
-           [INDIVIDUAL] [TRANSFORMATIONS]]
+           [INDIVIDUAL] [TRANSFORMATIONS] [VARIABLES] [CORRELATIONS]]
    [/PLOT=[NONE] [STRESS] [COMMON] [WEIGHTS] [INDIVIDUAL[(sources | ALL)]] [TRANSFORMATIONS[(sources | ALL)]]
           [RESIDUALS[(sources | ALL)]]]
-   [/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)]].
+   [/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)] [VARIABLES(...)]].
 ```
 
 The proximities are dissimilarities unless PROXIMITIES=SIMILARITIES. Without TABLE each case is a row of a square matrix and each variable a column; more cases than variables hold several matrices, one after the other, each a source. TABLE row BY column \[BY source\] takes one proximity per case, each variable a source or the source in a third variable; TABLE=source names the matrix of each case.
@@ -29,9 +30,11 @@ The scaling makes the distances fit the transformed proximities in least squares
 
 Tables: Case Processing Summary; Stress and Fit Measures (normalized raw stress, Stress-I, Stress-II, S-Stress, dispersion accounted for and Tucker's coefficient; without STRESS among PRINT keywords only the first and the last two); Final Coordinates (COMMON), Dimension Weights or Space Weights (WEIGHTS), Individual Space Coordinates, Distances, Transformed Proximities, Iteration History, Decomposition of Normalized Raw Stress, the proximities read (INPUT) and the Random Starts. The identity model's common space is turned to principal axes; the weighted one has sum of squares n per dimension, the generalized one Z'Z = nI; every dimension is signed so that the first object is positive. Charts: Common Space (a scatterplot matrix from three dimensions), Scree Plot of stress by dimensionality (STRESS), Dimension Weights, Individual Space, Transformation Plot and Residuals Plot. OUTFILE writes DIM\_1, DIM\_2, ... for the common space or the weights and OBJ\_1, OBJ\_2, ... for the distances and the transformed proximities, the sources one below the other.
 
-RESTRICTIONS=COORDINATES fixes coordinates of the common space to those of a file with one case per object (the variables named, or its first numeric ones, one for each dimension; DIMENSIONS(min,max) uses the first columns for the smaller solutions). A missing value leaves that coordinate free. The free coordinates are estimated with the fixed ones held, the common space is not turned, so the fixed coordinates come out exactly as given (the stress does not depend on their scale), and the transformed proximities and distances are shown at the scale of the file. It goes with the identity model only.
+RESTRICTIONS=COORDINATES fixes coordinates of the common space to those of a file with one case per object (the variables named, or its first numeric ones, one for each dimension; DIMENSIONS(min,max) uses the first columns for the smaller solutions). A missing value leaves that coordinate free. The free coordinates are estimated with the fixed ones held, the common space is not turned, so the fixed coordinates come out exactly as given (the stress does not depend on their scale), and the transformed proximities and distances are shown at the scale of the file.
 
-Not supported yet: RESTRICTIONS=VARIABLES, a start from a file, and the VARIABLES and CORRELATIONS keywords of PRINT and PLOT.
+RESTRICTIONS=VARIABLES makes the common space a weighted sum of independent variables read from a file, one case per object: the variables named, the first n, or all. Each variable has a kind in parentheses, one per variable or one for all (INTERVAL when none): INTERVAL, NOMINAL, ORDINAL with KEEPTIES or UNTIE, or SPLINE with DEGREE and INKNOT, as for the proximities but without a sign condition. A missing value takes the fitted value. With fewer variables than dimensions the rest are free. PRINT VARIABLES gives the transformed variables (centered, sum of squares n) and their regression weights, CORRELATIONS their correlations with the dimensions; OUTFILE VARIABLES writes the transformed variables as VAR\_1, VAR\_2, and so on. Both restrictions go with the identity model only.
+
+Not supported yet: a start from a file, and the VARIABLES and CORRELATIONS keywords of PLOT.
 
 ## Example
 
