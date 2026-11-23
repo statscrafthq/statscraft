@@ -3569,6 +3569,9 @@ fn rm_emmeans_tables(
                     })
                     .filter(|row: &Vec<f64>| fit.estimable(row, &h))
                     .collect();
+                if l.is_empty() {
+                    continue;
+                }
                 let m: Matrix = c.iter().map(|v| vec![*v]).collect();
                 let (ssh, df) = fit.hypothesis(&l, Some(&m), None);
                 let sse = quadratic(&m, &fit.s)[0][0];
@@ -3733,6 +3736,9 @@ fn emmeans_multivariate_tests(
             .map(|(i, j)| ls[i].iter().zip(&ls[j]).map(|(a, b)| a - b).collect())
             .filter(|row: &Vec<f64>| fit.estimable(row, &h))
             .collect();
+        if l.is_empty() {
+            continue;
+        }
         let (ssh, df) = fit.hypothesis(&l, None, None);
         let label = others
             .iter()
@@ -3760,6 +3766,9 @@ fn emmeans_multivariate_tests(
             );
             rows.push(row);
         }
+    }
+    if rows.is_empty() {
+        return Ok(None);
     }
     let name = d.factor_texts[compared].as_str();
     Ok(Some(table(
