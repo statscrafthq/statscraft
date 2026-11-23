@@ -40,6 +40,9 @@ pub(super) struct Figures {
 }
 
 impl Gain<'_> {
+    /// The prior of a class: the nodes of a test sample keep the training sample's `assign`, so
+    /// its root holds the training sample's priors (the tests check the figures against the
+    /// counts and priors worked out apart from this code).
     fn prior(&self, class: usize) -> f64 {
         let root = &self.nodes[0];
         root.assign[class] / root.assign.iter().sum::<f64>()
@@ -362,7 +365,13 @@ impl Context<'_> {
                         [
                             column(&|r| 100.0 * r.gain_share),
                             column(&|r| 100.0 * r.score),
-                            column(&|r| 100.0 * r.score / base),
+                            column(&|r| {
+                                if base > 0.0 {
+                                    100.0 * r.score / base
+                                } else {
+                                    f64::NAN
+                                }
+                            }),
                         ],
                     )
                 })
