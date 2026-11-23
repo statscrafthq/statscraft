@@ -615,7 +615,13 @@ pub(super) fn score_statistic(
     let gamma0: Vec<f64> = (0..r)
         .map(|j| (0..p).map(|i| basis[i][j] * beta0[i]).sum())
         .collect();
-    let constrained = fit(c, &reduced, s, set, (&gamma0, phi0), p)?;
+    // a constraint that no valid means satisfy leaves the statistic out, not the run aborted
+    let Ok(constrained) = fit(c, &reduced, s, set, (&gamma0, phi0), p) else {
+        return Ok(None);
+    };
+    if constrained.halving_failed {
+        return Ok(None);
+    }
     let beta: Vec<f64> = (0..p)
         .map(|i| (0..r).map(|j| basis[i][j] * constrained.beta[j]).sum())
         .collect();
