@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- TREE gain tables and charts with priors that are not the data's (CRT or QUEST with PRIORS EQUAL or CUSTOM, or ADJUST) now count the nodes by their probabilities under those priors, as the manual's second case says: size share, response and index (and the cumulative figures and percentile charts) change; with priors from the data and for CHAID nothing moves.
 - TREE CHAID and exhaustive CHAID accept a scale dependent: categories merge and nodes split by the ANOVA F test of the dependent's means, with the same node tables, risk, gain summary, SAVE and validation as CRT. A numeric dependent without a level is scale, so the default method no longer stops with a request for a level.
 - TREE /PRIORS ADJUST=YES: the priors of a CRT or QUEST tree are altered by the misclassification costs (each prior times the sum of its category's costs), which then count as equal for growing, assignment and risk.
 - TREE /COSTS CUSTOM=actual predicted [cost] ...: nodes are assigned the category of least expected cost, the risk and its error are the mean cost of the assignments (also in split-sample and cross-validation), CRT with the Gini measure counts the costs in its impurity, and pruning uses them. PRIORS ADJUST with custom costs comes next.

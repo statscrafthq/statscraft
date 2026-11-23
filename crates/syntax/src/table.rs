@@ -4929,7 +4929,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  also counts the costs in the impurity (twoing, QUEST and CHAID do not). A scale dependent ignores\n\
                  COSTS with a warning. /PRIORS ADJUST=YES (CRT and QUEST) multiplies each category's prior by the sum of\n\
                  its costs and scales the result to 1, then goes on as if there were no costs: the altered priors grow\n\
-                 the tree, assign its nodes and weigh the risk. Not supported yet:\n\
+                 the tree, assign its nodes and weigh the risk. The gain tables and charts of a CRT or QUEST tree whose priors are not the data's\n\
+                 (EQUAL, CUSTOM, or altered by costs) count the nodes by their probabilities under the priors: the size\n\
+                 share, the response (the probability of the target category in the node) and the index (over the\n\
+                 prior of the target category); priors from the data, and CHAID, count cases. Not supported yet:\n\
                  SPLITMERGED=YES, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.\n\
                  DMTREE is another name for the command.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",

@@ -900,3 +900,185 @@ fn chaid_of_a_scale_dependent_with_a_test_sample_grows_the_tree_of_the_training_
         ));
     }
 }
+
+fn text_of(cell: &Cell) -> String {
+    match cell {
+        Cell::Text(t) => t.clone(),
+        other => format!("{other:?}"),
+    }
+}
+
+/// The terminal nodes of a sample as (node, class counts), from the node each case was saved in.
+fn terminal_counts(engine: &Engine, sample: Option<f64>) -> Vec<(usize, [f64; 3])> {
+    let (node, y, w, tr) = (
+        values(engine, "node"),
+        values(engine, "y3"),
+        values(engine, "w"),
+        values(engine, "tr"),
+    );
+    let mut found: Vec<(usize, [f64; 3])> = Vec::new();
+    let mut ids: Vec<usize> = node.iter().map(|&n| n as usize).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    for id in ids {
+        let mut counts = [0.0; 3];
+        for i in 0..node.len() {
+            if node[i] as usize == id && sample.is_none_or(|s| tr[i] == s) {
+                counts[y[i] as usize - 1] += w[i];
+            }
+        }
+        found.push((id, counts));
+    }
+    found
+}
+
+/// The node-by-node gain rows of target class `target` (0-based) from class counts: the size
+/// share, response and index from the node probabilities under `priors`, and the cumulative
+/// figures, in the order of `order` (node ids).
+fn gain_rows(
+    counts: &[(usize, [f64; 3])],
+    priors: [f64; 3],
+    target: usize,
+    order: &[usize],
+) -> Vec<Vec<f64>> {
+    let totals: Vec<f64> = (0..3)
+        .map(|j| counts.iter().map(|c| c.1[j]).sum())
+        .collect();
+    let figures = |node: usize| {
+        let c = counts.iter().find(|c| c.0 == node).expect("a node").1;
+        let n: f64 = c.iter().sum();
+        let w: f64 = (0..3).map(|j| priors[j] * c[j] / totals[j]).sum();
+        let a = priors[target] * c[target] / totals[target];
+        (n, c[target], w, a)
+    };
+    let all_w: f64 = counts.iter().map(|c| figures(c.0).2).sum();
+    let (mut sn, mut sg, mut sw, mut sa) = (0.0, 0.0, 0.0, 0.0);
+    order
+        .iter()
+        .map(|&node| {
+            let (n, g, w, a) = figures(node);
+            (sn, sg, sw, sa) = (sn + n, sg + g, sw + w, sa + a);
+            let mut row = Vec::new();
+            for (n, g, w, a) in [(n, g, w, a), (sn, sg, sw, sa)] {
+                row.extend([
+                    n,
+                    100.0 * w / all_w,
+                    g,
+                    100.0 * g / totals[target],
+                    100.0 * a / w,
+                    100.0 * (a / w) / priors[target],
+                ]);
+            }
+            row
+        })
+        .collect()
+}
+
+#[test]
+fn gain_tables_use_the_node_probabilities_when_the_priors_are_not_the_data() {
+    let check = |priors_clause: &str, given: [f64; 3], validated: bool| {
+        let mut engine = engine();
+        run(&mut engine, "WEIGHT BY w.");
+        let validation = if validated {
+            "/VALIDATION TYPE=SPLITSAMPLE(tr)"
+        } else {
+            ""
+        };
+        let tables = run(
+            &mut engine,
+            &format!(
+                "TREE y3 [n] BY x1 [s] x2 [s] o [o] g [n] /METHOD TYPE=CRT {priors_clause} {validation} {SMALL} \
+                 /DEPCATEGORIES TARGET=[1 2] /GAIN CATEGORYTABLE=YES CUMULATIVE=YES /SAVE NODEID(node) /TREE DISPLAY=NONE."
+            ),
+        );
+        // all zeros stands for priors from the data: each sample's own class shares
+        let shares = |sample: Option<f64>| -> [f64; 3] {
+            if given != [0.0; 3] {
+                return given;
+            }
+            let counts = terminal_counts(&engine, sample);
+            let totals: Vec<f64> = (0..3)
+                .map(|j| counts.iter().map(|c| c.1[j]).sum())
+                .collect();
+            let n: f64 = totals.iter().sum();
+            [totals[0] / n, totals[1] / n, totals[2] / n]
+        };
+        let samples: Vec<(&str, Option<f64>)> = if validated {
+            vec![("Training", Some(1.0)), ("Test", Some(0.0))]
+        } else {
+            vec![("", None)]
+        };
+        for target in 0..2 {
+            // the training sample's order of the nodes by response, highest first
+            let training = terminal_counts(&engine, validated.then_some(1.0));
+            let score = |node: usize| {
+                let rows = gain_rows(&training, shares(validated.then_some(1.0)), target, &[node]);
+                rows[0][4]
+            };
+            let mut order: Vec<usize> = training.iter().map(|c| c.0).collect();
+            // scores within 1e-12 are tied, the nodes then keeping their order
+            let key = |n: usize| (score(n) / 100.0 * 1e12).round() as i64;
+            order.sort_by_key(|&n| std::cmp::Reverse(key(n)));
+            for (label, sample) in &samples {
+                let title = if validated {
+                    format!("Gain Summary for Nodes ({label} Sample)")
+                } else {
+                    "Gain Summary for Nodes".to_string()
+                };
+                let found: Vec<&Table> = tables.iter().filter(|t| t.title == title).collect();
+                let found = found[target];
+                let counts = terminal_counts(&engine, *sample);
+                let want = gain_rows(&counts, shares(*sample), target, &order);
+                assert_eq!(found.rows.len(), want.len(), "{title}");
+                for (row, want) in found.rows.iter().zip(&want) {
+                    for (k, expected) in want.iter().enumerate() {
+                        let got = number(&row[1 + k]);
+                        assert!(
+                            (got - expected).abs() <= 1e-9 * expected.abs().max(1e-300),
+                            "{priors_clause} validated {validated} {title} target {target} column {k}: {got} against {expected}; got {:?} want {want:?}",
+                            found
+                                .rows
+                                .iter()
+                                .map(|r| text_of(&r[0]))
+                                .collect::<Vec<_>>()
+                        );
+                    }
+                }
+            }
+        }
+    };
+    let third = 1.0 / 3.0;
+    check("/PRIORS EQUAL", [third; 3], false);
+    check("/PRIORS CUSTOM=1 [5] 2 [3] 3 [2]", [0.5, 0.3, 0.2], false);
+    // a test sample: its own class totals, the training sample's priors
+    check("/PRIORS EQUAL", [third; 3], true);
+    // priors from the data are the counts: the figures the node counts give directly
+    check("/PRIORS FROMDATA", [0.0; 3], false);
+    check("/PRIORS FROMDATA", [0.0; 3], true);
+}
+
+#[test]
+fn the_last_percentile_holds_every_case_whatever_the_priors() {
+    // the 100 percent point: gain 100, the response the sample's score (the prior of the target),
+    // index 100
+    for (clause, response) in [
+        ("/PRIORS EQUAL", 100.0 / 3.0),
+        ("/PRIORS CUSTOM=1 [5] 2 [3] 3 [2]", 50.0),
+    ] {
+        let mut engine = engine();
+        run(&mut engine, "WEIGHT BY w.");
+        run(
+            &mut engine,
+            &format!(
+                "TREE y3 [n] BY x1 [s] x2 [s] /METHOD TYPE=CRT {clause} {SMALL} /DEPCATEGORIES TARGET=[1] \
+                 /PLOT GAIN RESPONSE INDEX INCREMENT=25 /TREE DISPLAY=NONE."
+            ),
+        );
+        let charts = engine.take_charts();
+        assert_eq!(charts.len(), 3);
+        let last = |k: usize| *charts[k].series[0].values.last().expect("a value");
+        close(last(0), 100.0, 1e-9);
+        close(last(1), response, 1e-9);
+        close(last(2), 100.0, 1e-9);
+    }
+}

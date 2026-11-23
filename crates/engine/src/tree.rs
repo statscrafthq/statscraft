@@ -37,6 +37,7 @@
 //!   (target share in the node) and index (response over the overall share).
 
 mod crt;
+mod gain;
 mod quest;
 mod scale;
 
@@ -2431,186 +2432,21 @@ impl Engine {
             });
         }
 
-        // gains for each target category
-        if command.gain_table && !command.targets.is_empty() {
-            for (label, ns) in &samples {
-                let root_n = ns[0].n;
-                for target in &command.targets {
-                    let key = key_of(target);
-                    let Some(j) = classes.iter().position(|k| *k == key) else {
-                        continue;
-                    };
-                    let target_total = ns[0].counts[j];
-                    let share = target_total / root_n;
-                    let index = |gain: f64, n: f64| {
-                        if n > 0.0 && share > 0.0 {
-                            Some(100.0 * gain / n / share)
-                        } else {
-                            None
-                        }
-                    };
-                    // the training sample's order, so that the two samples' tables line up node by node
-                    let order = gain_order(nodes, &terminals, j, command.gain_ascending);
-                    let mut columns = vec!["Node".to_string()];
-                    let mut groups: Vec<Vec<String>> = vec![Vec::new()];
-                    let sets: &[&str] = if command.gain_cumulative {
-                        &["", "Cumulative"]
-                    } else {
-                        &[""]
-                    };
-                    for set in sets {
-                        for (group, name) in [
-                            ("Node", "N"),
-                            ("Node", "Percent"),
-                            ("Gain", "N"),
-                            ("Gain", "Percent"),
-                            ("", "Response"),
-                            ("", "Index"),
-                        ] {
-                            columns.push(name.to_string());
-                            let mut path = Vec::new();
-                            if !set.is_empty() {
-                                path.push(set.to_string());
-                            }
-                            if !group.is_empty() {
-                                path.push(group.to_string());
-                            } else if !path.is_empty() {
-                                path.push(String::new());
-                            }
-                            groups.push(path);
-                        }
-                    }
-                    let (mut cum_n, mut cum_gain) = (0.0, 0.0);
-                    let mut rows = Vec::new();
-                    for &t in &order {
-                        let (n, gain) = (ns[t].n, ns[t].counts[j]);
-                        cum_n += n;
-                        cum_gain += gain;
-                        let mut row = vec![text(t.to_string())];
-                        let mut cells = |n: f64, gain: f64| {
-                            row.extend([
-                                Cell::Number(n),
-                                percent(n, root_n),
-                                Cell::Number(gain),
-                                percent(gain, target_total),
-                                percent(gain, n),
-                                index(gain, n).map_or(Cell::Empty, Cell::Number),
-                            ]);
-                        };
-                        cells(n, gain);
-                        if command.gain_cumulative {
-                            cells(cum_n, cum_gain);
-                        }
-                        rows.push(row);
-                    }
-                    let formats = rows
-                        .iter()
-                        .map(|row| {
-                            columns
-                                .iter()
-                                .zip(row)
-                                .map(|(c, _)| match c.as_str() {
-                                    "Percent" | "Response" | "Index" => "PCT6.1".to_string(),
-                                    "N" => "F8.0".to_string(),
-                                    _ => String::new(),
-                                })
-                                .collect()
-                        })
-                        .collect();
-                    out.push(Table {
-                        title: if validated {
-                            format!("Gain Summary for Nodes ({label} Sample)")
-                        } else {
-                            "Gain Summary for Nodes".into()
-                        },
-                        row_headers: 1,
-                        columns,
-                        column_groups: groups,
-                        rows,
-                        formats,
-                        caption: Some(format!(
-                            "Target category: {}. Dependent variable: {}.",
-                            class_labels[j],
-                            shown.variable(dependent)
-                        )),
-                        outline: None,
-                        hidden: false,
-                        cell_stats: None,
-                        decorations: Vec::new(),
-                        style: Default::default(),
-                    });
-                }
-            }
-        }
-        // the gain, response and index charts over percentile groups, a line per target
-        let wanted = [
-            (command.plot_gain, "Gain", 0),
-            (command.plot_response, "Response", 1),
-            (command.plot_index, "Index", 2),
-        ];
-        let targets: Vec<usize> = command
-            .targets
-            .iter()
-            .filter_map(|t| classes.iter().position(|k| *k == key_of(t)))
-            .collect();
-        if wanted.iter().any(|w| w.0) && !targets.is_empty() {
-            use crate::chart::{Axis, Category, PERCENT_FORMAT, Series, Statistic};
-            let q = command.plot_increment;
-            let categories: Vec<Category> = (q..=100)
-                .step_by(q)
-                .map(|p| Category {
-                    label: format!("{p}%"),
-                    value: Cell::Number(p as f64),
-                    missing: false,
-                    bin: None,
-                })
-                .collect();
-            for (label, ns) in &samples {
-                let lines: Vec<(usize, [Vec<f64>; 3])> = targets
-                    .iter()
-                    .filter(|&&j| ns[0].counts[j] > 0.0)
-                    .map(|&j| {
-                        let order = gain_order(nodes, &terminals, j, command.gain_ascending);
-                        (j, percentile_gains(ns, &order, j, q))
-                    })
-                    .collect();
-                for (asked, name, k) in wanted {
-                    if !asked {
-                        continue;
-                    }
-                    let series = lines
-                        .iter()
-                        .map(|(j, values)| Series {
-                            name: class_labels[*j].clone(),
-                            statistic: Statistic::Percent,
-                            variable: Some(dependent.name().to_string()),
-                            value: Cell::Empty,
-                            values: values[k].clone(),
-                        })
-                        .collect();
-                    let mut chart = crate::Chart::lines(
-                        if validated {
-                            format!("{name} chart ({label} Sample)")
-                        } else {
-                            format!("{name} chart")
-                        },
-                        Axis::titled("Percentile"),
-                        Axis {
-                            format: PERCENT_FORMAT.into(),
-                            ..Axis::titled(format!("{name} (%)"))
-                        },
-                        categories.clone(),
-                        series,
-                    );
-                    chart.legend = Some(shown.variable(dependent));
-                    chart.footnote = Some(format!(
-                        "Dependent variable: {}. Cumulative over percentile groups of {q}%",
-                        shown.variable(dependent)
-                    ));
-                    charts.push(chart);
-                }
-            }
-        }
+        // the gain tables and charts
+        let class_names: &[String] = &class_labels;
+        let gains = gain::Context {
+            command,
+            samples: &samples,
+            training: nodes,
+            terminals: &terminals,
+            classes,
+            class_labels: class_names,
+            dependent: &shown.variable(dependent),
+            dependent_name: dependent.name(),
+            validated,
+        };
+        gains.node_tables(&mut out);
+        gains.charts(charts);
         Ok(out)
     }
 }
@@ -2805,52 +2641,6 @@ fn crt_priors(
         return Err(Error("the prior probabilities sum to zero".into()));
     }
     Ok(priors.iter().map(|p| p / total).collect())
-}
-
-fn gain_order(nodes: &[Node], terminals: &[usize], j: usize, ascending: bool) -> Vec<usize> {
-    let share = nodes[0].counts[j] / nodes[0].n;
-    let index = |t: usize| match nodes[t].n > 0.0 && share > 0.0 {
-        true => nodes[t].counts[j] / nodes[t].n / share,
-        false => f64::NAN,
-    };
-    let mut order = terminals.to_vec();
-    order.sort_by(|&a, &b| match ascending {
-        true => index(a).total_cmp(&index(b)),
-        false => index(b).total_cmp(&index(a)),
-    });
-    order
-}
-
-/// The percentile gain summary of target class `j` (Algorithms manual, TREE): for every
-/// percentile p = q, 2q, ..., 100 the cumulative gain %, response % and index %, where the
-/// node that straddles the cut counts in proportion to the part of it below the cut.
-fn percentile_gains(nodes: &[Node], order: &[usize], j: usize, q: usize) -> [Vec<f64>; 3] {
-    let (total, target) = (nodes[0].n, nodes[0].counts[j]);
-    let mut out = [Vec::new(), Vec::new(), Vec::new()];
-    for p in (q..=100).step_by(q) {
-        let cut = total * p as f64 / 100.0;
-        let (mut before_n, mut before_gain) = (0.0, 0.0);
-        let mut gain = before_gain;
-        for (k, &t) in order.iter().enumerate() {
-            let (n, g) = (nodes[t].n, nodes[t].counts[j]);
-            // the last node takes what rounding leaves at 100%
-            if before_n + n >= cut * (1.0 - 1e-12) || k + 1 == order.len() {
-                gain = if n > 0.0 {
-                    before_gain + (cut - before_n) / n * g
-                } else {
-                    before_gain
-                };
-                break;
-            }
-            before_n += n;
-            before_gain += g;
-        }
-        let response = 100.0 * gain / cut;
-        out[0].push(100.0 * gain / target);
-        out[1].push(response);
-        out[2].push(100.0 * response / (100.0 * target / total));
-    }
-    out
 }
 
 #[cfg(test)]
