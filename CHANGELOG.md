@@ -6,6 +6,10 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.35.0 (2026-11-23)
+
+Undo and redo go more than one step.
+
 - Undo goes back more than one change: Edit > Undo takes back up to the last 10 runs that changed the data, one at a time, and the data file that was open comes back with them. New Edit > Redo (Ctrl+Y or Ctrl+Shift+Z) does a run again; a new change ends the redo. Both menu items name the run they act on. `statscraft redo` and the MCP tool `redo` do the same as Edit > Redo, and `undo` in both goes one change further back on each call.
 
 ## 0.34.0 (2026-11-23)
