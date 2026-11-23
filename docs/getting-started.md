@@ -86,7 +86,7 @@ The output window shows the table. Each region has a column of percentages and, 
 | Store | 22.9% | | 23.7% | | 23.8% | | 21.1% | |
 | Email | 45.7% | | 44.1% | | 33.8% | | 35.5% | |
 
-Each region has a key: a for North, b for South, c for East and d for West. A letter beside a percentage says that it is significantly higher than the percentage of the region with that key. For example, "c d" beside 37.1% says that more customers in the North are satisfied than in the East or the West. A note under the table names the test. [CTABLES](commands/ctables.md) describes everything a custom table can do.
+Each region has a key: a for North, b for South, c for East and d for West. A letter beside a percentage says that it is significantly higher than the percentage of the region with that key. For example, "c d" beside 37.1% says that more customers in the North are satisfied than in the East or the West. A note under the table names the test. [Custom tables](window.md#custom-tables) explains the dialog in full.
 
 ## Export to Excel
 

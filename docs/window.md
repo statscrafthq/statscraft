@@ -1,10 +1,8 @@
 # The window
 
-```
-statscraft-gui survey.sav job.sps     open a data file and a syntax file
-```
+This page is for analysts who work in the Statscraft window: the data editor, the syntax editor and the output, with their menus and dialogs. [Getting started](getting-started.md) walks through a first table.
 
-`statscraft-gui` is a desktop window over the same engine as the command line. It has three kinds of window, all on one session:
+The window (`statscraft-gui`) runs on the same engine as the command line. It has three kinds of window, all on one session:
 
 - a [data window](#data-windows) for each open dataset, with the **Data** and **Variables** tabs;
 - a [syntax window](#syntax-windows) for each syntax file;
@@ -12,11 +10,11 @@ statscraft-gui survey.sav job.sps     open a data file and a syntax file
 
 The session has one active dataset, and every command, from any window, works on it. Every change and every result in the windows comes from syntax (see [Syntax is the only command layer](#syntax-is-the-only-command-layer)).
 
-With no data given, the program starts with one empty data window, a place to open files from.
+Started without a file, the program opens one empty data window, a place to open files from.
 
 ## Opening files
 
-- Give a data file, a syntax file or both on the command line, as above.
+- From a terminal, `statscraft-gui survey.sav job.sps` opens a data file and a syntax file. Both are optional.
 - File > Open data opens a .sav or .zsav file at once, in a data window of its own. The empty data window takes the first file.
 - An Excel workbook (.xlsx, .xlsm, .xls) or a text file (.csv, .txt, .tab, .dat) opens the Open Data dialog first. It writes `GET DATA`, with `DATASET NAME` after it as for a .sav file:
   - for a workbook: the sheet, whether the first row holds the variable names, and a range such as A1:F200 (empty reads the whole sheet);
@@ -118,15 +116,15 @@ A right click opens a menu over what it lands on. The top of the menu names what
   - Sort ascending or descending by them (`SORT CASES`).
   - Frequencies or Descriptives (numeric variables only), run at once.
   - Rename.
-  - Insert variable before: a numeric variable `new_1` (`NUMERIC` and `MATCH FILES /KEEP`, with `WEIGHT BY` again when a weight is on).
+  - Insert variable before: a new numeric variable `new_1`.
   - Copy, Delete.
 - **On a cell**:
   - Copy, Edit, Clear value.
-  - Only cases where the variable has this value: a filter, for example `COMPUTE filter_$ = (age = 49).`, then `VARIABLE LABELS` and `FILTER BY`. It compares the stored value, not the rounded one shown. A user-missing value gives `VALUE(x) = 99`, an empty cell `SYSMIS(x)`. A variable `filter_$` that holds other data is never overwritten; the next free name, such as `filter_$_2`, is used.
+  - Only cases where the variable has this value: a filter that leaves the other cases out of analyses (`FILTER BY`). It compares the stored value, not the rounded one shown.
   - Stop filtering.
   - Keep only cases where...: opens Select Cases to delete the other cases.
   - Sort ascending or descending by the variable.
-- **On a row number**: Copy, or Delete case (`COMPUTE #row = #row + 1.` and `SELECT IF #row <> 12.`).
+- **On a row number**: Copy, or Delete case.
 - **In the Variables tab**, the menu on row numbers is the one of the column names. On a cell it starts with Edit for that field.
 
 How the items behave:
@@ -207,7 +205,6 @@ Everything the output shows is an element in the navigator. Under each command c
 - Columns are as wide as their numbers, which align right.
 - Long row labels and column headers wrap between words.
 - A row label repeated under the same outer labels is shown once, beside all its rows.
-- Each table is measured once and only the tables in view are drawn, so hundreds of tables scroll smoothly.
 
 ### Selecting tables
 
@@ -230,7 +227,11 @@ Copies and exports (web page, PDF, Excel, from these buttons and from the File m
 
 ### Charts
 
-A chart shows in the output as a picture, as wide as the window up to about 760 pixels: flat bars, lines, areas, dots and slices in the brand's petrol and amber, with muted labels and thin rule lines, on light or dark paper as the output shows its tables. Bar charts (upright or lying, side by side, stacked or stacked to 100%), pie, line, area and scatter charts and the histogram with its normal curve are drawn, and so are the statistical plots: boxplots with their outliers and extremes marked by case, normal Q-Q and P-P plots, detrended Q-Q plots, the Q-Q and P-P plots of PPLOT against any of its distributions with their detrended forms, ROC curves (one line per test variable, with a quiet diagonal), spread versus level and the other point plots with their reference lines in amber, the dendrogram, the icicle plot, the tree diagram and the territorial map of DISCRIMINANT (each group's territory tinted in its color, with the centroids marked and named). Error bars, such as those of a profile plot with ERRORBAR, are drawn as thin bars with caps: in ink on bars, in the line's color on lines. A stem-and-leaf display, a plot in three dimensions and any kind of chart that has no drawing yet show as their data table.
+A chart shows in the output as a picture, as wide as the window up to about 760 pixels, on the same paper as the tables.
+
+- Bar, pie, line, area and scatter charts and histograms are drawn, with error bars where the chart has them.
+- So are the statistical plots: boxplots, Q-Q and P-P plots, ROC curves, the dendrogram, the icicle plot, the tree diagram and the territorial map.
+- A stem-and-leaf display and a plot in three dimensions show as their data table.
 
 A right click on a chart offers, besides Copy, Copy as text and Delete:
 
@@ -239,7 +240,7 @@ A right click on a chart offers, besides Copy, Copy as text and Delete:
 
 ### Charts in the office programs
 
-A chart's office form is a real chart of the office programs, with its numbers in a workbook inside it, so Edit Data opens them, and with no colors of its own, so it takes the theme of the presentation or document it goes into. Bar, pie, line and area charts have one, with their error bars when they have them (the half lengths sit in the workbook beside the values). A statistical plot, such as a histogram, a boxplot or a dendrogram, has none: it goes in as a picture, and in a workbook the picture stands beside its data table.
+Bar, pie, line and area charts go into PowerPoint, Word and Excel as real charts of those programs. Their numbers sit in a workbook inside the chart, so **Edit Data** opens them. They have no colors of their own, so they take the theme of the presentation or document. A statistical plot, such as a histogram or a boxplot, goes in as a picture.
 
 A right click on a drawn chart offers:
 
@@ -271,391 +272,235 @@ The command line (`statscraft export`, see [the command line](command-line.md#ex
 - A PDF file has A4 pages, as OUTPUT EXPORT /PDF writes it: tables as text, charts as vector drawings, and bookmarks for the commands and their items.
 - From syntax, OUTPUT EXPORT writes the tables and charts of an output document to a workbook, a Word document, a presentation, a web page, text or a CSV file.
 
+## Custom tables
+
+**Analyze > Custom Tables...** builds a table of counts, percentages or means by groups, and can mark the groups that differ significantly. Most survey reports are made of such tables. The dialog writes one [CTABLES](commands/ctables.md) command.
+
+For example, with the [sample file](getting-started.md#open-the-sample-file): put `satisfaction` in Rows and `region` in Columns, check **Column %**, check **Compare column proportions**, and click **OK**. The table shows, for each region, how many customers gave each answer, and letters mark the regions that differ. [Getting started](getting-started.md#build-a-custom-table) shows the result.
+
+### Building the table
+
+The list on the left holds the variables of the active dataset, and under **Multiple response sets** the sets of the file. Click one or more names to pick them, then click **Add** beside a box. Click a name in a box to take it out again.
+
+- **Rows (categories or sets)**: the categories of these variables and sets make the rows. Several are stacked, one below the other.
+- **Columns (categories or sets)**: the groups you compare, side by side. Several are stacked side by side.
+- **Layers (a table for each category)**: a separate table for each category, for example one table per region.
+- **Means of (scale variables, in the rows)**: scale variables, such as age or spend. Their mean shows in a row of their own.
+
+The syntax at the bottom of the dialog changes as you go. **OK** runs it, and **Paste** puts it in the syntax window, so you can change it or run it again later on new data.
+
+### Counts and percentages
+
+Choose what each cell shows under **Summaries**:
+
+- **Count**: the number of cases, weighted when a weight is on.
+- **Column %**: the percentage of each column. Each column adds up to 100%, so you compare the groups in the columns.
+- **Row %**: the percentage of each row.
+- **Mean**: the mean of the variables under **Means of**.
+- **Totals**: a total row and a total column.
+- **Effective count**, with an **Effective base weight**: for weighted survey data, the sample size that the weights leave in effect.
+
+**Hide counts below** hides small counts, for example to protect respondents in a small group. A count below the number shows as `<5`.
+
+### Categories and totals
+
+**Categories, totals and subtotals** opens once a variable is in the table. Choose a variable under **Set the categories of this variable**, then:
+
+- **Sort by** its value, its label, the count or the mean of a scale variable, ascending or descending.
+- **Total, labeled**: a total for this variable only, with a label of your own, before or after its categories.
+- **Show user-missing values as categories**, such as "Don't know".
+- **Subtotals**: **Add subtotal**, give it a label and choose the categories it sums, for example "Top two" for codes 4 and 5. **Hide the categories a subtotal sums** shows only the subtotal. **Show the categories outside the subtotals** keeps the rest.
+
+**Back to the defaults** clears the settings of that variable.
+
+### Significance tests
+
+Tests need a variable in **Columns**.
+
+- **Chi-square test of independence**: one test per pair of a row variable and a column variable, in a table of its own. It says whether the rows depend on the columns at all.
+- **Compare column proportions**: for each row, compares the column percentages of every pair of columns.
+- **Compare column means**: for each variable under **Means of**, compares the means of every pair of columns.
+
+**Significance level** is 0.05 unless you change it. With many columns, many pairs are tested, so the significance is adjusted: **Bonferroni** (the default), **Benjamini-Hochberg**, or **No adjustment**.
+
+**Letters of the column comparisons** chooses where the results go:
+
+- **In a table of their own** (the default): each column gets a capital letter (A, B, C and so on). A second table repeats the rows, and each cell there shows the letters of the columns it is significantly higher than.
+- **In the main table, column keys**: each column gets a key (a, b, c and so on), and a cell shows the keys of the columns it is significantly higher than.
+- **In the main table, shared letters (APA)**: columns that share a letter do not differ; columns with no letter in common do.
+
+A note under the table names the test, the level and the adjustment.
+
+### Multiple response sets
+
+A multiple response set is one question with several answers allowed, stored as several variables. In the sample file, five yes or no variables record which channels a customer used, and the set `$channels` groups them.
+
+- Define a set with **Data > Define Multiple Response Sets...**. A dichotomy set counts one value (such as 1 for "used") across its variables. A category set gathers the codes of several variables (first answer, second answer and so on). Saving the data keeps the set in the file.
+- Put the set in **Rows** or **Columns** like a variable. Each answer becomes a row or column.
+- Percentages of a set are of the respondents, so a column can add up to more than 100%. A respondent who gave none of the answers is left out of the set.
+- The tests work with sets too. A note under the table says how they take into account that one respondent can be in several categories.
+
+### Custom tables in Excel
+
+Export the output with **File > Export...** and **Excel workbook** (see [Exporting all output](#exporting-all-output)). Each table keeps its header levels, labels and caption. Numbers stay numbers with the format they show in the window, so a percentage cell holds the exact number and shows it as 37.1%. Significance letters and hidden small counts stay text. To put several tables on one sheet, choose **All tables on one sheet**.
+
+[Plugins](plugins.md) can color and comment the cells of custom tables in the window and in the workbook.
+
 ## Menus
+
+The menu bar is the same in every window: File, Edit, Data, Analyze, Graphs, Transform, Window and Help. The items of Data, Analyze, Graphs and Transform open a [dialog](#dialogs) that writes a command. Each command has a page of its own, linked in the tables below, with every option.
 
 ### File
 
-Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Open output, Recent files, Save syntax, Save syntax as; Save output, Save output as, Export; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
+- **Open data...**, **Save data**, **Save data as...** and **Export data...** (see [Opening files](#opening-files) and [Exporting data](#exporting-data)). Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
+- **Apply Data Dictionary...** copies labels, formats and missing values from another data file ([APPLY DICTIONARY](commands/apply-dictionary.md)).
+- **New > Syntax** and **New > Output**, **Open syntax...**, **Open output...** and **Recent files**.
+- **Save syntax**, **Save syntax as...**, **Save output**, **Save output as...** and **Export...** (see [Saving output](#saving-output) and [Exporting all output](#exporting-all-output)).
+- **Output Management > Start...** and **End...** route tables to files while syntax runs ([OMS](commands/oms.md), [OMSEND](commands/omsend.md)).
+- **Close** and **Exit**.
+
+### Edit
+
+- **Undo last change** (Ctrl+Z): see [Syntax is the only command layer](#syntax-is-the-only-command-layer).
+- **Settings...**: see [Settings](#settings).
+
+### Data
+
+| Menu path | What it does | Command |
+|---|---|---|
+| Define Multiple Response Sets | groups variables into a multiple response set | [MRSETS](commands/mrsets.md) |
+| Sort Cases | sorts the cases by one or more variables | [SORT CASES](commands/sort-cases.md) |
+| Sort Variables | puts the variables in order of name, label, type and other attributes | [SORT VARIABLES](commands/sort-variables.md) |
+| Restructure | variables to cases, cases to variables, or cases and variables swapped | [VARSTOCASES](commands/varstocases.md), [CASESTOVARS](commands/casestovars.md), [FLIP](commands/flip.md) |
+| Split File | runs every analysis per group | [SPLIT FILE](commands/split-file.md) |
+| Select Cases | leaves cases out of analyses, or deletes them | [FILTER](commands/filter.md), [SELECT IF](commands/select-if.md) |
+| Select Cases by Time Range | the cases the time series analyses use | [USE](commands/use.md) |
+| Weight Cases | weights the cases by a variable | [WEIGHT](commands/weight.md) |
+| Aggregate | statistics per group, added to the cases or as a new dataset | [AGGREGATE](commands/aggregate.md) |
+| Define Dates | date variables for a time series | [DATE](commands/date.md) |
+| Orthogonal Design > Generate, Display | a design for a conjoint study, and its cards | [ORTHOPLAN](commands/orthoplan.md), [PLANCARDS](commands/plancards.md) |
+| Validation > Validate Data, Compare Datasets | checks values against rules, or compares two datasets | [VALIDATEDATA](commands/validatedata.md), [COMPARE DATASETS](commands/compare-datasets.md) |
+| Merge Files > Add Cases, Add Variables | appends the cases of another file, or joins its variables by keys | [ADD FILES](commands/add-files.md), [MATCH FILES](commands/match-files.md) |
+
+### Analyze
+
+Each item opens a dialog that writes one command. The command page lists every option the dialog offers, and more.
+
+| Menu path | What it does | Command |
+|---|---|---|
+| Reports > Codebook | a description of each variable, with its labels and statistics | [CODEBOOK](commands/codebook.md) |
+| Reports > Case Summaries | statistics of groups, and listings of cases | [SUMMARIZE](commands/summarize.md) |
+| Reports > OLAP Cubes | totals and means of groups, with differences between groups | [OLAP CUBES](commands/olap-cubes.md) |
+| Power Analysis > Means, Proportions, Correlations, Regression | the power of a test, or the sample size it needs; needs no data | [POWER MEANS ONESAMPLE](commands/power-means-onesample.md) and the other POWER commands |
+| Simulation > Build Simulation Plan, Run Simulation | simulates a model from distributions you choose | [SIMPLAN](commands/simplan.md), [SIMRUN](commands/simrun.md) |
+| Descriptive Statistics > Frequencies | a table of counts per value, with statistics | [FREQUENCIES](commands/frequencies.md) |
+| Descriptive Statistics > Descriptives | mean, standard deviation and range of scale variables | [DESCRIPTIVES](commands/descriptives.md) |
+| Descriptive Statistics > Explore | descriptive statistics, percentiles and normality tests by group | [EXAMINE](commands/examine.md) |
+| Descriptive Statistics > Crosstabs | a table of two or more variables, with tests | [CROSSTABS](commands/crosstabs.md) |
+| Descriptive Statistics > Ratio | statistics of the ratio of two variables | [RATIO STATISTICS](commands/ratio-statistics.md) |
+| Bayesian Statistics > One Sample, Related, Independent | Bayesian tests of a mean, proportion or rate | [BAYES ONESAMPLE](commands/bayes-onesample.md), [BAYES RELATED](commands/bayes-related.md), [BAYES INDEPENDENT](commands/bayes-independent.md) |
+| Bayesian Statistics > Pearson Correlation, One-way ANOVA, Linear Regression, Repeated Measures, Log-Linear Regression Models | Bayesian correlation, analysis of variance, regression and tables | [BAYES CORRELATION](commands/bayes-correlation.md), [BAYES ANOVA](commands/bayes-anova.md), [BAYES REGRESSION](commands/bayes-regression.md), [BAYES REPEATED](commands/bayes-repeated.md), [BAYES LOGLINEAR](commands/bayes-loglinear.md) |
+| Custom Tables | tables of counts, percentages and means, with significance tests; see [Custom tables](#custom-tables) | [CTABLES](commands/ctables.md) |
+| Compare Means > Means | means and other statistics of groups | [MEANS](commands/means.md) |
+| Compare Means > One-Sample, Independent-Samples and Paired-Samples T Test | t tests of means | [T-TEST](commands/t-test.md) |
+| Compare Means > One-Way ANOVA | analysis of variance of one factor, with post hoc tests | [ONEWAY](commands/oneway.md) |
+| Compare Means > Proportions | tests and intervals of proportions and their differences | [PROPORTIONS](commands/proportions.md) |
+| General Linear Model > Univariate | analysis of variance and covariance of one dependent | [UNIANOVA](commands/unianova.md) |
+| General Linear Model > Multivariate, Repeated Measures | several dependents, or repeated measures of one | [GLM](commands/glm.md) |
+| General Linear Model > Variance Components | how much each random factor adds to the variance | [VARCOMP](commands/varcomp.md) |
+| General Linear Model > MANOVA (classic) | multivariate analysis of variance | [MANOVA](commands/manova.md) |
+| Generalized Linear Models | models for counts, proportions and other non-normal responses | [GENLIN](commands/genlin.md) |
+| Mixed Models > Linear | linear models with random effects and repeated measures | [MIXED](commands/mixed.md) |
+| Mixed Models > Generalized Linear | generalized linear models with random effects | [GENLINMIXED](commands/genlinmixed.md) |
+| Correlate > Bivariate | Pearson, Spearman and Kendall correlations | [CORRELATIONS](commands/correlations.md), [NONPAR CORR](commands/nonpar-corr.md) |
+| Correlate > Partial | correlations controlling for other variables | [PARTIAL CORR](commands/partial-corr.md) |
+| Correlate > Distances | distances or similarities between cases or variables | [PROXIMITIES](commands/proximities.md) |
+| Regression > Linear | linear regression, with stepwise selection and diagnostics | [REGRESSION](commands/regression.md) |
+| Regression > Curve Estimation | curves such as quadratic, logarithmic and exponential | [CURVEFIT](commands/curvefit.md) |
+| Regression > Quantile | regression of a median or other quantile | [QUANTILE REGRESSION](commands/quantile-regression.md) |
+| Regression > Binary Logistic | logistic regression of a yes or no outcome | [LOGISTIC REGRESSION](commands/logistic-regression.md) |
+| Regression > Optimal Scaling (CATREG) | regression of categorical variables | [CATREG](commands/catreg.md) |
+| Regression > 2-Stage Least Squares | regression with instrumental variables | [2SLS](commands/2sls.md) |
+| Regression > Multinomial Logistic | logistic regression of an outcome with several categories | [NOMREG](commands/nomreg.md) |
+| Regression > Ordinal | regression of an ordered outcome | [PLUM](commands/plum.md) |
+| Regression > Probit | probit and logit models of response rates | [PROBIT](commands/probit.md) |
+| Regression > Weight Estimation | weighted least squares | [WLS](commands/wls.md) |
+| Regression > Partial Least Squares | regression on components of many predictors | [PLS](commands/pls.md) |
+| Loglinear > General, Logit | loglinear and logit models of tables | [GENLOG](commands/genlog.md) |
+| Loglinear > Model Selection | hierarchical loglinear models | [HILOGLINEAR](commands/hiloglinear.md) |
+| Classify > K-Means Cluster | groups cases into a given number of clusters | [QUICK CLUSTER](commands/quick-cluster.md) |
+| Classify > Hierarchical Cluster | clusters of cases or variables, with a dendrogram | [CLUSTER](commands/cluster.md) |
+| Classify > TwoStep Cluster | clusters of large files, with categorical and scale variables | [TWOSTEP CLUSTER](commands/twostep-cluster.md) |
+| Classify > Attribute Importance (AIM) | which variables set clusters or groups apart | [AIM](commands/aim.md) |
+| Classify > Feature Selection (SELECTPRED) | the predictors most related to a target | [SELECTPRED](commands/selectpred.md) |
+| Classify > Identify Unusual Cases | cases that differ from their peers | [DETECTANOMALY](commands/detectanomaly.md) |
+| Classify > Discriminant | discriminant analysis, with classification | [DISCRIMINANT](commands/discriminant.md) |
+| Classify > Tree | classification and regression trees | [TREE](commands/tree.md) |
+| Classify > ROC Analysis | ROC curves with comparisons of tests | [ROC ANALYSIS](commands/roc-analysis.md) |
+| Classify > Response Rate | gains and response rates by score groups | [RESPONSE RATE](commands/response-rate.md) |
+| Classify > Nearest Neighbor | k nearest neighbor classification | [KNN](commands/knn.md) |
+| Classify > Naive Bayes | naive Bayes classification | [NAIVEBAYES](commands/naivebayes.md) |
+| Neural Networks > Multilayer Perceptron, Radial Basis Function | neural network models | [MLP](commands/mlp.md), [RBF](commands/rbf.md) |
+| Dimension Reduction > Factor | factor analysis and principal components | [FACTOR](commands/factor.md) |
+| Dimension Reduction > Correspondence Analysis | correspondence analysis of a table | [CORRESPONDENCE](commands/correspondence.md) |
+| Dimension Reduction > Multiple Correspondence | correspondence analysis of several categorical variables | [MULTIPLE CORRESPONDENCE](commands/multiple-correspondence.md) |
+| Dimension Reduction > Categorical Principal Components | principal components by optimal scaling | [CATPCA](commands/catpca.md) |
+| Dimension Reduction > Older Optimal Scaling Commands | homogeneity analysis, nonlinear principal components and canonical correlation, and the older correspondence analysis | [HOMALS](commands/homals.md), [PRINCALS](commands/princals.md), [OVERALS](commands/overals.md), [ANACOR](commands/anacor.md) |
+| Scale > Reliability Analysis | Cronbach's alpha and other reliability models | [RELIABILITY](commands/reliability.md) |
+| Scale > Multidimensional Scaling (PROXSCAL), (ALSCAL) | maps of objects from their distances | [PROXSCAL](commands/proxscal.md), [ALSCAL](commands/alscal.md) |
+| Scale > Multidimensional Unfolding (PREFSCAL) | maps of preferences | [PREFSCAL](commands/prefscal.md) |
+| Scale > Weighted Kappa, Fleiss Multirater Kappa | agreement between raters | [WEIGHTED KAPPA](commands/weighted-kappa.md), [FLEISS MULTIRATER KAPPA](commands/fleiss-multirater-kappa.md) |
+| Scale > Conjoint | conjoint analysis of preference ratings | [CONJOINT](commands/conjoint.md) |
+| Nonparametric Tests > One Sample, Independent Samples, Related Samples | nonparametric tests chosen for the data | [NPTESTS](commands/nptests.md) |
+| Nonparametric Tests > Legacy Dialogs | chi-square, binomial, runs, Mann-Whitney, Wilcoxon and other tests | [NPAR TESTS](commands/npar-tests.md) |
+| Survival > Life Tables | life tables | [SURVIVAL](commands/survival.md) |
+| Survival > Kaplan-Meier | Kaplan-Meier survival curves | [KM](commands/km.md) |
+| Survival > Cox Regression | Cox proportional hazards regression | [COXREG](commands/coxreg.md) |
+| Forecasting > Exponential Smoothing, ARIMA, Autoregression | models of time series | [EXSMOOTH](commands/exsmooth.md), [ARIMA](commands/arima.md), [AREG](commands/areg.md) |
+| Forecasting > Create Models, Apply Models | find the best model of each series, and apply saved models | [TSMODEL](commands/tsmodel.md), [TSAPPLY](commands/tsapply.md) |
+| Forecasting > Autocorrelations, Cross-Correlations | autocorrelations of a series, and correlations between series | [ACF](commands/acf.md), [PACF](commands/pacf.md), [CCF](commands/ccf.md) |
+| Forecasting > Seasonal Decomposition, Spectral Analysis | seasonal factors, and periodic components | [SEASON](commands/season.md), [SPECTRA](commands/spectra.md) |
+| Forecasting > Sequence Charts | a series plotted over time | [TSPLOT](commands/tsplot.md) |
+| Forecasting > Forecast Period, Options | the cases to forecast, and settings of the time series commands | [PREDICT](commands/predict.md), [TSET](commands/tset.md) |
+| Quality Control > Control Charts | control charts of a process | [SPCHART](commands/spchart.md) |
+| Multiple Response > Frequencies, Crosstabs | tables of multiple response sets | [MULT RESPONSE](commands/mult-response.md) |
+| Missing Value Analysis | patterns of missing values, with estimates | [MVA](commands/mva.md) |
+| Multiple Imputation > Analyze Patterns, Impute Missing Data Values | patterns of missing values, and imputed copies of the data | [MULTIPLE IMPUTATION](commands/multiple-imputation.md) |
+| Complex Samples > Sampling Plan, Select a Sample | design a sample and draw it | [CSPLAN](commands/csplan.md), [CSSELECT](commands/csselect.md) |
+| Complex Samples > Analysis Plan | describe how a sample was drawn | [CSPLAN](commands/csplan.md) |
+| Complex Samples > Descriptives, Frequencies, Crosstabs | estimates and tables that take the sample design into account | [CSDESCRIPTIVES](commands/csdescriptives.md), [CSTABULATE](commands/cstabulate.md) |
+| Complex Samples > General Linear Model, Logistic Regression, Ordinal Regression, Cox Regression | models that take the sample design into account | [CSGLM](commands/csglm.md), [CSLOGISTIC](commands/cslogistic.md), [CSORDINAL](commands/csordinal.md), [CSCOXREG](commands/cscoxreg.md) |
+
+### Graphs
+
+| Menu path | What it does | Command |
+|---|---|---|
+| Chart Builder | bar, line, area and pie charts, histograms, scatterplots, error bars, Pareto and high-low charts | [GRAPH](commands/graph.md) |
+| P-P Plots, Q-Q Plots | variables against a test distribution | [PPLOT](commands/pplot.md) |
+| ROC Curve | ROC curves of test variables | [ROC](commands/roc.md) |
+| Case Plots | series plotted case by case, with the cases down the page | [CASEPLOT](commands/caseplot.md) |
+
+### Transform
+
+| Menu path | What it does | Command |
+|---|---|---|
+| Compute Variable | a new variable from an expression, for all cases or only where a condition holds | [COMPUTE](commands/compute.md), [IF](commands/if.md) |
+| Recode | new codes for old ones, in the same or a new variable | [RECODE](commands/recode.md) |
+| Count Values within Cases | how often given values occur across variables | [COUNT](commands/count.md) |
+| Rank Cases | ranks, percentile groups and normal scores | [RANK](commands/rank.md) |
+| Optimal Binning | groups a scale variable by its relation to a target | [OPTIMAL BINNING](commands/optimal-binning.md) |
+| Prepare Data for Modeling (ADP) | cleans and transforms variables for modeling | [ADP](commands/adp.md) |
+| Automatic Recode | consecutive codes for the values of a variable, labeled with the old values | [AUTORECODE](commands/autorecode.md) |
+| Create Time Series | new series from existing ones: differences, lags, moving averages and more | [CREATE](commands/create.md) |
 
 ### Window
 
 See [The Window menu](#the-window-menu).
 
-### Edit
-
-- **Undo last change** (Ctrl+Z): see [Syntax is the only command layer](#syntax-is-the-only-command-layer).
-- **Settings**: see [Settings](#settings).
-
-### Data
-
-- **Define Multiple Response Sets**: dichotomy or category sets, the counted value, labels, deleting sets.
-- **Sort Cases**.
-- **Sort Variables**: `SORT VARIABLES` by name, type, format, label, value labels, missing values, measure, role, columns or alignment, ascending or descending.
-- **Restructure**:
-  - variables to cases: `VARSTOCASES` with one or more new variables, each made from a list of variables, an index variable, a case number variable and the variables to copy;
-  - cases to variables: `CASESTOVARS` with identifier and index variables, the new variables in the order of the variable or of the index, sorting the cases first;
-  - transposing cases and variables: `FLIP` of chosen or all variables, the new variables named by the values of a variable.
-- **Split File**: groups compared in the same tables or in tables of their own, sorting the cases first, or off.
-- **Select Cases**:
-  - a filter that leaves the other cases out of analyses: `COMPUTE filter_$ = (condition).` and `FILTER BY filter_$.`;
-  - SELECT IF, which deletes them;
-  - all cases again, with `FILTER OFF.` and `USE ALL.`.
-- **Select Cases by Time Range** (`USE`): the historical period of the time series procedures, from a start case through an end case, or by the values of the date variables (the highest one is required). An empty start or end means the first or last case, both empty every case again; the cases outside the range can be deleted.
-- **Weight Cases**.
-- **Aggregate**: into every case, into a new dataset of one case per group, or into a file.
-- **Define Dates** (`DATE`): what one case stands for (years, quarters, months, weeks, work days, hours, minutes, seconds, or cycles of a period you choose) and the date of the first case. The dialog checks that each first value fits its period.
-- **Merge Files > Add Cases** and **Merge Files > Add Variables**: with keys, or with a lookup table.
-
-### Analyze
-
-**Reports**
-
-- **Codebook** (`CODEBOOK`): chosen variables and multiple response sets, or all of them when the list is empty. Which parts of each variable's entry to show, a table about the data file, the statistics (none checked writes `STATISTICS=NONE`), the most values a table lists, and the order of the tables (as listed, file order, by name, by measurement level or by a custom attribute), ascending or descending.
-- **Case Summaries** (`SUMMARIZE`): the variables, layers of grouping variables, cell statistics and analysis of variance as in Means. Listing the cases (only the valid ones if you like), using only the first cases, numbering them and a text for system-missing values; unlabeled total rows, leaving out a case missing on any variable, a title and a footnote. The cases are not listed unless you ask, as with the bare command.
-
-**Power Analysis**
-
-These take typed numbers and no variables, so they open with no data too. Each finds the power of the test for the sample sizes you type, or the sizes that reach one or more powers. Common to all: the significance level, a one-sided or two-sided test where the test has a side, and charts of the power, line charts with an optional range and surfaces over two quantities. OK stays off, with the reason, until every value the command needs is typed and valid.
-
-- **Means** > **One-Sample T Test**, **Independent-Samples T Test** and **Paired-Samples T Test** (`POWER MEANS ONESAMPLE`, `INDEPENDENT`, `RELATED`): the mean and the null mean, or the mean difference or one mean per group or measure; one standard deviation, or one per group (two different ones give the separate-variances test) or per measure with their correlation; the ratio of the group sizes to find.
-- **Means** > **One-Way ANOVA** (`POWER ONEWAY ANOVA`): the group means, the pooled standard deviation and the size of each group, or relative sizes for the groups to find. Under Contrasts, coefficients add a contrast test, one-sided or two-sided, and a check box adds a test of every pair of groups with a Bonferroni, Sidak or no adjustment.
-- **Correlations** > **Pearson Product-Moment**, **Spearman Rank-Order** and **Partial Correlation** (`POWER PEARSON ONESAMPLE`, `POWER SPEARMAN ONESAMPLE`, `POWER PARTIALCORR`): the null and alternative correlations; the small-sample bias adjustment for Pearson, the variance of Fisher's z for Spearman, and for a partial correlation the number of variables held fixed, which raises the smallest sample size the dialog accepts.
-- **Regression** > **Univariate Linear** (`POWER UNIVARIATE LINEAR`): the number of predictors and how many of them are tested, the effect as a partial correlation or as the R squared of the model with and without the tested predictors, the intercept, and fixed or random predictor values.
-- **Proportions** > **One-Sample Binomial Test**, **Independent-Samples Binomial Test** and **Related-Samples Binomial Test** (`POWER PROPORTIONS ONESAMPLE`, `INDEPENDENT`, `RELATED`): the null and alternative proportions; the proportions of two groups with the test (chi-square, t, likelihood ratio or Fisher's exact), a pooled standard error and the continuity correction; for pairs the two shares of discordant pairs, as proportions or as counts out of the pairs, or the success rates of two occasions with their correlation. The power by the normal approximation or exact binomial counts, with a time limit on the exact search for a sample size.
-
-**Descriptive Statistics**
-
-- **Frequencies**: statistics, the order of the rows, a limit on the values of a table, quartiles, cut points for equal groups and any percentiles.
-- **Descriptives**: statistics, and the display order (as listed, alphabetic, or by ascending or descending means).
-- **Explore**: descriptives, M-estimators, extreme values, percentiles and tests of normality, by factor.
-- **Crosstabs**.
-- **Ratio** (`RATIO STATISTICS`): a numerator and a denominator, both numeric and different, and an optional group variable with its order (ascending, descending or as the groups first appear). The statistics of the ratio, confidence intervals at any level, the percent of ratios inside intervals you type (`0.9 1.1; 0.8 1.2`) and the percent within given percents of the median (`10 20`). The statistics show in a table, go to a data file or a new dataset, or both. OK stays off until at least one statistic is chosen.
-
-**Bayesian Statistics**
-
-Each dialog asks for the posterior distribution, the Bayes factor or both, and offers only the settings of the parts it computes. The test settings of a one-sample or related dialog apply to every variable or pair; per-variable settings stay available in syntax. Common to all: the credible interval level, the tolerance and iterations of the numerical integration (not for binomial, Poisson and repeated measures), and leaving out cases missing on any variable (not for the model and table dialogs, which always do).
-
-- **One Sample Normal** (`BAYES ONESAMPLE DISTRIBUTION=NORMAL`): an optional known variance, the test value and g of the Bayes factor (empty g integrates it out, by quadrature or by Monte Carlo draws with a seed), and the prior: diffuse, inverse chi-square, inverse gamma, either Jeffreys prior, or a gamma or chi-square prior on the precision, with a normal prior on the mean when the variance is known or its prior is conjugate.
-- **One Sample Binomial** and **One Sample Poisson** (`DISTRIBUTION=BINOMIAL`, `POISSON`): which values count as a success (the highest or lowest value, from the middle of the range or a cut point up, or listed values, the only choices besides the first two for a string variable), the beta or gamma priors under the null and the alternative for the Bayes factor, and the conjugate prior of the posterior.
-- **Related Samples Normal** (`BAYES RELATED`): pairs of variables, first minus second, with the settings of One Sample Normal.
-- **Independent Samples Normal** (`BAYES INDEPENDENT`): test variables, a grouping variable split by two values, the middle of its range or a cut point; known group variances with normal priors on the two means, or equal variances with a diffuse, Jeffreys or inverse chi-square prior; the Bayes factor by Rouder's, Gonen's or the hyper-prior method.
-- **Pearson Correlation** (`BAYES CORRELATION`): two or more variables, each paired with every later one, the power c of the prior, and a JZS or fractional Bayes factor with its fraction and null correlation.
-- **One-way ANOVA** (`BAYES ANOVA`): a numeric dependent, a factor (numeric or string) and an optional regression weight; the prior on g of the Bayes factor (JZS, Zellner with its g, hyper-g with its a, Rouder with its scale); a reference prior or a conjugate one with the shape and scale of the error variance, one prior mean per group and an optional matrix (`2; 0.5 3`, empty for the identity); plots of chosen group means and of the error variance. The prior counts whenever the posterior or a plot is asked for.
-- **Linear Regression** (`BAYES REGRESSION`): a dependent, factors, covariates and an optional regression weight; the Bayes factor and prior of One-way ANOVA (one prior mean per parameter), and a table that weighs each model without one variable against the full model; a prediction from one value per factor and covariate, with its mean, variance, mode and credible bounds saved for every case, named or not; plots of chosen variables (with the number of categories per factor), the intercept, the error variance and the prediction; and any number of F tests, each with a label, its variables, the intercept and test values.
-- **Repeated Measures** (`BAYES REPEATED`): two or more numeric variables measured on every case and an optional regression weight; the Bayes factor by the BIC approximation or by Rouder's method with its draws and seed; plots of the posteriors of chosen means; the credible interval only among the criteria.
-- **Log-Linear Regression Models** (`BAYES LOGLINEAR`): a row and a column variable; for the Bayes factor the model of the counts (multinomial, Poisson or nonparametric), the totals fixed by the design (none for Poisson; row or column totals for nonparametric), the prior of a multinomial table (conjugate, a mixture of Dirichlet priors or intrinsic), the gamma shapes of the conjugate priors (one value, or one row per table row), the gamma scale of the Poisson model and the Dirichlet parameters of the nonparametric one; the draws and seed of the posterior; the crosstab with its cells or hidden, the chi-square and likelihood ratio tests, and categories from the highest value.
-
-**Custom Tables**
-
-- Rows, columns and layers of variables and multiple response sets.
-- Means, percentages and totals.
-- Significance tests, their letters shown in the table itself or in a table of their own.
-- Hiding small counts, and an effective base weight with the effective count.
-- Per variable: the order of the categories (sorted by value, label, count or a mean), the total with its label and position, subtotals over chosen categories that can hide them, and missing and other categories.
-
-**Compare Means**
-
-- **Means**: every cell statistic, including the grouped median and percentages within a control variable.
-- **One-Sample T Test**, **Independent-Samples T Test** and **Paired-Samples T Test**.
-- **One-Way ANOVA**: a polynomial trend up to the 5th degree, fixed and random effects, every post hoc test the engine has, and Dunnett's test against the first or last group, on either side.
-
-**General Linear Model**
-
-- **Univariate** (`UNIANOVA`): one dependent variable by fixed and random factors, with covariates. A random factor makes every effect that contains it random, and each effect is tested against the error term of its expected mean squares.
-  - The model: the full factorial, or a custom one of main effects and interactions picked from the factors and covariates. The type of sums of squares and the intercept.
-  - Post hoc tests of chosen factors: the same tests as One-Way ANOVA.
-  - Estimated marginal means overall and for each chosen factor, with main effects compared unadjusted or by Bonferroni or Sidak.
-  - Saving predicted values, their standard errors, residuals, Cook's distance and leverage.
-  - Contrasts of each factor (deviation, simple, difference, Helmert, repeated or polynomial; deviation and simple against the last or the first category).
-  - Plots: spread versus level, residuals against observed and predicted values, and profile plots of the estimated marginal means, each with a factor on the horizontal axis, maybe one for separate lines and, once lines are set, one for separate charts (a plot whose factor leaves the model is left out), drawn as lines or bars with error bars and a reference line at the grand mean if you like.
-  - Descriptive statistics, effect sizes, observed power, parameter estimates, homogeneity tests, the lack of fit test, the contrast coefficient matrix, the general estimable function and the significance level. The modified Breusch-Pagan, Breusch-Pagan, F and White tests for heteroskedasticity; each of the first three is run on the predicted values or on the terms of the model. Parameter estimates with robust standard errors, by HC0 to HC4.
-- **Multivariate** (`GLM` with several dependent variables): the Univariate dialog with a list of at least two dependent variables, all numeric and none of them a factor or covariate.
-  - Everything Univariate offers except the robust standard errors, which are for one dependent variable; post hoc tests, estimated marginal means, plots and saved variables come for each dependent. Saved variables take their default names. Comparing main effects gives the univariate tests of each dependent only (the command warns).
-  - Homogeneity tests add Box's M test of the covariance matrices to Levene's test of each dependent. Further tables: the residual SSCP, covariance and correlation matrices with Bartlett's test of sphericity, the hypothesis and error SSCP of each effect, and the coefficients of the M matrix (offered only once the M matrix has a column).
-  - M matrix: columns, each with an optional label and a coefficient for each dependent (an empty cell is 0, fractions such as `1/2` are allowed). It transforms the dependents in the test of the intercept, so the intercept must be in the model, each column needs a coefficient other than 0, and no column may be a combination of the others (so there are at most as many columns as dependents).
-- **Repeated Measures** (`GLM` with `WSFACTOR`):
-  - Within-subjects factors, each with a name and its number of levels, and one variable for each combination of levels.
-  - Between-subjects factors and covariates, and the type of sums of squares.
-  - Descriptive statistics, effect sizes, observed power and the significance level.
-  - One measure only.
-
-**Mixed Models**
-
-- **Linear** (`MIXED`): one dependent variable with factors and covariates.
-  - Subject variables, and repeated variables that tell the measurements of one subject apart, with the covariance type of the repeated measures. The repeated measures use every subject variable.
-  - Covariance types: variance components (random effects only), scaled identity, diagonal, unstructured, compound symmetry, first-order autoregressive, and the further types `AD1`, `ARH1`, `ARMA11`, `CSH`, `CSR`, `FA1`, `FAH1`, `HF`, `TP`, `TPH` and `UNR`, each listed by its label with its keyword, such as "Heterogeneous Toeplitz (TPH)". `ARMA11` and `FAH1` need at least three random parameters or repeated levels; with fewer the command stops with an error.
-  - Fixed effects: the main effects of the factors and covariates, or custom terms; the intercept; Type III (default) or Type I sums of squares.
-  - One set of random effects: the intercept and custom terms, the subject variables they vary over, the covariance type, and the predicted random effects of every subject (`SOLUTION`). More sets of random effects are in the syntax.
-  - Restricted or full maximum likelihood, the confidence level, the maximum iterations and step-halving, Satterthwaite, residual or Kenward-Roger degrees of freedom (Kenward-Roger only with restricted maximum likelihood: with maximum likelihood it is greyed out and the syntax uses Satterthwaite), and user-missing values as valid.
-  - Estimates of the fixed effects, tests of the covariance parameters, the covariance of the random effects (with random effects), the covariance of the residuals (with repeated variables), the covariance and correlation of the fixed estimates, the case processing summary, descriptive statistics, the iteration history (every n-th iteration) and the coefficients of every test.
-  - Estimated marginal means: any number of tables, each the overall mean or a crossing of factors. A table can compare the levels of one of its factors, every pair or each level with the first or the last, unadjusted or by Bonferroni or Sidak. Covariates stay at their means unless you give a value.
-  - Custom tests: a label and rows typed one per line, each row an effect of the fixed part (or `INTERCEPT`, or `ALL`) followed by its coefficients, such as `gender 1 -1 0`. Fractions such as `1/3` are allowed. With random effects, a row may go on after `|` with coefficients of random effects: a random term, `INTERCEPT` when the random intercept is in, or `ALL`, or plain values for every random parameter, as in `gender 1 -1 0 | INTERCEPT 1`. The part before `|` may be empty or `ALL` with no coefficients. `ALL` and effect names never mix in one test; plain values after `|` fit either. The dialog checks that each effect is in the model or among the random effects; whether the number of coefficients fits is checked when the command runs.
-  - Saving the fixed predicted values with their standard errors and degrees of freedom, the predicted values with theirs, and the residuals.
-
-**Generalized Linear Models**
-
-- **Generalized Linear Models** (`GENLIN`): one response on factors and covariates.
-  - The response: one dependent variable, or a count of events out of trials, where the trials are a variable or one number for every case. A binary dependent with the binomial distribution takes a reference category (last, first or a value); an ordinal one takes the order of its categories.
-  - The distribution: normal, binomial, gamma, inverse Gaussian, negative binomial (k given or estimated), Poisson or ordinal multinomial. The link list shows only the links that go with it, and choosing a distribution sets its usual link and scale. Power and odds power links take an exponent.
-  - The model: main effects, the full factorial of the factors with the covariates, or custom terms; the intercept (always in for the ordinal multinomial distribution, whose thresholds are always fitted), an offset variable and a scale weight variable.
-  - Estimation: hybrid (Fisher scoring for a number of iterations, then Newton-Raphson), Fisher scoring or Newton-Raphson; the scale parameter by maximum likelihood (normal, gamma and inverse Gaussian only), deviance, Pearson chi-square or a fixed value; a model-based or robust covariance; the confidence level, Wald or profile likelihood intervals (with the tolerance of the profile; Wald only with repeated measures and the ordinal model), the maximum iterations and step-halving, the parameter convergence, the full or kernel log-likelihood, and typed initial values of all parameters.
-  - Statistics: Type III, Type I or both tests of effects, by Wald or likelihood ratio; the tables of the output, with exponentiated estimates if you like, the contrast coefficient (L) matrices, the general estimable functions, the iteration history (every n-th iteration) and the Lagrange multiplier test of a fixed scale or negative binomial k.
-  - Estimated marginal means as in Linear Mixed Models, with seven ways to compare levels and five adjustments, on the scale of the response or of the linear predictor. Not offered for the ordinal multinomial distribution.
-  - Saving the linear predictor, the predicted mean with its interval, the predicted category, leverage, five kinds of residuals and Cook's distance. The ordinal multinomial distribution saves the first six only, and the predicted category needs a binary or ordinal dependent.
-  - User-missing values of the factors as valid.
-  - Repeated measures (`REPEATED`, generalized estimating equations): the subject variables and the within-subject variables that order each subject's measurements. Both are categories, so they may be factors of the model or variables outside it, but not the response, the trials variable, a covariate, the offset or the scale weight, and no variable is on both lists. Then sorting the cases (on by default; without it each run of equal subject values in file order is a subject with its records in file order, while the within-subject variables still decide which cases are complete), the working correlation (independent, AR(1), exchangeable, m-dependent with its m, unstructured, or fixed values typed below the diagonal row by row, each from 0 to 1), the adjustment of the correlation by the number of parameters, a robust or model-based covariance, the maximum iterations, how often the matrix is updated, the parameter convergence (absolute or relative) and the Hessian convergence. Only settings that differ from the defaults are written. The dialog checks the roles, m and the count and range of the fixed values; whether the fixed matrix has a row for each measurement is checked when the command runs.
-  - With repeated measures the covariance choice of the Estimation section is greyed out, since the one under repeated measures counts, and its maximum iterations and parameter convergence settle the starting model only.
-  - With repeated measures the Statistics section adds the working correlation matrix, the case processing summary also gives the correlated data summary, and the summary table has the tests of effects only, without the omnibus test. The ordinal multinomial distribution, likelihood ratio tests and saving leverage, Cook's distance and the deviance, standardized and likelihood residuals are greyed out, since the estimating equations do not give them; a choice made before stays removable.
-
-**Correlate**
-
-- **Bivariate**: Pearson by CORRELATIONS, Spearman and Kendall by NONPAR CORR, and both commands when both kinds are chosen. Confidence intervals with their level for Pearson's r (with an optional bias adjustment) and Spearman's rho (with the standard error of Fieller, Hartley and Pearson, Caruso and Cliff, or Bonett and Wright); Kendall's tau-b has none.
-- **Partial** (`PARTIAL CORR`): the variables controlling for others; a one- or two-tailed test; the coefficients alone, marked with stars; means and standard deviations; the zero-order correlations; cases left out of every correlation or only where they are missing.
-- **Distances** (`PROXIMITIES`): distances or similarities between the cases, labeled by a variable, or between the variables.
-  - The same measures as Hierarchical Cluster, Euclidean distance by default, with their parameters.
-  - Standardizing the values first, within each variable or within each case: z scores, a range of 1, from 0 to 1, a largest value of 1, a mean of 1 or a standard deviation of 1. Binary measures take the values as they are.
-  - Changing the results: absolute values, the sign reversed, rescaled to run from 0 to 1.
-  - The proximity matrix table, and user-missing values as valid.
-  - Writing the matrix to a data file, to a new dataset or over the active dataset, which `CLUSTER` and the scaling commands read with `MATRIX=IN`.
-
-**Regression**
-
-- **Linear** (`REGRESSION`): one dependent variable on blocks of independent variables, optionally fitted on the cases a selection rule keeps (numeric or string).
-  - Each block with its method: Enter, Stepwise, Remove, Backward or Forward.
-  - Estimates, confidence intervals at any level, model fit, R squared change, descriptives, part and partial correlations, and collinearity diagnostics.
-  - Saving predicted values, residuals, distances and influence statistics.
-  - The stepping criteria as probabilities or values of F, the constant, and listwise, pairwise or mean substitution of missing values.
-- **Curve Estimation** (`CURVEFIT`): one or more dependent variables on one independent variable or on the case sequence.
-  - Any of the eleven curves, with an upper bound for the logistic one that must lie above every dependent value, and the constant.
-  - An analysis of variance table for each curve, the chart of the curves (on by default) and a variable that labels its points.
-  - Saving predicted values, residuals and prediction intervals at a level of your choice.
-- **Binary Logistic** (`LOGISTIC REGRESSION`): one dependent variable with two values on blocks of covariates, optionally fitted on the cases a selection rule keeps.
-  - Each block entered, or stepped forward or backward by the conditional, likelihood-ratio or Wald statistic.
-  - Categorical covariates, each with its contrast and the first or last category as reference.
-  - Saving predicted probabilities, group membership, residuals and influence statistics.
-  - The Hosmer-Lemeshow test, confidence intervals for exp(B), the iteration history, the classification cutoff, the stepwise entry and removal probabilities, the maximum iterations and the constant.
-- **Multinomial Logistic** (`NOMREG`): a nominal dependent variable, numeric or string, on factors and covariates.
-  - The reference category: the last, the first or a value you type; the categories in ascending or descending order.
-  - The model: main effects, the full factorial, or custom terms built as in Univariate; the intercept. A custom model can add stepwise terms with a method (forward entry, backward elimination, forward stepwise or backward stepwise). Forward entry and forward stepwise start from the model terms, or from the intercept alone when the model is empty; backward elimination and backward stepwise start with every stepwise term entered.
-  - Stepping, for stepwise terms: the hierarchy rule, the least effects (backward methods), the most effects (forward methods), and the probabilities and tests for entry and for removal, each offered only for the methods that use it.
-  - The tables: case processing, model fitting with or without the information criteria, pseudo R-square, goodness of fit, likelihood ratio tests, parameter estimates, classification, the covariance and correlation of the estimates, the step summary, cell probabilities, monotonicity measures (a dependent with two categories) and the iteration history at every n-th iteration. With every table off the command shows none.
-  - Saving the probability of each category, the predicted category, its probability and the probability of the observed category.
-  - The confidence level, the maximum iterations and step-halving, and user-missing values as valid.
-- **Ordinal** (`PLUM`): an ordinal dependent variable on factors and covariates.
-  - The link: logit, probit, complementary log-log, negative log-log or Cauchit.
-  - The location part: the main effects, or custom terms. The scale part: none, or custom terms.
-  - The tables: goodness of fit, the summary, parameter estimates, the test of parallel lines, cell information, the covariance and correlation of the estimates, the iteration history and the kernel of the log-likelihood.
-  - The same saved variables as Multinomial Logistic; the confidence level, the maximum iterations and step-halving, the value added to empty cells, and user-missing values as valid.
-  - Custom tests typed as in Linear Mixed Models, where `INTERCEPT` stands for the thresholds. An effect that is in both the location and the scale part needs `ALL`, and then every row of that test uses `ALL`.
-- **Probit** (`PROBIT`): a variable of response counts out of a variable of totals, on covariates and an optional factor with its range of levels.
-  - The probit model, the logit model or both; the covariates as base 10 logarithms (the default), natural logarithms, logarithms of a base you type, or as they are.
-  - The natural response rate: none, estimated from the data, or fixed at a value.
-  - The tables: observed and expected frequencies, effective levels with fiducial limits, relative median potency and the parallelism test.
-  - The convergence criterion, the maximum iterations, the significance below which the limits use the heterogeneity factor, and user-missing values as valid.
-- **Weight Estimation** (`WLS`): one dependent variable on independent variables, each case weighted by the source variable (by default the first independent) to the minus power.
-  - The power as a range (from, to and a step) or a list of values; the one with the largest log-likelihood is used. Left empty, the power is 1.
-  - The constant, the coefficients of the best power or of every power, and saving the best weights.
-
-**Loglinear**
-
-- **General** (`GENLOG`): a table of counts made by numeric factors, with cell covariates (the mean of each cell's cases), a cell structure variable whose 0 cells are left out, and variables of coefficients for generalized residuals and log-odds ratios.
-  - The Poisson or the multinomial model; the saturated model or custom terms built as in Univariate. Covariates enter only through custom terms.
-  - The tables: counts, simple, standardized, adjusted and deviance residuals, the design matrix, the estimates with their covariances and correlations, and the iteration history.
-  - Plots of the residuals against the counts and normal plots, of adjusted residuals, deviance residuals or both.
-  - Saving the expected counts and each kind of residual, under a name of your own or a made-up one.
-  - The iteration limit, the convergence criterion, the value added to the cells, the confidence level, the redundancy tolerance, and user-missing values as valid.
-- **Logit** (`GENLOG` with `BY`): one or more dependent factors by the other factors, always multinomial; the rest as in General.
-- **Model Selection** (`HILOGLINEAR`): two to ten numeric factors, each with the smallest and largest category value to count. A newly added factor starts from its lowest and highest labeled whole value that is not user-missing; factors in a row with the same range share it in the syntax.
-  - The saturated model or a custom generating class, the highest order of terms, and backward elimination with the most steps and the probability to remove.
-  - A cell weight variable, the default tables or a choice of counts, residuals, estimates and partial associations (the last two for a saturated model), and plots of the residuals.
-  - The iteration limit, the convergence criterion (by default from the largest count), the value added to the cells of a saturated model, and user-missing values as valid.
-
-**Classify**
-
-- **K-Means Cluster** (`QUICK CLUSTER`): a number of clusters, by iterating and classifying or by classifying only.
-  - The maximum iterations and the convergence criterion.
-  - Saving the cluster membership and the distance from the cluster center.
-  - The initial centers, the ANOVA table, and the cluster of each case labeled by a variable.
-  - Cases left out listwise or pairwise.
-- **Hierarchical Cluster** (`CLUSTER`): the cases by the variables, labeled by a variable.
-  - The method: between-groups or within-groups linkage, nearest or furthest neighbor, centroid or median clustering, or Ward's method.
-  - The measure for interval data: squared Euclidean, Euclidean, cosine, Pearson correlation, Chebychev, block, Minkowski with its power, or customized with a power and a root.
-  - The measure for counts: chi-squared or phi-squared.
-  - The measure for binary data, with the values of presence and absence: squared Euclidean, Euclidean, simple matching, Jaccard, Dice, Russell and Rao, Rogers and Tanimoto, Hamann, Ochiai, phi 4-point correlation or Yule's Q. The other binary measures are in the syntax.
-  - The agglomeration schedule, the proximity matrix, and the cluster membership of one solution or a range of them.
-  - Saving the membership of one solution or a range.
-- **Discriminant** (`DISCRIMINANT`): a grouping variable with its range of values.
-  - Independents entered together, or stepwise by Wilks' lambda, the Mahalanobis distance, the smallest F ratio, the unexplained variance or Rao's V, with values of F or their probabilities to enter and remove.
-  - Means, univariate ANOVAs, Box's M, Fisher's and unstandardized function coefficients, the within-groups correlation and covariance, and the separate-groups and total covariance matrices.
-  - Prior probabilities equal or from the group sizes; classification by the within-groups or separate-groups covariance; the summary table and leave-one-out classification.
-  - Saving the predicted group, the discriminant scores and the probabilities of group membership.
-  - A selection variable with its value.
-- **Tree** (`TREE`) by CHAID or exhaustive CHAID.
-  - A nominal or ordinal dependent, and predictors each with its own level or the measure of the dictionary.
-  - The maximum depth, and the fewest cases in a parent and in a child node.
-  - Target categories for the gain tables.
-  - Saving the terminal node, the predicted category and the predicted probabilities.
-
-**Dimension Reduction**
-
-- **Factor** (`FACTOR`):
-  - Univariate descriptives, the initial solution, the correlation coefficients with their significance, the determinant, KMO and Bartlett's test, and the inverse, reproduced and anti-image matrices.
-  - Extraction by principal components, unweighted or generalized least squares, maximum likelihood, principal axis, alpha or image factoring; of the factors with eigenvalues over a value, or a fixed number of them; with the maximum iterations. Principal components, principal axis and image factoring can analyze the covariance matrix instead of the correlation matrix.
-  - Rotation by varimax, direct oblimin with its delta, quartimax, equamax or promax with its kappa, or none.
-  - Factor scores saved by the regression, Bartlett or Anderson-Rubin method, and the score coefficient matrix.
-  - Listwise, pairwise or mean substitution of missing values, and loadings sorted by size with small ones left blank.
-- **Correspondence Analysis** (`CORRESPONDENCE`): a row variable by a column variable, each numeric with the smallest and largest category value to count. A newly set variable starts from its lowest and highest labeled whole value that is not user-missing.
-  - Each category of the range, shown with its value label, is active, supplementary or in a numbered equal group whose members share one score. Groups need two categories or more, and each side needs at least two active categories, a group counting as one. When you leave a changed range field, the roles of the categories now outside the range are forgotten.
-  - The model: the number of dimensions, the chi-square distance or a Euclidean distance with one of its five standardizations, and symmetrical, principal, row principal, column principal or a custom normalization from -1 to 1. When the table allows fewer dimensions than you ask for, for example because a side has few active or non-empty categories, the command computes fewer.
-  - Statistics: the table, the row and column profiles, the overviews and the confidence of the row and column points, and permuted tables up to a dimension.
-  - Plots: the biplot (not with principal normalization), the row and column points, the transformation plots of the rows and the columns, a longest label and a range of dimensions instead of every pair.
-  - Writing the scores or variances to a file (`OUTFILE`) and table data (`TABLE=ALL`) are in the syntax.
-- **Multiple Correspondence** (`MULTIPLE CORRESPONDENCE`): two or more nominal analysis variables, numeric or string, and optional labeling variables that are not analyzed.
-  - Each analysis variable has a weight above 0, a recoding (as coded, a number of groups shaped like a normal curve or with even counts, equal intervals of a width, ranks, or scaled z-scores), a way to handle its missing values (passive, filled with the mode, an extra category or a random category, or leaving the case out) and a supplementary role. A supplementary variable keeps weight 1 and cannot leave cases out, and at least one variable stays active.
-  - Supplementary cases by number, with ranges such as 4-9; at least three cases stay active.
-  - The model: the number of dimensions, variable principal, object principal, symmetrical, independent or a custom normalization from -1 to 1, the most iterations and the convergence criterion. When the data allow fewer dimensions than you ask for, the command computes fewer.
-  - Statistics: correlations of the quantified and of the original variables, descriptives, discrimination measures, the iteration history, category quantifications and object scores, labeled by a variable or by case number and with variables listed beside them.
-  - Plots: object points (labeled by any variable), category points, joint category points, discrimination measures, a biplot of objects and centroids (not with independent normalization), transformation and residual plots for a number of dimensions, a longest label and a range of dimensions. A plot with no variable checked takes every analysis variable.
-  - Saving the quantified variables and the object scores with an optional root, and writing the recoded data, quantified variables or object scores into a data file or a new dataset of their own.
-  - A starting or fixed configuration from a file (`CONFIGURATION`) is in the syntax.
-- **Categorical Principal Components** (`CATPCA`): two or more analysis variables, numeric or string, and optional labeling variables that are not analyzed. The variables, recoding, missing values, supplementary cases, model and criteria work as in Multiple Correspondence.
-  - Each analysis variable also has a scaling level: spline ordinal (the default) or spline nominal with a degree from 1 to 100 and a number of interior knots from 0, ordinal, nominal, multiple nominal or numeric.
-  - The object scores may start from, or be fixed to, the first numeric variables of a data file. A fixed configuration takes no supplementary cases or variables and keeps variable principal normalization.
-  - Rotation by varimax, equamax, quartimax, promax with its kappa (1 to below 10000) or direct oblimin with its delta (at most 0.8), with or without Kaiser normalization. It needs two dimensions and two active variables that are not multiple nominal.
-  - Statistics: correlations of the quantified and of the original variables, descriptives, the iteration history, component loadings (sorted by size if you like), object scores labeled and listed as in Multiple Correspondence, category quantifications and the variance accounted for.
-  - Plots: object points, component loadings (with the centroids of multiple nominal variables if you like), category points, joint category points, transformation and residual plots, a biplot with loadings or centroids and a triplot (neither with independent normalization), the centroids of one variable projected onto the vectors of others, and the variance accounted for; a longest label and a range of dimensions. Only multiple nominal variables plot more than one dimension in the transformation and residual plots.
-  - Saving the quantified variables, the object scores and the approximations with an optional root, and writing the recoded data, quantified variables, object scores or approximations into a data file or a new dataset of their own.
-
-**Scale**
-
-- **Reliability Analysis** (`RELIABILITY`): one scale of all the items.
-  - The model: Alpha, Split-half, Guttman, Parallel, Strict parallel or Omega. A scale label.
-  - Descriptives for each item, the scale, and the scale if an item is deleted.
-  - Inter-item correlations and covariances, and their summaries.
-  - An ANOVA table with the F test, Friedman's or Cochran's chi-square, Hotelling's T-squared and Tukey's test of additivity.
-  - The intraclass correlation with its model, type, confidence level and test value.
-- **Multidimensional Scaling (PROXSCAL)** (`PROXSCAL`): proximities in square matrices with one variable per object, stacked case after case and told apart by an optional source variable; or one proximity per case, placed by a row and a column variable, with an optional source; or a matrix file written by `PROXIMITIES` or `CLUSTER`. Optional weight variables, one for each proximity variable.
-  - The lower, upper or both triangles, and similarities instead of dissimilarities.
-  - The identity, weighted, generalized or reduced rank model; a ratio, interval, ordinal (ties kept or untied) or spline transformation, within each source or across all; the range of dimensions.
-  - A simplex, Torgerson or random start, the iteration limit and both stress criteria, and relaxed updates.
-  - The tables, and plots of stress, the common space, the weights, and the individual spaces, transformations and residuals of chosen sources or all. Coordinates, weights, distances and transformed proximities saved to data files.
-  - OK stays off while the choices cannot run: fewer than 3 objects, more dimensions than objects less one, a reduced rank not below the most dimensions, or weights that do not pair with the proximities.
-- **Multidimensional Scaling (ALSCAL)** (`ALSCAL`): square matrices of proximities, or distances made from the data between variables or between cases, with a measure and a standardization. The distances go to a dataset of their own, so the open data stay active.
-  - Ordinal (untied, similarities), interval or ratio with a degree from 1 to 4, or nominal data; conditional on the matrix or unconditional.
-  - The Euclidean or the individual differences model; the latter needs several matrices and 2 dimensions or more. Dimensions from 1 to 6.
-  - The convergence, iteration and S-stress limits, the cutoff for missing proximities, negative subject weights, the data and the option summary, plots, and the coordinates saved to a data file.
-  - Asymmetric and rectangular matrices, row conditionality and the asymmetric and generalized models are shown but cannot be chosen.
-- **Weighted Kappa** (`WEIGHTED KAPPA`): every pair of the raters, or each row rater with each column rater. Linear or quadratic agreement weights, the confidence level, user-missing values as categories, and a table of counts for each pair with its categories ascending or descending.
-- **Fleiss Multirater Kappa** (`FLEISS MULTIRATER KAPPA`): two or more raters, all numeric or all string. The agreement on each category, the confidence level and user-missing values as categories.
-
-**Nonparametric Tests**
-
-The first three write `NPTESTS`. Each starts by letting the data choose the tests from the measurement level of every field; Customize tests picks them by hand. All three take a significance level, a confidence level, cases left out test by test or listwise, and user-missing values of categorical fields counted as valid.
-
-- **One Sample** (`/ONESAMPLE`): binomial (test proportion, success values, a cut point for continuous fields, three kinds of interval), chi-square (equal frequencies or frequencies for typed categories), Kolmogorov-Smirnov (normal, uniform, exponential and Poisson, each with typed or estimated parameters, and the Monte Carlo samples and level), runs (a group of typed values, a cut at the median, the mean or a value) and Wilcoxon against a typed median.
-- **Independent Samples** (`/INDEPENDENT`): fields and a grouping variable, which cannot be a scale variable. Mann-Whitney, Wald-Wolfowitz, Kolmogorov-Smirnov, the Hodges-Lehmann estimate and Moses with the cases to trim for two groups; Kruskal-Wallis, the median test (pooled or typed median) and Jonckheere-Terpstra (ascending or descending) for two or more, each with pairwise, step-down or no comparisons.
-- **Related Samples** (`/RELATED`): two fields or more. McNemar, Wilcoxon, sign, marginal homogeneity and the Hodges-Lehmann estimate need exactly two; Cochran's Q, Friedman and Kendall's W take more, each with its comparisons. McNemar and Cochran count typed success values or the first value found.
-- **Legacy Dialogs** (`NPAR TESTS`), with the dialogs analysts know. Each has descriptives, quartiles, cases left out test by test or listwise, and exact significances where the test has them.
-  - **Chi-square**: the categories from the data or a range, and equal or given expected values.
-  - **Binomial**: a test proportion, and the two values of the data or a cut point.
-  - **Runs**: at the median, mode, mean or a custom cut point.
-  - **1-Sample K-S**: against the normal, uniform, Poisson or exponential distribution.
-  - **2 Independent Samples**: Mann-Whitney, Kolmogorov-Smirnov, Moses and Wald-Wolfowitz.
-  - **K Independent Samples**: Kruskal-Wallis, the median test and Jonckheere-Terpstra.
-  - **2 Related Samples**: Wilcoxon, sign, McNemar and marginal homogeneity, on pairs.
-  - **K Related Samples**: Friedman, Kendall's W and Cochran's Q.
-
-**Survival**
-
-- **Life Tables** (`SURVIVAL`): one or more time variables sharing one status variable, whose event is a single code or a range of codes.
-  - Intervals from 0, each row continuing where the last one ended: through an end, in steps of a width.
-  - A first factor and an optional second factor, each numeric with its smallest and largest value. A time variable cannot also be a factor.
-  - The life tables, and plots of survival, one minus survival, the hazard, the density and log survival.
-  - Comparing the levels of the first factor overall or pair by pair, exactly or by interval.
-  - Cases left out only of the tables whose variables they miss, or of every table; user-missing values as valid.
-- **Kaplan-Meier** (`KM`): a time variable and a status variable, numeric or string. The event is a list of values or, for a numeric status, a range; cases lost to follow-up may have their own values. A factor, a strata variable and a variable that labels the cases.
-  - With a factor: the log rank, Breslow and Tarone-Ware tests, a linear trend across the levels with optional weights, and all levels at once or each pair, pooled over the strata or within each.
-  - Saving the survival estimate, its standard error, the cumulative hazard and the cumulative events, each under a name of your own or a made-up one.
-  - The survival table, the mean and median, quartiles and more percentiles, and plots of survival, one minus survival, the hazard and log survival.
-- **Cox Regression** (`COXREG`): a time variable and a status variable whose event is a list of values or a range, on blocks of covariates, with an optional strata variable.
-  - Each block entered, or stepped forward or backward by the conditional, likelihood-ratio or Wald statistic; picked variables can join a block as one interaction (`a BY b`).
-  - Categorical covariates, each with its contrast (deviation unless you choose another) and the first or last category as reference.
-  - Plots of survival, the hazard, log minus log and one minus survival, with one line per category of a categorical covariate and other covariates held at values you type.
-  - Saving survival, its standard error, the cumulative hazard, log minus log, partial residuals, DfBeta and X*Beta, each under a name of your own or a made-up one.
-  - Confidence intervals for exp(B), the correlation of estimates, the baseline function, every step or only the last of each block, the stepwise entry and removal probabilities, the maximum iterations and user-missing values as valid.
-  - A time-dependent covariate: an expression in T_ that becomes `T_COV_` through `TIME PROGRAM` and joins the first block. With it, DfBeta is the only variable to save, and there are no plots, pattern or baseline table.
-
-**Forecasting**
-
-- **Autocorrelations** (`ACF`, or `PACF` for partial autocorrelations alone): series, the natural log, differencing and seasonal differencing with a period, the most lags, and white-noise or Bartlett standard errors.
-- **Cross-Correlations** (`CCF`): two or more series, each paired with every later one, with the same transforms and the most lags either way.
-- **Seasonal Decomposition** (`SEASON`): a multiplicative or additive model, the moving average for an even period and the period.
-- **Exponential Smoothing** (`EXSMOOTH`): series and one of the twelve models (no, linear, exponential or damped trend, each with no, an additive or a multiplicative season; simple, Holt and Winters among them). Seasonal models take the period and the starting seasonal factors, typed or from a variable. Each parameter the model uses (level, trend, season, damping) is a value or a grid to search; also the start level and trend, and applying the previous model.
-- **ARIMA**: a dependent series with regressors, the nonseasonal and seasonal orders with the period, the constant, a base-10 or natural log, the lags to fit, the iteration and convergence criteria, the confidence level, how fitted values are computed, and applying the previous model (its specifications, its estimates as starting values or as they are).
-- **Sequence Charts** (`TSPLOT`): series over the cases, with the log and differencing of Autocorrelations, case labels and a mark where a variable changes. One series can fill the area under its line and get a reference line at the mean or a value; several can be joined case by case or shown as highest and lowest (two or three series). The previous chart can be applied.
-- **Forecast Period** (`PREDICT`): the cases Exponential Smoothing and ARIMA forecast, by case numbers or dates. When they save variables, cases are added past the end of the file to hold the forecasts.
-- A seasonal model with an empty period takes it from `TSET` or the date variables. The window cannot see `TSET`, so without date variables the period has to be typed.
-- **Options** (`TSET`): what the procedures save, the most new variables and lags, the period, the confidence level, user-missing values, the standard errors of autocorrelations and the amount of output. The window cannot read the session's current values, so the dialog starts from the starting ones and writes only what you change; a checkbox puts every setting back first.
-- An empty period or number of lags leaves the choice to the `TSET` settings and the date variables.
-
-**Multiple Response** (`MULT RESPONSE`): **Frequencies** and **Crosstabs**.
-
-- Groups defined in the dialog, as dichotomies with a counted value or as categories with a range. They are kept from one of the two dialogs to the other while the window is open.
-- Frequency tables of every group.
-- Crosstabulations of groups and variables in rows, columns and layers. Each variable has its range, starting from its lowest and highest labeled whole value that is not user-missing.
-- Row, column and total percentages, based on cases or on responses.
-- Leaving out cases missing on any variable of a dichotomy or category group.
-
-**Missing Value Analysis** (`MVA`)
-
-- Quantitative and categorical variables (strings always count as categorical), the most categories and a variable that labels the cases. Univariate statistics, and estimates listwise, pairwise, by EM and by regression. Patterns: tabulated (leaving out rare ones), the cases with missing values, or every case sorted up or down by chosen variables, each with variables described beside them. T tests, crosstabs and mismatches, each above a share of missing values you set. EM assumes a normal, Student's t or mixed normal distribution; regression adds a residual, a normal or t draw or nothing. Both can estimate chosen variables from chosen others and save the filled-in data to a file or a new dataset, but not while the file is split.
-
-**Multiple Imputation** (`MULTIPLE IMPUTATION`)
-
-- **Analyze Patterns** summarizes the missing values only: the overall summary, the variables missing most often and the tabulated patterns. **Impute Missing Data Values** saves the completed copies to a file or a new dataset. The method is automatic, iterative (with its number of iterations) or monotone; the custom methods also take predictive mean matching for scale variables, two-way interactions of categorical predictors and the singularity tolerance. Each variable can be imputed and predict, only be imputed or only predict, with a minimum, a maximum and a rounding step (limits are greyed out under matching). Also the analysis weight, the most missing share of a variable, the model size limit, the draw limits, the imputation models, descriptives of chosen imputed variables and the iteration history to a file or dataset.
-
-**Complex Samples**
-
-- **Analysis Plan** (`CSPLAN ANALYSIS`): writes a plan file, a small JSON file, with the sample weight and one to three stages. Each stage has an optional label, strata and clusters (every stage but the last needs clusters), and is drawn with replacement or with equal probability without replacement. A stage drawn with replacement ends the design, so no stage can follow it. Without replacement needs the population size or the inclusion probability, as one value or read from a variable. Design effects compare with simple random sampling with or without replacement. Matrices of population sizes are in the syntax.
-- **Descriptives** (`CSDESCRIPTIVES`), **Frequencies** and **Crosstabs** (`CSTABULATE`, one-way and two-way tables) each pick a plan file.
-  - Descriptives: means and sums of the measures, and one ratio of numerators to denominators.
-  - Frequencies and Crosstabs: population sizes and table percents; in Crosstabs also row and column percents.
-  - The standard error, coefficient of variation, design effect and its square root, the unweighted count and a confidence interval at any level. Descriptives adds the population size, Frequencies cumulative values, Crosstabs the expected table percents and the residuals (with table percents).
-  - Tests: equal shares in Frequencies; independence, the odds ratio, relative risk and risk difference in Crosstabs.
-  - Subpopulations, shown together or in a table for each variable; cases valid on every variable only; user-missing values of categories as valid.
-- **General Linear Model** (`CSGLM`) and **Logistic Regression** (`CSLOGISTIC`) each pick a plan file and fit one dependent on factors and covariates. The linear model needs a numeric dependent; the logistic one takes a numeric or string dependent with its reference category: the highest (the default), the lowest or a value. Covariates are numeric.
-  - The model: main effects, the full factorial of the factors with the covariates, or custom terms; the intercept included, left out or alone, and shown in the tables or not.
-  - Statistics of the estimates (estimates, standard error, t test, confidence interval, design effect and its square root, and in Logistic Regression the exponentiated estimates), the test statistic (Wald F or chi-square, adjusted or not) and the adjustment of p values for several tests.
-  - Custom tests, typed one row per line as in the other model dialogs: INTERCEPT, when the model has it, comes first in a row (in a test of ALL rows it takes a row of its own), and a row can end with `= value` to test against that value instead of 0.
-  - General Linear Model: tables of estimated marginal means, each of crossed factors or the overall mean, with a comparison of one factor's levels by a contrast, and the values the covariates are held at.
-  - Logistic Regression: odds ratios, each of a factor against its lowest or highest level or a value, or of a covariate by one or more changes, with the levels or values the other factors and covariates are held at. The lowest and highest levels are choices of their own, so a typed value is always a category, quoted for string and formatted variables. An odds ratio of a variable taken out of Factors or Covariates is dropped, and a variable moved between the two starts again from its default level. Also the iteration limits and convergence criteria.
-  - The confidence level, the degrees of freedom of the design, a subpopulation (a variable outside the model and its value), user-missing values of factors as valid, the tables to show (Logistic Regression adds the classification table and the iteration history every n-th step), and saving the predicted values and residuals or the predicted probabilities and category, with names of your own.
-  - The dialog checks roles, string variables where numbers are needed and names of saved variables that are taken (also the numbered names a root of predicted probabilities makes, and whether they fit) before the command runs, and refuses means, held covariate values, odds ratios and held values of a factor or covariate that the model leaves out (with the intercept alone, or custom terms without it). A missing plan file and plan variables in the model are found when it runs.
-
-### Graphs
-
-- **Chart Builder** (`GRAPH`): one chart, picked from a list: simple, clustered or stacked bars; simple or multiple lines; an area chart; a pie; a histogram; simple, grouped, overlay or matrix scatterplots; error bars; a Pareto chart; or a high-low chart. Only the roles the chosen chart needs are shown.
-  - Bars, lines, areas, pies, Pareto and high-low charts show a function by the categories of a variable: the number or percentage of cases (also cumulative), or the mean, median, mode, sum, minimum, maximum, standard deviation, variance, grouped median, a percentile, or the share or number of values below, above or within a range, of one or more variables. Pareto charts show counts or sums; high-low charts summarize two or three variables (high, low and close).
-  - Clustered and stacked bars, multiple lines, areas and Pareto charts take a second category variable for their series, or instead summarize several variables, one series each. Simple bars and lines and pies summarize one variable.
-  - A histogram can carry a normal curve. Scatterplots take their axes, a variable that groups the points and one whose values label them; an overlay pairs every X variable with every Y variable, or the lists in order.
-  - Error bars show the mean of each variable, by category and cluster, with a confidence interval at any level from 50 to 99.9, or a number of standard errors or standard deviations.
-  - A title, subtitle and footnote; panel variables, which draw a chart for each combination of their categories; and how missing values are left out, whether they get categories of their own, and whether user-missing values count as valid.
-  - There is no preview: OK draws the chart in the output.
-- **P-P Plots** and **Q-Q Plots** (`PPLOT`): variables against a test distribution (normal, exponential, Weibull, Pareto, lognormal, beta, gamma, logistic, Laplace, uniform, half-normal, chi-square or Student t), its parameters estimated from the data or given (chi-square and Student t always need their degrees of freedom). The proportion formula (Blom, Rankit, Tukey, Van der Waerden), the rank of tied values, the plot, the detrended plot or both, and the natural log, standardizing, differencing and seasonal differencing with its period.
-- **Case Plots** (`CASEPLOT`): Sequence Charts on their side, with the cases down the page; one series can fill the area left of its line.
-- **ROC Curve** (`ROC`): test variables against the value of a state variable that marks the positive state. The curve with or without the diagonal reference line, the standard error and confidence interval of the area with the chart of the model quality, and a table of the cutoffs with their sensitivity and specificity. Whether larger or smaller test values point to a positive test, whether a value at the cutoff counts as positive, the confidence level, a nonparametric or bi-negative exponential standard error, and user-missing values as valid.
-
-### Transform
-
-- **Compute Variable**, **Recode** and **Count Values within Cases**.
-- **Rank Cases**: every RANK function, with new names or the default ones; ranks within groups; from the smallest or the largest value; ties; the proportion formula; user-missing values.
-- **Automatic Recode** (`AUTORECODE`): into new variables, from the largest value, one scheme for all, blank strings as missing, and a table of the values.
-- **Create Time Series** (`CREATE`): rows of new series from the picked ones, each with its function (running total, differences, seasonal differences, lags and leads with a range of orders, centered, running-median and prior moving averages, T4253H smoothing, the Fourier transform and its inverse) and its order, span or period. Each row takes as many new names as it makes series; names that are taken or given twice are refused.
-
 ### Help
 
-- **Documentation** opens the documentation online.
-- **About Statscraft** shows the version, the license (MIT), links to the source code and the documentation, where the color themes come from with their licenses, and the licenses of the fonts.
+- **Documentation** opens this documentation online.
+- **About Statscraft** shows the version, the license (MIT), links to the source code and the documentation, and the licenses of the color themes and fonts.
 - **Check for updates**: see [Updates](#updates).
 
 ## Dialogs
@@ -693,7 +538,7 @@ Every change and every result in the window comes from syntax run by the engine,
 - Editing a label runs `VARIABLE LABELS`, and so on.
 - Macros defined by one run (DEFINE, or INCLUDE of a macro library) stay defined for the later runs while the window is open, with the macro settings of SET.
 - Edit > Undo last change (Ctrl+Z outside a text field) puts back the dataset from before the last run that changed it. It goes one step back. The log marks that run as undone, and Copy syntax leaves it out. The command line and an agent do the same with `statscraft undo` and the MCP tool `undo`.
-- Opening a file and every run happen off the drawing thread. The status bar shows what is running, and the window stays responsive.
+- The window stays responsive while a run goes on. The status bar shows what is running.
 - One run goes at a time. Runs from every window and requests from the command line wait their turn, in the order they came.
 
 ## Settings
