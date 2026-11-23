@@ -6,6 +6,12 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.33.0 (2026-11-23)
+
+The documentation is rewritten for users, with a sample file to follow along.
+
+- [Getting started](docs/getting-started.md) goes from installing to an Excel workbook with a custom table, in the window, on the sample file `survey.sav`.
+- The window guide lists every menu item with the command it runs, and explains custom tables step by step.
 - [MANOVA](docs/commands/manova.md) draws boxplots, cell plots, normal plots, predicted means and residual plots.
 
 ## 0.32.0 (2026-11-23)
