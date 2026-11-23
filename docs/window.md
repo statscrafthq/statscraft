@@ -97,7 +97,7 @@ Double-click a field to change it, or press Enter to change the field at the cur
 ### Keys and selection
 
 - The keys, mouse selection and Ctrl+C work as in the Data tab.
-- Delete deletes the variables whose row numbers are selected, with `DELETE VARIABLES`, after a question. Edit > Undo last change brings them back.
+- Delete deletes the variables whose row numbers are selected, with `DELETE VARIABLES`, after a question. Edit > Undo brings them back.
 - Drag a column border to resize it. These widths are a window setting.
 
 ## Finding a variable
@@ -371,7 +371,7 @@ The menu bar is the same in every window: File, Edit, Data, Analyze, Graphs, Tra
 
 ### Edit
 
-- **Undo last change** (Ctrl+Z): see [Syntax is the only command layer](#syntax-is-the-only-command-layer).
+- **Undo** (Ctrl+Z) and **Redo** (Ctrl+Y or Ctrl+Shift+Z): see [Syntax is the only command layer](#syntax-is-the-only-command-layer). Each item names the run it would take back or do again.
 - **Settings...**: see [Settings](#settings).
 
 ### Data
@@ -547,7 +547,8 @@ Every change and every result in the window comes from syntax run by the engine,
 - Editing a cell runs `IF ($CASENUM = n) var = value.`
 - Editing a label runs `VARIABLE LABELS`, and so on.
 - Macros defined by one run (DEFINE, or INCLUDE of a macro library) stay defined for the later runs while the window is open, with the macro settings of SET.
-- Edit > Undo last change (Ctrl+Z outside a text field) puts back the dataset from before the last run that changed it. It goes one step back. The log marks that run as undone, and Copy syntax leaves it out. The command line and an agent do the same with `statscraft undo` and the MCP tool `undo`.
+- Edit > Undo (Ctrl+Z outside a text field) puts back the dataset from before the last run that changed it, and the data file that was open then. Each use goes one run further back, up to 10 runs; for a very large file the window keeps fewer when the saved states would hold more than 1 GB of memory not shared with the current data, but always the newest. The log marks each run taken back as undone, and Copy syntax leaves it out.
+- Edit > Redo (Ctrl+Y or Ctrl+Shift+Z outside a text field) does again the run that the last undo took back, one run per use, and the log no longer marks it as undone. A run that changes the data after an undo ends the redo. The output stays as it is in both directions. The command line and an agent do the same with `statscraft undo`, `statscraft redo` and the MCP tools `undo` and `redo`.
 - The window stays responsive while a run goes on. The status bar shows what is running.
 - One run goes at a time. Runs from every window and requests from the command line wait their turn, in the order they came.
 

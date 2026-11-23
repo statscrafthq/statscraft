@@ -8,6 +8,7 @@ statscraft chart      add a chart given as JSON to the output
 statscraft export     export the output of the open window, as its File > Export
 statscraft output     show what an output window of the open window holds
 statscraft undo       take back the last change to the data in the open window, as its Edit > Undo
+statscraft redo       do again what the last undo took back, as its Edit > Redo
 statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
 statscraft db         store datasets in an OpenStatSpec database and read them back
@@ -329,7 +330,7 @@ With `--json` it prints the window's answer: `document`, `shows` (`headings`, `t
 statscraft undo
 ```
 
-Takes back the last run that changed the data in the open `statscraft-gui` window, exactly as its Edit > Undo last change does (see [the window](window.md#syntax-is-the-only-command-layer)): the datasets are as they were before that run, the output stays, and the log marks the run as undone. It goes one step back, and an undo cannot itself be taken back. It prints the first line of the syntax it took back:
+Takes back the last run that changed the data in the open `statscraft-gui` window, exactly as its Edit > Undo does (see [the window](window.md#syntax-is-the-only-command-layer)): the datasets are as they were before that run, the output stays, and the log marks the run as undone. It goes one change back for each call, up to 10 changes (fewer for a very large file, when the saved states would hold more than 1 GB of memory not shared with the current data; the newest change can always be taken back). `statscraft redo` does it again. It prints the first line of the syntax it took back:
 
 ```
 statscraft run -s gui -e "COMPUTE total = q1 + q2."
@@ -340,7 +341,26 @@ statscraft undo
 undone: COMPUTE total = q1 + q2.
 ```
 
-It fails when no window is open, and when no run since the last undo changed the data. File sessions have no undo.
+It fails when no window is open, and when no change to the data is left to take back. File sessions have no undo.
+
+## redo
+
+```
+statscraft redo
+```
+
+Does again the run that the last `statscraft undo` took back in the open `statscraft-gui` window, as its Edit > Redo does: the datasets are as they were before that undo, and the log no longer marks the run as undone. Each call goes one run forward, as far as the runs that were taken back. A run that changes the data after an undo ends the redo, as does any change that follows it. It prints the first line of the syntax it did again:
+
+```
+statscraft undo
+statscraft redo
+```
+
+```
+redone: COMPUTE total = q1 + q2.
+```
+
+It fails when no window is open, and when there is nothing to do again.
 
 ## mcp
 

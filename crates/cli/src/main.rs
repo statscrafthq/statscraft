@@ -72,8 +72,11 @@ enum Cmd {
         json: bool,
     },
     /// Take back the last run that changed the data in the running statscraft-gui window, as
-    /// its Edit > Undo does; the output stays
+    /// its Edit > Undo does; the output stays. Up to 10 runs go back, one per call
     Undo,
+    /// Do again the run that the last undo took back, as Edit > Redo does in the running
+    /// statscraft-gui window; a new change after the undo ends the redo
+    Redo,
     /// Show the syntax of a command, or list all commands
     Help { command: Vec<String> },
     /// Lower bounded syntax to an OpenStatSpec transformation plan (JSON), or apply it in a database
@@ -237,6 +240,13 @@ fn main() -> ExitCode {
             undo().map(|syntax| {
                 let first = syntax.lines().next().unwrap_or_default();
                 println!("undone: {first}");
+            }),
+        ),
+        Cmd::Redo => (
+            false,
+            redo().map(|syntax| {
+                let first = syntax.lines().next().unwrap_or_default();
+                println!("redone: {first}");
             }),
         ),
         Cmd::Help { command } => (
@@ -850,8 +860,18 @@ fn export(args: ExportArgs, cwd: Option<PathBuf>) -> Result<String, Vec<Failure>
 
 /// Has the window take back its last change to the data. Returns the syntax of that run.
 fn undo() -> Result<String, Vec<Failure>> {
+    step(Action::Undo, "undone")
+}
+
+/// Has the window do again the run that the last undo took back. Returns its syntax.
+fn redo() -> Result<String, Vec<Failure>> {
+    step(Action::Redo, "redone")
+}
+
+/// Sends `action` to the window; its reply gives the syntax of the run under `key`.
+fn step(action: Action, key: &str) -> Result<String, Vec<Failure>> {
     let request = Request {
-        action: Action::Undo,
+        action,
         ..Request::default()
     };
     let reply = live::send(&live::endpoint_file(), request)?;
@@ -861,11 +881,11 @@ fn undo() -> Result<String, Vec<Failure>> {
             format!("reply of the window: {e}"),
         )]
     })?;
-    match reply["undone"].as_str() {
+    match reply[key].as_str() {
         Some(syntax) => Ok(syntax.to_string()),
         None => Err(vec![Failure::plain(
             "session",
-            format!("reply of the window names no undone run: {reply}"),
+            format!("reply of the window names no {key} run: {reply}"),
         )]),
     }
 }

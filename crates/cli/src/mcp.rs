@@ -49,8 +49,10 @@ Export (only with the window open): when the person wants the window's output as
 workbook, web page or PDF, call export_output; it writes what File > Export would.
 Output (only with the window open): to see what the person sees in an output window, every \
 table and chart of the session with which are hidden and selected, call read_output.
-Undo (only with the window open): when the person asks to take back the last change to the \
-data, call undo; it does what Edit > Undo does, once, and the output stays.
+Undo and redo (only with the window open): when the person asks to take back the last change to \
+the data, call undo; it does what Edit > Undo does, once per call (up to 10 changes go back), and \
+the output stays. To do again what undo took back, call redo; a new change after an undo ends \
+the redo.
 Charts: procedures draw their own. For a chart no procedure makes, call add_chart with chart JSON \
 as run_syntax returns it, or a simple Vega-Lite specification; it lands in the output like any \
 other chart. Draw only numbers the result tables gave.
@@ -1186,9 +1188,10 @@ impl Server {
     }
 
     /// Takes back the last run that changed the data in the open Statscraft window, as its
-    /// Edit > Undo does: the dataset as it was before that run. The output stays, and an undo
-    /// cannot be taken back. Gives the syntax of the run undone; fails when there is nothing
-    /// to undo or no window is open. Undo only when the person asks.
+    /// Edit > Undo does: the dataset as it was before that run. Each call goes one change
+    /// further back, up to 10; the output stays, and `redo` does the change again. Gives the
+    /// syntax of the run undone; fails when there is nothing to undo or no window is open.
+    /// Undo only when the person asks.
     #[tool(
         title = "Undo in the window",
         annotations(
@@ -1204,6 +1207,32 @@ impl Server {
             Ok(syntax) => {
                 let mut reply = CallToolResult::structured(json!({ "undone": syntax }));
                 reply.content = vec![ContentBlock::text(format!("undone:\n{syntax}\n"))];
+                reply
+            }
+            Err(errors) => failed(errors),
+        })
+        .await)
+    }
+
+    /// Does again the run that the last `undo` took back in the open Statscraft window, as its
+    /// Edit > Redo does. A change to the data after an undo ends the redo. Gives the syntax of
+    /// the run done again; fails when there is nothing to redo or no window is open. Redo only
+    /// when the person asks.
+    #[tool(
+        title = "Redo in the window",
+        annotations(
+            title = "Redo in the window",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn redo(&self) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(|| match crate::redo() {
+            Ok(syntax) => {
+                let mut reply = CallToolResult::structured(json!({ "redone": syntax }));
+                reply.content = vec![ContentBlock::text(format!("redone:\n{syntax}\n"))];
                 reply
             }
             Err(errors) => failed(errors),

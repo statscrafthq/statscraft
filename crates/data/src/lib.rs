@@ -403,6 +403,17 @@ impl Dataset {
         }
     }
 
+    /// Each column's identity (its buffer's address) and memory in bytes. Datasets that share
+    /// a column give it the same identity, so a caller can count it once.
+    pub fn column_memory(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        self.columns.iter().map(|c| {
+            (
+                Arc::as_ptr(c).cast::<()>() as usize,
+                c.get_array_memory_size(),
+            )
+        })
+    }
+
     pub fn case_count(&self) -> usize {
         self.case_count
     }

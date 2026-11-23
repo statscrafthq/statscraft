@@ -904,6 +904,16 @@ impl Engine {
         self.dataset.as_ref()
     }
 
+    /// Adds the columns of the active and the named datasets to `out`, by identity (see
+    /// `Dataset::column_memory`), so columns shared between engines are counted once.
+    pub(crate) fn column_memory(&self, out: &mut std::collections::HashMap<usize, usize>) {
+        let (named, _) = self.named_datasets();
+        let named = named.iter().filter_map(|(_, d)| d.as_ref());
+        for data in self.dataset.iter().chain(named) {
+            out.extend(data.column_memory());
+        }
+    }
+
     /// The warnings of the last `execute`, such as a variable a procedure skipped. A command
     /// with warnings still succeeded.
     pub fn warnings(&self) -> &[String] {

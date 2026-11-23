@@ -1283,7 +1283,7 @@ mod tests {
         let data = session.dataset().unwrap();
         assert_eq!(data.variable_count(), count - 2);
         assert!(data.variable("plan").is_err());
-        // the one-step undo brings them back
+        // undo brings them back
         assert!(session.undo());
         assert!(session.dataset().unwrap().variable("plan").is_ok());
     }

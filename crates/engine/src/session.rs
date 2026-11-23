@@ -368,13 +368,30 @@ pub struct LogEntry {
     pub undone: bool,
 }
 
+/// How many changes to the data undo goes back, at most.
+const UNDO_STEPS: usize = 10;
+/// How much memory the saved states may hold besides the current one, counting a column that
+/// several of them share once. The newest step is kept even when it alone is over this.
+const UNDO_BYTES: usize = 1 << 30;
+
+/// A state the dataset can go back to, or forward to, with the log entry of the run between
+/// it and the next state.
+struct Step {
+    engine: Engine,
+    entry: usize,
+    /// The data file of the window in that state; the caller gives it, the session only keeps it.
+    file: Option<PathBuf>,
+}
+
 /// The active dataset kept between runs, and the log of every run.
 #[derive(Default)]
 pub struct Session {
     engine: Engine,
     pub log: Vec<LogEntry>,
-    /// The state before the last run that changed the dataset, and that run's log entry.
-    previous: Option<(Engine, usize)>,
+    /// The states before the runs that changed the dataset, the oldest first.
+    undo: Vec<Step>,
+    /// The states undo left, the next to redo last. A new change empties it.
+    redo: Vec<Step>,
 }
 
 /// A run taken from a session's current state. `execute` it on any thread, then hand the
@@ -662,11 +679,18 @@ impl Session {
             Ok((mut engine, result, summary)) => {
                 if !done.check {
                     engine.dry_run = false;
-                    let before = std::mem::replace(&mut self.engine, engine);
+                    let mut before = std::mem::replace(&mut self.engine, engine);
                     if result.saved {
-                        // shortcut: one level, holding the changed columns twice; keep a
-                        // longer history when someone needs more than the last step back.
-                        self.previous = Some((before, self.log.len()));
+                        // undo leaves the output as it is, so a copy of it is not kept
+                        before.documents = Default::default();
+                        let entry = self.log.len();
+                        self.undo.push(Step {
+                            engine: before,
+                            entry,
+                            file: None,
+                        });
+                        self.redo.clear();
+                        self.trim_history();
                     }
                     let warnings = result.commands.iter().flat_map(|c| {
                         c.warnings.iter().map(move |w| {
@@ -698,25 +722,98 @@ impl Session {
 
     /// The syntax of the run that `undo` would take back.
     pub fn undoable(&self) -> Option<&str> {
-        self.previous
-            .as_ref()
-            .map(|(_, entry)| self.log[*entry].syntax.as_str())
+        self.undo.last().map(|s| self.log[s.entry].syntax.as_str())
     }
 
-    /// Puts back the dataset from before the last run that changed it, once.
+    /// The syntax of the run that `redo` would do again.
+    pub fn redoable(&self) -> Option<&str> {
+        self.redo.last().map(|s| self.log[s.entry].syntax.as_str())
+    }
+
+    /// Puts back the dataset from before the last run that changed it and is not taken back
+    /// yet, up to `UNDO_STEPS` runs back. `redo` does the run again.
     pub fn undo(&mut self) -> bool {
-        let Some((engine, entry)) = self.previous.take() else {
-            return false;
-        };
+        self.go(true, None).is_some()
+    }
+
+    /// Does again the run that the last `undo` took back, unless a change came after it.
+    pub fn redo(&mut self) -> bool {
+        self.go(false, None).is_some()
+    }
+
+    /// `undo` for a caller that keeps the data file of each state: `file` is the current one,
+    /// and the file of the state put back is returned (see `keep_file`).
+    pub fn undo_with_file(&mut self, file: Option<PathBuf>) -> Option<Option<PathBuf>> {
+        self.go(true, file)
+    }
+
+    /// `redo` for a caller that keeps the data file of each state, as `undo_with_file`.
+    pub fn redo_with_file(&mut self, file: Option<PathBuf>) -> Option<Option<PathBuf>> {
+        self.go(false, file)
+    }
+
+    /// Notes `file` as the data file before the run just applied, if it changed the dataset.
+    pub fn keep_file(&mut self, file: Option<PathBuf>) {
+        let last = self.log.len().checked_sub(1);
+        if let Some(step) = self.undo.last_mut().filter(|s| Some(s.entry) == last) {
+            step.file = file;
+        }
+    }
+
+    /// Moves one state back (`undo`) or forward: the current state goes on the other stack.
+    fn go(&mut self, undo: bool, file: Option<PathBuf>) -> Option<Option<PathBuf>> {
+        let step = if undo {
+            self.undo.pop()
+        } else {
+            self.redo.pop()
+        }?;
         // the output and the caller's folder stay: the window keeps showing the output, and
         // undo is about the data
         let documents = std::mem::take(&mut self.engine.documents);
         let work_dir = self.engine.work_dir.take();
-        self.engine = engine;
-        self.engine.documents = documents;
-        self.engine.work_dir = work_dir;
-        self.log[entry].undone = true;
-        true
+        let mut engine = step.engine;
+        engine.documents = documents;
+        engine.work_dir = work_dir;
+        let left = std::mem::replace(&mut self.engine, engine);
+        self.log[step.entry].undone = undo;
+        let other = Step {
+            engine: left,
+            entry: step.entry,
+            file,
+        };
+        if undo {
+            self.redo.push(other);
+        } else {
+            self.undo.push(other);
+        }
+        Some(step.file)
+    }
+
+    /// Drops the oldest states while there are more than `UNDO_STEPS` or they hold more than
+    /// `UNDO_BYTES`; the newest stays.
+    fn trim_history(&mut self) {
+        self.trim_to(UNDO_STEPS, UNDO_BYTES);
+    }
+
+    fn trim_to(&mut self, steps: usize, bytes: usize) {
+        while self.undo.len() > steps || (self.undo.len() > 1 && self.history_bytes() > bytes) {
+            self.undo.remove(0);
+        }
+    }
+
+    /// The memory the saved states hold that the current state does not.
+    fn history_bytes(&self) -> usize {
+        let mut now = std::collections::HashMap::new();
+        self.engine.column_memory(&mut now);
+        let mut saved = std::collections::HashMap::new();
+        for step in self.undo.iter().chain(&self.redo) {
+            step.engine.column_memory(&mut saved);
+        }
+        saved
+            .iter()
+            .filter(|(id, _)| !now.contains_key(*id))
+            .map(|(_, bytes)| bytes)
+            .sum()
     }
 }
 
@@ -1328,17 +1425,122 @@ mod tests {
     }
 
     #[test]
-    fn undo_takes_back_the_last_change_once() {
+    fn undo_goes_back_one_change_at_a_time() {
         let mut session = survey();
         session.run("COMPUTE x = 1.", None).unwrap();
         session.run("FREQUENCIES gender.", None).unwrap();
+        session.run("COMPUTE y = 2.", None).unwrap();
         // a run that changes nothing leaves the change before it to undo
+        assert_eq!(session.undoable(), Some("COMPUTE y = 2."));
+        assert!(session.undo());
+        assert!(session.dataset().unwrap().variable("y").is_err());
+        assert!(session.dataset().unwrap().variable("x").is_ok());
         assert_eq!(session.undoable(), Some("COMPUTE x = 1."));
         assert!(session.undo());
         assert!(session.dataset().unwrap().variable("x").is_err());
-        assert!(session.log[1].undone && !session.log[2].undone);
-        assert!(!session.undo());
+        assert!(session.log[1].undone && session.log[3].undone && !session.log[2].undone);
         assert_eq!(session.dataset().unwrap().variable_count(), 19);
+        // the run that loaded the file is a change too; after it there is nothing left
+        assert!(session.undo());
+        assert!(session.dataset().is_none());
+        assert!(!session.undo());
+    }
+
+    #[test]
+    fn redo_does_the_runs_again_in_order_and_marks_the_log_both_ways() {
+        let mut session = survey();
+        session.run("COMPUTE x = 1.", None).unwrap();
+        session.run("COMPUTE y = 2.", None).unwrap();
+        assert_eq!(session.redoable(), None);
+        assert!(!session.redo());
+        assert!(session.undo() && session.undo());
+        assert_eq!(session.redoable(), Some("COMPUTE x = 1."));
+        assert!(session.redo());
+        assert!(session.dataset().unwrap().variable("x").is_ok());
+        assert!(session.dataset().unwrap().variable("y").is_err());
+        assert!(!session.log[1].undone && session.log[2].undone);
+        assert!(session.redo());
+        assert!(session.dataset().unwrap().variable("y").is_ok());
+        assert!(!session.log[2].undone && !session.redo());
+        // and back again
+        assert!(session.undo());
+        assert!(session.log[2].undone);
+        assert_eq!(session.undoable(), Some("COMPUTE x = 1."));
+    }
+
+    #[test]
+    fn a_new_change_empties_redo_but_a_check_or_a_failed_run_does_not() {
+        let mut session = survey();
+        session.run("COMPUTE x = 1.", None).unwrap();
+        session.run("COMPUTE y = 2.", None).unwrap();
+        assert!(session.undo());
+        session.check("COMPUTE z = 3.", None).unwrap();
+        assert!(session.run("COMPUTE w = nonsense(.", None).is_err());
+        session.run("FREQUENCIES gender.", None).unwrap();
+        assert_eq!(session.redoable(), Some("COMPUTE y = 2."));
+        session.run("COMPUTE z = 3.", None).unwrap();
+        assert_eq!(session.redoable(), None);
+        assert!(!session.redo());
+        assert!(session.dataset().unwrap().variable("y").is_err());
+        // the run that was undone stays marked, so a script made from the log leaves it out
+        assert!(session.log[2].undone);
+    }
+
+    #[test]
+    fn the_oldest_steps_drop_out_past_the_limit() {
+        let mut session = survey();
+        for n in 0..UNDO_STEPS + 3 {
+            session.run(&format!("COMPUTE v{n} = {n}."), None).unwrap();
+        }
+        assert_eq!(session.undo.len(), UNDO_STEPS);
+        for _ in 0..UNDO_STEPS {
+            assert!(session.undo());
+        }
+        assert!(!session.undo());
+        // the three oldest changes could not be taken back
+        let data = session.dataset().unwrap();
+        assert!(data.variable("v0").is_ok() && data.variable("v2").is_ok());
+        assert!(data.variable("v3").is_err());
+        assert_eq!(session.redo.len(), UNDO_STEPS);
+    }
+
+    #[test]
+    fn saved_states_count_the_columns_they_share_once_and_the_newest_stays() {
+        let mut session = survey();
+        // a new column shares every column of the state before it
+        session.run("COMPUTE x = 1.", None).unwrap();
+        session.run("COMPUTE y = 2.", None).unwrap();
+        assert_eq!(session.history_bytes(), 0);
+        // a changed column is held by the state before it
+        session.run("COMPUTE x = x + 1.", None).unwrap();
+        let one = session.history_bytes();
+        assert!(one > 0);
+        session.run("COMPUTE y = y + 1.", None).unwrap();
+        let two = session.history_bytes();
+        assert!(two > one && two < 3 * one, "{one} {two}");
+        // a limit under what is held drops the oldest, but never the newest
+        session.trim_to(UNDO_STEPS, one);
+        assert_eq!(session.undo.len(), 1);
+        assert_eq!(session.undoable(), Some("COMPUTE y = y + 1."));
+        session.trim_to(UNDO_STEPS, 0);
+        assert_eq!(session.undo.len(), 1);
+    }
+
+    #[test]
+    fn the_data_file_goes_back_and_forward_with_the_data() {
+        let mut session = survey();
+        session.run("COMPUTE x = 1.", None).unwrap();
+        session.keep_file(Some(PathBuf::from("a.sav")));
+        session.run("COMPUTE y = 2.", None).unwrap();
+        session.keep_file(Some(PathBuf::from("b.sav")));
+        let back = session.undo_with_file(Some(PathBuf::from("c.sav")));
+        assert_eq!(back, Some(Some(PathBuf::from("b.sav"))));
+        let back = session.undo_with_file(Some(PathBuf::from("b.sav")));
+        assert_eq!(back, Some(Some(PathBuf::from("a.sav"))));
+        let forward = session.redo_with_file(Some(PathBuf::from("a.sav")));
+        assert_eq!(forward, Some(Some(PathBuf::from("b.sav"))));
+        let forward = session.redo_with_file(Some(PathBuf::from("b.sav")));
+        assert_eq!(forward, Some(Some(PathBuf::from("c.sav"))));
     }
 
     #[test]

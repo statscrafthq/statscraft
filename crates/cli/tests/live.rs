@@ -322,15 +322,22 @@ fn runs_sent_to_the_window_leave_their_syntax_and_file_sessions_keep_theirs() {
 }
 
 #[test]
-fn undo_has_the_window_take_back_its_last_change_to_the_data() {
+fn undo_and_redo_have_the_window_go_back_and_forth_through_its_changes_to_the_data() {
     let dir = Workdir::new("undo");
     let (ok, _, err) = text(&dir.cli(&["undo"]));
     assert!(
         !ok && err.contains("no Statscraft window is running"),
         "{err}"
     );
+    let (ok, _, err) = text(&dir.cli(&["redo"]));
+    assert!(
+        !ok && err.contains("no Statscraft window is running"),
+        "{err}"
+    );
     let mut desk = live::Desk::default();
     let _server = live::serve(dir.endpoint(), move |request| desk.answer(&request)).unwrap();
+    let (ok, _, err) = text(&dir.cli(&["redo"]));
+    assert!(!ok && err.contains("nothing to redo"), "{err}");
     let data = "DATA LIST LIST /x.\nBEGIN DATA\n1\n2\nEND DATA.";
     assert!(dir.cli(&["run", "-s", "gui", "-e", data]).status.success());
     let compute = "COMPUTE y = x * 2.\nEXECUTE.";
@@ -347,8 +354,24 @@ fn undo_has_the_window_take_back_its_last_change_to_the_data() {
         described.contains("\nx\t") && !described.contains("\ny\t"),
         "{described}"
     );
+    // redo brings the variable back, once
+    let (ok, out, err) = text(&dir.cli(&["redo"]));
+    assert!(ok, "{err}");
+    assert_eq!(out, "redone: COMPUTE y = x * 2.\n");
+    let (_, described, _) = text(&dir.cli(&["describe", "-s", "gui"]));
+    assert!(described.contains("\ny\t"), "{described}");
+    let (ok, _, err) = text(&dir.cli(&["redo"]));
+    assert!(!ok && err.contains("nothing to redo"), "{err}");
+    // the next undo goes back one change further each time: the compute, then the data
+    let (_, out, _) = text(&dir.cli(&["undo"]));
+    assert_eq!(out, "undone: COMPUTE y = x * 2.\n");
+    let (ok, out, err) = text(&dir.cli(&["undo"]));
+    assert!(ok, "{err}");
+    assert_eq!(out, "undone: DATA LIST LIST /x.\n");
     let (ok, _, err) = text(&dir.cli(&["undo"]));
     assert!(!ok && err.contains("nothing to undo"), "{err}");
+    let (ok, out, _) = text(&dir.cli(&["redo"]));
+    assert!(ok && out == "redone: DATA LIST LIST /x.\n");
 }
 
 /// A window from before a request existed answers "bad request: unknown variant"; the client

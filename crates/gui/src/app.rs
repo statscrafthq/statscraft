@@ -643,8 +643,6 @@ pub struct App {
     popups: WindowId,
     /// The icon of every window.
     icon: Arc<egui::IconData>,
-    /// The data file before the last change, which undo puts back too.
-    file_before_change: Option<PathBuf>,
     /// The syntax of the run going on or done last, for the syntax of its output.
     source: String,
     /// The macros defined by the runs of the session, for completion and colours.
@@ -755,7 +753,6 @@ impl App {
             here: 0,
             popups: 0,
             icon: Arc::new(crate::icon()),
-            file_before_change: None,
             source: String::new(),
             macros: Vec::new(),
             about: false,
@@ -1027,6 +1024,10 @@ impl App {
                 let undone = self.undo();
                 let _ = reply.send(live::undone(undone));
             }
+            Action::Redo => {
+                let redone = self.redo();
+                let _ = reply.send(live::redone(redone));
+            }
             _ => self.answer_windows(request, reply),
         }
     }
@@ -1148,6 +1149,7 @@ impl App {
         self.warnings = 0;
         let changed = matches!(&result, Ok(r) if r.saved);
         let file = self.data_file.clone();
+        let checked = matches!(&after, After::Remote((r, _)) if r.action == Action::Check);
         let loaded = matches!(&result, Ok(r) if r.commands.iter().any(|c| c.name == "GET" || c.name == "GET DATA"));
         let on_file = matches!(&result, Ok(r) if ends_on_file(&r.commands));
         if changed && loaded && !matches!(after, After::OpenData(_)) {
@@ -1155,8 +1157,9 @@ impl App {
             // the file that was open before
             self.data_file = None;
         }
-        if changed {
-            self.file_before_change = file;
+        if changed && !checked {
+            // undo puts the data file back with the data
+            self.session.keep_file(file);
         }
         match after {
             After::Remote((request, reply)) => {
@@ -1253,26 +1256,42 @@ impl App {
     /// Puts back the dataset and the data file from before the last change. Returns the syntax
     /// of the run taken back, if there was one.
     fn undo(&mut self) -> Option<String> {
+        self.step(true)
+    }
+
+    /// Does again the run that undo took back, with the data file it had.
+    fn redo(&mut self) -> Option<String> {
+        self.step(false)
+    }
+
+    fn step(&mut self, undo: bool) -> Option<String> {
         if !self.runs.is_idle() {
             return None;
         }
-        let syntax = self.session.undoable()?.to_string();
+        let syntax = match undo {
+            true => self.session.undoable(),
+            false => self.session.redoable(),
+        }?
+        .to_string();
         let was = active_name(&self.session);
-        if self.session.undo() {
-            self.macros = session_macros(&self.session.log);
-            self.follow_session(was, None);
-            self.data_file = self.file_before_change.take();
-            self.view.cell_edit = None;
-            self.view.field_edit = None;
-            for view in self.windows.data_views() {
-                view.cell_edit = None;
-                view.field_edit = None;
-            }
-            let first = syntax.lines().next().unwrap_or_default();
-            self.status = Ok(format!("undone: {first}"));
-            return Some(syntax);
+        let file = self.data_file.clone();
+        let file = match undo {
+            true => self.session.undo_with_file(file),
+            false => self.session.redo_with_file(file),
+        }?;
+        self.macros = session_macros(&self.session.log);
+        self.follow_session(was, None);
+        self.data_file = file;
+        self.view.cell_edit = None;
+        self.view.field_edit = None;
+        for view in self.windows.data_views() {
+            view.cell_edit = None;
+            view.field_edit = None;
         }
-        None
+        let first = syntax.lines().next().unwrap_or_default();
+        let word = if undo { "undone" } else { "redone" };
+        self.status = Ok(format!("{word}: {first}"));
+        Some(syntax)
     }
 
     /// Puts the tables of a run in the output, or its errors in the status bar and, for a
@@ -1776,15 +1795,24 @@ impl App {
                 }
             });
             ui.menu_button("Edit", |ui| {
-                let undo = self.runs.is_idle() && self.session.undoable().is_some();
-                let button = egui::Button::new("Undo last change").shortcut_text("Ctrl+Z");
-                let response = ui.add_enabled(undo, button);
-                let response = match self.session.undoable() {
-                    Some(syntax) => response.on_hover_text(syntax),
-                    None => response,
-                };
-                if response.clicked() {
-                    self.undo();
+                let idle = self.runs.is_idle();
+                let undo = self.session.undoable().map(str::to_string);
+                let redo = self.session.redoable().map(str::to_string);
+                for (verb, syntax, shortcut) in [("Undo", undo, "Ctrl+Z"), ("Redo", redo, "Ctrl+Y")]
+                {
+                    let button = egui::Button::new(step_label(verb, syntax.as_deref()))
+                        .shortcut_text(shortcut);
+                    let response = ui.add_enabled(idle && syntax.is_some(), button);
+                    let response = match &syntax {
+                        Some(syntax) => response.on_hover_text(syntax),
+                        None => response,
+                    };
+                    if response.clicked() {
+                        match verb {
+                            "Undo" => self.undo(),
+                            _ => self.redo(),
+                        };
+                    }
                 }
                 ui.separator();
                 if ui.button("Settings...").clicked() {
@@ -4186,11 +4214,19 @@ impl App {
             self.find_keys(ui);
             self.grid_keys(ui);
         }
-        // Ctrl+Z inside a text field is that field's own undo
-        if !ui.ctx().egui_wants_keyboard_input()
-            && ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z))
-        {
-            self.undo();
+        // Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z inside a text field are that field's own undo and redo
+        if !ui.ctx().egui_wants_keyboard_input() {
+            // Shift first: a shortcut matches with extra Shift too
+            let (redo, undo) = ui.input_mut(|i| {
+                let redo = i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
+                    || i.consume_key(Modifiers::COMMAND, Key::Y);
+                (redo, !redo && i.consume_key(Modifiers::COMMAND, Key::Z))
+            });
+            if redo {
+                self.redo();
+            } else if undo {
+                self.undo();
+            }
         }
         let mut run = None;
         egui::Panel::top(("menu", id)).show(ui, |ui| {
@@ -4945,6 +4981,18 @@ fn data_states(data: &Dataset) -> Vec<(String, Dialog)> {
 }
 
 /// The macros defined by the commands of the session that ran, each name once.
+/// The text of an Edit menu item that undoes or redoes `syntax`: the verb and the run's first
+/// line, shortened.
+fn step_label(verb: &str, syntax: Option<&str>) -> String {
+    let Some(first) = syntax.map(|s| s.lines().next().unwrap_or_default().trim()) else {
+        return verb.to_string();
+    };
+    match first.chars().count() > 40 {
+        true => format!("{verb} {}...", first.chars().take(40).collect::<String>()),
+        false => format!("{verb} {first}"),
+    }
+}
+
 fn session_macros(log: &[statscraft_engine::session::LogEntry]) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for entry in log.iter().filter(|e| e.result.is_ok() && !e.undone) {
@@ -7219,6 +7267,19 @@ mod tests {
         let warnings = &session.log.last().unwrap().warnings;
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(warnings[0].contains("plan"));
+    }
+
+    #[test]
+    fn the_edit_menu_names_the_run_it_undoes_or_redoes() {
+        assert_eq!(step_label("Undo", None), "Undo");
+        assert_eq!(
+            step_label("Undo", Some("COMPUTE y = x * 2.\nEXECUTE.")),
+            "Undo COMPUTE y = x * 2."
+        );
+        let long = format!("COMPUTE {} = 1.", "a".repeat(60));
+        let label = step_label("Redo", Some(&long));
+        assert!(label.starts_with("Redo COMPUTE aaa") && label.ends_with("..."));
+        assert_eq!(label.chars().count(), "Redo ".len() + 40 + 3);
     }
 
     #[test]
