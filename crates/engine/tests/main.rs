@@ -65,6 +65,7 @@ mod inline_data;
 mod input_program;
 mod km_survival;
 mod knn;
+mod large_offsets;
 mod legacy_scaling;
 mod logistic;
 mod logistic_r;
