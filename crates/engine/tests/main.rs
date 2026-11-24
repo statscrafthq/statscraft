@@ -20,6 +20,7 @@ mod charts;
 mod cluster;
 mod complex_samples;
 mod conjoint;
+mod correlations_r;
 mod correspondence;
 mod coxreg;
 mod crosstabs_exact;
