@@ -45,6 +45,7 @@ mod factor;
 mod file_handle;
 mod file_map;
 mod frequencies;
+mod frequencies_r;
 mod genlin;
 mod genlinmixed;
 mod get_data;
