@@ -44,6 +44,7 @@ mod engine;
 mod examine;
 mod examine_r;
 mod factor;
+mod factor_r;
 mod file_handle;
 mod file_map;
 mod frequencies;
