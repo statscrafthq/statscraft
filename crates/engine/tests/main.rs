@@ -79,6 +79,7 @@ mod naivebayes;
 mod neural;
 mod nomreg;
 mod npar;
+mod npar_r;
 mod nptests;
 mod office;
 mod olap_cubes;
