@@ -95,6 +95,7 @@ mod plugin;
 mod plum;
 mod portable;
 mod power;
+mod power_r;
 mod pplot_roc;
 mod prefscal;
 mod procedures;
