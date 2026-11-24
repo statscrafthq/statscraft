@@ -16,7 +16,9 @@
 //!   joins its most similar group or stays apart, whichever gives the smaller significance.
 //! - CHAID merging: while more than two groups remain, the allowed pair (any pair for nominal,
 //!   neighbours for ordinal) whose 2 x J table is least significant is merged when that
-//!   significance exceeds ALPHAMERGE. Exhaustive CHAID merges the least significant pair down to
+//!   significance exceeds ALPHAMERGE. With SPLITMERGED=YES a merged group of three or more
+//!   categories is then split in two again at its most significant binary split, if that is at
+//!   most ALPHAMERGE. Exhaustive CHAID merges the least significant pair down to
 //!   two groups and keeps the set whose whole table is most significant.
 //! - Significance: Pearson or likelihood-ratio chi-square for a nominal dependent; for an
 //!   ordinal one the likelihood ratio of Goodman's row effects model against independence, on
@@ -515,6 +517,7 @@ struct Merging<'a> {
     tester: Tester<'a>,
     exhaustive: bool,
     alpha_merge: f64,
+    split_merged: bool,
     min_child: f64,
     bonferroni: bool,
 }
@@ -592,6 +595,47 @@ impl Merging<'_> {
         groups[i].sort_unstable();
     }
 
+    /// The binary split of a merged group with the smallest significance, when that is at most
+    /// ALPHAMERGE: any two parts for a nominal predictor, a cut of the sorted categories for an
+    /// ordinal one. shortcut: nominal groups try every partition (2^(n-1) tests), fine for the
+    /// few categories a CHAID predictor has, slow for a group of 25 or more.
+    fn resplit(
+        &self,
+        table: &[Vec<f64>],
+        group: &[usize],
+        nominal: bool,
+    ) -> Option<(Vec<usize>, Vec<usize>)> {
+        let n = group.len();
+        let masks: Box<dyn Iterator<Item = u64>> = if nominal {
+            // the first category stays in the first part, the others go by the bits
+            Box::new((0..(1u64 << (n - 1)) - 1).map(|m| (m << 1) | 1))
+        } else {
+            Box::new((1..n).map(|cut| (1u64 << cut) - 1))
+        };
+        let mut best: Option<(f64, u64)> = None;
+        for mask in masks {
+            let (a, b) = Self::parts(group, mask);
+            let sig = self.pair_sig(table, &a, &b);
+            if best.is_none_or(|(s, _)| sig < s) {
+                best = Some((sig, mask));
+            }
+        }
+        best.filter(|&(sig, _)| sig <= self.alpha_merge)
+            .map(|(_, mask)| Self::parts(group, mask))
+    }
+
+    fn parts(group: &[usize], mask: u64) -> (Vec<usize>, Vec<usize>) {
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for (k, &c) in group.iter().enumerate() {
+            if mask >> k & 1 == 1 {
+                a.push(c)
+            } else {
+                b.push(c)
+            }
+        }
+        (a, b)
+    }
+
     /// The groups of a predictor in a node from its table (categories by classes, the missing
     /// category last), the statistic, df and adjusted significance of the split they make. None
     /// when fewer than two groups remain.
@@ -624,13 +668,27 @@ impl Merging<'_> {
                 groups = best.1;
             }
         } else {
+            let mut splits = 0;
             while groups.len() > 2 {
                 let (i, j, sig) = self.most_similar(table, &groups, nominal, None, None)?;
                 if sig <= self.alpha_merge {
                     break;
                 }
                 Self::join(&mut groups, i, j);
+                // each resplit needs a significance at most ALPHAMERGE and each merge one above it,
+                // so the loop ends; the cap only guards a rare cycle through other groups
+                if self.split_merged
+                    && groups[i].len() >= 3
+                    && splits < present.len().pow(2)
+                    && let Some((a, b)) = self.resplit(table, &groups[i], nominal)
+                {
+                    groups[i] = a;
+                    groups.insert(i + 1, b);
+                    splits += 1;
+                }
             }
+            // a resplit leaves the parts next to each other; groups run by their first category
+            groups.sort_by_key(|g| g[0]);
         }
         if floats {
             // the missing category joins its most similar group or stays apart
@@ -1483,6 +1541,7 @@ impl Engine {
                     },
                     exhaustive: command.exhaustive,
                     alpha_merge: command.alpha_merge,
+                    split_merged: command.split_merged,
                     min_child: command.min_child,
                     bonferroni: command.bonferroni,
                 };

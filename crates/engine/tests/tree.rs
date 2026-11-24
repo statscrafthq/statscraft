@@ -464,3 +464,70 @@ fn target_response_lists_the_nodes_by_their_response() {
             .any(|w| w.contains("TARGETRESPONSE"))
     );
 }
+
+/// y (1, 2) by a (1 to 6); w counts. Independent merge of the manual's steps in R gives, at
+/// ALPHAMERGE=.05 and the Bonferroni adjustment, the groups 1,3,4,6 | 2,5 (chi-square 12.61152 on 1 df, p 0.0118847) and,
+/// with merged groups resplit, 1,3 | 4,6 | 2,5 (16.47466 on 2 df, p 0.02381307).
+const DATA3: &str = "DATA LIST FREE / a y w.
+BEGIN DATA
+1 1 25 1 2 47 2 1 49 2 2 30 3 1 29 3 2 39 4 1 44 4 2 39 5 1 44 5 2 26 6 1 43 6 2 49
+END DATA.
+WEIGHT BY w.
+";
+
+#[test]
+fn split_merged_splits_a_merged_group_again() {
+    let command = |split: &str| {
+        format!(
+            "TREE y [n] BY a [n] /CHAID SPLITMERGED={split}
+              /GROWTHLIMIT MAXDEPTH=1 MINPARENTSIZE=2 MINCHILDSIZE=1
+              /PRINT TREETABLE /TREE DISPLAY=NONE."
+        )
+    };
+    let mut engine = engine_with(DATA3);
+    let found = nodes(&run(&mut engine, &command("NO")));
+    assert_eq!(found.len(), 3);
+    let (chi, sig) = found[0].2.unwrap();
+    relative(chi, 12.61152, 1e-6);
+    relative(sig, 0.0118847, 1e-5);
+    assert_eq!(found[1].0, "a = 1; 3; 4; 6");
+
+    let found = nodes(&run(&mut engine, &command("YES")));
+    assert_eq!(found.len(), 4);
+    let (chi, sig) = found[0].2.unwrap();
+    relative(chi, 16.47466, 1e-6);
+    relative(sig, 0.02381307, 1e-6);
+    let labels: Vec<&str> = found[1..].iter().map(|n| n.0.as_str()).collect();
+    assert_eq!(labels, ["a = 1; 3", "a = 2; 5", "a = 4; 6"]);
+}
+
+/// An ordinal predictor merges and resplits only along its order. The same R merge with
+/// neighbours only gives 1 | 2,3,4,5,6 (8.405045 on 1 df, p 0.01870905) and, with resplitting,
+/// 1 | 2 | 3,4,5,6 (13.65346 on 2 df, p 0.01084401).
+#[test]
+fn split_merged_cuts_an_ordinal_group_along_its_order() {
+    let data = "DATA LIST FREE / a y w.
+BEGIN DATA
+1 1 41 1 2 29 2 1 24 2 2 59 3 1 40 3 2 61 4 1 38 4 2 33 5 1 26 5 2 48 6 1 39 6 2 49
+END DATA.
+WEIGHT BY w.
+";
+    let mut engine = engine_with(data);
+    let command = |split: &str| {
+        format!(
+            "TREE y [n] BY a [o] /CHAID SPLITMERGED={split}
+              /GROWTHLIMIT MAXDEPTH=1 MINPARENTSIZE=2 MINCHILDSIZE=1
+              /PRINT TREETABLE /TREE DISPLAY=NONE."
+        )
+    };
+    let found = nodes(&run(&mut engine, &command("NO")));
+    assert_eq!(found.len(), 3);
+    relative(found[0].2.unwrap().1, 0.01870905, 1e-6);
+    let found = nodes(&run(&mut engine, &command("YES")));
+    assert_eq!(found.len(), 4);
+    let (chi, sig) = found[0].2.unwrap();
+    relative(chi, 13.65346, 1e-6);
+    relative(sig, 0.01084401, 1e-6);
+    let labels: Vec<&str> = found[1..].iter().map(|n| n.0.as_str()).collect();
+    assert_eq!(labels, ["a = 1", "a = 2", "a = 3; 4; 5; 6"]);
+}

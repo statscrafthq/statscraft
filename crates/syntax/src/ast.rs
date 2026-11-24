@@ -1478,6 +1478,8 @@ pub struct Tree {
     pub min_child: f64,
     pub alpha_split: f64,
     pub alpha_merge: f64,
+    /// `/CHAID SPLITMERGED=YES`
+    pub split_merged: bool,
     /// `/CHAID CHISQUARE=LR`
     pub likelihood_ratio: bool,
     pub converge: f64,

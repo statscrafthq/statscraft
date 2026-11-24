@@ -1469,10 +1469,6 @@ fn tree_errors() {
         message("TREE y BY x /VALIDATION TYPE=SPLITSAMPLE(100)."),
         "SPLITSAMPLE needs a percent above 0 and below 100, or a variable"
     );
-    assert_eq!(
-        message("TREE y BY x /CHAID SPLITMERGED=YES."),
-        "CHAID SPLITMERGED=YES is not supported yet"
-    );
     assert!(message("TREE y BY x /RULES NODES=TOPPCT(100).").contains("below 100"));
     assert_eq!(
         message("TREE y BY x /COSTS CUSTOM=1 2 [-3]."),

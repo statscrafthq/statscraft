@@ -4922,7 +4922,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]\n\
                  \x20\x20\x20\x20\x20[/METHOD TYPE=CHAID | EXHAUSTIVECHAID | CRT | QUEST  MAXSURROGATES=AUTO | n  PRUNE=NONE | SE[(b)]]\n\
                  \x20\x20\x20\x20\x20[/GROWTHLIMIT MAXDEPTH=AUTO | n  MINPARENTSIZE=100  MINCHILDSIZE=50  MINIMPROVEMENT=0.0001]\n\
-                 \x20\x20\x20\x20\x20[/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 CHISQUARE=PEARSON | LR CONVERGE=.001\n\
+                 \x20\x20\x20\x20\x20[/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 SPLITMERGED=NO | YES CHISQUARE=PEARSON | LR CONVERGE=.001\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20MAXITERATIONS=100 ADJUST=BONFERRONI | NONE INTERVALS=10 | varlist(n) ...]\n\
                  \x20\x20\x20\x20\x20[/CRT IMPURITY=GINI | TWOING | ORDEREDTWOING  MINIMPROVEMENT=0.0001]  [/QUEST ALPHASPLIT=.05]\n\
                  \x20\x20\x20\x20\x20[/PRIORS FROMDATA | EQUAL | CUSTOM=value [prior] ...  ADJUST=NO | YES]\n\
@@ -4949,7 +4949,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  ordinal one (row effects model, scored 1, 2, ... or by SCORES CUSTOM) or a scale one (F test). Scale\n\
                  predictors are cut into INTERVALS groups of about equal size (at most 64; varlist(n) sets n per\n\
                  variable). Categories of a predictor that do not differ at ALPHAMERGE are merged, ordinal ones only\n\
-                 with a neighbor; exhaustive CHAID merges down to two and keeps the most significant grouping. A\n\
+                 with a neighbor, and with SPLITMERGED=YES a merged group of three or more categories is split in\n\
+                 two again where that split is significant at ALPHAMERGE; exhaustive CHAID merges down to two and\n\
+                 keeps the most significant grouping. A\n\
                  missing value is a category that may join any other. A category smaller than MINCHILDSIZE joins its\n\
                  closest neighbor. The predictor with the smallest Bonferroni-adjusted p-value (ADJUST=NONE:\n\
                  unadjusted) splits the node if that is at most ALPHASPLIT. FORCE=var splits the root by var.\n\

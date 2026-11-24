@@ -148,10 +148,6 @@ fn name_in_parentheses(p: &mut Parser) -> PResult<Option<String>> {
     Ok(Some(name))
 }
 
-fn not_supported(p: &Parser, start: usize, what: &str) -> SyntaxError {
-    SyntaxError::new(p.span_from(start), format!("{what} is not supported yet"))
-}
-
 /// `dependent [level] BY predictor [level] ... [FORCE = var [level]]`
 fn model(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     command.dependent = p.name("the dependent variable")?;
@@ -743,15 +739,12 @@ const CHAID_KEYWORDS: [&str; 8] = [
 
 fn chaid(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     while !at_end(p) {
-        let start = p.pos;
         if p.eat_keyword("ALPHASPLIT") {
             command.alpha_split = alpha(p, "ALPHASPLIT", false)?;
         } else if p.eat_keyword("ALPHAMERGE") {
             command.alpha_merge = alpha(p, "ALPHAMERGE", true)?;
         } else if p.eat_keyword("SPLITMERGED") {
-            if yes(p)? {
-                return Err(not_supported(p, start, "CHAID SPLITMERGED=YES"));
-            }
+            command.split_merged = yes(p)?;
         } else if p.eat_keyword("CHISQUARE") {
             command.likelihood_ratio = choice(p, &["PEARSON", "LR"])? == 1;
         } else if p.eat_keyword("CONVERGE") {
@@ -843,6 +836,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         min_child: 50.0,
         alpha_split: 0.05,
         alpha_merge: 0.05,
+        split_merged: false,
         likelihood_ratio: false,
         converge: 0.001,
         max_iterations: 100,

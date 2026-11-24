@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- TREE /CHAID SPLITMERGED=YES: a merged group of three or more categories is split again where that split is significant at ALPHAMERGE.
+
 ## 0.37.0 (2026-11-24)
 
 TREE finds the nodes that answer best for a target category.
