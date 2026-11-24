@@ -3,6 +3,7 @@
 
 mod adp;
 mod agreement;
+mod agreement_r;
 mod aim_selectpred;
 mod alscal;
 mod anova;
