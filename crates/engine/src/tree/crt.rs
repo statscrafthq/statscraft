@@ -445,7 +445,7 @@ impl Growth<'_> {
                 counts
             })
             .collect();
-        let sample = (self.case_class, self.case_weight, self.values);
+        let sample = (self.case_class, self.case_weight, self.values, None);
         let make = |cases, parent, depth, definition| {
             let mut node = make_node(
                 cases,

@@ -4928,6 +4928,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20\x20\x20[/PRIORS FROMDATA | EQUAL | CUSTOM=value [prior] ...  ADJUST=NO | YES]\n\
                  \x20\x20\x20\x20\x20[/COSTS EQUAL | CUSTOM=actual predicted [cost] ...]  [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]\n\
                  \x20\x20\x20\x20\x20[/PROFITS CUSTOM=category [revenue expense] ...]  [/TARGETRESPONSE RATE=NONE | percent]\n\
+                 \x20\x20\x20\x20\x20[/INFLUENCE var]\n\
                  \x20\x20\x20\x20\x20[/DEPCATEGORIES USEVALUES=[VALID MISSING value ...] TARGET=[value ...]]\n\
                  \x20\x20\x20\x20\x20[/VALIDATION TYPE=NONE | SPLITSAMPLE(percent | var) | CROSSVALIDATION(folds)  OUTPUT=BOTHSAMPLES | TESTSAMPLE]\n\
                  \x20\x20\x20\x20\x20[/MISSING NOMINALMISSING=MISSING | VALID]\n\
@@ -4955,6 +4956,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  missing value is a category that may join any other. A category smaller than MINCHILDSIZE joins its\n\
                  closest neighbor. The predictor with the smallest Bonferroni-adjusted p-value (ADJUST=NONE:\n\
                  unadjusted) splits the node if that is at most ALPHASPLIT. FORCE=var splits the root by var.\n\
+                 INFLUENCE names a numeric variable that says how much each case counts in growing a CHAID tree\n\
+                 with a nominal or ordinal dependent: the tests of independence use expected counts adjusted by\n\
+                 the mean influence of each cell, and a node's class is the one with the most influence times\n\
+                 frequency. A case whose influence is missing, zero or negative is left out. The counts, risk and\n\
+                 gains shown still count frequencies only. QUEST ignores it with a warning.\n\
                  A node is not split when it is pure, holds fewer than MINPARENTSIZE cases or is at MAXDEPTH (AUTO: 3\n\
                  for CHAID, 5 for CRT and QUEST). MINCHILDSIZE must be less than MINPARENTSIZE. A weight counts each\n\
                  case as often as its rounded value. SPLIT FILE is ignored.\n\

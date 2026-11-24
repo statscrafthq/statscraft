@@ -16,6 +16,7 @@ TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]
      [/PRIORS FROMDATA | EQUAL | CUSTOM=value [prior] ...  ADJUST=NO | YES]
      [/COSTS EQUAL | CUSTOM=actual predicted [cost] ...]  [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]
      [/PROFITS CUSTOM=category [revenue expense] ...]  [/TARGETRESPONSE RATE=NONE | percent]
+     [/INFLUENCE var]
      [/DEPCATEGORIES USEVALUES=[VALID MISSING value ...] TARGET=[value ...]]
      [/VALIDATION TYPE=NONE | SPLITSAMPLE(percent | var) | CROSSVALIDATION(folds)  OUTPUT=BOTHSAMPLES | TESTSAMPLE]
      [/MISSING NOMINALMISSING=MISSING | VALID]
@@ -32,6 +33,8 @@ TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]
 The command splits the cases, again and again, by the predictor that best separates the values of the dependent, then shows the tree, its risk and how well it classifies. METHOD TYPE picks the method: CHAID (the default) and EXHAUSTIVECHAID may split a node into more than two children, CRT and QUEST always split in two. A level after a variable sets how it is read: \[S\] scale, \[O\] ordinal, \[N\] or \[C\] nominal. Without one the dictionary's level holds, and a variable with no level gets one from its values. The default PRINT is MODELSUMMARY CLASSIFICATION RISK CPS.
 
 CHAID takes a nominal dependent (Pearson chi-square, or the likelihood ratio with CHISQUARE=LR), an ordinal one (row effects model, scored 1, 2, ... or by SCORES CUSTOM) or a scale one (F test). Scale predictors are cut into INTERVALS groups of about equal size (at most 64; varlist(n) sets n per variable). Categories of a predictor that do not differ at ALPHAMERGE are merged, ordinal ones only with a neighbor, and with SPLITMERGED=YES a merged group of three or more categories is split in two again where that split is significant at ALPHAMERGE; exhaustive CHAID merges down to two and keeps the most significant grouping. A missing value is a category that may join any other. A category smaller than MINCHILDSIZE joins its closest neighbor. The predictor with the smallest Bonferroni-adjusted p-value (ADJUST=NONE: unadjusted) splits the node if that is at most ALPHASPLIT. FORCE=var splits the root by var.
+
+INFLUENCE names a numeric variable that says how much each case counts in growing a CHAID tree with a nominal or ordinal dependent: the tests of independence use expected counts adjusted by the mean influence of each cell, and a node's class is the one with the most influence times frequency. A case whose influence is missing, zero or negative is left out. The counts, risk and gains shown still count frequencies only. QUEST ignores it with a warning.
 
 A node is not split when it is pure, holds fewer than MINPARENTSIZE cases or is at MAXDEPTH (AUTO: 3 for CHAID, 5 for CRT and QUEST). MINCHILDSIZE must be less than MINPARENTSIZE. A weight counts each case as often as its rounded value. SPLIT FILE is ignored.
 

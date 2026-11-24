@@ -1451,6 +1451,22 @@ fn tree_target_response() {
 }
 
 #[test]
+fn tree_influence() {
+    assert_eq!(tree_of("TREE y BY x.").influence, None);
+    let t = tree_of("TREE y BY x /INFLUENCE v.");
+    assert_eq!(t.influence.as_deref(), Some("v"));
+    // QUEST has no use for it
+    let t = tree_of("TREE y [n] BY x /METHOD TYPE=QUEST /INFLUENCE v.");
+    assert_eq!(t.influence, None);
+    assert_eq!(t.ignored, ["INFLUENCE is ignored for QUEST"]);
+    assert!(
+        err("TREE y BY x /INFLUENCE.")
+            .message
+            .contains("unexpected")
+    );
+}
+
+#[test]
 fn tree_errors() {
     let message = |source: &str| err(source).message;
     assert_eq!(

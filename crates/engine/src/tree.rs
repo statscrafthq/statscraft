@@ -223,20 +223,32 @@ fn cheapest(assign: &[f64], counts: &[f64], costs: &[Vec<f64>]) -> usize {
         .unwrap_or(0)
 }
 
+/// The class and weight of each case, the values of a scale dependent and the weights that decide
+/// the class.
+type Sample<'a> = (&'a [usize], &'a [f64], Option<&'a [f64]>, Option<&'a [f64]>);
+
 /// A node holding `cases`; `factor` turns a class count into the probability's numerator. The
-/// sample is the class and weight of each case, and the values of a scale dependent, whose node
-/// holds the weight, the sum of the values and of their squares in place of class counts.
+/// sample is the class and weight of each case, the values of a scale dependent, whose node
+/// holds the weight, the sum of the values and of their squares in place of class counts, and the
+/// weights that decide the class (influence times frequency) when cases have an influence.
 fn make_node(
     cases: Vec<usize>,
     parent: Option<usize>,
     depth: usize,
     definition: Option<(usize, Vec<usize>)>,
-    sample: (&[usize], &[f64], Option<&[f64]>),
+    sample: Sample,
     factor: &[f64],
     costs: Option<&Costs>,
 ) -> Node {
-    let (class, weight, values) = sample;
+    let (class, weight, values, growth) = sample;
     let mut counts = vec![0.0; if values.is_some() { 3 } else { factor.len() }];
+    // the counts the class is assigned by: each case counts its influence times its frequency
+    let mut grown = vec![0.0; counts.len()];
+    for &i in &cases {
+        if let (Some(g), None) = (growth, values) {
+            grown[class[i]] += g[i];
+        }
+    }
     for &i in &cases {
         match values {
             Some(y) => {
@@ -260,7 +272,11 @@ fn make_node(
         }
         None => (
             counts.iter().sum(),
-            counts.iter().zip(factor).map(|(c, f)| c * f).collect(),
+            if growth.is_some() { &grown } else { &counts }
+                .iter()
+                .zip(factor)
+                .map(|(c, f)| c * f)
+                .collect(),
             0.0,
         ),
     };
@@ -360,12 +376,28 @@ struct Tester<'a> {
     likelihood_ratio: bool,
     converge: f64,
     max_iterations: usize,
+    /// Each case has an influence: a row of the table holds the frequency counts of the classes
+    /// and then, as many again, the sums of influence times frequency.
+    influenced: bool,
 }
 
 impl Tester<'_> {
+    /// The frequency counts of the classes in a row of the table.
+    fn counts<'r>(&self, row: &'r [f64]) -> &'r [f64] {
+        if self.influenced {
+            &row[..row.len() / 2]
+        } else {
+            row
+        }
+    }
+
     /// The weight of the cases in a row of the table.
     fn size(&self, row: &[f64]) -> f64 {
-        if self.scale { row[0] } else { row.iter().sum() }
+        if self.scale {
+            row[0]
+        } else {
+            self.counts(row).iter().sum()
+        }
     }
 
     /// The ANOVA F test of the means of the dependent across the rows (groups): the F statistic,
@@ -399,9 +431,10 @@ impl Tester<'_> {
         }
         let rows: Vec<&Vec<f64>> = table
             .iter()
-            .filter(|r| r.iter().sum::<f64>() > 0.0)
+            .filter(|r| self.counts(r).iter().sum::<f64>() > 0.0)
             .collect();
-        let columns: Vec<usize> = (0..table.first().map_or(0, Vec::len))
+        let width = self.counts(&table[0]).len();
+        let columns: Vec<usize> = (0..width)
             .filter(|&j| rows.iter().map(|r| r[j]).sum::<f64>() > 0.0)
             .collect();
         if rows.len() < 2 || columns.len() < 2 {
@@ -412,11 +445,39 @@ impl Tester<'_> {
             .map(|r| columns.iter().map(|&j| r[j]).collect())
             .collect();
         let row_totals: Vec<f64> = n.iter().map(|r| r.iter().sum()).collect();
-        let column_totals: Vec<f64> = (0..columns.len())
-            .map(|j| n.iter().map(|r| r[j]).sum())
-            .collect();
         let total: f64 = row_totals.iter().sum();
-        let expected = |i: usize, j: usize| row_totals[i] * column_totals[j] / total;
+        // the influence sums of the cells and the inverse of the mean influence of each cell, the
+        // overall mean standing in for a cell without cases
+        let grown: Vec<Vec<f64>> = rows
+            .iter()
+            .map(|r| {
+                columns
+                    .iter()
+                    .map(|&j| if self.influenced { r[width + j] } else { r[j] })
+                    .collect()
+            })
+            .collect();
+        let overall = total / grown.iter().flatten().sum::<f64>();
+        let inverse: Vec<Vec<f64>> = n
+            .iter()
+            .zip(&grown)
+            .map(|(nr, gr)| {
+                nr.iter()
+                    .zip(gr)
+                    .map(|(&c, &g)| {
+                        if !self.influenced {
+                            1.0
+                        } else if c > 0.0 {
+                            c / g
+                        } else {
+                            overall
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let independent = self.independence(&n, &inverse);
+        let expected = |i: usize, j: usize| independent[i][j];
         let (statistic, df) = match self.scores {
             None => {
                 let mut statistic = 0.0;
@@ -439,7 +500,7 @@ impl Tester<'_> {
             }
             Some(scores) => {
                 let scores: Vec<f64> = columns.iter().map(|&j| scores[j]).collect();
-                let fitted = self.row_effects(&n, &scores);
+                let fitted = self.row_effects(&n, &grown, &inverse, &scores);
                 let mut statistic = 0.0;
                 for (i, row) in fitted.iter().enumerate() {
                     for (j, &m) in row.iter().enumerate() {
@@ -454,40 +515,90 @@ impl Tester<'_> {
         (statistic, df, chi_square_p(statistic, df))
     }
 
-    /// The expected counts under Goodman's row effects model, by the manual's iteration (all
-    /// case weights 1).
-    fn row_effects(&self, n: &[Vec<f64>], scores: &[f64]) -> Vec<Vec<f64>> {
+    /// The expected counts under independence: the margins' product over the total, or with
+    /// influences the manual's iteration for m = (1 / mean influence) alpha beta.
+    fn independence(&self, n: &[Vec<f64>], inverse: &[Vec<f64>]) -> Vec<Vec<f64>> {
+        let row_totals: Vec<f64> = n.iter().map(|r| r.iter().sum()).collect();
+        let columns = n[0].len();
+        let column_totals: Vec<f64> = (0..columns).map(|j| n.iter().map(|r| r[j]).sum()).collect();
+        let total: f64 = row_totals.iter().sum();
+        if !self.influenced {
+            return (0..n.len())
+                .map(|i| {
+                    (0..columns)
+                        .map(|j| row_totals[i] * column_totals[j] / total)
+                        .collect()
+                })
+                .collect();
+        }
+        let mut beta = vec![1.0; columns];
+        let mut m = inverse.to_vec();
+        for _ in 0..self.max_iterations {
+            let alpha: Vec<f64> = (0..n.len())
+                .map(|i| row_totals[i] / (0..columns).map(|j| inverse[i][j] * beta[j]).sum::<f64>())
+                .collect();
+            for (j, b) in beta.iter_mut().enumerate() {
+                *b = column_totals[j] / (0..n.len()).map(|i| inverse[i][j] * alpha[i]).sum::<f64>();
+            }
+            let mut change: f64 = 0.0;
+            for (i, row) in m.iter_mut().enumerate() {
+                for (j, cell) in row.iter_mut().enumerate() {
+                    let next = inverse[i][j] * alpha[i] * beta[j];
+                    change = change.max((next - *cell).abs());
+                    *cell = next;
+                }
+            }
+            if change < self.converge {
+                break;
+            }
+        }
+        m
+    }
+
+    /// The expected counts under Goodman's row effects model, by the manual's iteration; `grown`
+    /// holds the influence sums of the cells and `inverse` the inverse mean influence of each.
+    fn row_effects(
+        &self,
+        n: &[Vec<f64>],
+        grown: &[Vec<f64>],
+        inverse: &[Vec<f64>],
+        scores: &[f64],
+    ) -> Vec<Vec<f64>> {
         let rows = n.len();
         let row_totals: Vec<f64> = n.iter().map(|r| r.iter().sum()).collect();
         let column_totals: Vec<f64> = (0..scores.len())
             .map(|j| n.iter().map(|r| r[j]).sum())
             .collect();
-        let total: f64 = row_totals.iter().sum();
+        let grown_columns: Vec<f64> = (0..scores.len())
+            .map(|j| grown.iter().map(|r| r[j]).sum())
+            .collect();
         let mean: f64 = scores
             .iter()
-            .zip(&column_totals)
+            .zip(&grown_columns)
             .map(|(s, c)| s * c)
             .sum::<f64>()
-            / total;
+            / grown_columns.iter().sum::<f64>();
         let d: Vec<f64> = scores.iter().map(|s| s - mean).collect();
         let (mut alpha, mut beta, mut gamma) =
             (vec![1.0; rows], vec![1.0; scores.len()], vec![1.0; rows]);
-        let mut m = vec![vec![1.0; scores.len()]; rows];
+        let mut m = inverse.to_vec();
         let power = |g: f64, dj: f64| g.powf(dj);
         for _ in 0..self.max_iterations {
             for i in 0..rows {
                 let sum: f64 = (0..scores.len())
-                    .map(|j| beta[j] * power(gamma[i], d[j]))
+                    .map(|j| inverse[i][j] * beta[j] * power(gamma[i], d[j]))
                     .sum();
                 alpha[i] = row_totals[i] / sum;
             }
             for j in 0..scores.len() {
-                let sum: f64 = (0..rows).map(|i| alpha[i] * power(gamma[i], d[j])).sum();
+                let sum: f64 = (0..rows)
+                    .map(|i| inverse[i][j] * alpha[i] * power(gamma[i], d[j]))
+                    .sum();
                 beta[j] = column_totals[j] / sum;
             }
             for i in 0..rows {
                 let star: Vec<f64> = (0..scores.len())
-                    .map(|j| alpha[i] * beta[j] * power(gamma[i], d[j]))
+                    .map(|j| inverse[i][j] * alpha[i] * beta[j] * power(gamma[i], d[j]))
                     .collect();
                 let up: f64 = (0..scores.len()).map(|j| d[j] * (n[i][j] - star[j])).sum();
                 let down: f64 = (0..scores.len()).map(|j| d[j] * d[j] * star[j]).sum();
@@ -499,7 +610,7 @@ impl Tester<'_> {
             let mut change: f64 = 0.0;
             for (i, row) in m.iter_mut().enumerate() {
                 for (j, cell) in row.iter_mut().enumerate() {
-                    let next = alpha[i] * beta[j] * power(gamma[i], d[j]);
+                    let next = inverse[i][j] * alpha[i] * beta[j] * power(gamma[i], d[j]);
                     change = change.max((next - *cell).abs());
                     *cell = next;
                 }
@@ -982,9 +1093,45 @@ impl Engine {
         let weights = case_weights(data)?;
         let weight = |c: usize| weights.as_ref().map_or(1.0, |w| w[c].round());
 
+        // how much each case counts in growing the tree: a case whose influence is missing, zero
+        // or negative is left out, as one with such a weight is
+        let influence_var = match &command.influence {
+            None => None,
+            Some(name) => {
+                let variable = data.variable(name)?;
+                let taken = |other: &str| variable.name().eq_ignore_ascii_case(other);
+                if variable.is_string() {
+                    return Err(Error(format!(
+                        "the influence variable {} must be numeric",
+                        variable.name()
+                    )));
+                }
+                if taken(dependent.name()) || weight_name.as_ref().is_some_and(|w| taken(w)) {
+                    return Err(Error(format!(
+                        "the influence variable {} cannot be the dependent or the weight variable",
+                        variable.name()
+                    )));
+                }
+                if command.binary() || scale_dep {
+                    return Err(Error(
+                        "INFLUENCE is only supported for CHAID with a nominal or ordinal dependent"
+                            .into(),
+                    ));
+                }
+                Some(variable)
+            }
+        };
+        let influence = |c: usize| match &influence_var {
+            None => 1.0,
+            Some(v) => match raw(v, c) {
+                Raw::Valid(Key::Number(x)) => x,
+                _ => 0.0,
+            },
+        };
+
         // the classes of the dependent
         let in_use: Vec<usize> = (0..data.case_count())
-            .filter(|&c| weight(c) > 0.0)
+            .filter(|&c| weight(c) > 0.0 && influence(c) > 0.0)
             .collect();
         let mut valid = Vec::new();
         let mut user_missing = Vec::new();
@@ -1224,9 +1371,10 @@ impl Engine {
                 if taken(dependent.name())
                     || weight_name.as_ref().is_some_and(|w| taken(w))
                     || command.force.as_ref().is_some_and(|(f, _)| taken(f))
+                    || command.influence.as_ref().is_some_and(|i| taken(i))
                 {
                     return Err(Error(format!(
-                        "the SPLITSAMPLE variable {} cannot be the dependent, weight or forced variable",
+                        "the SPLITSAMPLE variable {} cannot be the dependent, weight, influence or forced variable",
                         split.name()
                     )));
                 }
@@ -1254,6 +1402,7 @@ impl Engine {
             .map(|(&w, &train)| if train { 0.0 } else { w })
             .collect();
         let case_class: Vec<usize> = cases.iter().map(|&(_, k)| k).collect();
+        let infl: Vec<f64> = cases.iter().map(|&(c, _)| influence(c)).collect();
         if validated {
             let mut trained = vec![0.0; classes.len()];
             for (&j, &w) in case_class.iter().zip(&case_weight) {
@@ -1538,6 +1687,7 @@ impl Engine {
                         likelihood_ratio: command.likelihood_ratio,
                         converge: command.converge,
                         max_iterations: command.max_iterations,
+                        influenced: influence_var.is_some(),
                     },
                     exhaustive: command.exhaustive,
                     alpha_merge: command.alpha_merge,
@@ -1553,13 +1703,22 @@ impl Engine {
                 } else {
                     vec![1.0; classes.len()]
                 };
+                // the weight each case grows the tree with: influence times frequency
+                let growth: Option<Vec<f64>> = influence_var
+                    .is_some()
+                    .then(|| weights.iter().zip(&infl).map(|(w, i)| w * i).collect());
                 let node_of = |cases: Vec<usize>, parent, depth, definition| {
                     let mut node = make_node(
                         cases,
                         parent,
                         depth,
                         definition,
-                        (&case_class, weights, dep_values.as_deref()),
+                        (
+                            &case_class,
+                            weights,
+                            dep_values.as_deref(),
+                            growth.as_deref(),
+                        ),
                         &ones,
                         costs.as_ref(),
                     );
@@ -1585,7 +1744,13 @@ impl Engine {
                         if id == 0 && command.force.is_some() && p != 0 {
                             continue;
                         }
-                        let width = if scale { 3 } else { classes.len() };
+                        let width = if scale {
+                            3
+                        } else if growth.is_some() {
+                            2 * classes.len()
+                        } else {
+                            classes.len()
+                        };
                         let mut table = vec![vec![0.0; width]; predictor.labels.len() + 1];
                         for &i in &node.cases {
                             let row = &mut table[predictor.codes[i]];
@@ -1595,7 +1760,12 @@ impl Engine {
                                     row[1] += weights[i] * y[i];
                                     row[2] += weights[i] * y[i] * y[i];
                                 }
-                                None => row[case_class[i]] += weights[i],
+                                None => {
+                                    row[case_class[i]] += weights[i];
+                                    if let Some(g) = &growth {
+                                        row[classes.len() + case_class[i]] += g[i];
+                                    }
+                                }
                             }
                         }
                         let Some((groups, statistic, df, sig)) = merging.merge(predictor, &table)

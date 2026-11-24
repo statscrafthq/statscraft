@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - TREE /CHAID SPLITMERGED=YES: a merged group of three or more categories is split again where that split is significant at ALPHAMERGE.
+- TREE /INFLUENCE var: with CHAID and a nominal or ordinal dependent, each case counts in growing the tree by its influence; QUEST ignores it.
 
 ## 0.37.0 (2026-11-24)
 

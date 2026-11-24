@@ -1396,6 +1396,8 @@ pub struct Tree {
     pub predictors: Vec<(VarItem, Option<Level>)>,
     /// `FORCE = var [level]`: the variable of the first split.
     pub force: Option<(String, Option<Level>)>,
+    /// `/INFLUENCE var`: how much each case counts in growing the tree.
+    pub influence: Option<String>,
     /// `/METHOD TYPE=EXHAUSTIVECHAID`; CHAID otherwise.
     pub exhaustive: bool,
     /// `/METHOD TYPE=CRT`

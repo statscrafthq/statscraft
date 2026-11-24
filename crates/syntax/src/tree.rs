@@ -3,7 +3,7 @@
 //! Rules from the Command Syntax Reference (TREE): the dependent variable, BY and the predictors,
 //! each optionally followed by its level in brackets ([S], [O], [N], [C] for nominal), then
 //! FORCE = var. Subcommands come in any order. Keywords are followed by '='; lists of values are
-//! in brackets. Validation, custom costs, profits, rules, influence and model files are refused as
+//! in brackets. Model files are refused as
 //! not supported yet; settings that do not apply to the method are ignored with a warning, as the
 //! manual says.
 
@@ -804,6 +804,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         dependent_level: None,
         predictors: Vec::new(),
         force: None,
+        influence: None,
         exhaustive: false,
         display: true,
         branch_statistics: true,
@@ -912,6 +913,10 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             "QUEST" => quest(p, &mut command)?,
             "RULES" => rules(p, &mut command)?,
             "PROFITS" => profits(p, &mut command)?,
+            "INFLUENCE" => {
+                p.eat(Punct::Eq);
+                command.influence = Some(p.name("the influence variable")?);
+            }
             "COSTS" => {
                 p.eat(Punct::Eq);
                 if p.eat_keyword("CUSTOM") {
@@ -984,6 +989,11 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             }
         }
     } else {
+        if command.quest && command.influence.take().is_some() {
+            command
+                .ignored
+                .push("INFLUENCE is ignored for QUEST".into());
+        }
         for name in ["CHAID", "SCORES"] {
             if seen.contains(&name) {
                 let message = format!("{name} applies to CHAID trees only; ignored");

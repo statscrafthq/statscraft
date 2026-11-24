@@ -531,3 +531,135 @@ WEIGHT BY w.
     let labels: Vec<&str> = found[1..].iter().map(|n| n.0.as_str()).collect();
     assert_eq!(labels, ["a = 1", "a = 2", "a = 3; 4; 5; 6"]);
 }
+
+/// a (1 to 5) by y (1 to 3), the frequency f and an influence v for each cell. An independent
+/// implementation in R of the manual's iteration for the expected counts with case weights (run
+/// to 1e-13) gives, with a nominal y, the groups 1,2 | 3,4 | 5 (chi-square 138.922144917 on 4 df,
+/// adjusted p 1.20040772589e-27) and, with an ordinal y, the groups 1,2 | 3,4,5 (likelihood ratio
+/// 39.2485984683 on 1 df, adjusted p 5.59704175975e-9); without the influence the groups are other.
+const DATA4: &str = "DATA LIST FREE / a y f v.
+BEGIN DATA
+1 1 24 1 2 1 26 1 3 1 29 3.5 4 1 37 3.5 5 1 25 0.5
+1 2 29 1 2 2 24 1 3 2 29 3.5 4 2 35 3.5 5 2 24 3.5
+1 3 28 3.5 2 3 38 3.5 3 3 37 3.5 4 3 31 3.5 5 3 33 0.5
+END DATA.
+WEIGHT BY f.
+";
+
+#[test]
+fn influence_weights_the_expected_counts_of_the_tests() {
+    let mut engine = engine_with(DATA4);
+    let command = |level: &str, influence: &str| {
+        format!(
+            "TREE y [{level}] BY a [n] {influence} /CHAID CONVERGE=1E-13 MAXITERATIONS=100000
+              /GROWTHLIMIT MAXDEPTH=1 MINPARENTSIZE=2 MINCHILDSIZE=1
+              /PRINT TREETABLE /TREE DISPLAY=NONE."
+        )
+    };
+    let found = nodes(&run(&mut engine, &command("n", "/INFLUENCE v")));
+    let (chi, sig) = found[0].2.unwrap();
+    relative(chi, 138.922144917, 1e-8);
+    relative(sig, 1.20040772589e-27, 1e-6);
+    let labels: Vec<&str> = found[1..].iter().map(|n| n.0.as_str()).collect();
+    assert_eq!(labels, ["a = 1; 2", "a = 3; 4", "a = 5"]);
+    // the counts shown are the frequencies
+    assert_eq!(found[1].1, 24.0 + 26.0 + 29.0 + 24.0 + 28.0 + 38.0);
+
+    let found = nodes(&run(&mut engine, &command("o", "/INFLUENCE v")));
+    let (chi, sig) = found[0].2.unwrap();
+    relative(chi, 39.2485984683, 1e-8);
+    relative(sig, 5.59704175975e-9, 1e-6);
+    let labels: Vec<&str> = found[1..].iter().map(|n| n.0.as_str()).collect();
+    assert_eq!(labels, ["a = 1; 2", "a = 3; 4; 5"]);
+
+    // without the influence the cells' own counts decide
+    let found = nodes(&run(&mut engine, &command("n", "")));
+    assert_eq!(found.len(), 1);
+}
+
+#[test]
+fn a_constant_influence_changes_nothing() {
+    for level in ["n", "o"] {
+        for likelihood in ["PEARSON", "LR"] {
+            let tree = |influence: &str| {
+                format!(
+                    "COMPUTE k = 3.\nTREE y [{level}] BY a [n] b [o] c [n] {influence}
+                      /CHAID CHISQUARE={likelihood} /PRINT TREETABLE /TREE DISPLAY=NONE."
+                )
+            };
+            let mut engine = engine_with(DATA1);
+            let plain = nodes(&run(&mut engine, &tree("")));
+            let weighted = nodes(&run(&mut engine, &tree("/INFLUENCE k")));
+            assert!(plain.len() > 3);
+            assert_eq!(plain.len(), weighted.len());
+            for (p, w) in plain.iter().zip(&weighted) {
+                assert_eq!((&p.0, p.1), (&w.0, w.1));
+                if let (Some((c1, s1)), Some((c2, s2))) = (p.2, w.2) {
+                    relative(c1, c2, 1e-3);
+                    relative(s1, s2, 1e-2);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn influence_decides_the_class_a_node_is_assigned() {
+    // the two classes are spread alike over x, so the root is not split: class 1 has more cases
+    // but class 2 more influence (10 against 3 x 6)
+    let data = "DATA LIST FREE / x y f v.
+BEGIN DATA
+1 1 5 1 2 1 5 1 1 2 3 3 2 2 3 3
+END DATA.
+WEIGHT BY f.
+";
+    let predicted = |influence: &str| {
+        let mut engine = engine_with(data);
+        let tables = run(
+            &mut engine,
+            &format!("TREE y [n] BY x [n] {influence} /PRINT CLASSIFICATION /TREE DISPLAY=NONE."),
+        );
+        let classification = table(&tables, "Classification");
+        classification.rows[..2]
+            .iter()
+            .map(|r| r[1..3].iter().map(number).collect::<Vec<f64>>())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(predicted(""), [[10.0, 0.0], [6.0, 0.0]]);
+    assert_eq!(predicted("/INFLUENCE v"), [[0.0, 10.0], [0.0, 6.0]]);
+}
+
+#[test]
+fn influence_is_checked() {
+    let mut engine = engine_with(&format!("{DATA4}STRING s (A2).\nCOMPUTE s = 'x'.\n"));
+    let fails = |engine: &mut Engine, source: &str| {
+        let (commands, errors) = parse(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        engine
+            .execute(&commands[0].command)
+            .unwrap_err()
+            .to_string()
+    };
+    for (source, text) in [
+        (
+            "TREE y [n] BY a /INFLUENCE y.",
+            "cannot be the dependent or the weight variable",
+        ),
+        (
+            "TREE y [n] BY a /INFLUENCE f.",
+            "cannot be the dependent or the weight variable",
+        ),
+        (
+            "TREE y [n] BY a /METHOD TYPE=CRT /INFLUENCE v.",
+            "only supported for CHAID",
+        ),
+        ("TREE v [s] BY a /INFLUENCE a.", "only supported for CHAID"),
+        (
+            "TREE y [n] BY a /VALIDATION TYPE=SPLITSAMPLE(v) /INFLUENCE v.",
+            "cannot be the dependent, weight, influence or forced",
+        ),
+    ] {
+        let message = fails(&mut engine, source);
+        assert!(message.contains(text), "{source}: {message}");
+    }
+}
