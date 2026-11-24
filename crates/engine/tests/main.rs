@@ -44,6 +44,7 @@ mod discriminant_r;
 mod dm_aliases;
 mod engine;
 mod examine;
+mod examine_normality_r;
 mod examine_r;
 mod factor;
 mod factor_r;
