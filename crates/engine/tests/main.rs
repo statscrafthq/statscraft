@@ -18,6 +18,7 @@ mod cell_stats;
 mod chart_input;
 mod charts;
 mod cluster;
+mod cluster_r;
 mod complex_samples;
 mod conjoint;
 mod correlations_r;
