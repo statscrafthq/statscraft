@@ -300,6 +300,8 @@ pub(crate) struct Evaluator<'a> {
     /// SET BLANKS and EPOCH: NUMBER reads a blank string as BLANKS, and NUMBER and the DATE
     /// functions put a two-digit year in the EPOCH window.
     pub reading: crate::data_list::Reading,
+    /// SET CCA to CCE: the custom currencies STRING writes.
+    pub currencies: crate::format::Currencies,
 }
 
 fn finite(value: f64) -> Option<f64> {
@@ -492,7 +494,8 @@ const NUMBER_FORMATS: &[(&str, FormatType)] = &[
 /// The formats STRING writes with: those every output shows.
 const STRING_FORMATS: &[&str] = &[
     "F", "N", "E", "COMMA", "DOT", "DOLLAR", "PCT", "DATE", "ADATE", "EDATE", "JDATE", "SDATE",
-    "QYR", "MOYR", "WKYR", "DATETIME", "YMDHMS", "TIME", "MTIME", "DTIME", "WKDAY", "MONTH",
+    "QYR", "MOYR", "WKYR", "DATETIME", "YMDHMS", "TIME", "MTIME", "DTIME", "WKDAY", "MONTH", "CCA",
+    "CCB", "CCC", "CCD", "CCE",
 ];
 
 /// The format argument of NUMBER and STRING (such as F8.2 or DATE11): its type in upper case,
@@ -1231,7 +1234,9 @@ impl Evaluator<'_> {
             }
             ("STRING", 2) => {
                 let (kind, width, decimals) = format_arg(function, &args[1])?;
-                let spec = format!("{kind}{width}.{decimals}");
+                let spec = self
+                    .currencies
+                    .resolve(&format!("{kind}{width}.{decimals}"));
                 let write = |v: Option<f64>| match v {
                     Some(v) => format!("{:>width$}", format_value(v, &spec, false)),
                     None => format_number(None, width, decimals),

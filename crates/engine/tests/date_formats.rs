@@ -246,6 +246,31 @@ fn a_custom_currency_needs_three_commas_or_three_periods() {
     );
 }
 
+/// STRING writes a number in CCA to CCE as the display of a variable with that format does.
+#[test]
+fn string_writes_the_custom_currencies() {
+    let t = &run(
+        "SET CCB='-/-.Dfl ..-'.\nSET CCA='(,$,,)'.\nCOMPUTE c = c * -1000.\n\
+         COMPUTE d = c.\nFORMATS d (CCA12.2).\nSTRING sa sb sc (A16).\n\
+         COMPUTE sa = STRING(c, CCB16.2).\nCOMPUTE sb = STRING(c, CCA12.2).\n\
+         COMPUTE sc = STRING(c, CCC12.2).\nLIST d sa sb sc.",
+    )[0];
+    let shown = column(t, 0);
+    assert_eq!(shown, ["($1,000.00)", "($2,000.00)", "($4,000.00)"]);
+    assert_eq!(
+        column(t, 1),
+        ["-/-Dfl 1.000,00-", "-/-Dfl 2.000,00-", "-/-Dfl 4.000,00-"]
+    );
+    // the text is right-aligned in the width of the format
+    let padded: Vec<String> = shown.iter().map(|s| format!("{s:>12}")).collect();
+    assert_eq!(column(t, 2), padded);
+    // CCC has its default specification: the minus sign and no symbol
+    assert_eq!(
+        column(t, 3),
+        ["   -1,000.00", "   -2,000.00", "   -4,000.00"]
+    );
+}
+
 /// DATA LIST reads the date and time input formats: DATETIME (date and time of day), YMDHMS
 /// (year, month, day first), TIME (hours, minutes, seconds), MTIME (minutes and seconds) and
 /// DTIME (days, then the time). Each value is checked against the same moment built from parts.

@@ -189,6 +189,7 @@ impl Engine {
             random: &self.random,
             fuzzbits: self.fuzzbits(),
             reading: self.reading(),
+            currencies: self.currencies(),
             first_case: self.row.as_ref().map_or(0, |row| row.case),
             previous: self.row.as_ref().map_or(&[], |row| &row.previous[..]),
         })
