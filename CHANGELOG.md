@@ -6,6 +6,10 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.38.1 (2026-11-25)
+
+Two fixes to CHAID trees.
+
 - TREE: exhaustive CHAID no longer stops with an error when an ordinal predictor has only its missing category in a node.
 - TREE /INFLUENCE: the risk of a CHAID tree is the share of the cases (their frequencies) that the tree misclassifies, as without an influence.
 
