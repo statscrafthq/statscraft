@@ -39,6 +39,7 @@ mod data_commands;
 mod date_formats;
 mod dictionary;
 mod discriminant;
+mod discriminant_r;
 mod dm_aliases;
 mod engine;
 mod examine;
