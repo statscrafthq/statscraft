@@ -94,6 +94,7 @@ mod pls;
 mod plugin;
 mod plum;
 mod portable;
+mod posthoc_r;
 mod power;
 mod power_r;
 mod pplot_roc;
