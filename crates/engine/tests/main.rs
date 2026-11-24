@@ -151,6 +151,7 @@ mod ttest_r;
 mod twostep;
 mod varcomp;
 mod vega_lite;
+mod weights_r;
 mod workbook;
 mod xgraph;
 
