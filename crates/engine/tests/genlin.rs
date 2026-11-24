@@ -3246,6 +3246,20 @@ fn initial_from_a_file_needs_an_est_record_and_a_value_for_every_parameter() {
     // the five parameters need five values: two are too few
     let message = run_error(&file("EST . 0.1 0.2 . . . ."));
     assert!(message.contains("INITIAL gives 2 values"), "{message}");
+    // the normal distribution with the identity link ignores INITIAL, so its file is not read
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{PROFILE_DATA}GENLIN cnt BY g WITH x /MODEL g x /CRITERIA INITIAL=nosuchfile.sav."
+        ),
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("INITIAL is ignored"))
+    );
 }
 
 // Under SPLIT FILE the file keeps the split variable in front of RowType_, the groups one after

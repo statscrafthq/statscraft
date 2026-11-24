@@ -375,7 +375,6 @@ pub struct Genlin {
     pub save: Vec<GenlinSave>,
 }
 
-/// The default link of a distribution.
 /// The start values of CRITERIA INITIAL: numbers, or a dataset or file written by OUTFILE.
 #[derive(Debug, Clone, PartialEq)]
 pub enum GenlinInitial {
@@ -391,6 +390,7 @@ pub struct GenlinOutfile {
     pub target: String,
 }
 
+/// The default link of a distribution.
 pub fn default_link(distribution: GenlinDistribution) -> GenlinLink {
     match distribution {
         GenlinDistribution::Normal => GenlinLink::Identity,

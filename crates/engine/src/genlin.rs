@@ -2139,6 +2139,13 @@ impl Engine {
         let initial: Option<Vec<f64>> = match &command.initial {
             None => None,
             Some(GenlinInitial::Values(values)) => Some(values.clone()),
+            // the start values are dropped with a warning below, so the file is not read
+            Some(GenlinInitial::Source(_))
+                if multinomial
+                    || (family == Family::Normal && command.link == GenlinLink::Identity) =>
+            {
+                Some(Vec::new())
+            }
             Some(GenlinInitial::Source(name)) => Some(self.initial_from_file(name)?),
         };
         let from_file = matches!(command.initial, Some(GenlinInitial::Source(_)));
