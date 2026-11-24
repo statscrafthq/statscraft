@@ -6,8 +6,12 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
-- DISCRIMINANT /MATRIX=OUT writes each group's own deviations and correlations when BOXM, GCOV or CLASSIFY=SEPARATE is given, and /MATRIX=IN reads them back.
-- DISCRIMINANT /MATRIX=IN reads the group counts, means and pooled deviations and correlations of a matrix file: with IN(*) the analysis is made from the matrix alone, with a file or dataset name the cases of the active dataset are classified by it.
+## 0.40.0 (2026-11-25)
+
+DISCRIMINANT can work from a matrix file instead of the cases.
+
+- [DISCRIMINANT](docs/commands/discriminant.md) `/MATRIX=IN` reads the group counts, means and pooled deviations and correlations of a matrix file: with `IN(*)` the analysis is made from the matrix alone, with a file or dataset name the cases of the active dataset are classified by it.
+- [DISCRIMINANT](docs/commands/discriminant.md) `/MATRIX=OUT` writes each group's own deviations and correlations when `BOXM`, `GCOV` or `CLASSIFY=SEPARATE` is given, and `/MATRIX=IN` reads them back.
 
 ## 0.39.0 (2026-11-25)
 
