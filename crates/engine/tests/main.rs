@@ -140,6 +140,7 @@ mod tree_validation;
 mod ts_models;
 mod ts_more;
 mod tsmodel;
+mod ttest_r;
 mod twostep;
 mod varcomp;
 mod vega_lite;
