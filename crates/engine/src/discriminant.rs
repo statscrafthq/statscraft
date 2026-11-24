@@ -24,7 +24,7 @@
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, f_p};
 use crate::matrix::{Matrix, cholesky, inverse, symmetric_eigen};
-use crate::matrix_file::MatrixRows;
+use crate::matrix_file::{Materials, MatrixRows};
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
@@ -104,6 +104,138 @@ fn sums(s: &Sample, g: usize, p: usize) -> Sums {
         t,
         group_sscp,
     }
+}
+
+/// The sums of an analysis read from matrix materials: the groups' weighted sizes (N, else
+/// COUNT), counts (COUNT, else N) and means, and the pooled within-groups scatter from the pooled
+/// STDDEV and CORR records, `(N - g)` times the covariance. The groups' own scatter is the pooled
+/// one in proportion to their degrees of freedom, so the pooled covariance is all there is.
+fn sums_from_matrix(
+    m: &Materials,
+    group: &str,
+    group_values: &[f64],
+    names: &[String],
+    command: &Discriminant,
+) -> Result<Sums, Error> {
+    let who = "DISCRIMINANT /MATRIX=IN";
+    let g = group_values.len();
+    let p = names.len();
+    let per_group = |kind: &str| -> Vec<Option<Vec<f64>>> {
+        let found = m.leveled(kind, group, names);
+        group_values
+            .iter()
+            .map(|v| found.iter().find(|(l, _)| l == v).map(|(_, x)| x.clone()))
+            .collect()
+    };
+    let means = per_group("MEAN");
+    let sizes = per_group("N");
+    let counts = per_group("COUNT");
+    let mut mean = Vec::new();
+    let mut nj = Vec::new();
+    let mut count = Vec::new();
+    for j in 0..g {
+        let Some(row) = &means[j] else {
+            return Err(Error(format!(
+                "{who}: the matrix file has no MEAN record for {group} = {}",
+                group_values[j]
+            )));
+        };
+        if row.iter().any(|v| !v.is_finite()) {
+            return Err(Error(format!(
+                "{who}: the MEAN record of {group} = {} has no value for some of the variables",
+                group_values[j]
+            )));
+        }
+        let size = sizes[j].as_ref().and_then(|r| r.first().copied());
+        let number = counts[j].as_ref().and_then(|r| r.first().copied());
+        let (weighted, unweighted) = match (size, number) {
+            (Some(n), Some(c)) => (n, c),
+            (Some(n), None) => (n, n),
+            (None, Some(c)) => (c, c),
+            (None, None) => {
+                return Err(Error(format!(
+                    "{who}: the matrix file has neither an N nor a COUNT record for {group} = {}",
+                    group_values[j]
+                )));
+            }
+        };
+        if !(weighted.is_finite() && weighted > 0.0) {
+            return Err(Error(format!(
+                "{who}: the number of cases of {group} = {} is not a positive number",
+                group_values[j]
+            )));
+        }
+        mean.push(row.clone());
+        nj.push(weighted);
+        count.push(unweighted.round() as usize);
+    }
+    let n: f64 = nj.iter().sum();
+    if n <= g as f64 {
+        return Err(Error(format!(
+            "{who}: the {n} weighted cases of the matrix do not exceed the {g} groups"
+        )));
+    }
+    // the within-cell records that BOXM, GCOV and SEPARATE write carry a group value
+    let spread = m.records("STDDEV", &[group.to_string()], names);
+    if spread.is_empty() {
+        return Err(Error(format!(
+            "{who}: the matrix file has no STDDEV record"
+        )));
+    }
+    if spread.iter().any(|(by, _)| by[0].is_some()) {
+        return Err(Error(format!(
+            "{who}: the STDDEV and CORR records of the matrix file are within-cell ones, which are not supported yet"
+        )));
+    }
+    if command.statistics.boxm || command.statistics.gcov || command.separate {
+        return Err(Error(format!(
+            "{who}: BOXM, GCOV and CLASSIFY=SEPARATE need the groups' own covariance matrices, and the matrix file holds the pooled one"
+        )));
+    }
+    let sd = &spread[0].1;
+    if sd.iter().any(|v| !v.is_finite() || *v < 0.0) {
+        return Err(Error(format!(
+            "{who}: the STDDEV record has no valid value for some of the variables"
+        )));
+    }
+    let corr = m
+        .matrix("CORR", names)
+        .map_err(|e| Error(format!("{who}: {e}")))?
+        .ok_or_else(|| Error(format!("{who}: the matrix file has no CORR records")))?;
+    let df = n - g as f64;
+    let w: Matrix = (0..p)
+        .map(|a| (0..p).map(|b| df * sd[a] * sd[b] * corr[a][b]).collect())
+        .collect();
+    let total_mean: Vec<f64> = (0..p)
+        .map(|i| (0..g).map(|j| nj[j] * mean[j][i]).sum::<f64>() / n)
+        .collect();
+    let mut t = w.clone();
+    for j in 0..g {
+        for a in 0..p {
+            for b in 0..p {
+                t[a][b] += nj[j] * (mean[j][a] - total_mean[a]) * (mean[j][b] - total_mean[b]);
+            }
+        }
+    }
+    let group_sscp: Vec<Matrix> = (0..g)
+        .map(|j| {
+            let share = (nj[j] - 1.0).max(0.0) / df;
+            w.iter()
+                .map(|row| row.iter().map(|v| v * share).collect())
+                .collect()
+        })
+        .collect();
+    Ok(Sums {
+        g,
+        n,
+        nj,
+        count,
+        mean,
+        total_mean,
+        w,
+        t,
+        group_sscp,
+    })
 }
 
 fn sub(m: &Matrix, set: &[usize]) -> Matrix {
@@ -695,6 +827,19 @@ struct Classified {
 
 impl Engine {
     pub(crate) fn discriminant(&mut self, command: &Discriminant) -> Result<Vec<Table>, Error> {
+        // the matrix materials the analysis is read from; the cases of the active dataset, if
+        // they are not the matrix itself, are only classified by them
+        let matrix = match &command.matrix.input {
+            Some(source) => Some(self.matrix_materials("DISCRIMINANT", source.as_ref())?),
+            None => None,
+        };
+        let matrix_is_data = command.matrix.input == Some(None);
+        if matrix.is_some() && command.statistics.crossvalid {
+            return Err(Error(
+                "DISCRIMINANT: CROSSVALID leaves each case out of its own analysis, and MATRIX=IN has no cases to leave out"
+                    .into(),
+            ));
+        }
         let data = self.active()?;
         let names = self.expand(&command.variables)?;
         let variables: Vec<Variable> = names
@@ -718,12 +863,32 @@ impl Engine {
             Some((name, _)) => Some(data.variable(name)?),
             None => None,
         };
-        let cases = data.case_count();
+        let cases = if matrix_is_data { 0 } else { data.case_count() };
         let weights = case_weights(data)?;
         let weight = |c: usize| weights.as_ref().map_or(1.0, |w| w[c]);
         let numeric = |var: &Variable, case: usize| match var.values() {
             Values::Numeric(v) => v.get(case),
             Values::String(_) => None,
+        };
+        // the groups the matrix has means for, inside the range of GROUPS: a case of another group
+        // is not classified as a member of one
+        let matrix_groups: Option<Vec<f64>> = match &matrix {
+            Some(m) => {
+                if !m.is_grouping(&command.group) {
+                    return Err(Error(format!(
+                        "DISCRIMINANT /MATRIX=IN: the grouping variable {} is not between ROWTYPE_ and VARNAME_ in the matrix file",
+                        command.group
+                    )));
+                }
+                Some(
+                    m.leveled("MEAN", &command.group, &names)
+                        .into_iter()
+                        .map(|(level, _)| level)
+                        .filter(|v| v.fract() == 0.0 && *v >= command.min && *v <= command.max)
+                        .collect(),
+                )
+            }
+            None => None,
         };
         // the group value of each case when it is valid and in range
         let group_of: Vec<Option<f64>> = (0..cases)
@@ -733,6 +898,9 @@ impl Engine {
                         && v.fract() == 0.0
                         && *v >= command.min
                         && *v <= command.max
+                        && matrix_groups
+                            .as_ref()
+                            .is_none_or(|groups| groups.contains(v))
                 })
             })
             .collect();
@@ -757,7 +925,10 @@ impl Engine {
         let used: Vec<usize> = (0..cases)
             .filter(|&c| selected[c] && group_of[c].is_some() && complete[c] && weight(c) > 0.0)
             .collect();
-        let mut group_values: Vec<f64> = used.iter().filter_map(|&c| group_of[c]).collect();
+        let mut group_values: Vec<f64> = match &matrix_groups {
+            Some(groups) => groups.clone(),
+            None => used.iter().filter_map(|&c| group_of[c]).collect(),
+        };
         group_values.sort_by(f64::total_cmp);
         group_values.dedup();
         let g = group_values.len();
@@ -773,7 +944,7 @@ impl Engine {
         let class_labels = group_var.value_labels().to_vec();
 
         // Analysis Case Processing Summary
-        {
+        if matrix.is_none() {
             let in_select: Vec<usize> = (0..cases).filter(|&c| selected[c]).collect();
             let count = |f: &dyn Fn(usize) -> bool| in_select.iter().filter(|&&c| f(c)).count();
             let valid = used.len();
@@ -864,8 +1035,10 @@ impl Engine {
                 }
             }
             let p = block.len();
+            // with a matrix the analysis has no cases; those of the active dataset only get classified
+            let analysis_cases: &[usize] = if matrix.is_some() { &[] } else { &used };
             let sample = Sample {
-                x: used
+                x: analysis_cases
                     .iter()
                     .map(|&c| {
                         block
@@ -874,13 +1047,22 @@ impl Engine {
                             .collect()
                     })
                     .collect(),
-                w: used.iter().map(|&c| weight(c)).collect(),
-                group: used
+                w: analysis_cases.iter().map(|&c| weight(c)).collect(),
+                group: analysis_cases
                     .iter()
                     .map(|&c| index_of(group_of[c].expect("in range")))
                     .collect(),
             };
-            let s = sums(&sample, g, p);
+            let s = match &matrix {
+                Some(m) => {
+                    let wanted: Vec<String> = block
+                        .iter()
+                        .map(|&(i, _)| variables[i].name().to_string())
+                        .collect();
+                    sums_from_matrix(m, &command.group, &group_values, &wanted, command)?
+                }
+                None => sums(&sample, g, p),
+            };
             let block_names: Vec<String> = block
                 .iter()
                 .map(|&(i, _)| shown.variable(&variables[i]))
@@ -1438,12 +1620,19 @@ impl Engine {
                     x.map(|x| (c, classify(&x)))
                 })
                 .collect();
-            let classification_output = command.statistics.table
+            let classification_wanted = command.statistics.table
                 || command.statistics.crossvalid
                 || options.save.is_some()
                 || command.plot.combined
                 || command.plot.separate
                 || command.plot.cases.is_some();
+            if matrix_is_data && classification_wanted && analysis_number == 1 {
+                warnings.push(
+                    "DISCRIMINANT: the active dataset is the matrix, which has no cases to classify; TABLE, SAVE and the plots of cases are left out"
+                        .into(),
+                );
+            }
+            let classification_output = !matrix_is_data && classification_wanted;
             if classification_output {
                 let processed = cases;
                 let missing_group = (0..cases).filter(|&c| group_of[c].is_none()).count();
@@ -1541,7 +1730,7 @@ impl Engine {
                 .statistics
                 .crossvalid
                 .then(|| cross_validate(&sample, &s, &set, &priors));
-            if command.statistics.table || command.statistics.crossvalid {
+            if !matrix_is_data && (command.statistics.table || command.statistics.crossvalid) {
                 let parts: Vec<(Option<bool>, String)> = match command.select {
                     Some(_) => vec![
                         (Some(true), "Cases Selected".to_string()),

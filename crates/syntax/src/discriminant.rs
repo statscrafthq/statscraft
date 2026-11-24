@@ -141,7 +141,8 @@ pub struct Discriminant {
     pub history: bool,
     pub classify: ClassifyCases,
     pub rotate: DiscriminantRotate,
-    /// `MATRIX=OUT(...)`: the file the matrix materials go to (IN is not supported yet).
+    /// `MATRIX=IN(...)` and `OUT(...)`: the matrix materials the analysis is read from and the file
+    /// they go to.
     pub matrix: crate::matrix_io::MatrixIo,
     pub separate: bool,
     pub meansub: bool,
@@ -692,14 +693,7 @@ pub(crate) fn discriminant(p: &mut Parser) -> PResult<Command> {
                     }
                 }
             } else if p.eat_keyword("MATRIX") {
-                let start = p.pos;
                 crate::matrix_io::matrix_io(p, &mut command.matrix, "DISCRIMINANT", false, false)?;
-                if command.matrix.input.is_some() {
-                    return Err(SyntaxError::new(
-                        p.span_from(start),
-                        "IN in DISCRIMINANT /MATRIX is not supported yet",
-                    ));
-                }
             } else {
                 return Err(p.subcommand_error("DISCRIMINANT", &["OUTFILE"]));
             }

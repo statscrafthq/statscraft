@@ -3084,7 +3084,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/ANALYSIS=... another block] [/MISSING=EXCLUDE | INCLUDE] [/HISTORY=STEP | NONE]\n\
                  \x20  [/CLASSIFY=[NONMISSING | UNSELECTED | UNCLASSIFIED] [POOLED | SEPARATE] [MEANSUB]]\n\
                  \x20  [/STATISTICS=[MEAN] [STDDEV] [UNIVF] [COV] [CORR] [FPAIR] [BOXM] [GCOV] [TCOV] [RAW] [COEFF] [TABLE]\n\
-                 \x20               [CROSSVALID] [ALL]] [/ROTATE=NONE | COEFF | STRUCTURE] [/MATRIX=OUT(file | dataset | *)] [/PLOT=[COMBINED] [SEPARATE] [MAP] [CASES[(n)]] [ALL]].\n\
+                 \x20               [CROSSVALID] [ALL]] [/ROTATE=NONE | COEFF | STRUCTURE] [/MATRIX=IN(file | dataset | *)] [/MATRIX=OUT(file | dataset | *)] [/PLOT=[COMBINED] [SEPARATE] [MAP] [CASES[(n)]] [ALL]].\n\
                  The analysis uses the cases with a whole group value in the range, no missing value on VARIABLES and,\n\
                  with SELECT, the selected value; groups without cases are ignored. DIRECT enters the variables that\n\
                  pass the tolerance; the stepwise methods enter the variable with the best criterion (smallest Wilks'\n\
@@ -3112,7 +3112,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  functions: the transformation matrix with the share of the between-groups variance of each rotated\n\
                  function, the rotated standardized coefficients and the rotated structure matrix; scores and\n\
                  classification stay as they are. MATRIX=OUT writes the group counts and means with the pooled deviations and\n\
-                 correlations of the first analysis.",
+                 correlations of the first analysis. MATRIX=IN reads such materials (MEAN, N or COUNT, STDDEV and CORR\n\
+                 records): with IN(*), the active dataset being the matrix file, the analysis is made from them alone, so\n\
+                 the tables that need cases (the case and classification summaries, classification results, CASES,\n\
+                 PLOT of cases, SAVE, CROSSVALID) are not made, and with the pooled records the group deviations shown\n\
+                 are the pooled ones; with the name of a file or dataset, the cases of the active dataset are classified\n\
+                 by the functions of the matrix. BOXM, GCOV and CLASSIFY=SEPARATE need the groups' own covariance\n\
+                 matrices, which the pooled records do not hold.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
         parse: discriminant::discriminant,
     },

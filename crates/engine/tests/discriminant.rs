@@ -975,3 +975,207 @@ fn matrix_out_warns_when_it_cannot_hold_the_within_cell_records() {
         engine.warnings()
     );
 }
+
+/// Every cell of a table, as text for the words and the number for the numbers.
+fn cells_of(table: &Table) -> Vec<Vec<Result<f64, String>>> {
+    table
+        .rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|c| match c {
+                    Cell::Number(n) => Ok(*n),
+                    other => Err(label(other)),
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// An analysis of the matrix a run wrote gives the tables of the run on the cases: the tables
+/// that need cases (the case summary, the classification) are not made, the rest agree.
+#[test]
+fn an_analysis_from_matrix_materials_equals_the_analysis_of_the_cases() {
+    let options = "/STATISTICS=MEAN UNIVF COEFF RAW CORR COV TCOV FPAIR /PRIORS=SIZE";
+    for (weight, method) in [
+        ("", "/METHOD=DIRECT"),
+        ("WEIGHT BY w.\n", "/METHOD=DIRECT"),
+        ("WEIGHT BY w.\n", "/METHOD=WILKS /HISTORY"),
+        ("", "/METHOD=MAHAL /PIN=0.2 /POUT=0.3"),
+        ("WEIGHT BY w.\n", "/METHOD=RAO"),
+    ] {
+        let mut engine = Engine::default();
+        let on_cases = run_on(
+            &mut engine,
+            &format!(
+                "{DATA}{weight}DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 {method} {options}
+                 /MATRIX=OUT(*)."
+            ),
+        );
+        let from_matrix = run_on(
+            &mut engine,
+            &format!(
+                "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 {method} {options} /MATRIX=IN(*)."
+            ),
+        );
+        assert!(
+            from_matrix
+                .iter()
+                .all(|t| t.title != "Analysis Case Processing Summary")
+        );
+        assert!(from_matrix.len() > 6, "{method}");
+        // the tables come in the same order, without the ones that need cases
+        let reference: Vec<&Table> = on_cases
+            .iter()
+            .filter(|t| t.title != "Analysis Case Processing Summary")
+            .collect();
+        assert_eq!(reference.len(), from_matrix.len(), "{method}");
+        let mut compared = 0;
+        for (table, reference) in from_matrix.iter().zip(reference) {
+            assert_eq!(table.title, reference.title, "{method}");
+            // the standard deviations of a group are the pooled ones when the matrix is
+            if table.title == "Group Statistics" {
+                continue;
+            }
+            let (a, b) = (cells_of(reference), cells_of(table));
+            assert_eq!(a.len(), b.len(), "{method}: {}", table.title);
+            for (ra, rb) in a.iter().zip(&b) {
+                for (ca, cb) in ra.iter().zip(rb) {
+                    match (ca, cb) {
+                        (Ok(x), Ok(y)) => assert!(
+                            (x - y).abs() <= 1e-8 * x.abs().max(1.0),
+                            "{method}: {}: {x} against {y}",
+                            table.title
+                        ),
+                        _ => assert_eq!(ca, cb, "{method}: {}", table.title),
+                    }
+                }
+            }
+            compared += 1;
+        }
+        assert!(compared > 5, "{method}: {compared} tables compared");
+    }
+}
+
+fn matrix_path(name: &str) -> String {
+    let dir = std::env::temp_dir().join(format!("statscraft-disc-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join("m.sav").display().to_string()
+}
+
+/// A matrix file of another dataset classifies the cases of the active dataset by its functions:
+/// the matrix of the very cases classifies them as the analysis of those cases does.
+#[test]
+fn a_matrix_file_classifies_the_active_dataset() {
+    let path = matrix_path("classify");
+    let options = "/STATISTICS=TABLE /PRIORS=SIZE";
+    let mut engine = Engine::default();
+    let on_cases = run_on(
+        &mut engine,
+        &format!(
+            "{DATA}WEIGHT BY w.\nDISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 {options}
+             /MATRIX=OUT('{path}')."
+        ),
+    );
+    let from_matrix = run_on(
+        &mut engine,
+        &format!("DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 {options} /MATRIX=IN('{path}')."),
+    );
+    let mut compared = 0;
+    for title in [
+        "Classification Processing Summary",
+        "Prior Probabilities for Groups",
+        "Classification Results",
+        "Wilks' Lambda",
+        "Eigenvalues",
+    ] {
+        let (a, b) = (find(&on_cases, title), find(&from_matrix, title));
+        let (a, b) = (cells_of(a), cells_of(b));
+        assert_eq!(a.len(), b.len(), "{title}");
+        for (ra, rb) in a.iter().zip(&b) {
+            for (ca, cb) in ra.iter().zip(rb) {
+                match (ca, cb) {
+                    (Ok(x), Ok(y)) => assert!((x - y).abs() <= 1e-8 * x.abs().max(1.0), "{title}"),
+                    _ => assert_eq!(ca, cb, "{title}"),
+                }
+            }
+        }
+        compared += 1;
+    }
+    assert_eq!(compared, 5);
+}
+
+#[test]
+fn matrix_input_is_checked() {
+    let path = matrix_path("checks");
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!("{DATA}DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /MATRIX=OUT('{path}')."),
+    );
+    let fails = |engine: &mut Engine, source: &str| {
+        let (commands, errors) = parse(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        engine
+            .execute(&commands[0].command)
+            .unwrap_err()
+            .to_string()
+    };
+    for (source, text) in [
+        (
+            format!(
+                "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /STATISTICS=CROSSVALID /MATRIX=IN('{path}')."
+            ),
+            "no cases to leave out",
+        ),
+        (
+            format!(
+                "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /STATISTICS=BOXM /MATRIX=IN('{path}')."
+            ),
+            "pooled one",
+        ),
+        (
+            format!("DISCRIMINANT GROUPS=s(1,3) /VARIABLES=x1 TO x4 /MATRIX=IN('{path}')."),
+            "not between ROWTYPE_ and VARNAME_",
+        ),
+        (
+            format!("DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /MATRIX=IN('{path}.nope')."),
+            "",
+        ),
+    ] {
+        let message = fails(&mut engine, &source);
+        assert!(message.contains(text), "{source}: {message}");
+    }
+}
+
+#[test]
+fn a_matrix_that_is_the_dataset_has_no_cases_to_classify() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!("{DATA}DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /MATRIX=OUT(*)."),
+    );
+    let tables = run_on(
+        &mut engine,
+        "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /STATISTICS=TABLE /MATRIX=IN(*).",
+    );
+    assert!(
+        tables
+            .iter()
+            .all(|t| !t.title.starts_with("Classification R"))
+    );
+    assert!(
+        tables
+            .iter()
+            .all(|t| t.title != "Classification Processing Summary")
+    );
+    assert!(tables.iter().any(|t| t.title == "Eigenvalues"));
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("no cases to classify")),
+        "{:?}",
+        engine.warnings()
+    );
+}

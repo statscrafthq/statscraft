@@ -289,15 +289,21 @@ fn discriminant_matrix_out() {
 }
 
 #[test]
+fn discriminant_matrix_in() {
+    let d = discriminant("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a b /MATRIX=IN(*).");
+    assert_eq!(d.matrix.input, Some(None));
+    let d = discriminant("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a b /MATRIX=IN(m) OUT('o.sav').");
+    assert_eq!(d.matrix.input, Some(Some("m".into())));
+    assert_eq!(d.matrix.output, Some(Some("o.sav".into())));
+}
+
+#[test]
 fn discriminant_errors() {
     assert!(err("DISCRIMINANT /VARIABLES=a b.").contains("GROUPS"));
     assert!(err("DISCRIMINANT GROUPS=g(1,2).").contains("VARIABLES"));
     assert!(err("DISCRIMINANT GROUPS=g(2,1) /VARIABLES=a.").contains("smaller first"));
     assert!(
         err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /ROTATE=VARIMAX.").contains("word VARIMAX")
-    );
-    assert!(
-        err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /MATRIX=IN(*).").contains("not supported yet")
     );
     assert!(
         err("DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a /TOLERANCE=2.").contains("between 0 and 1")
