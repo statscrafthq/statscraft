@@ -59,6 +59,7 @@ mod km_survival;
 mod knn;
 mod legacy_scaling;
 mod logistic;
+mod logistic_r;
 mod loglinear;
 mod loops;
 mod macros;
