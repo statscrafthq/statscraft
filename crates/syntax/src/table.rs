@@ -3117,8 +3117,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the tables that need cases (the case and classification summaries, classification results, CASES,\n\
                  PLOT of cases, SAVE, CROSSVALID) are not made, and with the pooled records the group deviations shown\n\
                  are the pooled ones; with the name of a file or dataset, the cases of the active dataset are classified\n\
-                 by the functions of the matrix. BOXM, GCOV and CLASSIFY=SEPARATE need the groups' own covariance\n\
-                 matrices, which the pooled records do not hold.",
+                 by the functions of the matrix. With BOXM, GCOV or CLASSIFY=SEPARATE, MATRIX=OUT writes each group's own\n\
+                 STDDEV and CORR records (with the group value), and MATRIX=IN needs such records when one of them is\n\
+                 given, and pooled ones when none is.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
         parse: discriminant::discriminant,
     },

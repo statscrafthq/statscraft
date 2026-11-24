@@ -957,8 +957,10 @@ fn matrix_out_holds_the_group_counts_means_and_the_pooled_deviations_and_correla
     );
 }
 
+/// With BOXM, GCOV or SEPARATE the STDDEV and CORR records are those of each group's own cases,
+/// carrying the group value: R's sd and cor of the cases of each group.
 #[test]
-fn matrix_out_warns_when_it_cannot_hold_the_within_cell_records() {
+fn matrix_out_with_boxm_holds_the_groups_own_deviations_and_correlations() {
     let mut engine = Engine::default();
     run_on(
         &mut engine,
@@ -966,14 +968,63 @@ fn matrix_out_warns_when_it_cannot_hold_the_within_cell_records() {
             "{DATA}DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /STATISTICS=BOXM /MATRIX=OUT(*)."
         ),
     );
+    let types = cells_text(&engine, "ROWTYPE_");
+    assert_eq!(types.iter().filter(|t| *t == "STDDEV").count(), 3);
+    assert_eq!(types.iter().filter(|t| *t == "CORR").count(), 12);
+    let groups = cells_number(&engine, "g");
+    assert!(groups.iter().skip(9).all(Option::is_some), "{groups:?}");
     assert!(
-        engine
+        !engine
             .warnings()
             .iter()
-            .any(|w| w.contains("pooled STDDEV and CORR records only")),
+            .any(|w| w.contains("pooled STDDEV")),
         "{:?}",
         engine.warnings()
     );
+}
+
+/// An analysis of within-cell matrix materials equals the analysis of the cases, with Box's M,
+/// the covariance matrices of the groups and the classification by separate covariances.
+#[test]
+fn within_cell_matrix_materials_give_the_separate_group_analysis() {
+    let options = "/STATISTICS=MEAN STDDEV BOXM GCOV COEFF TABLE /CLASSIFY=SEPARATE /PRIORS=SIZE";
+    let path = matrix_path("within");
+    let mut engine = Engine::default();
+    let on_cases = run_on(
+        &mut engine,
+        &format!(
+            "{DATA}WEIGHT BY w.\nDISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 {options}
+             /MATRIX=OUT('{path}')."
+        ),
+    );
+    let from_matrix = run_on(
+        &mut engine,
+        &format!("DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 {options} /MATRIX=IN('{path}')."),
+    );
+    let mut compared = 0;
+    for title in [
+        "Log Determinants",
+        "Test Results",
+        "Covariance Matrices",
+        "Classification Results",
+        "Eigenvalues",
+        "Wilks' Lambda",
+        "Group Statistics",
+    ] {
+        let (a, b) = (find(&on_cases, title), find(&from_matrix, title));
+        let (a, b) = (cells_of(a), cells_of(b));
+        assert_eq!(a.len(), b.len(), "{title}");
+        for (ra, rb) in a.iter().zip(&b) {
+            for (ca, cb) in ra.iter().zip(rb) {
+                match (ca, cb) {
+                    (Ok(x), Ok(y)) => assert!((x - y).abs() <= 1e-7 * x.abs().max(1.0), "{title}"),
+                    _ => assert_eq!(ca, cb, "{title}"),
+                }
+            }
+        }
+        compared += 1;
+    }
+    assert_eq!(compared, 7);
 }
 
 /// Every cell of a table, as text for the words and the number for the numbers.
@@ -1132,7 +1183,7 @@ fn matrix_input_is_checked() {
             format!(
                 "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 TO x4 /STATISTICS=BOXM /MATRIX=IN('{path}')."
             ),
-            "pooled one",
+            "own covariance matrices",
         ),
         (
             format!("DISCRIMINANT GROUPS=s(1,3) /VARIABLES=x1 TO x4 /MATRIX=IN('{path}')."),
@@ -1178,4 +1229,36 @@ fn a_matrix_that_is_the_dataset_has_no_cases_to_classify() {
         "{:?}",
         engine.warnings()
     );
+}
+
+/// A variable that is constant in a group has no correlations there: the record holds 1 on the
+/// diagonal and 0 elsewhere, not a missing value, so the matrix reads back.
+#[test]
+fn a_constant_variable_in_a_group_leaves_no_missing_correlation() {
+    let data = "DATA LIST FREE / g x1 x2.
+BEGIN DATA
+1 1.0 3 1 2.0 3 1 4.0 3 1 3.0 3
+2 5.0 1 2 6.0 4 2 4.0 2 2 7.0 5
+3 2.0 6 3 3.0 2 3 1.0 5 3 4.0 8
+END DATA.
+";
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{data}DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 x2 /STATISTICS=GCOV /MATRIX=OUT(*)."
+        ),
+    );
+    for name in ["x1", "x2"] {
+        assert!(
+            cells_number(&engine, name)
+                .iter()
+                .all(|v| v.is_none_or(f64::is_finite))
+        );
+    }
+    let tables = run_on(
+        &mut engine,
+        "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=x1 x2 /STATISTICS=GCOV /MATRIX=IN(*).",
+    );
+    assert!(tables.iter().any(|t| t.title == "Eigenvalues"));
 }

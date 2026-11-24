@@ -175,36 +175,94 @@ fn sums_from_matrix(
             "{who}: the {n} weighted cases of the matrix do not exceed the {g} groups"
         )));
     }
-    // the within-cell records that BOXM, GCOV and SEPARATE write carry a group value
+    // the records that BOXM, GCOV and SEPARATE write are the groups' own, with a group value
     let spread = m.records("STDDEV", &[group.to_string()], names);
     if spread.is_empty() {
         return Err(Error(format!(
             "{who}: the matrix file has no STDDEV record"
         )));
     }
-    if spread.iter().any(|(by, _)| by[0].is_some()) {
+    let within = spread.iter().any(|(by, _)| by[0].is_some());
+    let wants_groups = command.statistics.boxm || command.statistics.gcov || command.separate;
+    if within && !wants_groups {
         return Err(Error(format!(
-            "{who}: the STDDEV and CORR records of the matrix file are within-cell ones, which are not supported yet"
+            "{who}: the STDDEV and CORR records of the matrix file are the groups' own, so BOXM or GCOV on STATISTICS or SEPARATE on CLASSIFY is needed"
         )));
     }
-    if command.statistics.boxm || command.statistics.gcov || command.separate {
+    if !within && wants_groups {
         return Err(Error(format!(
             "{who}: BOXM, GCOV and CLASSIFY=SEPARATE need the groups' own covariance matrices, and the matrix file holds the pooled one"
         )));
     }
-    let sd = &spread[0].1;
-    if sd.iter().any(|v| !v.is_finite() || *v < 0.0) {
-        return Err(Error(format!(
-            "{who}: the STDDEV record has no valid value for some of the variables"
-        )));
-    }
-    let corr = m
-        .matrix("CORR", names)
-        .map_err(|e| Error(format!("{who}: {e}")))?
-        .ok_or_else(|| Error(format!("{who}: the matrix file has no CORR records")))?;
     let df = n - g as f64;
+    // each group's scatter about its mean, and their sum
+    let mut group_sscp: Vec<Matrix> = Vec::new();
+    if within {
+        for j in 0..g {
+            let level = Some(group_values[j]);
+            let sd = spread
+                .iter()
+                .find(|(by, _)| by[0] == level)
+                .map(|(_, v)| v.clone())
+                .ok_or_else(|| {
+                    Error(format!(
+                        "{who}: the matrix file has no STDDEV record for {group} = {}",
+                        group_values[j]
+                    ))
+                })?;
+            let corr = m
+                .matrix_of_group("CORR", group, level, names)
+                .map_err(|e| Error(format!("{who}: {e}")))?
+                .ok_or_else(|| {
+                    Error(format!(
+                        "{who}: the matrix file has no CORR records for {group} = {}",
+                        group_values[j]
+                    ))
+                })?;
+            if sd.iter().any(|v| !v.is_finite() || *v < 0.0) {
+                return Err(Error(format!(
+                    "{who}: the STDDEV record of {group} = {} has no valid value for some of the variables",
+                    group_values[j]
+                )));
+            }
+            let df_j = (nj[j] - 1.0).max(0.0);
+            group_sscp.push(
+                (0..p)
+                    .map(|a| (0..p).map(|b| df_j * sd[a] * sd[b] * corr[a][b]).collect())
+                    .collect(),
+            );
+        }
+    } else {
+        let sd = &spread[0].1;
+        if sd.iter().any(|v| !v.is_finite() || *v < 0.0) {
+            return Err(Error(format!(
+                "{who}: the STDDEV record has no valid value for some of the variables"
+            )));
+        }
+        let corr = m
+            .matrix_of_group("CORR", group, None, names)
+            .map_err(|e| Error(format!("{who}: {e}")))?
+            .ok_or_else(|| Error(format!("{who}: the matrix file has no CORR records")))?;
+        let pooled: Matrix = (0..p)
+            .map(|a| (0..p).map(|b| df * sd[a] * sd[b] * corr[a][b]).collect())
+            .collect();
+        // a group's own scatter is the pooled one in proportion to its degrees of freedom
+        for &size in &nj {
+            let share = (size - 1.0).max(0.0) / df;
+            group_sscp.push(
+                pooled
+                    .iter()
+                    .map(|row| row.iter().map(|v| v * share).collect())
+                    .collect(),
+            );
+        }
+    }
     let w: Matrix = (0..p)
-        .map(|a| (0..p).map(|b| df * sd[a] * sd[b] * corr[a][b]).collect())
+        .map(|a| {
+            (0..p)
+                .map(|b| (0..g).map(|j| group_sscp[j][a][b]).sum())
+                .collect()
+        })
         .collect();
     let total_mean: Vec<f64> = (0..p)
         .map(|i| (0..g).map(|j| nj[j] * mean[j][i]).sum::<f64>() / n)
@@ -217,14 +275,6 @@ fn sums_from_matrix(
             }
         }
     }
-    let group_sscp: Vec<Matrix> = (0..g)
-        .map(|j| {
-            let share = (nj[j] - 1.0).max(0.0) / df;
-            w.iter()
-                .map(|row| row.iter().map(|v| v * share).collect())
-                .collect()
-        })
-        .collect();
     Ok(Sums {
         g,
         n,
@@ -767,16 +817,32 @@ fn rotated_tables(
     }
 }
 
+/// The correlation of variables `a` and `b` from a scatter matrix: 1 on the diagonal and 0 with a
+/// variable that does not vary, whose correlation is undefined.
+fn correlation(sscp: &Matrix, a: usize, b: usize) -> f64 {
+    let scale = sscp[a][a] * sscp[b][b];
+    if a == b {
+        1.0
+    } else if scale > 0.0 {
+        sscp[a][b] / scale.sqrt()
+    } else {
+        0.0
+    }
+}
+
 /// The matrix materials of an analysis, as MATRIX=OUT writes them: per group the weighted
 /// number of cases (N), the unweighted number (COUNT) and the MEAN, then the pooled STDDEV (the
 /// root of the mean square error) and CORR (the pooled within-groups correlations), with the
 /// grouping variable missing on the pooled records.
+/// With `within` (BOXM, GCOV, SEPARATE) the STDDEV and CORR records are each group's own, with the
+/// group value, instead of the pooled ones.
 fn discriminant_matrix(
     s: &Sums,
     group_values: &[f64],
     names: Vec<String>,
     labels: Vec<Option<String>>,
     group: &str,
+    within: bool,
 ) -> MatrixRows {
     let p = names.len();
     let mut file = MatrixRows::new(names, labels);
@@ -793,20 +859,40 @@ fn discriminant_matrix(
         file.push("MEAN", "", s.mean[j].clone());
         by_group.push(Some(value));
     }
-    let df = s.n - s.g as f64;
-    file.push(
-        "STDDEV",
-        "",
-        (0..p).map(|i| (s.w[i][i] / df).sqrt()).collect(),
-    );
-    by_group.push(None);
-    for i in 0..p {
-        let row = (0..p)
-            .map(|j| s.w[i][j] / (s.w[i][i] * s.w[j][j]).sqrt())
-            .collect();
-        let name = file.names[i].clone();
-        file.push("CORR", &name, row);
+    if within {
+        // the deviations and correlations of every group's own cases
+        for (j, &value) in group_values.iter().enumerate() {
+            let (sscp, df) = (&s.group_sscp[j], (s.nj[j] - 1.0).max(0.0));
+            let deviation = |i: usize| {
+                if df > 0.0 {
+                    (sscp[i][i] / df).sqrt()
+                } else {
+                    0.0
+                }
+            };
+            file.push("STDDEV", "", (0..p).map(deviation).collect());
+            by_group.push(Some(value));
+            for i in 0..p {
+                let row = (0..p).map(|k| correlation(sscp, i, k)).collect();
+                let name = file.names[i].clone();
+                file.push("CORR", &name, row);
+                by_group.push(Some(value));
+            }
+        }
+    } else {
+        let df = s.n - s.g as f64;
+        file.push(
+            "STDDEV",
+            "",
+            (0..p).map(|i| (s.w[i][i] / df).sqrt()).collect(),
+        );
         by_group.push(None);
+        for i in 0..p {
+            let row = (0..p).map(|j| correlation(&s.w, i, j)).collect();
+            let name = file.names[i].clone();
+            file.push("CORR", &name, row);
+            by_group.push(None);
+        }
     }
     file.factors = vec![(group.to_string(), by_group)];
     file
@@ -1090,15 +1176,18 @@ impl Engine {
                             .iter()
                             .map(|&(i, _)| variables[i].label().map(str::to_string))
                             .collect();
-                        let file =
-                            discriminant_matrix(&s, &group_values, names, labels, &command.group);
+                        // with BOXM, GCOV or SEPARATE the records are the groups' own
+                        let within =
+                            command.statistics.boxm || command.statistics.gcov || command.separate;
+                        let file = discriminant_matrix(
+                            &s,
+                            &group_values,
+                            names,
+                            labels,
+                            &command.group,
+                            within,
+                        );
                         matrix_files.push(self.matrix_part("DISCRIMINANT", &file)?);
-                        if command.statistics.boxm || command.statistics.gcov || command.separate {
-                            warnings.push(
-                                "DISCRIMINANT: the matrix file holds the pooled STDDEV and CORR records only; the within-cell records of BOXM, GCOV and CLASSIFY=SEPARATE are not written"
-                                    .into(),
-                            );
-                        }
                     }
                     2 => warnings
                         .push("DISCRIMINANT: the matrix file holds the first analysis only".into()),

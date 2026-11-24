@@ -184,9 +184,37 @@ impl Materials {
     /// The records of `kind` as a square matrix over `names`, rows picked by VARNAME_ and a
     /// triangle mirrored; None when there are no such records.
     pub(crate) fn matrix(&self, kind: &str, names: &[String]) -> Result<Option<Matrix>, String> {
+        self.matrix_where(kind, names, |_| true)
+    }
+
+    /// The records of `kind` of one group as a square matrix over `names`: those whose grouping
+    /// variable `factor` has the value `level`, or none when `level` is None.
+    pub(crate) fn matrix_of_group(
+        &self,
+        kind: &str,
+        factor: &str,
+        level: Option<f64>,
+        names: &[String],
+    ) -> Result<Option<Matrix>, String> {
+        self.matrix_where(kind, names, |r| {
+            let v = self.number(factor, r);
+            match level {
+                Some(l) => v == l,
+                None => !v.is_finite(),
+            }
+        })
+    }
+
+    fn matrix_where(
+        &self,
+        kind: &str,
+        names: &[String],
+        keep: impl Fn(usize) -> bool,
+    ) -> Result<Option<Matrix>, String> {
         let varname = self.data.variable(&self.varname).expect("VARNAME_");
         let rows: Vec<(String, usize)> = self
             .of_kind(kind)
+            .filter(|&r| keep(r))
             .map(|r| (value_text(&varname, r).to_uppercase(), r))
             .collect();
         if rows.is_empty() {
