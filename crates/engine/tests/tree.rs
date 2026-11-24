@@ -663,3 +663,27 @@ fn influence_is_checked() {
         assert!(message.contains(text), "{source}: {message}");
     }
 }
+
+#[test]
+fn the_risk_under_influence_counts_frequencies_alone() {
+    // class 1 has more cases, class 2 more influence: the node is assigned class 2, so the 10 cases
+    // of class 1 are the misclassified ones, whatever the influence; 10 of the 16 cases
+    let data = "DATA LIST FREE / x y f v.
+BEGIN DATA
+1 1 5 1 2 1 5 1 1 2 3 3 2 2 3 3
+END DATA.
+WEIGHT BY f.
+";
+    let mut engine = engine_with(data);
+    let tables = run(
+        &mut engine,
+        "TREE y [n] BY x [n] /INFLUENCE v /PRINT RISK /TREE DISPLAY=NONE.",
+    );
+    let risk = table(&tables, "Risk");
+    relative(number(&risk.rows[0][0]), 10.0 / 16.0, 1e-12);
+    relative(
+        number(&risk.rows[0][1]),
+        (10.0 / 16.0 * 6.0 / 16.0 / 16.0_f64).sqrt(),
+        1e-12,
+    );
+}

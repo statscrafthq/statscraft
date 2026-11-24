@@ -6,6 +6,9 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- TREE: exhaustive CHAID no longer stops with an error when an ordinal predictor has only its missing category in a node.
+- TREE /INFLUENCE: the risk of a CHAID tree is the share of the cases (their frequencies) that the tree misclassifies, as without an influence.
+
 ## 0.38.0 (2026-11-24)
 
 CHAID trees can split merged categories again and weigh cases by their influence.

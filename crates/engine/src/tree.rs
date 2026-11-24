@@ -433,7 +433,7 @@ impl Tester<'_> {
             .iter()
             .filter(|r| self.counts(r).iter().sum::<f64>() > 0.0)
             .collect();
-        let width = self.counts(&table[0]).len();
+        let width = table.first().map_or(0, |r| self.counts(r).len());
         let columns: Vec<usize> = (0..width)
             .filter(|&j| rows.iter().map(|r| r[j]).sum::<f64>() > 0.0)
             .collect();
@@ -2653,7 +2653,10 @@ impl Engine {
         };
         let validated = test.is_some();
         // a test sample's risk takes M1 when the priors come from the data
-        let empirical = |label: &str| (label == "Test").then(|| empirical_priors(command));
+        // with an influence the priors' setting decides too: CHAID's are always the data's
+        let influenced = command.influence.is_some();
+        let empirical =
+            |label: &str| (label == "Test" || influenced).then(|| empirical_priors(command));
         let mut confusions = Vec::new();
         for (_, ns) in &samples {
             let mut confusion = vec![vec![0.0; classes.len()]; classes.len()];
@@ -3068,6 +3071,22 @@ mod tests {
         assert_eq!(cheapest(&[0.0, 0.5, 0.5], &[0.0, 4.0, 4.0], &unit), 1);
         // none of the tied classes is held: the lowest of them
         assert_eq!(cheapest(&[0.0, 0.0, 0.0], &[0.0, 0.0, 0.0], &unit), 0);
+    }
+
+    #[test]
+    fn a_test_of_no_groups_is_not_significant() {
+        for influenced in [false, true] {
+            let tester = Tester {
+                scale: false,
+                scores: None,
+                likelihood_ratio: false,
+                converge: 0.001,
+                max_iterations: 100,
+                influenced,
+            };
+            assert_eq!(tester.test(&[]), (0.0, 0.0, 1.0));
+            assert_eq!(tester.test(&[vec![0.0; 4]]), (0.0, 0.0, 1.0));
+        }
     }
 
     #[test]
