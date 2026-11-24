@@ -3167,10 +3167,10 @@ fn outfile_writes_the_parameter_statistics_and_initial_reads_them_back() {
     let covb = find(&tables, "Covariances of Parameter Estimates");
     for (r, record) in covariance.iter().take(4).enumerate() {
         let mut kept = 0;
-        for k in 0..5 {
-            match record.2[k] {
+        for (k, value) in record.2.iter().enumerate().take(5) {
+            match value {
                 Some(v) => {
-                    close(v, number(&covb.rows[r][1 + kept]), 1e-12, "covariance");
+                    close(*v, number(&covb.rows[r][1 + kept]), 1e-12, "covariance");
                     kept += 1;
                 }
                 None => assert_eq!(k, 3, "only the redundant parameter is blank"),
