@@ -1345,6 +1345,10 @@ impl Engine {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);
             }
+            Command::Genlin(c) if c.outfile.is_some() => {
+                let target = Some(c.outfile.clone().expect("checked").target);
+                return self.procedure_with_matrix_out(command, &target);
+            }
             Command::Factor(c) if c.matrix_out.is_some() => {
                 let target = c.matrix_out.clone().expect("checked").1;
                 return self.procedure_with_matrix_out(command, &target);

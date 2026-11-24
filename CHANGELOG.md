@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [GENLIN](docs/commands/genlin.md) writes the covariance or correlation matrix of its parameters with the estimates, standard errors, significances and degrees of freedom to a file or a dataset (`/OUTFILE COVB=` or `CORB=`), and `/CRITERIA INITIAL=` reads start values from such a file or dataset, group by group under SPLIT FILE, as well as from numbers.
+
 ## 0.40.0 (2026-11-25)
 
 DISCRIMINANT can work from a matrix file instead of the cases.

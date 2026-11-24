@@ -3110,6 +3110,210 @@ fn initial_values_start_the_fit_and_every_parameter_needs_one() {
     assert!(message.contains("INITIAL gives 2 values"), "{message}");
 }
 
+// OUTFILE COVB and CORB write RowType_, VarName_ and a column for every parameter (the
+// redundant one too) and the scale parameter: a COV or CORR record per estimated parameter,
+// then EST, SE, SIG and DF. The numbers are those of the Parameter Estimates and the
+// covariance and correlation tables; a file, or the dataset, starts the next fit (INITIAL).
+#[test]
+fn outfile_writes_the_parameter_statistics_and_initial_reads_them_back() {
+    let mut engine = Engine::default();
+    let fit = format!(
+        "{PROFILE_DATA}DATASET DECLARE est.\nDATASET DECLARE corr.\n\
+         GENLIN cnt BY g WITH x /MODEL g x DISTRIBUTION=POISSON LINK=LOG \
+         /PRINT SOLUTION COVB CORB /OUTFILE COVB=est.\n\
+         GENLIN cnt BY g WITH x /MODEL g x DISTRIBUTION=POISSON LINK=LOG /OUTFILE CORB=corr."
+    );
+    let tables = run(&mut engine, &fit);
+    let rows = |engine: &mut Engine, name: &str| -> Vec<(String, String, Vec<Option<f64>>)> {
+        run(engine, &format!("DATASET ACTIVATE {name}."));
+        let data = engine.dataset().unwrap();
+        let text = |variable: &str| -> Vec<String> {
+            match data.variable(variable).unwrap().values() {
+                Values::String(v) => (0..data.case_count())
+                    .map(|k| v.get(k).trim_end().to_string())
+                    .collect(),
+                Values::Numeric(_) => panic!("{variable} is not a string"),
+            }
+        };
+        let (kinds, names) = (text("ROWTYPE_"), text("VARNAME_"));
+        let columns: Vec<Vec<Option<f64>>> =
+            (1..=5).map(|k| values(engine, &format!("P{k}"))).collect();
+        (0..kinds.len())
+            .map(|r| {
+                (
+                    kinds[r].clone(),
+                    names[r].clone(),
+                    columns.iter().map(|c| c[r]).collect(),
+                )
+            })
+            .collect()
+    };
+    let covariance = rows(&mut engine, "est");
+    // three parameters estimated (the intercept, g=1 and g=2 are four with the redundant g=3,
+    // and x makes five), the scale parameter last: 5 + 1 columns, the sixth is P6
+    let kinds: Vec<&str> = covariance.iter().map(|r| r.0.as_str()).collect();
+    assert_eq!(
+        kinds,
+        ["COV", "COV", "COV", "COV", "EST", "SE", "SIG", "DF"]
+    );
+    // the estimates of the Parameter Estimates table, in its order, the redundant one 0
+    let est = &covariance[4].2;
+    let keys = row_keys(find(&tables, PE));
+    assert_eq!(keys.len(), 6, "{keys:?}");
+    for (k, key) in keys.iter().take(5).enumerate() {
+        close(est[k].unwrap(), get(&tables, PE, key, B), 1e-12, "estimate");
+    }
+    // a covariance record is the covariance table's row; the redundant parameter's column is blank
+    let covb = find(&tables, "Covariances of Parameter Estimates");
+    for (r, record) in covariance.iter().take(4).enumerate() {
+        let mut kept = 0;
+        for k in 0..5 {
+            match record.2[k] {
+                Some(v) => {
+                    close(v, number(&covb.rows[r][1 + kept]), 1e-12, "covariance");
+                    kept += 1;
+                }
+                None => assert_eq!(k, 3, "only the redundant parameter is blank"),
+            }
+        }
+        assert_eq!(kept, 4);
+    }
+    // the standard errors, the significances and the degrees of freedom of the estimated
+    for (k, key) in keys.iter().take(5).enumerate() {
+        if k == 3 {
+            assert_eq!(covariance[5].2[k], None);
+            continue;
+        }
+        close(
+            covariance[5].2[k].unwrap(),
+            get(&tables, PE, key, SE),
+            1e-12,
+            "standard error",
+        );
+        close(
+            covariance[6].2[k].unwrap(),
+            get(&tables, PE, key, "Hypothesis Test / Sig."),
+            1e-12,
+            "significance",
+        );
+        assert_eq!(covariance[7].2[k], Some(1.0));
+    }
+    // the scale parameter of the Poisson model is 1 and has no standard error
+    let correlation = rows(&mut engine, "corr");
+    let kinds: Vec<&str> = correlation.iter().map(|r| r.0.as_str()).collect();
+    assert_eq!(kinds[..4], ["CORR"; 4]);
+    for (r, record) in correlation.iter().take(4).enumerate() {
+        let diagonal = [0, 1, 2, 4][r];
+        close(
+            record.2[diagonal].unwrap(),
+            1.0,
+            1e-12,
+            "correlation of a parameter with itself",
+        );
+    }
+    // INITIAL from the dataset: with no iterations the fit stays at the estimates in the file
+    let initial = run(
+        &mut engine,
+        &format!(
+            "{PROFILE_DATA}GENLIN cnt BY g WITH x /MODEL g x DISTRIBUTION=POISSON LINK=LOG \
+             /CRITERIA INITIAL=est MAXITERATIONS=0 /PRINT SOLUTION HISTORY(1)."
+        ),
+    );
+    let history = find(&initial, "Iteration History");
+    for (k, want) in [0usize, 1, 2, 4].into_iter().enumerate() {
+        close(
+            number(&history.rows[0][2 + k]),
+            est[want].unwrap(),
+            1e-12,
+            "start value",
+        );
+    }
+}
+
+#[test]
+fn initial_from_a_file_needs_an_est_record_and_a_value_for_every_parameter() {
+    let model = "GENLIN cnt BY g WITH x /MODEL g x DISTRIBUTION=POISSON LINK=LOG \
+                 /CRITERIA INITIAL=bad.";
+    let file = |records: &str| {
+        format!(
+            "DATA LIST FREE /RowType_ (A8) VarName_ (A8) P1 P2 P3 P4 P5 P6.\nBEGIN DATA\n{records}\n\
+             END DATA.\nDATASET NAME bad.\n{PROFILE_DATA}{model}"
+        )
+    };
+    // no EST record
+    let message = run_error(&file("COV a 1 2 3 4 5 6"));
+    assert!(message.contains("no record with RowType_ EST"), "{message}");
+    // the five parameters need five values: two are too few
+    let message = run_error(&file("EST . 0.1 0.2 . . . ."));
+    assert!(message.contains("INITIAL gives 2 values"), "{message}");
+}
+
+// Under SPLIT FILE the file keeps the split variable in front of RowType_, the groups one after
+// the other, and INITIAL from the file starts each group from its own EST record.
+#[test]
+fn outfile_and_initial_follow_the_split_groups() {
+    let mut engine = Engine::default();
+    let fit = |tail: &str| {
+        format!(
+            "{PROFILE_DATA}COMPUTE s = x > 1.2.\nSORT CASES BY s.\nSPLIT FILE BY s.\n\
+             GENLIN cnt WITH x /MODEL x DISTRIBUTION=POISSON LINK=LOG {tail}"
+        )
+    };
+    run(
+        &mut engine,
+        &format!("DATASET DECLARE est.\n{}", fit("/OUTFILE COVB=est.")),
+    );
+    run(&mut engine, "DATASET ACTIVATE est.");
+    // per group: two COV records, then EST, SE, SIG, DF
+    let split = values(&engine, "s");
+    assert_eq!(split.len(), 12);
+    assert_eq!(split[..6], [Some(0.0); 6]);
+    assert_eq!(split[6..], [Some(1.0); 6]);
+    let (p1, p2) = (values(&engine, "P1"), values(&engine, "P2"));
+    let (est0, est1) = (
+        (p1[2].unwrap(), p2[2].unwrap()),
+        (p1[8].unwrap(), p2[8].unwrap()),
+    );
+    assert!(
+        (est0.1 - est1.1).abs() > 1e-6,
+        "the groups give different slopes"
+    );
+    // each group starts from its own estimates: the history of each begins there
+    let tables = run(
+        &mut engine,
+        &fit("/CRITERIA INITIAL=est MAXITERATIONS=0 /PRINT SOLUTION HISTORY(1)."),
+    );
+    // one Iteration History table with the split variable in front: iteration 0 of each group
+    let history = find(&tables, "Iteration History");
+    let numbers = |row: &Vec<Cell>| -> Vec<f64> {
+        row.iter()
+            .filter_map(|c| match c {
+                Cell::Number(n) => Some(*n),
+                _ => None,
+            })
+            .collect()
+    };
+    let starts: Vec<Vec<f64>> = history
+        .rows
+        .iter()
+        .filter(|row| row.iter().take(3).any(|c| *c == Cell::Text("0".into())))
+        .map(numbers)
+        .collect();
+    assert_eq!(
+        starts.len(),
+        2,
+        "{:?} {:?}",
+        history.column_titles(),
+        history.rows[0]
+    );
+    // the log likelihood comes first among the numbers, then intercept and slope
+    for (start, est) in starts.iter().zip([est0, est1]) {
+        let k = start.len();
+        close(start[k - 2], est.0, 1e-12, "start intercept");
+        close(start[k - 1], est.1, 1e-12, "start slope");
+    }
+}
+
 fn near_cell(cell: &Cell, want: f64, tolerance: f64) {
     close(number(cell), want, tolerance, "cell");
 }

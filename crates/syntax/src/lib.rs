@@ -291,9 +291,10 @@ pub use factor::{
 };
 pub use genlin::{
     Genlin, GenlinAdjust, GenlinContrast, GenlinCorrelation, GenlinCriteria, GenlinDistribution,
-    GenlinEmmeans, GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder, GenlinPrint,
-    GenlinReference, GenlinRepeated, GenlinResponse, GenlinSave, GenlinSaveKind, GenlinScale,
-    GenlinTolerance, GenlinTrials, default_link, distribution_keyword, link_allowed, link_keyword,
+    GenlinEmmeans, GenlinInitial, GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder,
+    GenlinOutfile, GenlinPrint, GenlinReference, GenlinRepeated, GenlinResponse, GenlinSave,
+    GenlinSaveKind, GenlinScale, GenlinTolerance, GenlinTrials, default_link, distribution_keyword,
+    link_allowed, link_keyword,
 };
 pub use genlinmixed::{GenLinMixed, GlmmContrast, GlmmEmmeans, GlmmRandom, GlmmSave};
 pub use ggraph::{

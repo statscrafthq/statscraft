@@ -14,7 +14,7 @@ GENLIN dependent [(REFERENCE=LAST | FIRST | value)] [(ORDER=ASCENDING | DESCENDI
            [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | IGAUSS | POISSON | NEGBIN[(k | MLE)] | MULTINOMIAL]
            [LINK=IDENTITY | LOG | LOGIT | PROBIT | CLOGLOG | NLOGLOG | LOGC | NEGBIN | POWER(a) |
                  ODDSPOWER(a) | CUMLOGIT | CUMPROBIT | CUMCLOGLOG | CUMNLOGLOG | CUMCAUCHIT]]
-   [/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]] [INITIAL=numbers]
+   [/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]] [INITIAL=numbers | 'file' | dataset]
               [COVB=MODEL | ROBUST] [HCONVERGE=0] [LCONVERGE=0] [PCONVERGE=1E-6] (each [(ABSOLUTE | RELATIVE)])
               [LIKELIHOOD=FULL | KERNEL] [MAXITERATIONS=100] [MAXSTEPHALVING=5]
               [METHOD=FISHER[(n)] | NEWTON] [SCALE=MLE | DEVIANCE | PEARSON | value] [SINGULAR=1E-12]]
@@ -32,7 +32,8 @@ GENLIN dependent [(REFERENCE=LAST | FIRST | value)] [(ORDER=ASCENDING | DESCENDI
            [GEF] [HISTORY[(n)]] [LAGRANGE] [LMATRIX] [WORKINGCORR] | NONE]
    [/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]
           [PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]
-          (each [(name)]; the first five [(root[:n])])].
+          (each [(name)]; the first five [(root[:n])])]
+   [/OUTFILE COVB='file' | dataset | CORB='file' | dataset].
 ```
 
 The command fits a generalized linear model with factors after BY and covariates after WITH. The response is one dependent variable or events OF trials, where trials is a variable or a whole number of 1 or more. Covariates, the offset and the scale weight are numeric; factors and a categorical dependent may be strings. TO is not accepted: name every variable. Keywords are written in full, and every subcommand but EMMEANS appears at most once. Effects are written as in UNIANOVA.
@@ -57,7 +58,7 @@ With REPEATED, its own COVB applies (ROBUST by default) and the CRITERIA COVB is
 
 LAGRANGE tests a fixed scale (NORMAL, GAMMA or IGAUSS) or a fixed NEGBIN k with 1 df; for k = 0 it gives the z of the dispersion regression. HISTORY(n) lists every n-th iteration and the last, then the final gradient and Hessian. GEF shows the general estimable function and LMATRIX the L' matrix of each test and marginal mean, neither for the ordinal model.
 
-INITIAL gives numbers (not a file) for all parameters in table order, redundant ones included; another count is an error. It is ignored with a warning for NORMAL with IDENTITY and for the ordinal model. CITYPE=PROFILE replaces the Wald intervals of the parameters, Exp(B) and an estimated scale or k with profile likelihood intervals, refitting the other parameters (a DEVIANCE or PEARSON scale is held); its tolerance sets how closely the limits are solved, and a limit never reached is left empty. The ordinal model and REPEATED keep Wald intervals with a warning.
+INITIAL gives numbers for all parameters in table order, redundant ones included; another count is an error. A file or dataset gives them in its first record with RowType\_ EST (the variables after VarName\_, in order, the scale parameter and the negative binomial parameter after the others and not used; a file of several SPLIT FILE groups is read group by group). INITIAL is ignored with a warning for NORMAL with IDENTITY and for the ordinal model. OUTFILE writes such a file, a .sav file or a dataset made with DATASET DECLARE: RowType\_, VarName\_ and a column P1, P2, ... for every parameter in table order (a redundant one blank), the scale parameter and, for NEGBIN, k. COVB gives a COV record per estimated parameter with its covariances, CORB a CORR record with its correlations; then come the records EST (the estimates, the redundant ones 0), SE, SIG (the Wald significances) and DF (1 for each estimated parameter). MODEL and PARAMETER (XML files) are not written. CITYPE=PROFILE replaces the Wald intervals of the parameters, Exp(B) and an estimated scale or k with profile likelihood intervals, refitting the other parameters (a DEVIANCE or PEARSON scale is held); its tolerance sets how closely the limits are solved, and a limit never reached is left empty. The ordinal model and REPEATED keep Wald intervals with a warning.
 
 ## Example
 

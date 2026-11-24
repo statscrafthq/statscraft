@@ -365,7 +365,8 @@ pub struct Genlin {
     pub criteria: GenlinCriteria,
     /// `CRITERIA INITIAL=numbers`: the starting values of all parameters, redundant ones
     /// included.
-    pub initial: Option<Vec<f64>>,
+    pub initial: Option<GenlinInitial>,
+    pub outfile: Option<GenlinOutfile>,
     pub repeated: Option<GenlinRepeated>,
     pub emmeans: Vec<GenlinEmmeans>,
     /// `/MISSING CLASSMISSING=INCLUDE`
@@ -375,6 +376,21 @@ pub struct Genlin {
 }
 
 /// The default link of a distribution.
+/// The start values of CRITERIA INITIAL: numbers, or a dataset or file written by OUTFILE.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GenlinInitial {
+    Values(Vec<f64>),
+    Source(String),
+}
+
+/// OUTFILE: the covariance (COVB) or correlation (CORB) matrix of the parameters, with the
+/// estimates, standard errors, significances and degrees of freedom, into a dataset or file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GenlinOutfile {
+    pub correlations: bool,
+    pub target: String,
+}
+
 pub fn default_link(distribution: GenlinDistribution) -> GenlinLink {
     match distribution {
         GenlinDistribution::Normal => GenlinLink::Identity,
@@ -549,7 +565,11 @@ fn first_time(
     Ok(())
 }
 
-fn criteria(p: &mut Parser, c: &mut GenlinCriteria, initial: &mut Option<Vec<f64>>) -> PResult<()> {
+fn criteria(
+    p: &mut Parser,
+    c: &mut GenlinCriteria,
+    initial: &mut Option<GenlinInitial>,
+) -> PResult<()> {
     let mut seen = Vec::new();
     let mut any = false;
     while !at_end(p) {
@@ -632,10 +652,8 @@ fn criteria(p: &mut Parser, c: &mut GenlinCriteria, initial: &mut Option<Vec<f64
             "PCONVERGE" => c.pconverge = tolerance(p, "PCONVERGE")?,
             "INITIAL" => {
                 if matches!(p.peek(), Some(TokenKind::Str(_)) | Some(TokenKind::Word(_))) {
-                    return Err(SyntaxError::new(
-                        p.span(),
-                        "INITIAL from a file or dataset is not supported yet; give the numbers",
-                    ));
+                    *initial = Some(GenlinInitial::Source(crate::files::dataset_or_file(p)?));
+                    continue;
                 }
                 let mut values = vec![number(p, "a number")?];
                 loop {
@@ -645,7 +663,7 @@ fn criteria(p: &mut Parser, c: &mut GenlinCriteria, initial: &mut Option<Vec<f64
                         None => break,
                     }
                 }
-                *initial = Some(values);
+                *initial = Some(GenlinInitial::Values(values));
             }
             "LIKELIHOOD" => c.kernel = choice(p, &[("FULL", false), ("KERNEL", true)])?,
             "MAXITERATIONS" => c.maxiterations = whole(p, "MAXITERATIONS", 0.0)?,
@@ -1334,7 +1352,8 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
     let mut spec = ModelSpec::default();
     let mut model_span = p.span();
     let mut criteria_spec = GenlinCriteria::default();
-    let mut initial: Option<Vec<f64>> = None;
+    let mut initial: Option<GenlinInitial> = None;
+    let mut outfile: Option<GenlinOutfile> = None;
     let mut emmeans_list = Vec::new();
     let mut include = false;
     let mut print_spec = None;
@@ -1361,10 +1380,36 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
             "CRITERIA" => criteria(p, &mut criteria_spec, &mut initial)?,
             "REPEATED" => repeated_spec = Some(repeated(p)?),
             "OUTFILE" => {
-                return Err(SyntaxError::new(
-                    p.span_from(start),
-                    "subcommand OUTFILE of GENLIN is not supported yet",
-                ));
+                while !at_end(p) {
+                    let at = p.pos;
+                    let kind = choice(
+                        p,
+                        &[
+                            ("COVB", Some(false)),
+                            ("CORB", Some(true)),
+                            ("MODEL", None),
+                            ("PARAMETER", None),
+                        ],
+                    )?;
+                    let Some(correlations) = kind else {
+                        return Err(SyntaxError::new(
+                            p.span_from(at),
+                            "MODEL and PARAMETER (XML files) of OUTFILE are not supported yet; COVB and CORB are",
+                        ));
+                    };
+                    p.eat(Punct::Eq);
+                    let target = crate::files::dataset_or_file(p)?;
+                    if outfile.is_some() {
+                        return Err(SyntaxError::new(
+                            p.span_from(at),
+                            "COVB and CORB of OUTFILE are mutually exclusive",
+                        ));
+                    }
+                    outfile = Some(GenlinOutfile {
+                        correlations,
+                        target,
+                    });
+                }
             }
             "EMMEANS" => emmeans_list.push(emmeans(p)?),
             "MISSING" => {
@@ -1432,6 +1477,7 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
         link,
         criteria: criteria_spec,
         initial,
+        outfile,
         repeated: repeated_spec,
         emmeans: emmeans_list,
         include,

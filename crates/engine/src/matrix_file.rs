@@ -364,7 +364,14 @@ impl Engine {
         for (name, values) in &m.factors {
             part.set_numeric_values(name, values.clone())?;
         }
-        let width = m.names.iter().map(String::len).max().unwrap_or(0).max(8);
+        let width = m
+            .names
+            .iter()
+            .map(String::len)
+            .chain(m.rows.iter().map(|r| r.1.len()))
+            .max()
+            .unwrap_or(0)
+            .max(8);
         part.set_string_values(
             "VARNAME_",
             width,

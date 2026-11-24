@@ -4535,7 +4535,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | IGAUSS | POISSON | NEGBIN[(k | MLE)] | MULTINOMIAL]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[LINK=IDENTITY | LOG | LOGIT | PROBIT | CLOGLOG | NLOGLOG | LOGC | NEGBIN | POWER(a) |\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20ODDSPOWER(a) | CUMLOGIT | CUMPROBIT | CUMCLOGLOG | CUMNLOGLOG | CUMCAUCHIT]]\n\
-                 \x20\x20\x20[/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]] [INITIAL=numbers]\n\
+                 \x20\x20\x20[/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]] [INITIAL=numbers | 'file' | dataset]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[COVB=MODEL | ROBUST] [HCONVERGE=0] [LCONVERGE=0] [PCONVERGE=1E-6] (each [(ABSOLUTE | RELATIVE)])\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[LIKELIHOOD=FULL | KERNEL] [MAXITERATIONS=100] [MAXSTEPHALVING=5]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[METHOD=FISHER[(n)] | NEWTON] [SCALE=MLE | DEVIANCE | PEARSON | value] [SINGULAR=1E-12]]\n\
@@ -4553,7 +4553,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[GEF] [HISTORY[(n)]] [LAGRANGE] [LMATRIX] [WORKINGCORR] | NONE]\n\
                  \x20\x20\x20[/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]\n\
-                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20(each [(name)]; the first five [(root[:n])])].\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20(each [(name)]; the first five [(root[:n])])]\n\
+                 \x20\x20\x20[/OUTFILE COVB='file' | dataset | CORB='file' | dataset].\n\
                  The command fits a generalized linear model with factors after BY and covariates after WITH. The\n\
                  response is one dependent variable or events OF trials, where trials is a variable or a whole number\n\
                  of 1 or more. Covariates, the offset and the scale weight are numeric; factors and a categorical\n\
@@ -4613,9 +4614,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  gives the z of the dispersion regression. HISTORY(n) lists every n-th iteration and the last, then\n\
                  the final gradient and Hessian. GEF shows the general estimable function and LMATRIX the L' matrix\n\
                  of each test and marginal mean, neither for the ordinal model.\n\
-                 INITIAL gives numbers (not a file) for all parameters in table order, redundant ones included;\n\
-                 another count is an error. It is ignored with a warning for NORMAL with IDENTITY and for the ordinal\n\
-                 model. CITYPE=PROFILE replaces the Wald intervals of the parameters, Exp(B) and an estimated scale\n\
+                 INITIAL gives numbers for all parameters in table order, redundant ones included; another count is\n\
+                 an error. A file or dataset gives them in its first record with RowType_ EST (the variables after\n\
+                 VarName_, in order, the scale parameter and the negative binomial parameter after the others and\n\
+                 not used; a file of several SPLIT FILE groups is read group by group). INITIAL is ignored with a\n\
+                 warning for NORMAL with IDENTITY and for the ordinal model. OUTFILE writes such a file, a .sav file\n\
+                 or a dataset made with DATASET DECLARE: RowType_, VarName_ and a column P1, P2, ... for every\n\
+                 parameter in table order (a redundant one blank), the scale parameter and, for NEGBIN, k. COVB gives\n\
+                 a COV record per estimated parameter with its covariances, CORB a CORR record with its correlations;\n\
+                 then come the records EST (the estimates, the redundant ones 0), SE, SIG (the Wald significances)\n\
+                 and DF (1 for each estimated parameter). MODEL and PARAMETER (XML files) are not written. CITYPE=PROFILE replaces the Wald intervals of the parameters, Exp(B) and an estimated scale\n\
                  or k with profile likelihood intervals, refitting the other parameters (a DEVIANCE or PEARSON scale\n\
                  is held); its tolerance sets how closely the limits are solved, and a limit never reached is left\n\
                  empty. The ordinal model and REPEATED keep Wald intervals with a warning.",

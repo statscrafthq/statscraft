@@ -41,15 +41,17 @@ use crate::glm::{
     key_value_text, l_prime_table, parameter_name, percent_title,
 };
 use crate::matrix::{Matrix, symmetric_eigen};
+use crate::matrix_file::MatrixRows;
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Measure, Values, Variable};
+use statscraft_data::{Dataset, Measure, Values, Variable};
 use statscraft_syntax::{
     Contrast, Genlin, GenlinAdjust, GenlinContrast, GenlinCorrelation, GenlinCriteria,
-    GenlinDistribution, GenlinEmmeans, GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder,
-    GenlinReference, GenlinResponse, GenlinSaveKind, GenlinScale, GenlinTrials, Term, Value,
+    GenlinDistribution, GenlinEmmeans, GenlinInitial, GenlinLink, GenlinMethod, GenlinOffset,
+    GenlinOrder, GenlinReference, GenlinResponse, GenlinSaveKind, GenlinScale, GenlinTrials, Term,
+    Value,
 };
 use std::f64::consts::PI;
 
@@ -1702,6 +1704,29 @@ struct Result_ {
 }
 
 impl Engine {
+    /// The start values of INITIAL from a dataset or file written by OUTFILE (or by another
+    /// program in its layout): the first EST record, over the variables after VarName_.
+    fn initial_from_file(&self, name: &str) -> Result<Vec<f64>, Error> {
+        let source = name.to_string();
+        let materials = self
+            .matrix_materials("GENLIN", Some(&source))
+            .map_err(|e| Error(e.0.replace(" /MATRIX=IN needs", ": the file of INITIAL needs")))?;
+        let Some(mut values) = materials.vector("EST", &materials.all) else {
+            return Err(Error(
+                "GENLIN: the file of INITIAL has no record with RowType_ EST".into(),
+            ));
+        };
+        while values.last().is_some_and(|v| v.is_nan()) {
+            values.pop();
+        }
+        if values.iter().any(|v| v.is_nan()) {
+            return Err(Error(
+                "GENLIN: the EST record of the file of INITIAL has a missing value among the parameters".into(),
+            ));
+        }
+        Ok(values)
+    }
+
     pub(crate) fn genlin(&mut self, command: &Genlin) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();
@@ -2108,9 +2133,16 @@ impl Engine {
         let has_intercept = command.intercept && !multinomial;
         let n_total: f64 = c.f.iter().sum();
         let mut warnings: Vec<String> = Vec::new();
+        let mut outfile_part: Option<Dataset> = None;
         // INITIAL: a start value for every parameter, redundant ones too; the fit takes those
         // of the kept columns
-        let start_values: Option<Vec<f64>> = match &command.initial {
+        let initial: Option<Vec<f64>> = match &command.initial {
+            None => None,
+            Some(GenlinInitial::Values(values)) => Some(values.clone()),
+            Some(GenlinInitial::Source(name)) => Some(self.initial_from_file(name)?),
+        };
+        let from_file = matches!(command.initial, Some(GenlinInitial::Source(_)));
+        let start_values: Option<Vec<f64>> = match &initial {
             Some(_) if multinomial => {
                 warnings.push(
                     "GENLIN: INITIAL is not used for the ordinal multinomial model; the initial values are computed".into(),
@@ -2122,6 +2154,10 @@ impl Engine {
                     "GENLIN: INITIAL is ignored for the normal distribution with the identity link, which needs no iteration".into(),
                 );
                 None
+            }
+            // numbers beyond the parameters (a file also gives the scale parameter) are not used
+            Some(values) if values.len() >= design.p && from_file => {
+                Some(kept.iter().map(|&j| values[j]).collect())
             }
             Some(values) => {
                 if values.len() != design.p {
@@ -3813,6 +3849,93 @@ impl Engine {
                 }));
             }
         }
+        if let Some(out) = &command.outfile {
+            // RowType_, VarName_, then a column for every parameter (the redundant ones too),
+            // the scale parameter and, for the negative binomial, its parameter: a COV or CORR
+            // record per estimated parameter, then the records EST, SE, SIG and DF
+            let size = parameters.len();
+            let negbin = family == Family::NegBin && !multinomial;
+            let width = size + 1 + usize::from(negbin);
+            let mut labels: Vec<Option<String>> = parameters
+                .iter()
+                .enumerate()
+                .map(|(pi, p)| {
+                    Some(if multinomial && pi < j_categories - 1 {
+                        format!("Threshold {}", p.name)
+                    } else {
+                        p.name.clone()
+                    })
+                })
+                .collect();
+            labels.push(Some("(Scale)".into()));
+            if negbin {
+                labels.push(Some("(Negative binomial)".into()));
+            }
+            let columns = (1..=width).map(|k| format!("P{k}")).collect();
+            let mut file = MatrixRows::new(columns, labels.clone());
+            let variance = |pi: usize, pj: usize| match (parameters[pi].at, parameters[pj].at) {
+                (Some(i), Some(j)) => result.cov[i][j],
+                _ => f64::NAN,
+            };
+            for pi in 0..size {
+                if parameters[pi].at.is_none() {
+                    continue;
+                }
+                let mut row = vec![f64::NAN; width];
+                for (pj, cell) in row.iter_mut().enumerate().take(size) {
+                    *cell = if out.correlations {
+                        let v = variance(pi, pi) * variance(pj, pj);
+                        if v > 0.0 {
+                            variance(pi, pj) / v.sqrt()
+                        } else {
+                            f64::NAN
+                        }
+                    } else {
+                        variance(pi, pj)
+                    };
+                }
+                file.push(
+                    if out.correlations { "CORR" } else { "COV" },
+                    labels[pi].as_deref().unwrap_or(""),
+                    row,
+                );
+            }
+            let mut estimate = vec![f64::NAN; width];
+            let mut error = vec![f64::NAN; width];
+            let mut significance = vec![f64::NAN; width];
+            let mut freedom = vec![f64::NAN; width];
+            for pi in 0..size {
+                match parameters[pi].at {
+                    Some(i) => {
+                        let (b, v) = (result.b[i], result.cov[i][i]);
+                        estimate[pi] = b;
+                        if v > 0.0 {
+                            error[pi] = v.sqrt();
+                            significance[pi] = chi_square_p((b / v.sqrt()).powi(2), 1.0);
+                        }
+                        freedom[pi] = 1.0;
+                    }
+                    None => estimate[pi] = 0.0,
+                }
+            }
+            estimate[size] = phi;
+            if scale == ScaleMode::Mle {
+                error[size] = result.log_variance.map_or(f64::NAN, |lv| phi * lv.sqrt());
+            }
+            if negbin {
+                estimate[size + 1] = result.k;
+                if k_estimated {
+                    error[size + 1] = result
+                        .log_variance
+                        .map_or(f64::NAN, |lv| result.k * lv.sqrt());
+                }
+            }
+            file.push("EST", "", estimate);
+            file.push("SE", "", error);
+            file.push("SIG", "", significance);
+            file.push("DF", "", freedom);
+            outfile_part = Some(self.matrix_part("GENLIN", &file)?);
+        }
         if let (true, Some((g, _, _)), Some(r), Some(s)) =
             (print.workingcorr, &gee_fit, repeated, &subjects)
         {
@@ -3952,6 +4075,9 @@ impl Engine {
         }
         for w in warnings {
             self.warn(w);
+        }
+        if let Some(part) = outfile_part {
+            self.matrix_parts.1.push(part);
         }
         if !saved.is_empty() {
             self.all_or_nothing(|engine| {

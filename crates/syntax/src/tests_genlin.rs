@@ -180,9 +180,16 @@ fn genlin_criteria() {
     assert!(err("GENLIN y /CRITERIA CITYPE=PROFILE(0).").contains("above 0"));
     assert_eq!(
         genlin("GENLIN y /CRITERIA INITIAL=1 -2.5, 3 MAXITERATIONS=7.").initial,
-        Some(vec![1.0, -2.5, 3.0])
+        Some(GenlinInitial::Values(vec![1.0, -2.5, 3.0]))
     );
-    assert!(err("GENLIN y /CRITERIA INITIAL='est.sav'.").contains("file or dataset"));
+    assert_eq!(
+        genlin("GENLIN y /CRITERIA INITIAL='est.sav' MAXITERATIONS=0.").initial,
+        Some(GenlinInitial::Source("est.sav".into()))
+    );
+    assert_eq!(
+        genlin("GENLIN y /CRITERIA INITIAL=estimates.").initial,
+        Some(GenlinInitial::Source("estimates".into()))
+    );
 }
 
 #[test]
@@ -259,7 +266,22 @@ fn genlin_print_save_missing_and_unsupported_parts() {
     assert!(!g.print.solution && !g.print.fit && !g.print.modelinfo);
     assert!(err("GENLIN y /PRINT NONE FIT.").contains("NONE"));
     assert!(err("GENLIN y /SAVE RESID RESID.").contains("only once"));
-    assert!(err("GENLIN y /OUTFILE COVB='b.sav'.").contains("not supported yet"));
+    assert_eq!(
+        genlin("GENLIN y /OUTFILE COVB='b.sav'.").outfile,
+        Some(GenlinOutfile {
+            correlations: false,
+            target: "b.sav".into()
+        })
+    );
+    assert_eq!(
+        genlin("GENLIN y /OUTFILE CORB=b.").outfile,
+        Some(GenlinOutfile {
+            correlations: true,
+            target: "b".into()
+        })
+    );
+    assert!(err("GENLIN y /OUTFILE COVB='a.sav' CORB='b.sav'.").contains("mutually exclusive"));
+    assert!(err("GENLIN y /OUTFILE MODEL='m.xml'.").contains("XML"));
 }
 
 #[test]
