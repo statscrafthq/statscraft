@@ -115,6 +115,7 @@ mod response_rate;
 mod restructure;
 mod robustness;
 mod roc_analysis;
+mod roc_r;
 mod save_translate;
 mod scratch;
 mod settings;
