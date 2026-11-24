@@ -164,6 +164,9 @@ struct Node {
     /// The probability of each class in the node, up to a factor all classes share: the count
     /// times prior over class total. For CHAID it is the count.
     assign: Vec<f64>,
+    /// What the pruning measures a node's risk by: the classes' frequency counts times prior over
+    /// class total (M2), or over the total (M1); `assign` itself when no case has an influence.
+    risk: Vec<f64>,
     /// A scale dependent's node: `counts` are then the weight, the sum of the values and the sum
     /// of their squares, and `assign` is the node's risk.
     scale: bool,
@@ -287,6 +290,7 @@ fn make_node(
         parent,
         depth,
         n,
+        risk: assign.clone(),
         assign,
         predicted_as,
         costs: costs.cloned(),
@@ -340,6 +344,7 @@ fn rescore(nodes: &[Node], class: &[usize], weight: &[f64], values: Option<&[f64
                 },
                 counts,
                 assign: node.assign.clone(),
+                risk: node.risk.clone(),
                 scale: node.scale,
                 shift: node.shift,
                 fourth,
@@ -1112,10 +1117,9 @@ impl Engine {
                         variable.name()
                     )));
                 }
-                if command.binary() || scale_dep {
+                if scale_dep {
                     return Err(Error(
-                        "INFLUENCE is only supported for CHAID with a nominal or ordinal dependent"
-                            .into(),
+                        "INFLUENCE is not supported with a scale dependent".into(),
                     ));
                 }
                 Some(variable)
@@ -1613,11 +1617,12 @@ impl Engine {
         } else if scale_dep {
             vec![1.0]
         } else {
+            let growth: Vec<f64> = case_weight.iter().zip(&infl).map(|(w, i)| w * i).collect();
             crt_priors(
                 command,
                 &classes,
                 &case_class,
-                &case_weight,
+                &growth,
                 &labels,
                 &dependent,
                 &mut warnings,
@@ -1646,11 +1651,17 @@ impl Engine {
                     weights: &[f64],
                     held_out: Option<&[f64]>|
          -> Result<Vec<Node>, Error> {
+            // the weight each case grows the tree with: influence times frequency
+            let growth: Option<Vec<f64>> = influence_var
+                .is_some()
+                .then(|| weights.iter().zip(&infl).map(|(w, i)| w * i).collect());
             Ok(if command.binary() {
                 let grown = crt::Growth {
                     predictors: coded,
                     case_class: &case_class,
-                    case_weight: weights,
+                    case_weight: growth.as_deref().unwrap_or(weights),
+                    frequency: growth.is_some().then_some(weights),
+                    empirical: empirical_priors(command),
                     values: dep_values.as_deref(),
                     shift: dep_shift,
                     classes: classes.len(),
@@ -1675,7 +1686,14 @@ impl Engine {
                         // with a test sample, the subtrees' risks are the test sample's
                         let tested = held_out
                             .map(|test| rescore(&grown, &case_class, test, dep_values.as_deref()));
-                        crt::prune(grown, b, tested.as_deref(), empirical_priors(command))
+                        let by_data = influence_var.is_some();
+                        crt::prune(
+                            grown,
+                            b,
+                            tested.as_deref(),
+                            empirical_priors(command),
+                            by_data,
+                        )
                     }
                     None => grown,
                 }
@@ -1703,10 +1721,6 @@ impl Engine {
                 } else {
                     vec![1.0; classes.len()]
                 };
-                // the weight each case grows the tree with: influence times frequency
-                let growth: Option<Vec<f64>> = influence_var
-                    .is_some()
-                    .then(|| weights.iter().zip(&infl).map(|(w, i)| w * i).collect());
                 let node_of = |cases: Vec<usize>, parent, depth, definition| {
                     let mut node = make_node(
                         cases,

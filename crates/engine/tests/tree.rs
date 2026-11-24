@@ -650,10 +650,9 @@ fn influence_is_checked() {
             "cannot be the dependent or the weight variable",
         ),
         (
-            "TREE y [n] BY a /METHOD TYPE=CRT /INFLUENCE v.",
-            "only supported for CHAID",
+            "TREE v [s] BY a /INFLUENCE a.",
+            "not supported with a scale dependent",
         ),
-        ("TREE v [s] BY a /INFLUENCE a.", "only supported for CHAID"),
         (
             "TREE y [n] BY a /VALIDATION TYPE=SPLITSAMPLE(v) /INFLUENCE v.",
             "cannot be the dependent, weight, influence or forced",

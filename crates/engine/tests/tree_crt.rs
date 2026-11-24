@@ -1281,3 +1281,116 @@ fn a_scale_dependent_far_from_zero_gives_the_same_tree() {
     let risk = table(&tables, "Risk");
     close(number(&risk.rows[0][0]), 21.4260199367, 1e-6);
 }
+
+/// What a tree table shows of each node's split: parent, variable, improvement, prediction.
+fn shape(tables: &[Table]) -> Vec<(String, String, String, String)> {
+    let tree = table(tables, "Tree Table");
+    let columns = [
+        "Parent Node",
+        "Variable",
+        "Improvement",
+        "Predicted Category",
+    ]
+    .map(|name| column(tree, name));
+    tree.rows
+        .iter()
+        .map(|row| {
+            let cell = |c: usize| match &row[c] {
+                Cell::Number(x) => format!("{x:.9}"),
+                Cell::Empty => String::new(),
+                other => text(other).to_string(),
+            };
+            (
+                cell(columns[0]),
+                cell(columns[1]),
+                cell(columns[2]),
+                cell(columns[3]),
+            )
+        })
+        .collect()
+}
+
+/// An integer influence k grows the tree as k copies of each case would (the frequency weight set
+/// to k), whatever the impurity, the priors or the missing split values; what the tree shows
+/// counts the cases once.
+#[test]
+fn an_integer_influence_grows_the_tree_of_replicated_cases() {
+    let common = "/GROWTHLIMIT MAXDEPTH=4 MINPARENTSIZE=2 MINCHILDSIZE=1 MINIMPROVEMENT=0.00001";
+    for (dependent, method) in [
+        ("y [n]", "/METHOD TYPE=CRT"),
+        ("y [n]", "/METHOD TYPE=CRT /PRIORS EQUAL"),
+        ("y3 [n]", "/METHOD TYPE=CRT /CRT IMPURITY=TWOING"),
+        ("y3 [o]", "/METHOD TYPE=CRT /CRT IMPURITY=ORDEREDTWOING"),
+        ("y [n]", "/METHOD TYPE=CRT /PRIORS CUSTOM=1 [0.2] 2 [0.8]"),
+    ] {
+        let tree = |weight: &str, influence: &str| {
+            let mut engine = engine();
+            let source = format!(
+                "COMPUTE k = o.\n{weight}TREE {dependent} BY xm [s] z [s] o [o] g [n] {influence}
+                 {method} {common} /PRINT TREETABLE RISK /TREE DISPLAY=NONE."
+            );
+            run(&mut engine, &source)
+        };
+        let replicated = tree("WEIGHT BY k.\n", "");
+        let influenced = tree("", "/INFLUENCE k");
+        let (a, b) = (shape(&replicated), shape(&influenced));
+        assert!(a.len() > 3, "{dependent} {method}");
+        assert_eq!(a, b, "{dependent} {method}");
+        // only the proportions of the influences matter
+        let scaled = {
+            let mut engine = engine();
+            let source = format!(
+                "COMPUTE k = 0.4 * o.\nTREE {dependent} BY xm [s] z [s] o [o] g [n] /INFLUENCE k
+                 {method} {common} /PRINT TREETABLE RISK /TREE DISPLAY=NONE."
+            );
+            run(&mut engine, &source)
+        };
+        assert_eq!(a, shape(&scaled), "{dependent} {method}");
+        // 150 cases, counted once
+        let first = table(&influenced, "Tree Table").rows[0].clone();
+        let classes = if dependent.starts_with("y3") { 3 } else { 2 };
+        let total: f64 = (0..classes).map(|j| number(&first[3 + 2 * j])).sum();
+        assert_eq!(total, 150.0, "{dependent} {method}");
+    }
+}
+
+/// The risk of a tree with influences counts the cases' frequencies, not their influence: with
+/// the priors from the data it is the share of the cases the classification table shows missed,
+/// before and after pruning, and with other priors each class's share missed weighted by its prior.
+#[test]
+fn the_risk_with_influence_counts_frequencies_alone() {
+    for (prune, priors) in [
+        ("", ""),
+        ("PRUNE=SE(0)", ""),
+        ("PRUNE=SE(1)", ""),
+        ("", "/PRIORS CUSTOM=1 [0.2] 2 [0.8]"),
+        ("PRUNE=SE(0)", "/PRIORS EQUAL"),
+    ] {
+        let mut engine = engine();
+        let source = format!(
+            "COMPUTE k = o * o.\nTREE y [n] BY xm [s] z [s] o [o] g [n] /INFLUENCE k
+             /METHOD TYPE=CRT {prune} {priors} /GROWTHLIMIT MAXDEPTH=4 MINPARENTSIZE=2 MINCHILDSIZE=1
+             /PRINT CLASSIFICATION RISK /TREE DISPLAY=NONE."
+        );
+        let tables = run(&mut engine, &source);
+        let classification = table(&tables, "Classification");
+        let counts: Vec<Vec<f64>> = classification.rows[..2]
+            .iter()
+            .map(|r| r[1..3].iter().map(number).collect())
+            .collect();
+        let class_total = [counts[0].iter().sum::<f64>(), counts[1].iter().sum::<f64>()];
+        let missed = [counts[0][1], counts[1][0]];
+        assert_eq!(class_total[0] + class_total[1], 150.0);
+        let expected = if priors.is_empty() {
+            (missed[0] + missed[1]) / 150.0
+        } else {
+            let p = if priors.contains("EQUAL") {
+                [0.5, 0.5]
+            } else {
+                [0.2, 0.8]
+            };
+            p[0] * missed[0] / class_total[0] + p[1] * missed[1] / class_total[1]
+        };
+        close(risk(&tables).0, expected, 1e-12);
+    }
+}

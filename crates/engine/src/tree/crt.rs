@@ -57,7 +57,13 @@ type Cut = (Vec<usize>, Vec<usize>, f64);
 pub(super) struct Growth<'a> {
     pub predictors: &'a [Predictor],
     pub case_class: &'a [usize],
+    /// The weight each case grows the tree with: its frequency, times its influence if it has one.
     pub case_weight: &'a [f64],
+    /// The frequency weights, when cases have an influence: node sizes, counts and risks are
+    /// theirs, the splits and the classes the node weights'.
+    pub frequency: Option<&'a [f64]>,
+    /// Whether the priors are the data's shares (the empirical case of the risk).
+    pub empirical: bool,
     /// A scale dependent's values; the classes are then the one class of all cases.
     pub values: Option<&'a [f64]>,
     /// What was taken off the values to keep their squares small; nodes report it back.
@@ -197,6 +203,14 @@ impl Growth<'_> {
         if present.len() < 2 {
             return Ok(None);
         }
+        // the frequency of the cases in each category: the child sizes are counted in it
+        let mut frequency = vec![0.0; missing];
+        for &i in &node.cases {
+            let code = predictor.codes[i];
+            if code != missing {
+                frequency[code] += self.frequency.map_or(0.0, |f| f[i]);
+            }
+        }
         let factor = self.factor(root_valid);
         let mut total = vec![0.0; self.dim()];
         for &c in &present {
@@ -218,7 +232,13 @@ impl Growth<'_> {
         let mut offer = |left: Vec<usize>| {
             let l = sum(&left);
             let r: Vec<f64> = total.iter().zip(&l).map(|(t, a)| t - a).collect();
-            let (nl, nr) = (self.size(&l), self.size(&r));
+            let (nl, nr) = if self.frequency.is_some() {
+                let left_size: f64 = left.iter().map(|&c| frequency[c]).sum();
+                let all: f64 = present.iter().map(|&c| frequency[c]).sum();
+                (left_size, all - left_size)
+            } else {
+                (self.size(&l), self.size(&r))
+            };
             if nl < self.min_child || nr < self.min_child {
                 return;
             }
@@ -457,6 +477,9 @@ impl Growth<'_> {
                 self.costs.as_ref(),
             );
             node.shift = self.shift;
+            if let Some(f) = self.frequency {
+                node.n = node.cases.iter().map(|&i| f[i]).sum();
+            }
             node
         };
         let mut nodes = vec![make((0..n).collect(), None, 0, None)];
@@ -543,6 +566,29 @@ impl Growth<'_> {
                 quest: quest_split,
             });
         }
+        if let Some(f) = self.frequency {
+            // the tree is grown; what it shows and its risk count frequencies alone
+            let mut totals = vec![0.0; self.classes];
+            for i in 0..n {
+                totals[self.case_class[i]] += f[i];
+            }
+            let all: f64 = totals.iter().sum();
+            for node in &mut nodes {
+                let mut counts = vec![0.0; self.classes];
+                for &i in &node.cases {
+                    counts[self.case_class[i]] += f[i];
+                }
+                node.risk = (0..self.classes)
+                    .map(|j| match (self.empirical, totals[j] > 0.0) {
+                        (true, _) => counts[j] / all,
+                        (false, true) => self.priors[j] * counts[j] / totals[j],
+                        (false, false) => 0.0,
+                    })
+                    .collect();
+                node.n = counts.iter().sum();
+                node.counts = counts;
+            }
+        }
         Ok(nodes)
     }
 }
@@ -556,20 +602,23 @@ fn node_risk(node: &Node) -> f64 {
     match &node.costs {
         Some(c) => c[predicted]
             .iter()
-            .zip(&node.assign)
+            .zip(&node.risk)
             .map(|(c, p)| c * p)
             .sum(),
-        None => node.assign.iter().sum::<f64>() - node.assign[predicted],
+        None => node.risk.iter().sum::<f64>() - node.risk[predicted],
     }
 }
 
 /// Prunes by the standard error rule (on the risks of `tested`, a test sample's nodes, when there
-/// is one; `empirical` is then whether the priors come from the data): the nodes of the kept subtree, renumbered in order.
+/// is one; `empirical` is then whether the priors come from the data, and with `by_priors_setting`
+/// the training sample's risk is judged by it too): the nodes of the kept subtree, renumbered in
+/// order.
 pub(super) fn prune(
     nodes: Vec<Node>,
     b: f64,
     tested: Option<&[Node]>,
     empirical: bool,
+    by_priors_setting: bool,
 ) -> Vec<Node> {
     let n = nodes.len();
     // cut[t]: the subtree below t is gone and t is terminal
@@ -643,7 +692,11 @@ pub(super) fn prune(
                     &test[0],
                     Some(empirical),
                 ),
-                None => risk_estimate(terminals(c).into_iter().map(|t| &nodes[t]), &nodes[0], None),
+                None => risk_estimate(
+                    terminals(c).into_iter().map(|t| &nodes[t]),
+                    &nodes[0],
+                    by_priors_setting.then_some(empirical),
+                ),
             };
             (risk, variance.sqrt())
         })
