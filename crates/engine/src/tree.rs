@@ -2653,7 +2653,10 @@ impl Engine {
         };
         let validated = test.is_some();
         // a test sample's risk takes M1 when the priors come from the data
-        let empirical = |label: &str| (label == "Test").then(|| empirical_priors(command));
+        // with an influence the priors' setting decides too: CHAID's are always the data's
+        let influenced = command.influence.is_some();
+        let empirical =
+            |label: &str| (label == "Test" || influenced).then(|| empirical_priors(command));
         let mut confusions = Vec::new();
         for (_, ns) in &samples {
             let mut confusion = vec![vec![0.0; classes.len()]; classes.len()];
