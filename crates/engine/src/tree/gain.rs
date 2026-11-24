@@ -718,7 +718,7 @@ pub(super) struct MeanGain<'a> {
 
 impl MeanGain<'_> {
     fn mean(node: &Node) -> f64 {
-        node.counts[1] / node.counts[0] + node.shift
+        node.level() + node.shift
     }
 
     pub(super) fn figures(&self, t: usize) -> Figures {

@@ -611,3 +611,41 @@ fn a_scale_dependent_is_saved_as_its_node_mean_and_ignores_the_chi_square_settin
     }
     assert_eq!(seen, 150);
 }
+
+/// With an influence k each case counts k times in the F test (its sums of squares), in the node
+/// means the nodes predict and shows, while the sizes, the error degrees of freedom and the
+/// standard deviation count the cases once. The expected root split of the invented sample, from
+/// an independent R implementation of the manual's weighted F statistic with the same merging.
+#[test]
+fn an_influence_weights_the_f_test_and_the_node_means() {
+    let mut engine = engine();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "COMPUTE k = 1 + 0.5 * o + 2 * (b = 2).
+             TREE r [s] BY {PREDICTORS} /INFLUENCE k
+              /GROWTHLIMIT MAXDEPTH=1 MINPARENTSIZE=2 MINCHILDSIZE=1
+              /PRINT TREETABLE /TREE DISPLAY=NONE."
+        ),
+    );
+    let tree = table(&tables, "Tree Table");
+    let c = |name: &str| column(tree, name);
+    let want = [
+        (150.0, 21.8978969957, 5.17539575333),
+        (38.0, 19.02, 4.81500452371),
+        (77.0, 21.7547609148, 4.80350930827),
+        (35.0, 24.9367965368, 4.84014179596),
+    ];
+    assert_eq!(tree.rows.len(), 4);
+    for (row, (n, mean, sd)) in tree.rows.iter().zip(want) {
+        assert_eq!(number(&row[c("N")]), n);
+        close(number(&row[c("Mean")]), mean, 1e-9);
+        close(number(&row[c("Std. Deviation")]), sd, 1e-9);
+    }
+    let root = &tree.rows[0];
+    assert_eq!(text(&root[c("Variable")]), "g");
+    close(number(&root[c("F")]), 14.0951743854, 1e-8);
+    close(number(&root[c("Adj. Sig.")]), 1.50652841798e-05, 1e-8);
+    assert_eq!(number(&root[c("df")]), 2.0);
+    assert_eq!(number(&root[c("Error df")]), 147.0);
+}

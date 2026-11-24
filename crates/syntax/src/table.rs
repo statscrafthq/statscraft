@@ -4957,12 +4957,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  closest neighbor. The predictor with the smallest Bonferroni-adjusted p-value (ADJUST=NONE:\n\
                  unadjusted) splits the node if that is at most ALPHASPLIT. FORCE=var splits the root by var.\n\
                  INFLUENCE names a numeric variable that says how much each case counts in growing a CHAID or CRT\n\
-                 tree with a nominal or ordinal dependent. CHAID's tests of independence use expected counts\n\
-                 adjusted by the mean influence of each cell; CRT counts each case as influence times frequency in\n\
-                 its priors, impurities, improvements and surrogates, and its PRIORS FROMDATA are the shares of\n\
-                 those counts. A node's class is the one with the most influence times frequency. A case whose\n\
-                 influence is missing, zero or negative is left out. Node sizes, counts, risk and gains still\n\
-                 count frequencies only. QUEST ignores it with a warning.\n\
+                 tree. CHAID's tests of independence use expected counts adjusted by the mean influence of each\n\
+                 cell, and its F test of a scale dependent counts each case influence times as often; CRT counts\n\
+                 each case as influence times frequency in its priors, impurities, improvements and surrogates, and\n\
+                 its PRIORS FROMDATA are the shares of those counts. A node's class (a scale dependent's: its\n\
+                 mean) is the one with the most influence times frequency. A case whose influence is missing, zero\n\
+                 or negative is left out. Node sizes, counts, risk and gains still count frequencies only. QUEST\n\
+                 ignores it with a warning.\n\
                  A node is not split when it is pure, holds fewer than MINPARENTSIZE cases or is at MAXDEPTH (AUTO: 3\n\
                  for CHAID, 5 for CRT and QUEST). MINCHILDSIZE must be less than MINPARENTSIZE. A weight counts each\n\
                  case as often as its rounded value. SPLIT FILE is ignored.\n\

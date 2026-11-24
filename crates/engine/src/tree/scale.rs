@@ -11,7 +11,7 @@ use statscraft_data::Variable;
 
 /// The mean and, with more than one case in the node, the sample standard deviation.
 fn spread(node: &Node) -> (f64, Option<f64>) {
-    let mean = node.counts[1] / node.counts[0] + node.shift;
+    let mean = node.level() + node.shift;
     let squares = (node.counts[2] - node.counts[1] * node.counts[1] / node.counts[0]).max(0.0);
     let sd = (node.n > 1.0).then(|| (squares / (node.n - 1.0)).sqrt());
     (mean, sd)

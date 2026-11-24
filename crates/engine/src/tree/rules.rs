@@ -456,7 +456,7 @@ impl Rules<'_> {
     fn prediction(&self, id: usize) -> (String, Option<String>, String) {
         let node = &self.nodes[id];
         if node.scale {
-            let mean = node.counts[1] / node.counts[0] + node.shift;
+            let mean = node.level() + node.shift;
             return (format!("{mean}"), None, format!("{mean}"));
         }
         let j = node.predicted();

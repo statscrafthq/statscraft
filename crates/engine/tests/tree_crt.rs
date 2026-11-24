@@ -1394,3 +1394,67 @@ fn the_risk_with_influence_counts_frequencies_alone() {
         close(risk(&tables).0, expected, 1e-12);
     }
 }
+
+/// An integer influence k grows a tree for a scale dependent as k copies of each case would (same
+/// splits, improvements and node means), and its risk is the mean squared deviation of the cases,
+/// counted once, from the influence-weighted node means.
+#[test]
+fn an_influence_grows_the_least_squares_tree_of_replicated_cases() {
+    let common = "/METHOD TYPE=CRT /GROWTHLIMIT MAXDEPTH=4 MINPARENTSIZE=2 MINCHILDSIZE=1
+                  /CRT MINIMPROVEMENT=0.00001";
+    let tree = |weight: &str, influence: &str, save: &str| {
+        let mut engine = engine();
+        let source = format!(
+            "COMPUTE k = o.\n{weight}TREE r [s] BY xm [s] z [s] o [o] g [n] {influence}
+             {common} /PRINT TREETABLE RISK {save} /TREE DISPLAY=NONE."
+        );
+        run(&mut engine, &source)
+    };
+    let columns = |tables: &[Table]| {
+        let tree = table(tables, "Tree Table");
+        let names = ["Parent Node", "Variable", "Improvement", "Mean"].map(|n| column(tree, n));
+        tree.rows
+            .iter()
+            .map(|row| {
+                names
+                    .iter()
+                    .map(|&c| match &row[c] {
+                        Cell::Number(x) => format!("{x:.9}"),
+                        Cell::Empty => String::new(),
+                        other => text(other).to_string(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    };
+    let replicated = tree("WEIGHT BY k.\n", "", "");
+    let influenced = tree("", "/INFLUENCE k", "");
+    assert!(columns(&replicated).len() > 3);
+    assert_eq!(columns(&replicated), columns(&influenced));
+    let first = &table(&influenced, "Tree Table").rows[0];
+    assert_eq!(
+        number(&first[column(table(&influenced, "Tree Table"), "N")]),
+        150.0
+    );
+
+    // the risk: cases counted once, deviations from the weighted node means, pruned or not
+    for prune in ["", "PRUNE=SE(0)", "PRUNE=SE(1)"] {
+        let mut engine = engine();
+        let source = format!(
+            "COMPUTE k = o.\nTREE r [s] BY xm [s] z [s] o [o] g [n] /INFLUENCE k
+             /METHOD TYPE=CRT {prune} /GROWTHLIMIT MAXDEPTH=4 MINPARENTSIZE=2 MINCHILDSIZE=1
+             /CRT MINIMPROVEMENT=0.00001
+             /PRINT RISK /SAVE PREDVAL /TREE DISPLAY=NONE.
+             COMPUTE d2 = (r - PredictedValue) ** 2.
+             DESCRIPTIVES d2 /STATISTICS=MEAN."
+        );
+        let tables = run(&mut engine, &source);
+        let t = table(&tables, "Descriptive Statistics");
+        let mean = t
+            .columns
+            .iter()
+            .position(|c| c == "Mean")
+            .expect("a Mean column");
+        close(risk(&tables).0, number(&t.rows[0][mean]), 1e-9);
+    }
+}

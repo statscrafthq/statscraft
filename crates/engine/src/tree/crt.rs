@@ -566,7 +566,29 @@ impl Growth<'_> {
                 quest: quest_split,
             });
         }
-        if let Some(f) = self.frequency {
+        if let (Some(f), Some(y)) = (self.frequency, self.values) {
+            // the tree is grown; each node predicts its influence-weighted mean, and what it shows
+            // and its risk count frequencies alone
+            let all: f64 = f.iter().sum();
+            for node in &mut nodes {
+                let mean = node.counts[1] / node.counts[0];
+                let mut stats = [0.0; 3];
+                let (mut about, mut quartic) = (0.0, 0.0);
+                for &i in &node.cases {
+                    stats[0] += f[i];
+                    stats[1] += f[i] * y[i];
+                    stats[2] += f[i] * y[i] * y[i];
+                    about += f[i] * (y[i] - mean).powi(2);
+                    quartic += f[i] * (y[i] - mean).powi(4);
+                }
+                node.mean = Some(mean);
+                node.n = stats[0];
+                node.counts = stats.to_vec();
+                node.squares_about = Some(about);
+                node.fourth = quartic;
+                node.risk = vec![about / all];
+            }
+        } else if let Some(f) = self.frequency {
             // the tree is grown; what it shows and its risk count frequencies alone
             let mut totals = vec![0.0; self.classes];
             for i in 0..n {
@@ -596,7 +618,7 @@ impl Growth<'_> {
 /// The node's own risk: the weight of the classes it does not assign.
 fn node_risk(node: &Node) -> f64 {
     if node.scale {
-        return node.assign[0];
+        return node.risk[0];
     }
     let predicted = node.predicted();
     match &node.costs {

@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - TREE /INFLUENCE also works with CRT and a nominal or ordinal dependent.
+- TREE /INFLUENCE also works with a scale dependent, in CHAID and in CRT.
 
 ## 0.38.1 (2026-11-25)
 

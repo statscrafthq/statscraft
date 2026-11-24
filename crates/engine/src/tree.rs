@@ -177,6 +177,9 @@ struct Node {
     /// A test sample's node of a scale dependent: its sum of squares about the training node's
     /// mean (the node's own mean otherwise).
     squares_about: Option<f64>,
+    /// A scale dependent's mean when cases have an influence: the influence-weighted one the node
+    /// predicts, while `counts` are frequencies (shifted like them).
+    mean: Option<f64>,
     n: f64,
     /// The class the node is assigned when that is not the most probable one: the cheapest one
     /// under custom costs, or a test sample's node's, the training node's.
@@ -190,6 +193,11 @@ struct Node {
 }
 
 impl Node {
+    /// A scale dependent's node mean before the shift is added back.
+    fn level(&self) -> f64 {
+        self.mean.unwrap_or(self.counts[1] / self.counts[0])
+    }
+
     /// The assigned class: the most probable one, the first among those present on ties.
     fn predicted(&self) -> usize {
         if let Some(class) = self.predicted_as {
@@ -262,7 +270,29 @@ fn make_node(
             None => counts[class[i]] += weight[i],
         }
     }
+    let (mut mean_given, mut about_given) = (None, None);
     let (n, assign, fourth) = match values {
+        Some(y) if growth.is_some() => {
+            // the node predicts the influence-weighted mean; its risk and fourth moment are the
+            // frequencies' about that mean
+            let g = growth.expect("checked");
+            let (mut w, mut s) = (0.0, 0.0);
+            for &i in &cases {
+                w += g[i];
+                s += g[i] * y[i];
+            }
+            let mean = s / w;
+            let about: f64 = cases
+                .iter()
+                .map(|&i| weight[i] * (y[i] - mean).powi(2))
+                .sum();
+            let fourth = cases
+                .iter()
+                .map(|&i| weight[i] * (y[i] - mean).powi(4))
+                .sum();
+            (mean_given, about_given) = (Some(mean), Some(about));
+            (counts[0], vec![about * factor[0]], fourth)
+        }
         Some(y) => {
             let mean = counts[1] / counts[0];
             let fourth = cases
@@ -297,7 +327,8 @@ fn make_node(
         scale: values.is_some(),
         shift: 0.0,
         fourth,
-        squares_about: None,
+        squares_about: about_given,
+        mean: mean_given,
         cases,
         counts,
         definition,
@@ -317,7 +348,7 @@ fn rescore(nodes: &[Node], class: &[usize], weight: &[f64], values: Option<&[f64
             let mut counts = vec![0.0; node.counts.len()];
             let (mut squares, mut fourth) = (None, 0.0);
             if let Some(y) = values {
-                let centre = node.counts[1] / node.counts[0];
+                let centre = node.level();
                 let (mut about, mut quartic) = (0.0, 0.0);
                 for &i in &node.cases {
                     let (w, d) = (weight[i], y[i] - centre);
@@ -349,6 +380,7 @@ fn rescore(nodes: &[Node], class: &[usize], weight: &[f64], values: Option<&[f64
                 shift: node.shift,
                 fourth,
                 squares_about: squares,
+                mean: node.mean,
                 predicted_as: (values.is_none()).then(|| node.predicted()),
                 costs: node.costs.clone(),
                 definition: node.definition.clone(),
@@ -408,16 +440,20 @@ impl Tester<'_> {
     /// The ANOVA F test of the means of the dependent across the rows (groups): the F statistic,
     /// its degrees of freedom between, and its significance. Empty rows are left out.
     fn anova(&self, table: &[Vec<f64>]) -> (f64, f64, f64) {
+        // a row is the frequency, the weight, the sum of the values and of their squares; with
+        // influences the weight is influence times frequency, else the frequency itself
+        let at = usize::from(self.influenced);
         let rows: Vec<&Vec<f64>> = table.iter().filter(|r| r[0] > 0.0).collect();
-        let total: f64 = rows.iter().map(|r| r[0]).sum();
-        let (dfn, dfd) = (rows.len() as f64 - 1.0, total - rows.len() as f64);
+        let frequency: f64 = rows.iter().map(|r| r[0]).sum();
+        let (dfn, dfd) = (rows.len() as f64 - 1.0, frequency - rows.len() as f64);
         if rows.len() < 2 || dfd <= 0.0 {
             return (0.0, 0.0, 1.0);
         }
-        let sum: f64 = rows.iter().map(|r| r[1]).sum();
-        let by_group: f64 = rows.iter().map(|r| r[1] * r[1] / r[0]).sum();
+        let total: f64 = rows.iter().map(|r| r[at]).sum();
+        let sum: f64 = rows.iter().map(|r| r[at + 1]).sum();
+        let by_group: f64 = rows.iter().map(|r| r[at + 1] * r[at + 1] / r[at]).sum();
         let between = (by_group - sum * sum / total).max(0.0);
-        let within = (rows.iter().map(|r| r[2]).sum::<f64>() - by_group).max(0.0);
+        let within = (rows.iter().map(|r| r[at + 2]).sum::<f64>() - by_group).max(0.0);
         if between <= 0.0 {
             return (0.0, dfn, 1.0);
         }
@@ -1117,11 +1153,6 @@ impl Engine {
                         variable.name()
                     )));
                 }
-                if scale_dep {
-                    return Err(Error(
-                        "INFLUENCE is not supported with a scale dependent".into(),
-                    ));
-                }
                 Some(variable)
             }
         };
@@ -1759,7 +1790,7 @@ impl Engine {
                             continue;
                         }
                         let width = if scale {
-                            3
+                            if growth.is_some() { 4 } else { 3 }
                         } else if growth.is_some() {
                             2 * classes.len()
                         } else {
@@ -1770,9 +1801,16 @@ impl Engine {
                             let row = &mut table[predictor.codes[i]];
                             match &dep_values {
                                 Some(y) => {
+                                    // the frequency, then the weight, sum and sum of squares
+                                    // that grow the tree (influence times frequency)
                                     row[0] += weights[i];
-                                    row[1] += weights[i] * y[i];
-                                    row[2] += weights[i] * y[i] * y[i];
+                                    let g = growth.as_ref().map_or(weights[i], |g| g[i]);
+                                    let at = usize::from(growth.is_some());
+                                    if at == 1 {
+                                        row[1] += g;
+                                    }
+                                    row[at + 1] += g * y[i];
+                                    row[at + 2] += g * y[i] * y[i];
                                 }
                                 None => {
                                     row[case_class[i]] += weights[i];
@@ -2097,7 +2135,7 @@ impl Engine {
                         let mut values = vec![None; case_count];
                         for (i, &c) in case_numbers.iter().enumerate() {
                             let node = &nodes[terminal_of[i]];
-                            values[c] = Some(node.counts[1] / node.counts[0] + node.shift);
+                            values[c] = Some(node.level() + node.shift);
                         }
                         data.set_numeric_values(&name, values)?;
                         data.set_format(&name, "F8.3")?;
