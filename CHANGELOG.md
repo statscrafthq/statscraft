@@ -6,7 +6,11 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
-- TREE /TARGETRESPONSE RATE=NONE | percent: for each target category the terminal nodes by their response, with the path that describes each, the cumulative response and whether it reaches the minimum, and a chart of the cumulative response.
+## 0.37.0 (2026-11-24)
+
+TREE finds the nodes that answer best for a target category.
+
+- [TREE](docs/commands/tree.md) `/TARGETRESPONSE`: for each target category, the terminal nodes ranked by their response rate, with the rule that leads to each, the cumulative response and whether it reaches a minimum rate you set, and a chart of the cumulative response.
 
 ## 0.36.0 (2026-11-23)
 
