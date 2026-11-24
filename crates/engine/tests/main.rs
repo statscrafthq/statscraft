@@ -115,6 +115,7 @@ mod rank;
 mod regression;
 mod regression_more;
 mod regression_r;
+mod regression_steps_r;
 mod reliability;
 mod reliability_r;
 mod report;
