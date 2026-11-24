@@ -25,6 +25,7 @@ mod conjoint;
 mod correlations_r;
 mod correspondence;
 mod coxreg;
+mod crosstabs_cells_r;
 mod crosstabs_exact;
 mod crosstabs_r;
 mod crosstabs_write;
