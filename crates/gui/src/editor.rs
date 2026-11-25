@@ -1,4 +1,7 @@
-//! Syntax editor logic: lines of a selection and the command under the cursor.
+//! Syntax editor logic: lines of a selection, the command under the cursor, and find and
+//! replace.
+
+use std::ops::Range;
 
 /// The 1-based line that holds the character at `char_index`.
 pub fn line_of(text: &str, char_index: usize) -> u32 {
@@ -85,6 +88,80 @@ pub fn append(text: &mut String, syntax: &str) {
     }
     text.push_str(syntax);
     text.push('\n');
+}
+
+/// What the find bar looks for: the text, and whether case and whole words count.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Search {
+    pub text: String,
+    pub case: bool,
+    pub word: bool,
+}
+
+/// A character of a name: a whole-word match has none right before or after it.
+fn word_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | '@' | '#' | '$')
+}
+
+impl Search {
+    /// The byte ranges of every match in `text`, from the start and not overlapping.
+    pub fn matches(&self, text: &str) -> Vec<Range<usize>> {
+        let mut out = Vec::new();
+        let Some(first) = self.text.chars().next() else {
+            return out;
+        };
+        let last = self.text.chars().next_back().unwrap_or(first);
+        let same =
+            |a: char, b: char| a == b || (!self.case && a.to_lowercase().eq(b.to_lowercase()));
+        let mut from = 0;
+        while let Some(c) = text[from..].chars().next() {
+            let mut rest = text[from..].chars();
+            let mut end = from;
+            let found = self.text.chars().all(|n| match rest.next() {
+                Some(t) if same(t, n) => {
+                    end += t.len_utf8();
+                    true
+                }
+                _ => false,
+            });
+            // a boundary counts only where the searched text itself starts or ends a name
+            let whole = !self.word
+                || ((!word_char(first)
+                    || !text[..from].chars().next_back().is_some_and(word_char))
+                    && (!word_char(last) || !text[end..].chars().next().is_some_and(word_char)));
+            if found && whole {
+                out.push(from..end);
+                from = end;
+            } else {
+                from += c.len_utf8();
+            }
+        }
+        out
+    }
+}
+
+/// The match to go to from the selection (bytes): the first one after it, or with `back` the
+/// last one before it, going round at the end.
+pub fn step(matches: &[Range<usize>], selection: Range<usize>, back: bool) -> Option<usize> {
+    let found = if back {
+        matches.iter().rposition(|m| m.end <= selection.start)
+    } else {
+        matches.iter().position(|m| m.start >= selection.end)
+    };
+    found.or_else(|| (!matches.is_empty()).then(|| if back { matches.len() - 1 } else { 0 }))
+}
+
+/// `text` with every match put as `with`.
+pub fn replace_all(text: &str, matches: &[Range<usize>], with: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    for m in matches {
+        out.push_str(&text[at..m.start]);
+        out.push_str(with);
+        at = m.end;
+    }
+    out.push_str(&text[at..]);
+    out
 }
 
 #[cfg(test)]
@@ -186,5 +263,56 @@ mod tests {
         let mut text = "EXECUTE.\n\n\n".to_string();
         append(&mut text, "SAVE OUTFILE='a.sav'.");
         assert_eq!(text, "EXECUTE.\nSAVE OUTFILE='a.sav'.\n");
+    }
+
+    fn find(text: &str, what: &str, case: bool, word: bool) -> Vec<&'static str> {
+        let search = Search {
+            text: what.into(),
+            case,
+            word,
+        };
+        let text: &'static str = Box::leak(text.to_string().into_boxed_str());
+        search.matches(text).into_iter().map(|r| &text[r]).collect()
+    }
+
+    #[test]
+    fn find_matches_case_and_whole_words_on_request() {
+        let text = "COMPUTE age2 = Age * 2.\nfreq age.\nDESC ägE.";
+        assert_eq!(find(text, "age", false, false), ["age", "Age", "age"]);
+        assert_eq!(find(text, "AGE", true, false), Vec::<&str>::new());
+        assert_eq!(find(text, "Age", true, false), ["Age"]);
+        // age2 is another name; the period that ends a command is no part of one
+        assert_eq!(find(text, "age", false, true), ["Age", "age"]);
+        // letters outside ASCII compare without case too
+        assert_eq!(find(text, "ÄGE", false, false), ["ägE"]);
+        // a searched text that starts with no name character finds a slash after a name
+        assert_eq!(
+            find("x/STAT=ALL /stat", "/stat", false, true),
+            ["/STAT", "/stat"]
+        );
+        // matches do not overlap, and nothing is found for an empty text
+        assert_eq!(find("aaaa", "aa", false, false), ["aa", "aa"]);
+        assert_eq!(find("abc", "", false, false), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn next_and_previous_go_round_and_replace_all_keeps_the_rest() {
+        let text = "x y x z x";
+        let search = Search {
+            text: "x".into(),
+            ..Default::default()
+        };
+        let m = search.matches(text);
+        assert_eq!(m, [0..1, 4..5, 8..9]);
+        // from a cursor at the start, then from the first match selected
+        assert_eq!(step(&m, 0..0, false), Some(0));
+        assert_eq!(step(&m, 0..1, false), Some(1));
+        assert_eq!(step(&m, 8..9, false), Some(0));
+        assert_eq!(step(&m, 4..5, true), Some(0));
+        assert_eq!(step(&m, 0..1, true), Some(2));
+        assert_eq!(step(&[], 0..0, false), None);
+        // a replacement that holds the searched text is not searched again
+        assert_eq!(replace_all(text, &m, "xx"), "xx y xx z xx");
+        assert_eq!(replace_all(text, &[], "q"), text);
     }
 }

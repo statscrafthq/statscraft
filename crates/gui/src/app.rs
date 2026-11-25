@@ -1815,6 +1815,17 @@ impl App {
                     }
                 }
                 ui.separator();
+                if let Some(w) = self.windows.syntax_mut(self.here) {
+                    for (label, shortcut, replace) in
+                        [("Find...", "Ctrl+F", false), ("Replace...", "Ctrl+H", true)]
+                    {
+                        let button = egui::Button::new(label).shortcut_text(shortcut);
+                        if ui.add(button).clicked() {
+                            w.open_find(replace);
+                        }
+                    }
+                    ui.separator();
+                }
                 if ui.button("Settings...").clicked() {
                     self.settings_section = Some(Section::default());
                     self.popups = self.here;

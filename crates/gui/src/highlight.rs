@@ -439,6 +439,44 @@ pub fn cached_job(
     })
 }
 
+/// Gives the bytes of every mark (sorted, not overlapping) its background colour, splitting
+/// the sections of `job` where a mark starts or ends.
+pub fn mark(job: &mut LayoutJob, marks: &[(Range<usize>, egui::Color32)]) {
+    if marks.is_empty() {
+        return;
+    }
+    let mut out = Vec::with_capacity(job.sections.len() + 2 * marks.len());
+    for section in job.sections.drain(..) {
+        let (mut start, end) = (section.byte_range.start.0, section.byte_range.end.0);
+        if start == end {
+            out.push(section);
+            continue;
+        }
+        let mut i = marks.partition_point(|(m, _)| m.end <= start);
+        while start < end {
+            let (to, background) = match marks.get(i) {
+                Some((m, color)) if m.start <= start => (m.end.min(end), Some(*color)),
+                Some((m, _)) => (m.start.min(end), None),
+                None => (end, None),
+            };
+            let mut piece = section.clone();
+            if start != section.byte_range.start.0 {
+                piece.leading_space = 0.0;
+            }
+            piece.byte_range = ByteIndex(start)..ByteIndex(to);
+            if let Some(color) = background {
+                piece.format.background = color;
+            }
+            out.push(piece);
+            if marks.get(i).is_some_and(|(m, _)| m.end <= to) {
+                i += 1;
+            }
+            start = to;
+        }
+    }
+    job.sections = out;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,5 +683,46 @@ mod tests {
             at = section.byte_range.end.0;
         }
         assert_eq!(at, text.len());
+    }
+
+    #[test]
+    fn marks_split_the_sections_they_cross() {
+        let text = "FREQ x.\nDESC x.";
+        let mut job = LayoutJob::default();
+        for (range, plain) in [(0..4, false), (4..8, true), (8..16, false)] {
+            job.sections.push(LayoutSection {
+                leading_space: 0.0,
+                byte_range: ByteIndex(range.start)..ByteIndex(range.end),
+                format: TextFormat {
+                    italics: plain,
+                    ..Default::default()
+                },
+            });
+        }
+        job.text = text.into();
+        let (weak, strong) = (egui::Color32::YELLOW, egui::Color32::RED);
+        // the second mark crosses from the second section into the third
+        mark(&mut job, &[(2..3, weak), (5..10, strong)]);
+        let pieces: Vec<_> = job
+            .sections
+            .iter()
+            .map(|s| {
+                let r = &s.byte_range;
+                (r.start.0..r.end.0, s.format.italics, s.format.background)
+            })
+            .collect();
+        let none = egui::Color32::TRANSPARENT;
+        assert_eq!(
+            pieces,
+            [
+                (0..2, false, none),
+                (2..3, false, weak),
+                (3..4, false, none),
+                (4..5, true, none),
+                (5..8, true, strong),
+                (8..10, false, strong),
+                (10..16, false, none),
+            ]
+        );
     }
 }

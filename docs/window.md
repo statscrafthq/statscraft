@@ -166,6 +166,16 @@ While you type, a list offers what fits at the cursor:
 
 Ctrl+Space opens the list at any point. Arrows choose, Enter or Tab puts the choice in, Escape closes the list.
 
+### Find and replace
+
+Ctrl+F (Edit > Find) opens a find bar over the editor, Ctrl+H (Edit > Replace) the same bar with a replace row. Selected text on one line becomes the text to find.
+
+- Typing goes to the first match from the cursor. Every match is marked, the selected one more strongly, and the bar counts them ("2 of 7").
+- Enter or F3 goes to the next match, Shift+Enter or Shift+F3 to the previous one, round the end of the text.
+- **Match case** tells upper and lower case apart. **Whole word** skips matches inside a longer name, so `age` does not find `age2`.
+- **Replace** (or Enter in the replace field) replaces the selected match and goes to the next one. **Replace all** replaces every match and says how many. Ctrl+Z in the editor takes a replacement back.
+- Escape or **Close** closes the bar and puts the cursor back in the editor.
+
 ### Help in the editor
 
 - A command in the list, or a command name under the mouse, shows its summary and syntax.

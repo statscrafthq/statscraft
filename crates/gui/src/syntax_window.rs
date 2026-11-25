@@ -19,6 +19,34 @@ struct Completion {
     selected: usize,
 }
 
+/// The find bar of the editor.
+struct Find {
+    search: editor::Search,
+    /// The replacement text, and whether its row shows.
+    with: String,
+    replace: bool,
+    /// Focus the find field in the next frame.
+    focus: bool,
+    /// What Replace all did, until the search changes.
+    note: Option<String>,
+}
+
+/// What the find bar asks for.
+#[derive(Clone, Copy, PartialEq)]
+enum FindStep {
+    /// The first match from the start of the selection, while the text is typed.
+    First,
+    Next,
+    Previous,
+    Replace,
+    ReplaceAll,
+    Close,
+}
+
+/// The background of a match, and a stronger one for the match selected.
+const MATCH: egui::Color32 = egui::Color32::from_rgba_unmultiplied_const(255, 200, 0, 90);
+const CURRENT: egui::Color32 = egui::Color32::from_rgba_unmultiplied_const(255, 140, 0, 170);
+
 pub(crate) struct SyntaxWindow {
     pub text: String,
     /// The text as last loaded or saved; empty for new syntax.
@@ -34,6 +62,9 @@ pub(crate) struct SyntaxWindow {
     completion: Option<Completion>,
     /// The full help of a command, from F1.
     help: Option<String>,
+    find: Option<Find>,
+    /// Scroll the editor to the selection in the next frame.
+    reveal: bool,
 }
 
 impl SyntaxWindow {
@@ -48,7 +79,226 @@ impl SyntaxWindow {
             editor_id: None,
             completion: None,
             help: None,
+            find: None,
+            reveal: false,
         }
+    }
+
+    /// Opens the find bar, with the replace row if `replace`, and the selection as the text to
+    /// find when it is on one line.
+    pub fn open_find(&mut self, replace: bool) {
+        let (a, b) = (
+            self.selection.0.min(self.selection.1),
+            self.selection.0.max(self.selection.1),
+        );
+        let selected: String = self.text.chars().skip(a).take(b - a).collect();
+        let find = self.find.get_or_insert_with(|| Find {
+            search: editor::Search::default(),
+            with: String::new(),
+            replace: false,
+            focus: true,
+            note: None,
+        });
+        if !selected.is_empty() && !selected.contains('\n') {
+            find.search.text = selected;
+        }
+        find.replace |= replace;
+        find.focus = true;
+    }
+
+    /// The selection as bytes, start first.
+    fn selected_bytes(&self) -> std::ops::Range<usize> {
+        let (a, b) = self.selection;
+        editor::byte_of(&self.text, a.min(b))..editor::byte_of(&self.text, a.max(b))
+    }
+
+    /// Selects the bytes `range` in the editor and scrolls to them.
+    fn select_bytes(&mut self, ctx: &egui::Context, range: std::ops::Range<usize>) {
+        let start = self.text[..range.start].chars().count();
+        let end = start + self.text[range].chars().count();
+        self.selection = (start, end);
+        self.reveal = true;
+        if let Some(id) = self.editor_id {
+            let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(start),
+                    egui::text::CCursor::new(end),
+                )));
+            state.store(ctx, id);
+        }
+    }
+
+    /// Does what the find bar asks.
+    fn find_step(&mut self, ctx: &egui::Context, step: FindStep) {
+        let Some(find) = self.find.as_mut() else {
+            return;
+        };
+        if step == FindStep::Close {
+            self.find = None;
+            if let Some(id) = self.editor_id {
+                ctx.memory_mut(|m| m.request_focus(id));
+            }
+            return;
+        }
+        let search = find.search.clone();
+        let with = find.with.clone();
+        find.note = None;
+        let matches = search.matches(&self.text);
+        let selection = self.selected_bytes();
+        let from = match step {
+            FindStep::First => editor::step(&matches, selection.start..selection.start, false),
+            FindStep::Previous => editor::step(&matches, selection, true),
+            FindStep::Replace if matches.contains(&selection) => {
+                self.text.replace_range(selection.clone(), &with);
+                self.completion = None;
+                let after = selection.start + with.len();
+                let matches = search.matches(&self.text);
+                match editor::step(&matches, after..after, false) {
+                    Some(i) => self.select_bytes(ctx, matches[i].clone()),
+                    None => self.select_bytes(ctx, after..after),
+                }
+                return;
+            }
+            FindStep::ReplaceAll => {
+                if !matches.is_empty() {
+                    self.text = editor::replace_all(&self.text, &matches, &with);
+                    self.completion = None;
+                    // the cursor stays before the text it was in front of
+                    let before = matches
+                        .iter()
+                        .take_while(|m| m.end <= selection.start)
+                        .count();
+                    let at = selection.start + before * with.len()
+                        - matches[..before].iter().map(|m| m.len()).sum::<usize>();
+                    let at = at.min(self.text.len());
+                    let at = (0..=at)
+                        .rev()
+                        .find(|&b| self.text.is_char_boundary(b))
+                        .unwrap_or(0);
+                    self.select_bytes(ctx, at..at);
+                }
+                if let Some(find) = self.find.as_mut() {
+                    find.note = Some(format!("Replaced {}", matches.len()));
+                }
+                return;
+            }
+            _ => editor::step(&matches, selection, false),
+        };
+        if let Some(i) = from {
+            self.select_bytes(ctx, matches[i].clone());
+        }
+    }
+
+    /// The find bar over the editor: the text to find, its options and how many matches there
+    /// are, and the replace row.
+    fn find_bar(&mut self, ui: &mut Ui, salt: u64) -> Option<FindStep> {
+        let selection = self.selected_bytes();
+        let find = self.find.as_mut()?;
+        let matches = find.search.matches(&self.text);
+        let mut step = None;
+        egui::Panel::top(("syntax_find", salt)).show(ui, |ui| {
+            let (enter, shift, escape) = ui.input(|i| {
+                (
+                    i.key_pressed(Key::Enter),
+                    i.modifiers.shift,
+                    i.key_pressed(Key::Escape),
+                )
+            });
+            let mut fields = Vec::new();
+            ui.horizontal(|ui| {
+                let field = ui.add(
+                    TextEdit::singleline(&mut find.search.text)
+                        .id_salt(("find_text", salt))
+                        .hint_text("Find")
+                        .desired_width(240.0),
+                );
+                if std::mem::take(&mut find.focus) {
+                    field.request_focus();
+                }
+                if field.changed() {
+                    step = Some(FindStep::First);
+                }
+                if field.lost_focus() && enter {
+                    step = Some(if shift {
+                        FindStep::Previous
+                    } else {
+                        FindStep::Next
+                    });
+                    field.request_focus();
+                }
+                fields.push(field);
+                if ui.checkbox(&mut find.search.case, "Match case").changed()
+                    | ui.checkbox(&mut find.search.word, "Whole word").changed()
+                {
+                    step = Some(FindStep::First);
+                }
+                let current = matches.iter().position(|m| *m == selection);
+                let count = match (&find.note, current, matches.len()) {
+                    (Some(note), ..) => RichText::new(note),
+                    _ if find.search.text.is_empty() => RichText::new(""),
+                    (_, _, 0) => RichText::new("No matches").color(ui.visuals().error_fg_color),
+                    (_, Some(i), n) => RichText::new(format!("{} of {n}", i + 1)),
+                    (_, None, 1) => RichText::new("1 match"),
+                    (_, None, n) => RichText::new(format!("{n} matches")),
+                };
+                ui.label(count);
+                let any = !matches.is_empty();
+                if ui
+                    .add_enabled(any, egui::Button::new("Previous"))
+                    .on_hover_text("Shift+F3")
+                    .clicked()
+                {
+                    step = Some(FindStep::Previous);
+                }
+                if ui
+                    .add_enabled(any, egui::Button::new("Next"))
+                    .on_hover_text("F3")
+                    .clicked()
+                {
+                    step = Some(FindStep::Next);
+                }
+                ui.toggle_value(&mut find.replace, "Replace")
+                    .on_hover_text("Ctrl+H");
+                if ui.button("Close").on_hover_text("Escape").clicked() {
+                    step = Some(FindStep::Close);
+                }
+            });
+            if find.replace {
+                ui.horizontal(|ui| {
+                    let field = ui.add(
+                        TextEdit::singleline(&mut find.with)
+                            .id_salt(("replace_text", salt))
+                            .hint_text("Replace with")
+                            .desired_width(240.0),
+                    );
+                    if field.lost_focus() && enter {
+                        step = Some(FindStep::Replace);
+                        field.request_focus();
+                    }
+                    fields.push(field);
+                    let any = !matches.is_empty();
+                    if ui
+                        .add_enabled(any, egui::Button::new("Replace"))
+                        .on_hover_text("Enter")
+                        .clicked()
+                    {
+                        step = Some(FindStep::Replace);
+                    }
+                    if ui
+                        .add_enabled(any, egui::Button::new("Replace all"))
+                        .clicked()
+                    {
+                        step = Some(FindStep::ReplaceAll);
+                    }
+                });
+            }
+            if escape && fields.iter().any(|f| f.has_focus() || f.lost_focus()) {
+                step = Some(FindStep::Close);
+            }
+        });
+        step
     }
 
     /// The file name, or Syntax1 and so on for syntax not saved yet.
@@ -82,6 +332,30 @@ impl SyntaxWindow {
         settings: &Settings,
     ) -> bool {
         let run_selection = ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter));
+        // find and replace: Shift first, as a shortcut matches with extra Shift too
+        let (find, replace, previous, next) = ui.input_mut(|i| {
+            (
+                i.consume_key(Modifiers::COMMAND, Key::F),
+                i.consume_key(Modifiers::COMMAND, Key::H),
+                i.consume_key(Modifiers::SHIFT, Key::F3),
+                i.consume_key(Modifiers::NONE, Key::F3),
+            )
+        });
+        if find || replace {
+            self.open_find(replace);
+        }
+        let step = self.find_bar(ui, salt).or(if previous {
+            Some(FindStep::Previous)
+        } else if next {
+            Some(FindStep::Next)
+        } else {
+            None
+        });
+        match step {
+            Some(_) if self.find.is_none() => self.open_find(false),
+            Some(step) => self.find_step(ui.ctx(), step),
+            None => {}
+        }
         if ui.input(|i| i.key_pressed(Key::F1)) {
             let line = editor::line_of(&self.text, self.selection.0.max(self.selection.1));
             let command = editor::command_at(&self.text, line);
@@ -134,6 +408,8 @@ impl SyntaxWindow {
         let wrap = !settings.wrap_off;
         let macro_names = macros.join(" ");
         let theme = themes::by_name(&settings.theme);
+        let search = self.find.as_ref().map(|f| f.search.clone());
+        let (a, b) = self.selection;
         let theme_index = themes::THEMES
             .iter()
             .position(|t| t.name == theme.name)
@@ -142,6 +418,20 @@ impl SyntaxWindow {
             let mut job =
                 highlight::cached_job(ui.ctx(), text.as_str(), &macro_names, theme_index, 14.0);
             job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
+            if let Some(search) = &search {
+                // the text laid out may be newer than the window's: find in it
+                let text = text.as_str();
+                let selection = editor::byte_of(text, a.min(b))..editor::byte_of(text, a.max(b));
+                let marks: Vec<_> = search
+                    .matches(text)
+                    .into_iter()
+                    .map(|m| {
+                        let color = if m == selection { CURRENT } else { MATCH };
+                        (m, color)
+                    })
+                    .collect();
+                highlight::mark(&mut job, &marks);
+            }
             ui.ctx().fonts_mut(|f| f.layout_job(job))
         };
         let gutter = ui.ctx().fonts_mut(|f| f.glyph_width(&font, '0')) * 5.0 + 4.0;
@@ -175,6 +465,15 @@ impl SyntaxWindow {
                             .layouter(&mut layouter)
                             .show(ui);
                         self.editor_id = Some(output.response.id);
+                        if std::mem::take(&mut self.reveal) {
+                            let (a, b) = self.selection;
+                            let at = |i| output.galley.pos_from_cursor(egui::text::CCursor::new(i));
+                            let rect = at(a.min(b)).union(at(a.max(b)));
+                            ui.scroll_to_rect(
+                                rect.translate(output.galley_pos.to_vec2()),
+                                Some(egui::Align::Center),
+                            );
+                        }
                         // a line number beside the first row of every line, which may wrap
                         let mut line = 1;
                         let mut starts_line = true;
