@@ -768,9 +768,7 @@ impl Evaluator<'_> {
         }
         if name.starts_with('$') {
             let name = name.to_uppercase();
-            return Err(Error(format!(
-                "system variable {name} is not supported yet"
-            )));
+            return Err(Error(format!("unknown system variable {name}")));
         }
         let Ok(variable) = self.data.variable(name) else {
             return Err(Error(format!("unknown variable {name}")));

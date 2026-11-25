@@ -735,10 +735,7 @@ fn errors_name_what_is_wrong() {
             "COMPUTE r = MIN(plan, age).",
             "argument 1 of MIN must be a number, but variable plan is a string",
         ),
-        (
-            "COMPUTE r = $JDATE.",
-            "system variable $JDATE is not supported yet",
-        ),
+        ("COMPUTE r = $today.", "unknown system variable $TODAY"),
         (
             "COMPUTE r = MOD(age).",
             "wrong number of arguments for MOD: expected MOD(number, divisor), got 1",
