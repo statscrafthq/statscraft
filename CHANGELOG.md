@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [AUTORECODE](docs/commands/autorecode.md) saves its scheme to a template file (`/SAVE TEMPLATE`) and applies one (`/APPLY TEMPLATE`), so another file is recoded with the same codes and its new values get the next ones.
+
 ## 0.41.0 (2026-11-25)
 
 More procedures write their parameter matrices to a file or dataset, and two more commands repeat with /APPLY.

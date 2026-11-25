@@ -839,12 +839,18 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "AUTORECODE",
         summary: "Recode values into consecutive integers in new variables, labeled with the old values.",
         syntax: "AUTORECODE [VARIABLES=] varlist /INTO newlist [/BLANK=VALID | MISSING] [/GROUP]\n\
-                 \x20          [/DESCENDING] [/PRINT].\n\
+                 \x20          [/DESCENDING] [/PRINT] [/APPLY TEMPLATE='file'] [/SAVE TEMPLATE='file'].\n\
                  Valid values get 1, 2, ... in ascending order (DESCENDING: descending), user-missing values\n\
                  the codes after them, still user-missing; system-missing stays missing. Each code is\n\
                  labeled with the value label or the value. GROUP uses one scheme for all variables,\n\
                  BLANK=MISSING makes a blank string user-missing. All cases are recoded, also those a\n\
-                 filter leaves out.",
+                 filter leaves out. SAVE TEMPLATE writes the scheme of the first variable (the common one with GROUP\n\
+                 or APPLY TEMPLATE) to a data file of the variables Source_ and Target_, the valid values only and\n\
+                 their codes; a name without an extension gets .sat. APPLY TEMPLATE keeps those codes for those\n\
+                 values and gives the other valid values the codes above the highest, in the order of the command,\n\
+                 and then the user-missing ones (those of the first variable that has any); the variables must be of\n\
+                 the type of the template and share its scheme. With both, the template written is the template\n\
+                 applied plus the new values, also in the same file.",
         example: "AUTORECODE VARIABLES=country /INTO country_code /PRINT.",
         parse: data_commands::autorecode,
     },

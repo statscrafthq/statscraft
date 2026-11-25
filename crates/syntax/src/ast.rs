@@ -626,6 +626,10 @@ pub struct Autorecode {
     pub descending: bool,
     /// `/PRINT`: a table of old and new values per variable.
     pub print: bool,
+    /// `/APPLY TEMPLATE='file'`: the scheme of a template file, to which the new values go.
+    pub apply: Option<String>,
+    /// `/SAVE TEMPLATE='file'`: the scheme used, saved as a template file.
+    pub save: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

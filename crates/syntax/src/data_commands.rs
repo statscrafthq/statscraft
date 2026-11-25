@@ -328,9 +328,24 @@ pub(crate) fn autorecode(p: &mut Parser) -> PResult<Command> {
         group: false,
         descending: false,
         print: false,
+        apply: None,
+        save: None,
     };
     while p.eat(Punct::Slash) {
-        if p.eat_keyword("BLANK") {
+        if p.at_keyword("APPLY") || p.at_keyword("SAVE") {
+            let apply = p.at_keyword("APPLY");
+            p.pos += 1;
+            if !p.eat_keyword("TEMPLATE") {
+                return Err(p.unexpected(&["TEMPLATE"]));
+            }
+            p.eat(Punct::Eq);
+            let file = p.string("a quoted file name")?;
+            if apply {
+                command.apply = Some(file);
+            } else {
+                command.save = Some(file);
+            }
+        } else if p.eat_keyword("BLANK") {
             p.eat(Punct::Eq);
             if p.eat_keyword("MISSING") {
                 command.blank_missing = true;
@@ -344,7 +359,7 @@ pub(crate) fn autorecode(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("PRINT") {
             command.print = true;
         } else {
-            return Err(p.subcommand_error("AUTORECODE", &["APPLY", "SAVE"]));
+            return Err(p.subcommand_error("AUTORECODE", &[]));
         }
     }
     p.finish(&["'/'"])?;

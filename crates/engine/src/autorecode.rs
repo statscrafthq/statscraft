@@ -10,6 +10,11 @@
 //! - The new variable takes the variable label of the old one; each code gets the value label
 //!   of its old value, or the old value as shown by its format.
 //! - AUTORECODE reads the data: it ignores the split, and SELECT IF before it has taken effect.
+//! - SAVE TEMPLATE writes the scheme of the first variable (the common one with GROUP or APPLY
+//!   TEMPLATE), its valid values only, as a data file of Source_ and Target_; its extension is
+//!   .sat unless the name has one. APPLY TEMPLATE keeps the codes of the template for its
+//!   values and gives the other valid values the codes above the highest, in the order of the
+//!   command, then the user-missing ones; several variables share the scheme.
 
 use crate::crosstabs::Key;
 use crate::{Cell, Engine, Error, Table, format_value};
@@ -22,6 +27,24 @@ use std::cmp::Ordering;
 struct Old {
     key: Key,
     missing: bool,
+    /// The new value; set when the scheme is made.
+    code: f64,
+}
+
+/// Whether two values are the same, a string without regard to trailing blanks.
+fn same(a: &Key, b: &Key) -> bool {
+    match (a, b) {
+        (Key::Text(x), Key::Text(y)) => x.trim_end() == y.trim_end(),
+        _ => a == b,
+    }
+}
+
+/// The name of a template file: .sat unless the name has an extension.
+fn template_name(file: &str) -> String {
+    match std::path::Path::new(file).extension() {
+        Some(_) => file.to_string(),
+        None => format!("{file}.sat"),
+    }
 }
 
 fn compare(a: &Key, b: &Key) -> Ordering {
@@ -81,7 +104,18 @@ impl Engine {
             .iter()
             .map(|n| data.variable(n))
             .collect::<Result<_, _>>()?;
-        let group = command.group && variables.len() > 1;
+        let strings = variables.iter().any(Variable::is_string);
+        if command.apply.is_some() && variables.iter().any(|v| v.is_string() != strings) {
+            return Err(Error(
+                "APPLY TEMPLATE needs variables of one type: all numeric or all strings".into(),
+            ));
+        }
+        let template = match &command.apply {
+            Some(file) => Some(self.read_template(file, strings)?),
+            None => None,
+        };
+        // several variables share the scheme of a template
+        let group = (command.group || template.is_some()) && variables.len() > 1;
         if group
             && variables
                 .iter()
@@ -114,6 +148,7 @@ impl Engine {
                 .map(|key| Old {
                     missing: is_missing(at, &key),
                     key,
+                    code: 0.0,
                 })
                 .collect()
         };
@@ -128,7 +163,33 @@ impl Engine {
                 order.then(by_value)
             });
             olds.dedup_by(|a, b| a.key == b.key);
-            olds
+            match &template {
+                None => {
+                    for (i, old) in olds.iter_mut().enumerate() {
+                        old.code = i as f64 + 1.0;
+                    }
+                    olds
+                }
+                Some(pairs) => {
+                    let mut all: Vec<Old> = pairs
+                        .iter()
+                        .map(|(key, code)| Old {
+                            key: key.clone(),
+                            missing: false,
+                            code: *code,
+                        })
+                        .collect();
+                    let mut next = all.iter().map(|o| o.code).fold(0.0, f64::max);
+                    for mut old in olds {
+                        if !pairs.iter().any(|(key, _)| same(key, &old.key)) {
+                            next += 1.0;
+                            old.code = next;
+                            all.push(old);
+                        }
+                    }
+                    all
+                }
+            }
         };
         let schemes: Vec<Vec<Old>> = if group {
             let all = (0..variables.len()).flat_map(values_of).collect();
@@ -147,8 +208,8 @@ impl Engine {
             let code = |key: &Key| -> Option<f64> {
                 scheme
                     .iter()
-                    .position(|old| old.key == *key)
-                    .map(|i| i as f64 + 1.0)
+                    .find(|old| same(&old.key, key))
+                    .map(|old| old.code)
             };
             let values: Vec<Option<f64>> = match variable.values() {
                 Values::Numeric(values) => values.iter().map(|v| code(&Key::Number(v?))).collect(),
@@ -159,8 +220,7 @@ impl Engine {
             // each code is labelled by its value in the variable that has it, the first first
             let labels: Vec<(Value, String)> = scheme
                 .iter()
-                .enumerate()
-                .filter_map(|(i, old)| {
+                .filter_map(|old| {
                     let owner = if group {
                         variables
                             .iter()
@@ -170,14 +230,13 @@ impl Engine {
                         variable
                     };
                     let label = label_of(owner, &old.key);
-                    (!label.is_empty()).then_some((Value::Number(i as f64 + 1.0), label))
+                    (!label.is_empty()).then_some((Value::Number(old.code), label))
                 })
                 .collect();
             let missing_codes: Vec<f64> = scheme
                 .iter()
-                .enumerate()
-                .filter(|(_, old)| old.missing)
-                .map(|(i, _)| i as f64 + 1.0)
+                .filter(|old| old.missing)
+                .map(|old| old.code)
                 .collect();
             let missing = match missing_codes.as_slice() {
                 [] => MissingValues::None,
@@ -190,20 +249,16 @@ impl Engine {
                 _ => unreachable!("more than three codes"),
             };
             if command.print {
-                let rows = scheme.iter().enumerate().map(|(i, old)| {
+                let rows = scheme.iter().map(|old| {
                     let shown = match &old.key {
                         Key::Number(n) => format_value(*n, variable.format(), false).trim().into(),
                         Key::Text(t) => t.clone(),
                     };
                     let label = labels
                         .iter()
-                        .find(|(v, _)| *v == Value::Number(i as f64 + 1.0))
+                        .find(|(v, _)| *v == Value::Number(old.code))
                         .map_or(String::new(), |(_, l)| l.clone());
-                    vec![
-                        Cell::Text(shown),
-                        Cell::Number(i as f64 + 1.0),
-                        Cell::Text(label),
-                    ]
+                    vec![Cell::Text(shown), Cell::Number(old.code), Cell::Text(label)]
                 });
                 tables.push(Table {
                     title: format!("Recoding {} into {}", variable.name(), targets[at]),
@@ -213,7 +268,8 @@ impl Engine {
                     ..Table::default()
                 });
             }
-            let width = scheme.len().max(1).to_string().len();
+            let highest = scheme.iter().map(|old| old.code).fold(1.0, f64::max);
+            let width = (highest as u64).to_string().len();
             columns.push((
                 values,
                 labels,
@@ -221,6 +277,9 @@ impl Engine {
                 variable.label().map(str::to_string),
                 width,
             ));
+        }
+        if let Some(file) = &command.save {
+            self.save_template(file, &schemes[0], strings)?;
         }
         let data = self.active_mut()?;
         for (target, (values, labels, missing, label, width)) in targets.iter().zip(columns) {
@@ -232,6 +291,77 @@ impl Engine {
             data.set_measure(target, Measure::Nominal)?;
         }
         Ok(tables)
+    }
+}
+
+impl Engine {
+    /// The values and codes of a template file: the variables Source_ and Target_.
+    fn read_template(&self, file: &str, strings: bool) -> Result<Vec<(Key, f64)>, Error> {
+        let fail = |message: String| Error(format!("AUTORECODE APPLY TEMPLATE {file}: {message}"));
+        let data = self
+            .data_file(&template_name(file))
+            .map_err(|e| fail(e.0))?;
+        let find = |name: &str| {
+            data.variables()
+                .find(|v| v.name().eq_ignore_ascii_case(name))
+                .ok_or_else(|| fail(format!("the file has no variable {name}")))
+        };
+        let (source, target) = (find("Source_")?, find("Target_")?);
+        if source.is_string() != strings {
+            return Err(fail(format!(
+                "the template holds {} but the variables to recode are {}",
+                if source.is_string() {
+                    "strings"
+                } else {
+                    "numbers"
+                },
+                if strings { "strings" } else { "numbers" }
+            )));
+        }
+        let Values::Numeric(codes) = target.values() else {
+            return Err(fail("Target_ is a string variable".into()));
+        };
+        let keys: Vec<Option<Key>> = match source.values() {
+            Values::Numeric(values) => values.iter().map(|v| v.map(Key::Number)).collect(),
+            Values::String(values) => values
+                .iter()
+                .map(|v| Some(Key::Text(v.trim_end().into())))
+                .collect(),
+        };
+        Ok(keys
+            .into_iter()
+            .enumerate()
+            .filter_map(|(k, key)| Some((key?, codes.get(k)?)))
+            .collect())
+    }
+
+    /// SAVE TEMPLATE: the valid values of `scheme` with their codes.
+    fn save_template(&mut self, file: &str, scheme: &[Old], strings: bool) -> Result<(), Error> {
+        let valid: Vec<&Old> = scheme.iter().filter(|old| !old.missing).collect();
+        let mut data = statscraft_data::Dataset::new(valid.len());
+        if strings {
+            let texts: Vec<String> = valid
+                .iter()
+                .map(|old| match &old.key {
+                    Key::Text(t) => t.clone(),
+                    Key::Number(_) => String::new(),
+                })
+                .collect();
+            let width = texts.iter().map(String::len).max().unwrap_or(1).max(1);
+            data.set_string_values("Source_", width, texts)?;
+        } else {
+            let numbers = valid
+                .iter()
+                .map(|old| match old.key {
+                    Key::Number(n) => Some(n),
+                    Key::Text(_) => None,
+                })
+                .collect();
+            data.set_numeric_values("Source_", numbers)?;
+        }
+        data.set_numeric_values("Target_", valid.iter().map(|old| Some(old.code)).collect())?;
+        data.set_format("Target_", "F8.0")?;
+        self.write_data_file(&template_name(file), data)
     }
 }
 

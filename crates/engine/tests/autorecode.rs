@@ -121,3 +121,134 @@ fn autorecode_errors() {
         "GROUP needs variables of one type: all numeric or all strings"
     );
 }
+
+/// A folder of its own for the template files of a test.
+fn folder(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "statscraft-autorecode-{name}-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn run_plain(source: &str) -> Session {
+    let mut session = Session::default();
+    session
+        .run(source, None)
+        .unwrap_or_else(|errors| panic!("{errors:?}"));
+    session
+}
+
+/// The values of the template file as text: "source=target" for each pair.
+fn template(path: &std::path::Path) -> Vec<String> {
+    let data = statscraft_data::Dataset::read_sav(path).unwrap();
+    let Values::Numeric(targets) = data.variable("Target_").unwrap().values() else {
+        panic!("Target_ is a string")
+    };
+    let sources: Vec<String> = match data.variable("Source_").unwrap().values() {
+        Values::String(v) => v.iter().map(|s| s.trim_end().to_string()).collect(),
+        Values::Numeric(v) => v.iter().map(|n| n.unwrap().to_string()).collect(),
+    };
+    sources
+        .iter()
+        .zip(targets.iter())
+        .map(|(s, t)| format!("{s}={}", t.unwrap()))
+        .collect()
+}
+
+// The manual's examples: the template of var1 holds a and b only (c is user-missing); a template
+// of a, b and d applied to a, b and c gives 1, 2 and 4, with the value labels a, b, d and c.
+#[test]
+fn a_template_is_saved_and_applied_with_new_values_after_its_own() {
+    let dir = folder("scheme");
+    let file = dir.join("var1_template.sat");
+    run_plain(&format!(
+        "DATA LIST FREE /var1 (a1) var2 (a1).\nBEGIN DATA\na d\nb e\nc f\nEND DATA.\n\
+         MISSING VALUES var1 ('c') var2 ('f').\n\
+         AUTORECODE VARIABLES=var1 var2 /INTO newvar1 newvar2 /SAVE TEMPLATE='{}'.",
+        file.display()
+    ));
+    assert_eq!(template(&file), ["a=1", "b=2"]);
+
+    let session = run_plain(&format!(
+        "DATA LIST FREE /var1 (a1).\nBEGIN DATA\na b d\nEND DATA.\n\
+         AUTORECODE VARIABLES=var1 /INTO newvar1 /SAVE TEMPLATE='{}'.\n\
+         DATA LIST FREE /var2 (a1).\nBEGIN DATA\na b c\nEND DATA.\n\
+         AUTORECODE VARIABLES=var2 /INTO newvar2 /APPLY TEMPLATE='{}'.",
+        file.display(),
+        file.display()
+    ));
+    assert_eq!(codes(&session, "newvar2"), "1 2 4");
+    assert_eq!(labels(&session, "newvar2"), ["1=a", "2=b", "3=d", "4=c"]);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+// Applying a template and saving to the same file adds the new values to the template; the
+// user-missing values of the first variable that has any follow the valid codes.
+#[test]
+fn applying_and_saving_the_same_template_extends_it() {
+    let dir = folder("extend");
+    let file = dir.join("products.sat");
+    run_plain(&format!(
+        "DATA LIST FREE /p (F2).\nBEGIN DATA\n10 30\nEND DATA.\n\
+         AUTORECODE VARIABLES=p /INTO code /SAVE TEMPLATE='{}'.",
+        file.display()
+    ));
+    assert_eq!(template(&file), ["10=1", "30=2"]);
+    let session = run_plain(&format!(
+        "DATA LIST FREE /p (F2) q (F2).\nBEGIN DATA\n20 5\n30 99\n10 20\n40 5\nEND DATA.\n\
+         MISSING VALUES p (40).\n\
+         AUTORECODE VARIABLES=p q /INTO cp cq /APPLY TEMPLATE='{}' /SAVE TEMPLATE='{}'.",
+        file.display(),
+        file.display()
+    ));
+    // template: 10=1, 30=2; then the other valid values 5, 20, 99 (3, 4, 5), then 40, missing (6)
+    assert_eq!(codes(&session, "cp"), "4 2 1 6");
+    assert_eq!(codes(&session, "cq"), "3 5 4 3");
+    let data = session.dataset().unwrap();
+    assert_eq!(
+        *data.variable("cp").unwrap().missing_values(),
+        MissingValues::Numbers(vec![6.0])
+    );
+    assert_eq!(template(&file), ["10=1", "30=2", "5=3", "20=4", "99=5"]);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_template_must_exist_and_match_the_type_of_the_variables() {
+    let dir = folder("errors");
+    let file = dir.join("numbers.sat");
+    run_plain(&format!(
+        "DATA LIST FREE /n (F2).\nBEGIN DATA\n1 2\nEND DATA.\n\
+         AUTORECODE VARIABLES=n /INTO c /SAVE TEMPLATE='{}'.",
+        file.display()
+    ));
+    let mut session = Session::default();
+    let errors = session
+        .run(
+            &format!(
+                "DATA LIST FREE /s (A2).\nBEGIN DATA\na\nEND DATA.\n\
+                 AUTORECODE VARIABLES=s /INTO c /APPLY TEMPLATE='{}'.",
+                file.display()
+            ),
+            None,
+        )
+        .unwrap_err();
+    assert!(
+        errors[0].message.contains("the template holds numbers"),
+        "{errors:?}"
+    );
+    let errors = session
+        .run(
+            &format!(
+                "DATA LIST FREE /s (A2).\nBEGIN DATA\na\nEND DATA.\n\
+                 AUTORECODE VARIABLES=s /INTO d /APPLY TEMPLATE='{}'.",
+                dir.join("nosuch.sat").display()
+            ),
+            None,
+        )
+        .unwrap_err();
+    assert!(errors[0].message.contains("APPLY TEMPLATE"), "{errors:?}");
+    std::fs::remove_dir_all(dir).ok();
+}

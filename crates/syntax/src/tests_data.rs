@@ -493,3 +493,19 @@ fn export_import_and_get_translate() {
             .contains("range names are not supported")
     );
 }
+
+#[test]
+fn autorecode_templates_are_saved_and_applied() {
+    let Command::Autorecode(a) = one(
+        "AUTORECODE VARIABLES=v /INTO w /APPLY TEMPLATE='t.sat' /SAVE TEMPLATE='u.sat' /PRINT.",
+    ) else {
+        panic!("not an AUTORECODE")
+    };
+    assert_eq!(a.apply.as_deref(), Some("t.sat"));
+    assert_eq!(a.save.as_deref(), Some("u.sat"));
+    assert!(a.print);
+    let Command::Autorecode(a) = one("AUTORECODE VARIABLES=v /INTO w.") else {
+        panic!("not an AUTORECODE")
+    };
+    assert_eq!((a.apply, a.save), (None, None));
+}
