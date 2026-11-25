@@ -4683,7 +4683,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20[/ROBUST[=HC0 | HC1 | HC2 | HC3 | HC4]] [/RANDOM=factors]\n\
                  \x20\x20\x20[/MBPDESIGN[=effects]] [/BPDESIGN[=effects]] [/FDESIGN[=effects]]\n\
                  \x20\x20\x20[/SAVE=tempvar[(name)] ...]\n\
-                 \x20\x20\x20[/OUTFILE=[COVB('file' | dataset)] [CORB('file' | dataset)] [HCCOVB('file' | dataset)] [DESIGN('file' | dataset)]]\n\
+                 \x20\x20\x20[/OUTFILE=[COVB('file' | dataset)] [CORB('file' | dataset)] [HCCOVB('file' | dataset)] [EFFECT('file' | dataset)] [DESIGN('file' | dataset)]]\n\
                  \x20\x20\x20[/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...\n\
                  The command fits a general linear model to one dependent variable: analysis of variance with factors\n\
@@ -4732,9 +4732,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  of the Parameter Estimates (a redundant one blank), with a record per estimated parameter and then\n\
                  the records EST (the estimates, a redundant one 0), SE, DF (the error degrees of freedom) and SIG\n\
                  (the significance of t), named by the dependent variable; HCCOVB the covariance matrix of the robust\n\
-                 estimator of ROBUST (needed) in the layout of COVB but with its diagonal terms only, and the robust standard errors and the\n\
-                 significances they give; DESIGN the design matrix of the cases used,\n\
-                 one variable DES_1, DES_2, ... for each parameter. PLOT gives chart data. PROFILE draws the\n\
+                 estimator of ROBUST (needed) in the layout of COVB but with its diagonal terms only, and the\n\
+                 robust standard errors and the significances they give; EFFECT the Tests of Between-Subjects\n\
+                 Effects, a record per row of that table with SOURCE_ and SS, DF, MS, F and SIG (and ETASQ,\n\
+                 NONCENT and POWER when PRINT asks for them), a value the table leaves empty being missing;\n\
+                 DESIGN the design matrix of the cases used, one variable DES_1, DES_2, ... for each parameter. PLOT gives chart data. PROFILE draws the\n\
                  estimated marginal means over the levels of the first factor, one line per level of a second\n\
                  factor and one chart per level of a third (TYPE=BAR for bars); MEANREFERENCE adds the grand mean,\n\
                  ERRORBAR=CI the confidence intervals at 1 minus ALPHA, and SE(n) n standard errors (2 by\n\

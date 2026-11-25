@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - `APPLY 'MOD_2'` repeats any earlier model of the session, not only the previous one: ACF, PACF, CCF, SEASON, EXSMOOTH, ARIMA, AREG, SPECTRA, 2SLS, TSPLOT, CASEPLOT, CURVEFIT, WLS and PPLOT number their models MOD_1, MOD_2, ... in the order the session runs them.
+- [UNIANOVA](docs/commands/unianova.md) and GLM write the Tests of Between-Subjects Effects as a data file with `/OUTFILE EFFECT`.
 
 ## 0.44.0 (2026-11-25)
 
