@@ -246,7 +246,9 @@ fn small_samples_agree_with_r() {
                      /STATISTICS=NONE /PLOT=NONE."
                 ),
             );
-            for (got, want) in numbers(&t, p, label).iter().zip(want) {
+            let got = numbers(&t, p, label);
+            assert_eq!(got.len(), 7, "{method} of {values}");
+            for (got, want) in got.iter().zip(want) {
                 near(*got, want, &format!("{method} of {values}"));
             }
         }
@@ -256,7 +258,9 @@ fn small_samples_agree_with_r() {
             "EXAMINE VARIABLES=x /PERCENTILES(25,50,75)=HAVERAGE /STATISTICS=NONE \
              /MESTIMATORS=HUBER(2.2) TUKEY(3) HAMPEL(1.5,3,6) ANDREW(1.5) /PLOT=NONE.",
         );
-        for (got, want) in numbers(&t, p, "Tukey's Hinges").iter().zip(hinges) {
+        let got = numbers(&t, p, "Tukey's Hinges");
+        assert_eq!(got.len(), 3, "hinges of {values}");
+        for (got, want) in got.iter().zip(hinges) {
             near(*got, want, "hinge");
         }
         let d = run(
@@ -278,7 +282,9 @@ fn small_samples_agree_with_r() {
             &format!("Huber(1) of {values}"),
         );
         let mest = &mest[1..];
-        for (got, want) in numbers(&t, "M-Estimators", "x").iter().zip(mest) {
+        let got = numbers(&t, "M-Estimators", "x");
+        assert_eq!(got.len(), 4, "M-estimators of {values}");
+        for (got, want) in got.iter().zip(mest) {
             near(*got, *want, &format!("M-estimator of {values}"));
         }
     }
