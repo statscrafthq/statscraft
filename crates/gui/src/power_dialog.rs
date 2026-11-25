@@ -7,59 +7,68 @@
 //! defaults.
 
 use crate::dialogs::whole;
+use crate::i18n::{t, t_args};
 use crate::loglinear_dialog::optional;
 use crate::survival_dialog::numbers;
 use crate::syntax_text::number;
 pub use statscraft_syntax::PowerKind;
 
 /// The submenus of Analyze > Power Analysis and their items.
-pub const POWER_MENU: [(&str, &[(&str, PowerKind)]); 4] = [
-    (
-        "Means",
-        &[
-            ("One-Sample T Test...", PowerKind::MeansOneSample),
-            ("Independent-Samples T Test...", PowerKind::MeansIndependent),
-            ("Paired-Samples T Test...", PowerKind::MeansRelated),
-            ("One-Way ANOVA...", PowerKind::OnewayAnova),
-        ],
-    ),
-    (
-        "Proportions",
-        &[
-            (
-                "One-Sample Binomial Test...",
-                PowerKind::ProportionsOneSample,
-            ),
-            (
-                "Independent-Samples Binomial Test...",
-                PowerKind::ProportionsIndependent,
-            ),
-            (
-                "Related-Samples Binomial Test...",
-                PowerKind::ProportionsRelated,
-            ),
-        ],
-    ),
-    (
-        "Correlations",
-        &[
-            ("Pearson Product-Moment...", PowerKind::PearsonOneSample),
-            ("Spearman Rank-Order...", PowerKind::SpearmanOneSample),
-            ("Partial Correlation...", PowerKind::PartialCorr),
-        ],
-    ),
-    (
-        "Regression",
-        &[("Univariate Linear...", PowerKind::UnivariateLinear)],
-    ),
-];
+pub fn power_menu() -> [(&'static str, Vec<(&'static str, PowerKind)>); 4] {
+    [
+        (
+            t("menu-power-means"),
+            vec![
+                (t("menu-one-sample-t-test"), PowerKind::MeansOneSample),
+                (
+                    t("menu-independent-samples-t-test"),
+                    PowerKind::MeansIndependent,
+                ),
+                (t("menu-paired-samples-t-test"), PowerKind::MeansRelated),
+                (t("menu-one-way-anova"), PowerKind::OnewayAnova),
+            ],
+        ),
+        (
+            t("menu-power-proportions"),
+            vec![
+                (
+                    t("menu-one-sample-binomial-test"),
+                    PowerKind::ProportionsOneSample,
+                ),
+                (
+                    t("menu-independent-samples-binomial-test"),
+                    PowerKind::ProportionsIndependent,
+                ),
+                (
+                    t("menu-related-samples-binomial-test"),
+                    PowerKind::ProportionsRelated,
+                ),
+            ],
+        ),
+        (
+            t("menu-power-correlations"),
+            vec![
+                (
+                    t("menu-pearson-product-moment"),
+                    PowerKind::PearsonOneSample,
+                ),
+                (t("menu-spearman-rank-order"), PowerKind::SpearmanOneSample),
+                (t("menu-partial-correlation"), PowerKind::PartialCorr),
+            ],
+        ),
+        (
+            t("menu-power-regression"),
+            vec![(t("menu-univariate-linear"), PowerKind::UnivariateLinear)],
+        ),
+    ]
+}
 
 /// The tests of two independent proportions (METHOD), the default first.
 pub const POWER_METHODS: [(&str, &str); 4] = [
-    ("CHISQ", "Chi-square test"),
-    ("T", "t-test"),
-    ("LRT", "Likelihood ratio test"),
-    ("FISHER", "Fisher's exact test"),
+    ("CHISQ", "stats-power-method-chisq"),
+    ("T", "stats-power-method-t"),
+    ("LRT", "stats-power-method-lrt"),
+    ("FISHER", "stats-power-method-fisher"),
 ];
 
 /// How the pairwise comparisons of the group means share the significance level (ADJUST), the
@@ -67,18 +76,18 @@ pub const POWER_METHODS: [(&str, &str); 4] = [
 pub const POWER_ADJUSTS: [(&str, &str); 3] = [
     ("BONFERRONI", "Bonferroni"),
     ("SIDAK", "Sidak"),
-    ("LSD", "None (LSD)"),
+    ("LSD", "stats-power-adjust-none"),
 ];
 
 /// The variances of Fisher's z of a rank correlation (VARIANCE), the default first.
 pub const POWER_VARIANCES: [(&str, &str); 3] = [
-    ("BW", "Bonett and Wright"),
-    ("FHP", "Fieller, Hartley and Pearson"),
-    ("CC", "Caruso and Cliff"),
+    ("BW", "stats-power-variance-bw"),
+    ("FHP", "stats-power-variance-fhp"),
+    ("CC", "stats-power-variance-cc"),
 ];
 
-/// A chart of PLOT: its keywords, its label, and whether it takes a range (the line charts that
-/// allow one).
+/// A chart of PLOT: its keywords, the catalog key of its label, and whether it takes a range
+/// (the line charts that allow one).
 pub type PowerChart = (&'static str, &'static str, bool);
 
 /// The most charts one kind offers.
@@ -88,121 +97,109 @@ pub const MOST_CHARTS: usize = 7;
 pub fn power_charts(kind: PowerKind) -> &'static [PowerChart] {
     match kind {
         PowerKind::MeansOneSample => &[
-            ("N", "Power by sample size", true),
-            ("ES", "Power by effect size", true),
-            (
-                "N_XAXIS ES_YAXIS",
-                "Power by sample size and effect size",
-                false,
-            ),
+            ("N", "stats-power-chart-n", true),
+            ("ES", "stats-power-chart-es", true),
+            ("N_XAXIS ES_YAXIS", "stats-power-chart-n-es", false),
         ],
         PowerKind::MeansIndependent => &[
-            ("NRATIO", "Power by ratio of group sizes", true),
-            (
-                "ES",
-                "Power by effect size (mean difference with two SDs)",
-                true,
-            ),
+            ("NRATIO", "stats-power-chart-nratio", true),
+            ("ES", "stats-power-chart-es-two-sds", true),
             (
                 "NRATIO_XAXIS ES_YAXIS",
-                "Power by size ratio and effect size",
+                "stats-power-chart-nratio-es",
                 false,
             ),
         ],
         PowerKind::MeansRelated => &[
-            ("NPAIRS", "Power by number of pairs", true),
-            ("ES", "Power by effect size", true),
+            ("NPAIRS", "stats-power-chart-npairs", true),
+            ("ES", "stats-power-chart-es", true),
             (
                 "NPAIRS_XAXIS ES_YAXIS",
-                "Power by number of pairs and effect size",
+                "stats-power-chart-npairs-es",
                 false,
             ),
         ],
         PowerKind::ProportionsOneSample => &[
-            ("N", "Power by sample size", true),
-            ("NULL", "Power by null proportion", false),
-            ("ALTERNATIVE", "Power by alternative proportion", false),
-            ("DIFF", "Power by alternative minus null", false),
+            ("N", "stats-power-chart-n", true),
+            ("NULL", "stats-power-chart-null-proportion", false),
             (
-                "N_XAXIS DIFF_YAXIS",
-                "Power by sample size and difference",
+                "ALTERNATIVE",
+                "stats-power-chart-alternative-proportion",
                 false,
             ),
+            ("DIFF", "stats-power-chart-diff", false),
+            ("N_XAXIS DIFF_YAXIS", "stats-power-chart-n-diff", false),
             (
                 "NULL_XAXIS ALTERNATIVE_YAXIS",
-                "Power by null and alternative proportions",
+                "stats-power-chart-null-alternative-proportions",
                 false,
             ),
         ],
         PowerKind::ProportionsIndependent => &[
-            ("NRATIO", "Power by ratio of group sizes", true),
-            ("RISK_DIFF", "Power by risk difference", false),
-            ("RISK_RATIO", "Power by risk ratio", true),
-            ("ODDS_RATIO", "Power by odds ratio", true),
-            ("N1_XAXIS N2_YAXIS", "Power by the two group sizes", false),
-            ("P1_XAXIS P2_YAXIS", "Power by the two proportions", false),
+            ("NRATIO", "stats-power-chart-nratio", true),
+            ("RISK_DIFF", "stats-power-chart-risk-diff", false),
+            ("RISK_RATIO", "stats-power-chart-risk-ratio", true),
+            ("ODDS_RATIO", "stats-power-chart-odds-ratio", true),
+            ("N1_XAXIS N2_YAXIS", "stats-power-chart-n1-n2", false),
+            ("P1_XAXIS P2_YAXIS", "stats-power-chart-p1-p2", false),
         ],
         PowerKind::ProportionsRelated => &[
-            ("NPAIRS", "Power by number of pairs", true),
-            ("RISK_DIFF", "Power by risk difference", false),
-            ("RISK_RATIO", "Power by risk ratio", true),
-            ("ODDS_RATIO", "Power by odds ratio", true),
-            ("CORRELATION", "Power by correlation (success rates)", false),
-            ("DISCORDANT", "Power by the two discordant shares", false),
-            ("MARGINAL", "Power by the two success rates", false),
+            ("NPAIRS", "stats-power-chart-npairs", true),
+            ("RISK_DIFF", "stats-power-chart-risk-diff", false),
+            ("RISK_RATIO", "stats-power-chart-risk-ratio", true),
+            ("ODDS_RATIO", "stats-power-chart-odds-ratio", true),
+            ("CORRELATION", "stats-power-chart-correlation", false),
+            ("DISCORDANT", "stats-power-chart-discordant", false),
+            ("MARGINAL", "stats-power-chart-marginal", false),
         ],
         PowerKind::OnewayAnova => &[
-            ("TOTAL_N", "Power by total sample size", true),
-            ("POOLED_SD", "Power by pooled standard deviation", true),
+            ("TOTAL_N", "stats-power-chart-total-n", true),
+            ("POOLED_SD", "stats-power-chart-pooled-sd", true),
             (
                 "TOTAL_N_XAXIS POOLED_SD_YAXIS",
-                "Power by total size and standard deviation",
+                "stats-power-chart-total-n-pooled-sd",
                 false,
             ),
         ],
         PowerKind::PearsonOneSample | PowerKind::SpearmanOneSample => &[
-            ("N", "Power by sample size", true),
-            ("NULL", "Power by null correlation", false),
-            ("ALTERNATIVE", "Power by alternative correlation", false),
-            ("DIFF", "Power by alternative minus null", false),
+            ("N", "stats-power-chart-n", true),
+            ("NULL", "stats-power-chart-null-correlation", false),
             (
-                "N_XAXIS DIFF_YAXIS",
-                "Power by sample size and difference",
+                "ALTERNATIVE",
+                "stats-power-chart-alternative-correlation",
                 false,
             ),
+            ("DIFF", "stats-power-chart-diff", false),
+            ("N_XAXIS DIFF_YAXIS", "stats-power-chart-n-diff", false),
             (
                 "NULL_XAXIS ALTERNATIVE_YAXIS",
-                "Power by null and alternative correlations",
+                "stats-power-chart-null-alternative-correlations",
                 false,
             ),
         ],
         PowerKind::PartialCorr => &[
-            ("N", "Power by sample size", true),
+            ("N", "stats-power-chart-n", true),
+            ("PARTIALOUT", "stats-power-chart-partialout", false),
+            ("NULL", "stats-power-chart-null-correlation", false),
             (
-                "PARTIALOUT",
-                "Power by number of variables held fixed",
+                "ALTERNATIVE",
+                "stats-power-chart-alternative-correlation",
                 false,
             ),
-            ("NULL", "Power by null correlation", false),
-            ("ALTERNATIVE", "Power by alternative correlation", false),
-            ("DIFF", "Power by alternative minus null", false),
-            (
-                "N_XAXIS DIFF_YAXIS",
-                "Power by sample size and difference",
-                false,
-            ),
+            ("DIFF", "stats-power-chart-diff", false),
+            ("N_XAXIS DIFF_YAXIS", "stats-power-chart-n-diff", false),
             (
                 "NULL_XAXIS ALTERNATIVE_YAXIS",
-                "Power by null and alternative correlations",
+                "stats-power-chart-null-alternative-correlations",
                 false,
             ),
         ],
         PowerKind::UnivariateLinear => &[
-            ("N", "Power by sample size", true),
-            ("PARTIAL_CORR", "Power by partial correlation", false),
+            ("N", "stats-power-chart-n", true),
+            ("PARTIAL_CORR", "stats-power-chart-partial-corr", false),
             (
                 "N_XAXIS PARTIAL_CORR_YAXIS",
-                "Power by sample size and partial correlation",
+                "stats-power-chart-n-partial-corr",
                 false,
             ),
         ],
@@ -291,7 +288,12 @@ pub struct PowerAnalysis {
 
 /// A required number.
 fn required(text: &str, what: &str) -> Result<f64, String> {
-    optional(text, what)?.ok_or_else(|| format!("give {what}"))
+    optional(text, what)?.ok_or_else(|| give(what))
+}
+
+/// The message that asks for `what`.
+fn give(what: &str) -> String {
+    t_args("stats-power-give", &[("what", what.into())])
 }
 
 /// A required number strictly between 0 and 1.
@@ -303,14 +305,14 @@ fn proportion(text: &str, what: &str) -> Result<f64, String> {
 fn between(v: f64, what: &str) -> Result<f64, String> {
     match v > 0.0 && v < 1.0 {
         true => Ok(v),
-        false => Err(format!("{what} must lie above 0 and below 1")),
+        false => Err(t_args("stats-power-between-0-1", &[("what", what.into())])),
     }
 }
 
 fn positive(text: &str, what: &str) -> Result<f64, String> {
     match required(text, what)? {
         v if v > 0.0 => Ok(v),
-        _ => Err(format!("{what} must be above 0")),
+        _ => Err(t_args("stats-power-above-0", &[("what", what.into())])),
     }
 }
 
@@ -381,19 +383,17 @@ impl PowerAnalysis {
 
     pub fn title(&self) -> &'static str {
         match self.kind {
-            PowerKind::MeansOneSample => "Power Analysis: One-Sample T Test",
-            PowerKind::MeansIndependent => "Power Analysis: Independent-Samples T Test",
-            PowerKind::MeansRelated => "Power Analysis: Paired-Samples T Test",
-            PowerKind::ProportionsOneSample => "Power Analysis: One-Sample Binomial Test",
-            PowerKind::ProportionsIndependent => {
-                "Power Analysis: Independent-Samples Binomial Test"
-            }
-            PowerKind::ProportionsRelated => "Power Analysis: Related-Samples Binomial Test",
-            PowerKind::OnewayAnova => "Power Analysis: One-Way ANOVA",
-            PowerKind::PearsonOneSample => "Power Analysis: Pearson Correlation",
-            PowerKind::SpearmanOneSample => "Power Analysis: Spearman Correlation",
-            PowerKind::PartialCorr => "Power Analysis: Partial Correlation",
-            PowerKind::UnivariateLinear => "Power Analysis: Univariate Linear Regression",
+            PowerKind::MeansOneSample => t("stats-power-title-means-one-sample"),
+            PowerKind::MeansIndependent => t("stats-power-title-means-independent"),
+            PowerKind::MeansRelated => t("stats-power-title-means-related"),
+            PowerKind::ProportionsOneSample => t("stats-power-title-proportions-one-sample"),
+            PowerKind::ProportionsIndependent => t("stats-power-title-proportions-independent"),
+            PowerKind::ProportionsRelated => t("stats-power-title-proportions-related"),
+            PowerKind::OnewayAnova => t("stats-power-title-oneway-anova"),
+            PowerKind::PearsonOneSample => t("stats-power-title-pearson"),
+            PowerKind::SpearmanOneSample => t("stats-power-title-spearman"),
+            PowerKind::PartialCorr => t("stats-power-title-partial"),
+            PowerKind::UnivariateLinear => t("stats-power-title-univariate-linear"),
         }
     }
 
@@ -470,44 +470,44 @@ impl PowerAnalysis {
         if sided && self.directional {
             words.push("TEST=DIRECTIONAL".into());
         }
-        if let Some(alpha) = optional(&self.significance, "the significance level")? {
-            between(alpha, "the significance level")?;
+        let level = t("stats-power-what-significance");
+        if let Some(alpha) = optional(&self.significance, level)? {
+            between(alpha, level)?;
             if alpha != 0.05 {
                 words.push(format!("SIGNIFICANCE={}", number(alpha)));
             }
         }
         let mut sizes = Vec::new();
         if self.find_size {
-            let powers = numbers(&self.powers, "each power")?;
+            let each = t("stats-power-what-each-power");
+            let powers = numbers(&self.powers, each)?;
             if powers.is_empty() {
-                return Err("give at least one power".into());
+                return Err(t("stats-power-give-one-power").into());
             }
             for &v in &powers {
-                between(v, "each power")?;
+                between(v, each)?;
             }
             words.push(format!("POWER={}", join(&powers)));
             if self.two_groups()
-                && let Some(r) = optional(&self.ratio, "the ratio of the group sizes")?
+                && let Some(r) = optional(&self.ratio, t("stats-power-what-size-ratio"))?
             {
                 if self.kind == PowerKind::MeansIndependent && !(0.01..=100.0).contains(&r) {
-                    return Err("the ratio of the group sizes must lie from 0.01 to 100".into());
+                    return Err(t("stats-power-ratio-range-means").into());
                 }
                 if self.kind == PowerKind::ProportionsIndependent && !(r > 0.01 && r < 100.0) {
-                    return Err(
-                        "the ratio of the group sizes must lie above 0.01 and below 100".into(),
-                    );
+                    return Err(t("stats-power-ratio-range-proportions").into());
                 }
                 if r != 1.0 {
                     words.push(format!("NRATIO={}", number(r)));
                 }
             }
         } else if self.kind == PowerKind::OnewayAnova {
-            sizes = numbers(&self.n1, "each group size")?;
+            sizes = numbers(&self.n1, t("stats-power-what-each-group-size"))?;
             if sizes.is_empty() {
-                return Err("give the group sizes".into());
+                return Err(t("stats-power-give-group-sizes").into());
             }
             if sizes.iter().any(|n| n.fract() != 0.0 || *n < 2.0) {
-                return Err("each group size must be a whole number of at least 2".into());
+                return Err(t("stats-power-group-size-whole").into());
             }
             words.push(format!("GROUP_SIZES={}", join(&sizes)));
         } else {
@@ -515,15 +515,15 @@ impl PowerAnalysis {
             let size = |text: &str, what: &str| {
                 whole(text, least, what)?
                     .map(f64::from)
-                    .ok_or_else(|| format!("give {what}"))
+                    .ok_or_else(|| give(what))
             };
             if self.two_groups() {
-                sizes.push(size(&self.n1, "the size of group 1")?);
-                sizes.push(size(&self.n2, "the size of group 2")?);
+                sizes.push(size(&self.n1, t("stats-power-what-size-group-1"))?);
+                sizes.push(size(&self.n2, t("stats-power-what-size-group-2"))?);
             } else if self.pairs() {
-                sizes.push(size(&self.n1, "the number of pairs")?);
+                sizes.push(size(&self.n1, t("stats-power-what-number-of-pairs"))?);
             } else {
-                sizes.push(size(&self.n1, "the sample size")?);
+                sizes.push(size(&self.n1, t("stats-power-what-sample-size"))?);
             }
             let keyword = if self.pairs() { "NPAIRS" } else { "N" };
             words.push(format!("{keyword}={}", join(&sizes)));
@@ -570,26 +570,21 @@ impl PowerAnalysis {
         let one = self.kind == PowerKind::MeansOneSample;
         let sds = match !one && self.two_sds {
             true => vec![
-                positive(&self.sd1, "the first standard deviation")?,
-                positive(&self.sd2, "the second standard deviation")?,
+                positive(&self.sd1, t("stats-power-what-first-sd"))?,
+                positive(&self.sd2, t("stats-power-what-second-sd"))?,
             ],
-            false => vec![positive(&self.sd1, "the standard deviation")?],
+            false => vec![positive(&self.sd1, t("stats-power-what-sd"))?],
         };
         words.push(format!("SD={}", join(&sds)));
         if self.kind == PowerKind::MeansRelated
             && sds.len() == 2
-            && let Some(rho) = optional(&self.rho, "the correlation of the measures")?
+            && let Some(rho) = optional(&self.rho, t("stats-power-what-measures-correlation"))?
         {
             if !(-1.0..=1.0).contains(&rho) || rho == 0.0 {
-                return Err(
-                    "the correlation of the measures must lie from -1 to 1 and not be 0".into(),
-                );
+                return Err(t("stats-power-rho-range").into());
             }
             if rho == 1.0 && sds[0] == sds[1] {
-                return Err(
-                    "with equal standard deviations the correlation of the measures cannot be 1"
-                        .into(),
-                );
+                return Err(t("stats-power-rho-one").into());
             }
             if rho != 0.5 {
                 words.push(format!("RHO={}", number(rho)));
@@ -597,15 +592,18 @@ impl PowerAnalysis {
         }
         let means = match !one && self.two_means {
             true => vec![
-                required(&self.mean1, "the first mean")?,
-                required(&self.mean2, "the second mean")?,
+                required(&self.mean1, t("stats-power-what-first-mean"))?,
+                required(&self.mean2, t("stats-power-what-second-mean"))?,
             ],
-            false if one => vec![required(&self.mean1, "the mean")?],
-            false => vec![required(&self.mean1, "the mean difference")?],
+            false if one => vec![required(&self.mean1, t("stats-power-what-mean"))?],
+            false => vec![required(
+                &self.mean1,
+                t("stats-power-what-mean-difference"),
+            )?],
         };
         words.push(format!("MEAN={}", join(&means)));
         let null = match one {
-            true => optional(&self.null, "the null hypothesis mean")?.unwrap_or(0.0),
+            true => optional(&self.null, t("stats-power-what-null-mean"))?.unwrap_or(0.0),
             false => 0.0,
         };
         if null != 0.0 {
@@ -618,8 +616,8 @@ impl PowerAnalysis {
         };
         if self.find_size && difference == 0.0 {
             return Err(match one {
-                true => "to find a sample size, the mean must differ from the null mean".into(),
-                false => "to find a sample size, the mean difference must not be 0".into(),
+                true => t("stats-power-find-mean-differs").into(),
+                false => t("stats-power-find-difference-zero").into(),
             });
         }
         Ok(self.kind == PowerKind::MeansIndependent && sds.len() == 2 && sds[0] != sds[1])
@@ -632,43 +630,42 @@ impl PowerAnalysis {
         sizes: usize,
         words: &mut Vec<String>,
     ) -> Result<Option<String>, String> {
-        let sd = positive(&self.sd1, "the pooled standard deviation")?;
+        let sd = positive(&self.sd1, t("stats-power-what-pooled-sd"))?;
         words.push(format!("POOLED_SD={}", number(sd)));
-        let means = numbers(&self.mean1, "each group mean")?;
+        let means = numbers(&self.mean1, t("stats-power-what-each-group-mean"))?;
         if means.len() < 2 {
-            return Err("give the means of at least two groups".into());
+            return Err(t("stats-power-two-means").into());
         }
         let groups = means.len();
+        let count = [("groups", groups.to_string().into())];
         if sizes != 0 && sizes != groups {
-            return Err(format!("give {groups} group sizes, one per mean"));
+            return Err(t_args("stats-power-sizes-per-mean", &count));
         }
         if self.find_size && means.iter().all(|m| *m == means[0]) {
-            return Err("to find the group sizes, the group means must not all be equal".into());
+            return Err(t("stats-power-find-means-equal").into());
         }
         words.push(format!("GROUP_MEANS={}", join(&means)));
         // the weights only shape the sizes searched for
         if self.find_size {
-            let weights = numbers(&self.weights, "each group weight")?;
+            let weights = numbers(&self.weights, t("stats-power-what-each-group-weight"))?;
             if weights.iter().any(|w| !(1.0..=100.0).contains(w)) {
-                return Err("each group weight must lie from 1 to 100".into());
+                return Err(t("stats-power-weight-range").into());
             }
             if !weights.is_empty() && weights.len() != groups {
-                return Err(format!(
-                    "give {groups} group weights, one per mean, or none"
-                ));
+                return Err(t_args("stats-power-weights-per-mean", &count));
             }
             if !weights.is_empty() {
                 words.push(format!("GROUP_WEIGHTS={}", join(&weights)));
             }
         }
-        let coefficients = numbers(&self.coefficients, "each contrast coefficient")?;
+        let coefficients = numbers(&self.coefficients, t("stats-power-what-each-coefficient"))?;
         let mut contrast = Vec::new();
         if !coefficients.is_empty() {
             if coefficients.len() != groups {
-                return Err(format!("give {groups} contrast coefficients, one per mean"));
+                return Err(t_args("stats-power-coefficients-per-mean", &count));
             }
             if coefficients.iter().all(|c| *c == 0.0) {
-                return Err("the contrast coefficients cannot all be 0".into());
+                return Err(t("stats-power-coefficients-zero").into());
             }
             contrast.push(format!("COEFFICIENTS={}", join(&coefficients)));
             if self.directional {
@@ -687,30 +684,29 @@ impl PowerAnalysis {
     /// PARTIALOUT, NULL, ALTERNATIVE and the options of the tests of one correlation.
     fn correlation_parameters(&self, words: &mut Vec<String>) -> Result<(), String> {
         if self.kind == PowerKind::PartialCorr {
-            let what = "the number of variables held fixed";
-            let k = whole(&self.partialout, 0, what)?.ok_or_else(|| format!("give {what}"))?;
+            let what = t("stats-power-what-held-fixed");
+            let k = whole(&self.partialout, 0, what)?.ok_or_else(|| give(what))?;
             words.push(format!("PARTIALOUT={k}"));
         }
-        let null = optional(&self.null, "the null correlation")?.unwrap_or(0.0);
-        let alternative = required(&self.alternative, "the alternative correlation")?;
-        for (v, what) in [
-            (null, "the null correlation"),
-            (alternative, "the alternative correlation"),
-        ] {
+        let (null_what, alternative_what) = (
+            t("stats-power-what-null-correlation"),
+            t("stats-power-what-alternative-correlation"),
+        );
+        let null = optional(&self.null, null_what)?.unwrap_or(0.0);
+        let alternative = required(&self.alternative, alternative_what)?;
+        for (v, what) in [(null, null_what), (alternative, alternative_what)] {
             if !(-1.0..=1.0).contains(&v) {
-                return Err(format!("{what} must lie from -1 to 1"));
+                return Err(t_args(
+                    "stats-power-from-minus-1-to-1",
+                    &[("what", what.into())],
+                ));
             }
         }
         if self.find_size && (null.abs() == 1.0 || alternative.abs() == 1.0) {
-            return Err(
-                "to find a sample size, the correlations must lie above -1 and below 1".into(),
-            );
+            return Err(t("stats-power-find-correlations-open").into());
         }
         if self.find_size && null == alternative {
-            return Err(
-                "to find a sample size, the alternative correlation must differ from the null one"
-                    .into(),
-            );
+            return Err(t("stats-power-find-correlations-differ").into());
         }
         if null != 0.0 {
             words.push(format!("NULL={}", number(null)));
@@ -730,24 +726,23 @@ impl PowerAnalysis {
         if self.random {
             words.push("MODEL=RANDOM".into());
         }
-        let count =
-            |text: &str, what: &str| whole(text, 1, what)?.ok_or_else(|| format!("give {what}"));
-        let total = count(&self.total_predictors, "the number of predictors")?;
-        let tested = count(&self.test_predictors, "the number of tested predictors")?;
+        let count = |text: &str, what: &str| whole(text, 1, what)?.ok_or_else(|| give(what));
+        let total = count(&self.total_predictors, t("stats-power-what-predictors"))?;
+        let tested = count(
+            &self.test_predictors,
+            t("stats-power-what-tested-predictors"),
+        )?;
         words.push(format!("TOTAL_PREDICTORS={total} TEST_PREDICTORS={tested}"));
-        let finding = "to find a sample size";
         if self.models {
-            let full = proportion(&self.p1, "the R squared of the full model")?;
-            let nested = proportion(&self.p2, "the R squared of the nested model")?;
+            let full = proportion(&self.p1, t("stats-power-what-full-r-squared"))?;
+            let nested = proportion(&self.p2, t("stats-power-what-nested-r-squared"))?;
             if tested >= total {
-                return Err(
-                    "with two models, fewer predictors must be tested than the model has".into(),
-                );
+                return Err(t("stats-power-models-fewer-tested").into());
             }
             if full < nested || (self.find_size && full == nested) {
                 return Err(match self.find_size {
-                    true => format!("{finding}, the full model must have the larger R squared"),
-                    false => "the full model cannot have the smaller R squared".into(),
+                    true => t("stats-power-find-full-larger").into(),
+                    false => t("stats-power-full-not-smaller").into(),
                 });
             }
             words.push(format!(
@@ -756,15 +751,15 @@ impl PowerAnalysis {
                 number(nested)
             ));
         } else {
-            let r = required(&self.partial, "the partial correlation")?;
+            let r = required(&self.partial, t("stats-power-what-partial-correlation"))?;
             if !(r > -1.0 && r < 1.0) {
-                return Err("the partial correlation must lie above -1 and below 1".into());
+                return Err(t("stats-power-partial-range").into());
             }
             if tested > total {
-                return Err("more predictors cannot be tested than the model has".into());
+                return Err(t("stats-power-too-many-tested").into());
             }
             if self.find_size && r == 0.0 {
-                return Err(format!("{finding}, the partial correlation must not be 0"));
+                return Err(t("stats-power-find-partial-zero").into());
             }
             words.push(format!("PARTIAL_CORR={}", number(r)));
         }
@@ -776,18 +771,19 @@ impl PowerAnalysis {
 
     /// The values and options of the proportions; `sizes` are those given, if any.
     fn proportion_parameters(&self, sizes: &[f64], words: &mut Vec<String>) -> Result<(), String> {
-        let finding = "to find a sample size";
         match self.kind {
             PowerKind::ProportionsOneSample => {
-                let null = optional(&self.null, "the null proportion")?
-                    .map(|v| between(v, "the null proportion"))
+                let null_what = t("stats-power-what-null-proportion");
+                let null = optional(&self.null, null_what)?
+                    .map(|v| between(v, null_what))
                     .transpose()?
                     .unwrap_or(0.5);
-                let alternative = proportion(&self.alternative, "the alternative proportion")?;
+                let alternative = proportion(
+                    &self.alternative,
+                    t("stats-power-what-alternative-proportion"),
+                )?;
                 if self.find_size && alternative == null {
-                    return Err(format!(
-                        "{finding}, the alternative proportion must differ from the null one"
-                    ));
+                    return Err(t("stats-power-find-proportion-differs").into());
                 }
                 if null != 0.5 {
                     words.push(format!("NULL={}", number(null)));
@@ -795,17 +791,17 @@ impl PowerAnalysis {
                 words.push(format!("ALTERNATIVE={}", number(alternative)));
             }
             PowerKind::ProportionsIndependent => {
-                let p1 = proportion(&self.p1, "the proportion of group 1")?;
-                let p2 = proportion(&self.p2, "the proportion of group 2")?;
+                let p1 = proportion(&self.p1, t("stats-power-what-proportion-group-1"))?;
+                let p2 = proportion(&self.p2, t("stats-power-what-proportion-group-2"))?;
                 if self.find_size && p1 == p2 {
-                    return Err(format!("{finding}, the two proportions must differ"));
+                    return Err(t("stats-power-find-proportions-differ").into());
                 }
                 words.push(format!("PROPORTIONS={}", join(&[p1, p2])));
                 if self.method != 0 {
                     words.push(format!("METHOD={}", POWER_METHODS[self.method].0));
                 }
                 if self.method == 1 && !sizes.is_empty() && sizes.iter().sum::<f64>() <= 2.0 {
-                    return Err("the t-test needs more than 2 cases in the two groups".into());
+                    return Err(t("stats-power-t-test-cases").into());
                 }
             }
             _ => self.related_values(sizes, words)?,
@@ -820,7 +816,7 @@ impl PowerAnalysis {
             words.push("POOLED=FALSE".into());
         }
         if self.has_timer()
-            && let Some(minutes) = whole(&self.timer, 1, "the time limit in minutes")?
+            && let Some(minutes) = whole(&self.timer, 1, t("stats-power-what-time-limit"))?
         {
             words.push(format!("TIMER={minutes}"));
         }
@@ -832,22 +828,28 @@ impl PowerAnalysis {
     fn related_values(&self, sizes: &[f64], words: &mut Vec<String>) -> Result<(), String> {
         let counts = self.counts && !self.find_size;
         let (first, second) = match self.marginal {
-            true => ("the first success rate", "the second success rate"),
-            false => ("the first share", "the second share"),
+            true => (
+                t("stats-power-what-first-rate"),
+                t("stats-power-what-second-rate"),
+            ),
+            false => (
+                t("stats-power-what-first-share"),
+                t("stats-power-what-second-share"),
+            ),
         };
         let values = match counts {
             true => {
                 let count = |text: &str, what: &str| {
                     whole(text, 0, what)?
                         .map(f64::from)
-                        .ok_or_else(|| format!("give {what}"))
+                        .ok_or_else(|| give(what))
                 };
                 let (a, b) = (
-                    count(&self.p1, "the first count")?,
-                    count(&self.p2, "the second count")?,
+                    count(&self.p1, t("stats-power-what-first-count"))?,
+                    count(&self.p2, t("stats-power-what-second-count"))?,
                 );
                 if a + b > sizes[0] {
-                    return Err("the two counts add up to more than the number of pairs".into());
+                    return Err(t("stats-power-counts-too-many").into());
                 }
                 words.push(format!("VALUES=COUNTS({})", join(&[a, b])));
                 [a / sizes[0], b / sizes[0]]
@@ -856,7 +858,7 @@ impl PowerAnalysis {
                 let mut values = [required(&self.p1, first)?, required(&self.p2, second)?];
                 for (v, what) in values.iter_mut().zip([first, second]) {
                     if !(0.0..=1.0).contains(v) {
-                        return Err(format!("{what} must lie from 0 to 1"));
+                        return Err(t_args("stats-power-from-0-to-1", &[("what", what.into())]));
                     }
                 }
                 words.push(format!("VALUES=PROPORTIONS({})", join(&values)));
@@ -867,14 +869,12 @@ impl PowerAnalysis {
             true => {
                 words.push("MARGINAL=TRUE".into());
                 if values.iter().any(|v| *v <= 0.0 || *v >= 1.0) {
-                    return Err("the success rates must lie above 0 and below 1".into());
+                    return Err(t("stats-power-rates-range").into());
                 }
                 let rho =
-                    optional(&self.correlation, "the correlation of the occasions")?.unwrap_or(0.5);
+                    optional(&self.correlation, t("stats-power-what-occasions"))?.unwrap_or(0.5);
                 if !(rho > -1.0 && rho < 1.0) {
-                    return Err(
-                        "the correlation of the occasions must lie above -1 and below 1".into(),
-                    );
+                    return Err(t("stats-power-occasions-range").into());
                 }
                 if rho != 0.5 {
                     words.push(format!("CORRELATION={}", number(rho)));
@@ -886,16 +886,14 @@ impl PowerAnalysis {
         let [a, b] = shares;
         if a < 0.0 || b < 0.0 || a + b > 1.0 + 1e-12 || a + b == 0.0 {
             return Err(match self.marginal {
-                true => "these success rates cannot have this correlation: a share of \
-                         discordant pairs would fall outside 0 to 1"
-                    .into(),
-                false => "the two shares must add up to at most 1 and not both be 0".into(),
+                true => t("stats-power-rates-impossible").into(),
+                false => t("stats-power-shares-sum").into(),
             });
         }
         if self.find_size && a == b {
             return Err(match self.marginal {
-                true => "to find a number of pairs, the two success rates must differ".into(),
-                false => "to find a number of pairs, the two shares must differ".into(),
+                true => t("stats-power-find-rates-differ").into(),
+                false => t("stats-power-find-shares-differ").into(),
             });
         }
         Ok(())
@@ -908,6 +906,7 @@ impl PowerAnalysis {
             if !self.charts[i] || (needs_marginal(self.kind, keywords) && !self.marginal) {
                 continue;
             }
+            let label = t(label);
             let ends = (
                 optional(&self.from[i], label)?,
                 optional(&self.to[i], label)?,
@@ -918,7 +917,10 @@ impl PowerAnalysis {
                     plots.push(format!("{keywords}({} {})", number(low), number(high)));
                 }
                 (true, (None, Some(_)) | (Some(_), None)) => {
-                    return Err(format!("{label}: give both ends of the range or neither"));
+                    return Err(t_args(
+                        "stats-power-range-both-ends",
+                        &[("label", label.into())],
+                    ));
                 }
                 _ => plots.push(keywords.to_string()),
             }
@@ -936,7 +938,10 @@ impl PowerAnalysis {
         unequal: bool,
     ) -> Result<(), String> {
         if low >= high {
-            return Err(format!("{label}: the range must run upwards"));
+            return Err(t_args(
+                "stats-power-range-upwards",
+                &[("label", label.into())],
+            ));
         }
         let independent_means = self.kind == PowerKind::MeansIndependent;
         // the lowest start, the highest end, and whether the ends are whole numbers
@@ -956,21 +961,33 @@ impl PowerAnalysis {
             _ => {
                 return match low > 0.0 {
                     true => Ok(()),
-                    false => Err(format!("{label}: the range must lie above 0")),
+                    false => Err(t_args(
+                        "stats-power-range-above-0",
+                        &[("label", label.into())],
+                    )),
                 };
             }
         };
         if whole && (low.fract() != 0.0 || high.fract() != 0.0) {
-            return Err(format!("{label}: the range takes whole numbers"));
+            return Err(t_args(
+                "stats-power-range-whole",
+                &[("label", label.into())],
+            ));
         }
         if low < least || high > most {
             return Err(match most.is_finite() {
-                true => format!(
-                    "{label}: the range must lie from {} to {}",
-                    number(least),
-                    number(most)
+                true => t_args(
+                    "stats-power-range-from-to",
+                    &[
+                        ("label", label.into()),
+                        ("least", number(least).into()),
+                        ("most", number(most).into()),
+                    ],
                 ),
-                false => format!("{label}: the range must start at {} or more", number(least)),
+                false => t_args(
+                    "stats-power-range-from",
+                    &[("label", label.into()), ("least", number(least).into())],
+                ),
             });
         }
         Ok(())

@@ -20,9 +20,9 @@ impl Program {
 
     pub fn label(self) -> &'static str {
         match self {
-            Program::PowerPoint => "Open in PowerPoint",
-            Program::Excel => "Open in Excel",
-            Program::Word => "Open in Word",
+            Program::PowerPoint => crate::i18n::t("output-open-in-powerpoint"),
+            Program::Excel => crate::i18n::t("output-open-in-excel"),
+            Program::Word => crate::i18n::t("output-open-in-word"),
         }
     }
 }

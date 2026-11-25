@@ -4,6 +4,7 @@
 
 use crate::advanced_dialogs::ci_level;
 use crate::analyze_dialogs::keywords;
+use crate::i18n::{t, t_args};
 use crate::proximities_dialog::output_target;
 use crate::stats_dialogs::{numeric, parse};
 use crate::syntax_text::{names, number, quote};
@@ -37,15 +38,15 @@ impl WeightedKappa {
     pub fn syntax(&self) -> Result<String, String> {
         let mut text = String::from("WEIGHTED KAPPA ");
         if self.by {
-            let rows = names(&self.raters, "Row raters")?;
-            let columns = names(&self.columns, "Column raters")?;
+            let rows = names(&self.raters, t("stats-agree-row-raters"))?;
+            let columns = names(&self.columns, t("stats-agree-column-raters"))?;
             if self.raters.len() == 1 && self.columns == self.raters {
-                return Err("the two lists pair no two different variables".into());
+                return Err(t("stats-agree-lists-pair-nothing").into());
             }
             text.push_str(&format!("{rows} BY {columns}"));
         } else {
             if self.raters.len() < 2 {
-                return Err("add at least two variables to Raters".into());
+                return Err(t("stats-agree-two-raters").into());
             }
             text.push_str(&self.raters.join(" "));
         }
@@ -85,7 +86,7 @@ pub struct FleissKappa {
 impl FleissKappa {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         if self.raters.len() < 2 {
-            return Err("add at least two variables to Raters".into());
+            return Err(t("stats-agree-two-raters").into());
         }
         let strings = self
             .raters
@@ -93,7 +94,7 @@ impl FleissKappa {
             .filter(|n| data.variable(n).is_ok_and(|v| v.is_string()))
             .count();
         if strings > 0 && strings < self.raters.len() {
-            return Err("the raters must be all numeric or all string".into());
+            return Err(t("stats-agree-raters-one-type").into());
         }
         let mut text = format!("FLEISS MULTIRATER KAPPA {}", self.raters.join(" "));
         if self.include {
@@ -112,29 +113,33 @@ impl FleissKappa {
 
 /// The statistics of the ratio that take no setting, in the order they are written.
 pub const RATIO_STATISTICS: [(&str, &str); 12] = [
-    ("MEDIAN", "Median"),
-    ("MEAN", "Mean"),
-    ("WGTMEAN", "Weighted mean"),
-    ("MIN", "Minimum"),
-    ("MAX", "Maximum"),
-    ("RANGE", "Range"),
-    ("STDDEV", "Standard deviation"),
-    ("AAD", "Average absolute deviation"),
-    ("COD", "Coefficient of dispersion (COD)"),
-    ("PRD", "Price-related differential (PRD)"),
-    ("MNCOV", "Coefficient of variation around the mean"),
-    ("MDCOV", "Coefficient of variation around the median"),
+    ("MEDIAN", "stats-agree-median"),
+    ("MEAN", "stats-agree-mean"),
+    ("WGTMEAN", "stats-agree-weighted-mean"),
+    ("MIN", "stats-agree-minimum"),
+    ("MAX", "stats-agree-maximum"),
+    ("RANGE", "stats-agree-range"),
+    ("STDDEV", "stats-agree-standard-deviation"),
+    ("AAD", "stats-agree-average-absolute-deviation"),
+    ("COD", "stats-agree-cod"),
+    ("PRD", "stats-agree-prd"),
+    ("MNCOV", "stats-agree-cov-mean"),
+    ("MDCOV", "stats-agree-cov-median"),
 ];
 
 /// How the groups are ordered; the first writes nothing.
 pub const RATIO_ORDERS: [(&str, &str); 3] = [
-    ("ASCENDING", "Ascending"),
-    ("DESCENDING", "Descending"),
-    ("NOSORT", "As they first appear"),
+    ("ASCENDING", "stats-agree-ascending"),
+    ("DESCENDING", "stats-agree-descending"),
+    ("NOSORT", "stats-agree-as-they-appear"),
 ];
 
 /// Where the statistics are saved; the command cannot replace the active dataset.
-pub const RATIO_SAVE: [&str; 3] = ["Do not save", "A data file", "A new dataset"];
+pub const RATIO_SAVE: [&str; 3] = [
+    "stats-agree-do-not-save",
+    "stats-agree-a-data-file",
+    "stats-agree-a-new-dataset",
+];
 
 /// RATIO STATISTICS: the ratio of two variables, overall and by group.
 #[derive(Clone, PartialEq, Debug)]
@@ -213,32 +218,42 @@ impl Ratio {
         if self.bcoc {
             let mut pairs = Vec::new();
             for pair in self.intervals.split(';').filter(|p| !p.trim().is_empty()) {
-                let &[low, high] = numbers(pair, "each end of an interval")?.as_slice() else {
-                    return Err(format!("{:?} is not a low and a high value", pair.trim()));
+                let &[low, high] = numbers(pair, t("stats-agree-what-interval-end"))?.as_slice()
+                else {
+                    return Err(t_args(
+                        "stats-agree-not-low-and-high",
+                        &[("pair", format!("{:?}", pair.trim()).into())],
+                    ));
                 };
                 if low > high {
-                    return Err(format!("the interval {low} to {high} runs backwards"));
+                    return Err(t_args(
+                        "stats-agree-interval-backwards",
+                        &[
+                            ("low", low.to_string().into()),
+                            ("high", high.to_string().into()),
+                        ],
+                    ));
                 }
                 pairs.push(format!("({},{})", number(low), number(high)));
             }
             if pairs.is_empty() {
-                return Err("type at least one interval of ratios".into());
+                return Err(t("stats-agree-type-an-interval").into());
             }
             words.push(format!("BCOC({})", pairs.join(" ")));
         }
         if self.wcoc {
-            let list = numbers(&self.percents, "each percent of the median")?;
+            let list = numbers(&self.percents, t("stats-agree-what-percent-of-median"))?;
             if list.is_empty() {
-                return Err("type at least one percent of the median".into());
+                return Err(t("stats-agree-type-a-percent").into());
             }
             if list.iter().any(|p| *p <= 0.0 || *p >= 100.0) {
-                return Err("percents of the median must lie between 0 and 100".into());
+                return Err(t("stats-agree-percents-between").into());
             }
             let list: Vec<String> = list.into_iter().map(number).collect();
             words.push(format!("WCOC({})", list.join(" ")));
         }
         if words.is_empty() {
-            return Err("choose at least one statistic".into());
+            return Err(t("stats-agree-choose-a-statistic").into());
         }
         Ok(words.join(" "))
     }
@@ -246,16 +261,21 @@ impl Ratio {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         let (numerator, denominator) = (self.numerator.trim(), self.denominator.trim());
         if numerator.is_empty() || denominator.is_empty() {
-            return Err("set the numerator and the denominator".into());
+            return Err(t("stats-agree-set-numerator-denominator").into());
         }
         if numerator == denominator {
-            return Err("the numerator and the denominator must differ".into());
+            return Err(t("stats-agree-numerator-denominator-differ").into());
         }
         numeric(data, [&self.numerator, &self.denominator])?;
         let request = self.request()?;
-        let target = output_target(self.save, &self.file, &self.dataset, "the statistics")?;
+        let target = output_target(
+            self.save,
+            &self.file,
+            &self.dataset,
+            t("stats-agree-what-statistics"),
+        )?;
         if !self.show && target.is_none() {
-            return Err("show the statistics or save them".into());
+            return Err(t("stats-agree-show-or-save").into());
         }
         let mut text = String::new();
         // the command saves into a dataset only when one of that name exists

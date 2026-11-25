@@ -566,6 +566,8 @@ Every change and every result in the window comes from syntax run by the engine,
 
 Edit > Settings holds every setting of the window in one dialog, with its sections in a list on the left. A change applies at once and is saved. **Close** or Escape closes the dialog.
 
+- **Language**
+  - **Language of the window**: **System** (the default), **English** or **Español**. See [The language of the window](#the-language-of-the-window).
 - **Editor**
   - **Syntax colors**: the colors and background of the syntax editor. Statscraft Light (the default) and Statscraft Dark are in the Statscraft colors. The ready-made editor themes are Catppuccin Latte and Mocha, One Dark, Solarized Light and Dark, and GitHub Light and Dark.
   - **Wrap long lines** (on by default) wraps them at the window edge.
@@ -582,6 +584,22 @@ Edit > Settings holds every setting of the window in one dialog, with its sectio
 
 - **Plugins**
   - The installed plugins, programs that color and comment the cells of custom tables, in the order they run. See [Plugins](plugins.md).
+
+## The language of the window
+
+The window speaks English or Spanish. Edit > Settings > Language chooses:
+
+- **System** (the default) follows the language of the computer: Spanish when the system is set to Spanish, English otherwise.
+- **English** or **Español** keeps that language whatever the system says.
+
+The menus, the toolbars, the status bar, the Settings dialog, the headers and right-click menus of the grids, and the OK, Paste, Reset and Cancel buttons of the dialogs change as soon as you choose; there is no need to start again.
+
+A few things stay the same in every language:
+
+- Syntax: its commands and keywords, and the syntax the dialogs write and paste.
+- The contents of output tables and the messages of the commands.
+- The command line and the MCP server, which AI agents read.
+- Names of variables, files, datasets and commands, and the name Statscraft.
 
 ## What the window remembers
 

@@ -4,6 +4,7 @@
 
 use crate::analyze_dialogs::keywords;
 use crate::bootstrap_dialog::Bootstrap;
+use crate::i18n::{t, t_args};
 use crate::model_dialogs::SELECT_RELATIONS;
 use crate::syntax_text::{names, number, quote, value};
 use statscraft_data::Dataset;
@@ -15,7 +16,10 @@ pub fn numeric<'a>(
 ) -> Result<(), String> {
     let mut list = list.into_iter();
     match list.find(|n| data.variable(n).is_ok_and(|v| v.is_string())) {
-        Some(name) => Err(format!("{name} is a string; the command needs numbers")),
+        Some(name) => Err(t_args(
+            "stats-stats-is-string",
+            &[("name", name.as_str().into())],
+        )),
         None => Ok(()),
     }
 }
@@ -26,7 +30,7 @@ pub(crate) fn percent(text: &str) -> Result<f64, String> {
         .parse::<f64>()
         .ok()
         .filter(|p| *p > 0.0 && *p < 100.0)
-        .ok_or_else(|| "the confidence level must be a percentage between 0 and 100".into())
+        .ok_or_else(|| t("stats-stats-confidence-0-100").into())
 }
 
 /// A number the user typed, or an error naming the field.
@@ -35,25 +39,25 @@ pub(crate) fn parse(text: &str, what: &str) -> Result<f64, String> {
         .parse::<f64>()
         .ok()
         .filter(|n| n.is_finite())
-        .ok_or_else(|| format!("{what} must be a number"))
+        .ok_or_else(|| t_args("stats-stats-must-be-number", &[("what", what.into())]))
 }
 
 /// Keyword and label of every method of a block.
 pub const REGRESSION_METHODS: [(&str, &str); 5] = [
-    ("ENTER", "Enter"),
-    ("STEPWISE", "Stepwise"),
-    ("REMOVE", "Remove"),
-    ("BACKWARD", "Backward"),
-    ("FORWARD", "Forward"),
+    ("ENTER", "stats-stats-method-enter"),
+    ("STEPWISE", "stats-stats-method-stepwise"),
+    ("REMOVE", "stats-stats-method-remove"),
+    ("BACKWARD", "stats-stats-method-backward"),
+    ("FORWARD", "stats-stats-method-forward"),
 ];
 
 /// Keywords and label of every statistic on /STATISTICS besides the confidence intervals.
 pub const REGRESSION_STATISTICS: [(&str, &str); 5] = [
-    ("COEFF OUTS", "Estimates"),
-    ("R ANOVA", "Model fit"),
-    ("CHANGE", "R squared change"),
-    ("ZPP", "Part and partial correlations"),
-    ("COLLIN TOL", "Collinearity diagnostics"),
+    ("COEFF OUTS", "stats-stats-estimates"),
+    ("R ANOVA", "stats-stats-model-fit"),
+    ("CHANGE", "stats-stats-r-squared-change"),
+    ("ZPP", "stats-stats-part-partial"),
+    ("COLLIN TOL", "stats-stats-collinearity"),
 ];
 
 /// Estimates and model fit, what REGRESSION shows without /STATISTICS.
@@ -61,38 +65,38 @@ const REGRESSION_DEFAULT_STATISTICS: [bool; 5] = [true, true, false, false, fals
 
 /// Keyword and label of every variable REGRESSION saves.
 pub const REGRESSION_SAVE: [(&str, &str); 17] = [
-    ("PRED", "Unstandardized"),
-    ("ZPRED", "Standardized"),
-    ("ADJPRED", "Adjusted"),
-    ("SEPRED", "Standard error of the mean"),
-    ("RESID", "Unstandardized"),
-    ("ZRESID", "Standardized"),
-    ("SRESID", "Studentized"),
-    ("DRESID", "Deleted"),
-    ("SDRESID", "Studentized deleted"),
+    ("PRED", "stats-stats-save-unstandardized"),
+    ("ZPRED", "stats-stats-save-standardized"),
+    ("ADJPRED", "stats-stats-save-adjusted"),
+    ("SEPRED", "stats-stats-save-se-mean"),
+    ("RESID", "stats-stats-save-unstandardized"),
+    ("ZRESID", "stats-stats-save-standardized"),
+    ("SRESID", "stats-stats-save-studentized"),
+    ("DRESID", "stats-stats-save-deleted"),
+    ("SDRESID", "stats-stats-save-studentized-deleted"),
     ("MAHAL", "Mahalanobis"),
-    ("COOK", "Cook's"),
-    ("LEVER", "Leverage values"),
+    ("COOK", "stats-stats-save-cook"),
+    ("LEVER", "stats-stats-save-leverage"),
     ("DFBETA", "DfBeta"),
-    ("SDBETA", "Standardized DfBeta"),
+    ("SDBETA", "stats-stats-save-sdbeta"),
     ("DFFIT", "DfFit"),
-    ("SDFIT", "Standardized DfFit"),
-    ("COVRATIO", "Covariance ratio"),
+    ("SDFIT", "stats-stats-save-sdfit"),
+    ("COVRATIO", "stats-stats-save-covratio"),
 ];
 
 /// The groups of `REGRESSION_SAVE`: title and the range of its entries.
 pub const REGRESSION_SAVE_GROUPS: [(&str, std::ops::Range<usize>); 4] = [
-    ("Predicted values", 0..4),
-    ("Residuals", 4..9),
-    ("Distances", 9..12),
-    ("Influence statistics", 12..17),
+    ("stats-stats-predicted-values", 0..4),
+    ("stats-stats-residuals", 4..9),
+    ("stats-stats-distances", 9..12),
+    ("stats-stats-influence-statistics", 12..17),
 ];
 
 /// Keyword and label of every way REGRESSION treats missing values.
 pub const REGRESSION_MISSING: [(&str, &str); 3] = [
-    ("LISTWISE", "Leave out a case missing on any variable"),
-    ("PAIRWISE", "Use the valid cases of each pair of variables"),
-    ("MEANSUBSTITUTION", "Replace a missing value with the mean"),
+    ("LISTWISE", "stats-stats-missing-listwise"),
+    ("PAIRWISE", "stats-stats-missing-pairwise"),
+    ("MEANSUBSTITUTION", "stats-stats-missing-mean"),
 ];
 
 /// The independent variables of one block and the method that enters or removes them.
@@ -179,7 +183,7 @@ impl Regression {
     pub fn syntax(&self, select_string: bool) -> Result<String, String> {
         let dependent = self.dependent.trim();
         if dependent.is_empty() {
-            return Err("choose the dependent variable".into());
+            return Err(t("stats-stats-choose-dependent").into());
         }
         let blocks: Vec<&Block> = self
             .blocks
@@ -187,16 +191,19 @@ impl Regression {
             .filter(|b| !b.variables.is_empty())
             .collect();
         let Some(first) = blocks.first() else {
-            return Err("add at least one variable to Independent variables".into());
+            return Err(t("stats-stats-add-independent").into());
         };
         if REGRESSION_METHODS[first.method].0 == "REMOVE" {
-            return Err("Remove takes out variables entered in an earlier block".into());
+            return Err(t("stats-stats-remove-first-block").into());
         }
         if blocks
             .iter()
             .any(|b| b.variables.iter().any(|v| v == dependent))
         {
-            return Err(format!("{dependent} is the dependent variable"));
+            return Err(t_args(
+                "stats-stats-is-dependent",
+                &[("name", dependent.into())],
+            ));
         }
         let mut text = String::from("REGRESSION");
         if self.descriptives {
@@ -229,17 +236,15 @@ impl Regression {
                 }
             }
             if statistics.is_empty() {
-                return Err("choose at least one statistic".into());
+                return Err(t("stats-stats-choose-statistic").into());
             }
             text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
         }
-        let entry = parse(&self.entry, "the entry value")?;
-        let removal = parse(&self.removal, "the removal value")?;
+        let entry = parse(&self.entry, t("stats-stats-entry-value"))?;
+        let removal = parse(&self.removal, t("stats-stats-removal-value"))?;
         if self.use_f {
             if !(removal >= 0.0 && entry > removal) {
-                return Err(
-                    "the F to enter must be above the F to remove, which is 0 or more".into(),
-                );
+                return Err(t("stats-stats-f-enter-remove").into());
             }
             text.push_str(&format!(
                 "\n  /CRITERIA=FIN({}) FOUT({})",
@@ -248,10 +253,7 @@ impl Regression {
             ));
         } else {
             if !(entry > 0.0 && entry < removal && removal <= 1.0) {
-                return Err(
-                    "the probability to enter must be above 0 and below the probability to remove, which is at most 1"
-                        .into(),
-                );
+                return Err(t("stats-stats-p-enter-remove").into());
             }
             if (entry, removal) != (0.05, 0.10) {
                 text.push_str(&format!(
@@ -280,46 +282,46 @@ impl Regression {
 
 /// Keyword and label of every model of a scale.
 pub const RELIABILITY_MODELS: [(&str, &str); 6] = [
-    ("ALPHA", "Alpha"),
-    ("SPLIT", "Split-half"),
+    ("ALPHA", "stats-stats-model-alpha"),
+    ("SPLIT", "stats-stats-model-split"),
     ("GUTTMAN", "Guttman"),
-    ("PARALLEL", "Parallel"),
-    ("STRICTPARALLEL", "Strict parallel"),
+    ("PARALLEL", "stats-stats-model-parallel"),
+    ("STRICTPARALLEL", "stats-stats-model-strict-parallel"),
     ("OMEGA", "Omega"),
 ];
 
 /// Keyword and label of the descriptives: the first two on /STATISTICS, the last on /SUMMARY.
 pub const RELIABILITY_DESCRIPTIVES: [(&str, &str); 3] = [
-    ("DESCRIPTIVE", "Item"),
-    ("SCALE", "Scale"),
-    ("TOTAL", "Scale if item deleted"),
+    ("DESCRIPTIVE", "stats-stats-item"),
+    ("SCALE", "stats-stats-scale"),
+    ("TOTAL", "stats-stats-scale-if-deleted"),
 ];
 
 pub const RELIABILITY_INTER_ITEM: [(&str, &str); 2] = [
-    ("CORRELATIONS", "Correlations"),
-    ("COVARIANCES", "Covariances"),
+    ("CORRELATIONS", "stats-stats-correlations"),
+    ("COVARIANCES", "stats-stats-covariances"),
 ];
 
 pub const RELIABILITY_SUMMARIES: [(&str, &str); 4] = [
-    ("MEANS", "Means"),
-    ("VARIANCE", "Variances"),
-    ("COVARIANCES", "Covariances"),
-    ("CORRELATIONS", "Correlations"),
+    ("MEANS", "stats-stats-means"),
+    ("VARIANCE", "stats-stats-variances"),
+    ("COVARIANCES", "stats-stats-covariances"),
+    ("CORRELATIONS", "stats-stats-correlations"),
 ];
 
 /// Keywords and label of every test of the ANOVA table.
 pub const RELIABILITY_ANOVA: [(&str, &str); 4] = [
-    ("", "None"),
-    ("ANOVA", "F test"),
-    ("ANOVA FRIEDMAN", "Friedman chi-square"),
-    ("ANOVA COCHRAN", "Cochran chi-square"),
+    ("", "stats-stats-anova-none"),
+    ("ANOVA", "stats-stats-f-test"),
+    ("ANOVA FRIEDMAN", "stats-stats-friedman-chi-square"),
+    ("ANOVA COCHRAN", "stats-stats-cochran-chi-square"),
 ];
 
 /// Keyword and label of every model of the intraclass correlation.
 pub const ICC_MODELS: [(&str, &str); 3] = [
-    ("MIXED", "Two-way mixed"),
-    ("RANDOM", "Two-way random"),
-    ("ONEWAY", "One-way random"),
+    ("MIXED", "stats-stats-icc-mixed"),
+    ("RANDOM", "stats-stats-icc-random"),
+    ("ONEWAY", "stats-stats-icc-oneway"),
 ];
 
 /// RELIABILITY of one scale made of all the items.
@@ -373,7 +375,7 @@ impl Default for Reliability {
 impl Reliability {
     pub fn syntax(&self) -> Result<String, String> {
         if self.items.len() < 2 {
-            return Err("add at least two items".into());
+            return Err(t("stats-stats-add-two-items").into());
         }
         let mut text = format!("RELIABILITY /VARIABLES={}", self.items.join(" "));
         let label = self.label.trim();
@@ -415,9 +417,9 @@ impl Reliability {
             if level != 95.0 {
                 parts.push(format!("CIN={}", number(level)));
             }
-            let test = parse(&self.icc_test_value, "the test value")?;
+            let test = parse(&self.icc_test_value, t("stats-stats-test-value"))?;
             if !(0.0..1.0).contains(&test) {
-                return Err("the test value must be from 0 up to 1".into());
+                return Err(t("stats-stats-test-value-range").into());
             }
             if test != 0.0 {
                 parts.push(format!("TESTVAL={}", number(test)));
@@ -459,14 +461,14 @@ impl NparKind {
 
     pub fn menu(self) -> &'static str {
         match self {
-            NparKind::ChiSquare => "Chi-square...",
-            NparKind::Binomial => "Binomial...",
-            NparKind::Runs => "Runs...",
-            NparKind::OneSampleKs => "1-Sample K-S...",
-            NparKind::TwoIndependent => "2 Independent Samples...",
-            NparKind::KIndependent => "K Independent Samples...",
-            NparKind::TwoRelated => "2 Related Samples...",
-            NparKind::KRelated => "K Related Samples...",
+            NparKind::ChiSquare => t("menu-chi-square"),
+            NparKind::Binomial => t("menu-binomial"),
+            NparKind::Runs => t("menu-runs"),
+            NparKind::OneSampleKs => t("menu-1-sample-k-s"),
+            NparKind::TwoIndependent => t("menu-2-independent-samples"),
+            NparKind::KIndependent => t("menu-k-independent-samples"),
+            NparKind::TwoRelated => t("menu-2-related-samples"),
+            NparKind::KRelated => t("menu-k-related-samples"),
         }
     }
 
@@ -474,37 +476,37 @@ impl NparKind {
     pub fn tests(self) -> &'static [(&'static str, &'static str)] {
         match self {
             NparKind::Runs => &[
-                ("RUNS(MEDIAN)", "Median"),
-                ("RUNS(MODE)", "Mode"),
-                ("RUNS(MEAN)", "Mean"),
+                ("RUNS(MEDIAN)", "stats-stats-median"),
+                ("RUNS(MODE)", "stats-stats-mode"),
+                ("RUNS(MEAN)", "stats-stats-mean"),
             ],
             NparKind::OneSampleKs => &[
                 ("K-S(NORMAL)", "Normal"),
-                ("K-S(UNIFORM)", "Uniform"),
+                ("K-S(UNIFORM)", "stats-stats-uniform"),
                 ("K-S(POISSON)", "Poisson"),
-                ("K-S(EXPONENTIAL)", "Exponential"),
+                ("K-S(EXPONENTIAL)", "stats-stats-exponential"),
             ],
             NparKind::TwoIndependent => &[
-                ("M-W", "Mann-Whitney U"),
-                ("K-S", "Kolmogorov-Smirnov Z"),
-                ("MOSES", "Moses extreme reactions"),
-                ("W-W", "Wald-Wolfowitz runs"),
+                ("M-W", "stats-stats-mann-whitney"),
+                ("K-S", "stats-stats-kolmogorov-smirnov"),
+                ("MOSES", "stats-stats-moses"),
+                ("W-W", "stats-stats-wald-wolfowitz"),
             ],
             NparKind::KIndependent => &[
-                ("K-W", "Kruskal-Wallis H"),
-                ("MEDIAN", "Median"),
+                ("K-W", "stats-stats-kruskal-wallis"),
+                ("MEDIAN", "stats-stats-median"),
                 ("J-T", "Jonckheere-Terpstra"),
             ],
             NparKind::TwoRelated => &[
                 ("WILCOXON", "Wilcoxon"),
-                ("SIGN", "Sign"),
+                ("SIGN", "stats-stats-sign"),
                 ("MCNEMAR", "McNemar"),
-                ("MH", "Marginal homogeneity"),
+                ("MH", "stats-stats-marginal-homogeneity"),
             ],
             NparKind::KRelated => &[
                 ("FRIEDMAN", "Friedman"),
-                ("KENDALL", "Kendall's W"),
-                ("COCHRAN", "Cochran's Q"),
+                ("KENDALL", "stats-stats-kendall-w"),
+                ("COCHRAN", "stats-stats-cochran-q"),
             ],
             NparKind::ChiSquare | NparKind::Binomial => &[],
         }
@@ -567,14 +569,14 @@ impl NparTests {
 
     pub fn title(&self) -> &'static str {
         match self.kind {
-            NparKind::ChiSquare => "Chi-square Test",
-            NparKind::Binomial => "Binomial Test",
-            NparKind::Runs => "Runs Test",
-            NparKind::OneSampleKs => "One-Sample Kolmogorov-Smirnov Test",
-            NparKind::TwoIndependent => "Two Independent Samples Tests",
-            NparKind::KIndependent => "Several Independent Samples Tests",
-            NparKind::TwoRelated => "Two Related Samples Tests",
-            NparKind::KRelated => "Several Related Samples Tests",
+            NparKind::ChiSquare => t("stats-stats-chi-square-test"),
+            NparKind::Binomial => t("stats-stats-binomial-test"),
+            NparKind::Runs => t("stats-stats-runs-test"),
+            NparKind::OneSampleKs => t("stats-stats-one-sample-ks-test"),
+            NparKind::TwoIndependent => t("stats-stats-two-independent-tests"),
+            NparKind::KIndependent => t("stats-stats-k-independent-tests"),
+            NparKind::TwoRelated => t("stats-stats-two-related-tests"),
+            NparKind::KRelated => t("stats-stats-k-related-tests"),
         }
     }
 
@@ -593,7 +595,7 @@ impl NparTests {
         match self.kind {
             NparKind::TwoRelated => {
                 if self.pairs.is_empty() {
-                    return Err("add at least one pair".into());
+                    return Err(t("stats-stats-add-pair").into());
                 }
                 let (left, right): (Vec<&str>, Vec<&str>) = self
                     .pairs
@@ -607,7 +609,7 @@ impl NparTests {
             }
             NparKind::KRelated => {
                 if self.variables.len() < 2 {
-                    return Err("add at least two variables".into());
+                    return Err(t("stats-stats-add-two-variables").into());
                 }
                 let list = self.variables.join(" ");
                 for test in chosen {
@@ -615,17 +617,17 @@ impl NparTests {
                 }
             }
             kind => {
-                let list = names(&self.variables, "Test variables")?;
+                let list = names(&self.variables, t("stats-stats-test-variables"))?;
                 match kind {
                     NparKind::ChiSquare => {
                         let mut range = String::new();
                         if self.range {
                             let (low, high) = (
-                                parse(&self.low, "the lower bound")?,
-                                parse(&self.high, "the upper bound")?,
+                                parse(&self.low, t("stats-stats-lower-bound"))?,
+                                parse(&self.high, t("stats-stats-upper-bound"))?,
                             );
                             if low.trunc() >= high.trunc() {
-                                return Err("the lower bound must be below the upper bound".into());
+                                return Err(t("stats-stats-lower-below-upper").into());
                             }
                             range = format!(" ({}, {})", number(low), number(high));
                         }
@@ -638,15 +640,15 @@ impl NparTests {
                                 .map(|t| value(t, false))
                                 .collect::<Result<Vec<_>, _>>()?;
                             if values.is_empty() {
-                                return Err("give the expected values".into());
+                                return Err(t("stats-stats-give-expected").into());
                             }
                             tests.push(format!("/EXPECTED={}", values.join(" ")));
                         }
                     }
                     NparKind::Binomial => {
-                        let p = parse(&self.proportion, "the test proportion")?;
+                        let p = parse(&self.proportion, t("stats-stats-test-proportion"))?;
                         if !(p > 0.0 && p < 1.0) {
-                            return Err("the test proportion must lie between 0 and 1".into());
+                            return Err(t("stats-stats-test-proportion-range").into());
                         }
                         let p = if p == 0.5 {
                             String::new()
@@ -663,23 +665,26 @@ impl NparTests {
                     NparKind::TwoIndependent | NparKind::KIndependent => {
                         let grouping = self.grouping.trim();
                         if grouping.is_empty() {
-                            return Err("choose a grouping variable".into());
+                            return Err(t("stats-stats-choose-grouping").into());
                         }
                         let two = kind == NparKind::TwoIndependent;
                         let missing = if two {
-                            "give the values of both groups"
+                            t("stats-stats-give-both-groups")
                         } else {
-                            "give the lowest and the highest group"
+                            t("stats-stats-give-lowest-highest")
                         };
                         if self.low.trim().is_empty() || self.high.trim().is_empty() {
                             return Err(missing.into());
                         }
-                        let (a, b) = (parse(&self.low, "a group")?, parse(&self.high, "a group")?);
+                        let (a, b) = (
+                            parse(&self.low, t("stats-stats-a-group"))?,
+                            parse(&self.high, t("stats-stats-a-group"))?,
+                        );
                         if two && a == b {
-                            return Err("the two groups need different values".into());
+                            return Err(t("stats-stats-groups-differ").into());
                         }
                         if !two && a >= b {
-                            return Err("the lowest group must be below the highest".into());
+                            return Err(t("stats-stats-lowest-below-highest").into());
                         }
                         let (low, high) = (number(a), number(b));
                         for test in chosen {
@@ -700,7 +705,7 @@ impl NparTests {
             }
         }
         if tests.is_empty() {
-            return Err("choose at least one test".into());
+            return Err(t("stats-stats-choose-test").into());
         }
         let mut text = format!("NPAR TESTS {}", tests.join("\n  "));
         let statistics: Vec<&str> = [
@@ -742,11 +747,14 @@ pub struct PartialCorr {
 impl PartialCorr {
     pub fn syntax(&self) -> Result<String, String> {
         if self.variables.len() < 2 {
-            return Err("add at least two variables".into());
+            return Err(t("stats-stats-add-two-variables").into());
         }
-        let controls = names(&self.controls, "Controlling for")?;
+        let controls = names(&self.controls, t("stats-stats-controlling-for"))?;
         if let Some(name) = self.controls.iter().find(|c| self.variables.contains(c)) {
-            return Err(format!("{name} is both a variable and a control"));
+            return Err(t_args(
+                "stats-stats-variable-and-control",
+                &[("name", name.as_str().into())],
+            ));
         }
         let mut text = format!(
             "PARTIAL CORR /VARIABLES={} BY {controls}",
@@ -780,6 +788,29 @@ impl PartialCorr {
 mod tests {
     use super::*;
     use crate::dialogs::testing::{open, run_in, runs, v};
+
+    /// The option tables hold bare `stats-` keys that choice() and checkboxes() translate, which
+    /// the literal `t("...")` check of i18n.rs does not see: every such key is in the catalog.
+    #[test]
+    fn every_stats_key_in_the_code_is_in_the_english_catalog() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut used = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let source = std::fs::read_to_string(entry.unwrap().path()).unwrap_or_default();
+            for (at, _) in source.match_indices("\"stats-") {
+                let rest = &source[at + 1..];
+                let key = &rest[..rest.find('"').unwrap()];
+                // the pattern of this test itself
+                if key == "stats-" {
+                    continue;
+                }
+                let key: &'static str = Box::leak(key.to_string().into_boxed_str());
+                used += 1;
+                assert_ne!(t(key), key, "{key} is not in the English catalog");
+            }
+        }
+        assert!(used > 1000, "only {used} keys found");
+    }
 
     #[test]
     fn regression() {

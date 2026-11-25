@@ -2,6 +2,7 @@
 //! the command runs with its own defaults.
 
 use crate::analyze_dialogs::keywords;
+use crate::i18n::{t, t_args};
 use crate::model_dialogs::ClusterMeasure;
 use crate::stats_dialogs::numeric;
 use crate::syntax_text::{names, quote};
@@ -9,28 +10,28 @@ use statscraft_data::{Dataset, is_valid_name};
 
 /// How /STANDARDIZE rescales the values; the first writes no subcommand.
 pub const PROXIMITIES_STANDARDIZE: [(&str, &str); 7] = [
-    ("", "None"),
-    ("Z", "Z scores"),
-    ("RANGE", "Range of 1"),
-    ("RESCALE", "From 0 to 1"),
-    ("MAX", "Largest value 1"),
-    ("MEAN", "Mean of 1"),
-    ("SD", "Standard deviation of 1"),
+    ("", "stats-prox-none"),
+    ("Z", "stats-prox-z-scores"),
+    ("RANGE", "stats-prox-range-of-1"),
+    ("RESCALE", "stats-prox-from-0-to-1"),
+    ("MAX", "stats-prox-largest-value-1"),
+    ("MEAN", "stats-prox-mean-of-1"),
+    ("SD", "stats-prox-sd-of-1"),
 ];
 
 /// What /MEASURE does to the computed values, in the order the command applies them.
 pub const PROXIMITIES_TRANSFORMS: [(&str, &str); 3] = [
-    ("ABSOLUTE", "Absolute values"),
-    ("REVERSE", "Reverse the sign"),
-    ("RESCALE", "Rescale to 0-1"),
+    ("ABSOLUTE", "stats-prox-absolute-values"),
+    ("REVERSE", "stats-prox-reverse-sign"),
+    ("RESCALE", "stats-prox-rescale-0-1"),
 ];
 
 /// Where /MATRIX=OUT writes the matrix; the first writes none.
 pub const PROXIMITIES_MATRIX: [&str; 4] = [
-    "None",
-    "A data file",
-    "A new dataset",
-    "Replace the active dataset",
+    "stats-prox-matrix-none",
+    "stats-prox-a-data-file",
+    "stats-prox-a-new-dataset",
+    "stats-prox-replace-active-dataset",
 ];
 
 /// PROXIMITIES: the distances or similarities between cases or between variables.
@@ -88,13 +89,21 @@ pub(crate) fn output_target(
     Ok(match choice {
         0 => None,
         1 => match file.trim() {
-            "" => return Err(format!("choose the file for {what}")),
+            "" => {
+                return Err(t_args(
+                    "stats-prox-choose-file-for",
+                    &[("what", what.into())],
+                ));
+            }
             path => Some(quote(path)),
         },
         2 => match dataset.trim() {
-            "" => return Err("name the new dataset".into()),
+            "" => return Err(t("stats-prox-name-new-dataset").into()),
             name if !is_valid_name(name) || name.starts_with('#') => {
-                return Err(format!("{name} cannot name a dataset"));
+                return Err(t_args(
+                    "stats-prox-cannot-name-dataset",
+                    &[("name", name.into())],
+                ));
             }
             name => Some(name.to_string()),
         },
@@ -104,10 +113,15 @@ pub(crate) fn output_target(
 
 impl Distances {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
-        let list = names(&self.variables, "Variables")?;
+        let list = names(&self.variables, t("stats-prox-variables"))?;
         numeric(data, &self.variables)?;
         let measure = self.measure.syntax()?;
-        let target = output_target(self.matrix, &self.file, &self.dataset, "the matrix")?;
+        let target = output_target(
+            self.matrix,
+            &self.file,
+            &self.dataset,
+            t("stats-prox-what-matrix"),
+        )?;
         let mut text = String::new();
         // the command writes into a dataset only when one of that name exists
         if self.matrix == 2 {

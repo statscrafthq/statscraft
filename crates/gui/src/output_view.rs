@@ -3,6 +3,7 @@
 //! Each table is measured once, and a table out of view only takes its place, so hundreds of
 //! tables scroll smoothly.
 
+use crate::i18n::{self, t, t_args};
 use crate::office::{self, Program};
 use crate::output::{self, Exported, OutputItem, OutputRun, OutputTable, Part, Show, Visibility};
 use eframe::egui::{
@@ -107,7 +108,7 @@ fn element(
         ui.add_space(indent);
         let flipped = ui
             .add(egui::Checkbox::without_text(&mut own))
-            .on_hover_text("Show in the output; Edit > Settings shows or hides whole kinds")
+            .on_hover_text(t("output-show-element"))
             .changed();
         let label = if shown { label } else { label.weak().italics() };
         (flipped, ui.selectable_label(selected, label).clicked())
@@ -391,7 +392,7 @@ impl OutputView {
             .map(|t| shown.shown(t))
             .collect();
         if copied.is_empty() {
-            return Err("the selected tables are hidden: nothing copied".into());
+            return Err(t("output-selected-hidden").into());
         }
         let tables: Vec<&Table> = copied.iter().map(|(t, ..)| t).collect();
         let text: Vec<String> = tables.iter().map(|t| output::tsv(t)).collect();
@@ -402,18 +403,15 @@ impl OutputView {
         };
         if let Some(chart) = chart.filter(|_| rich) {
             match office::copy(chart, &text, self.paper()) {
-                Ok(true) => return Ok("chart copied: it pastes as an editable chart".into()),
+                Ok(true) => return Ok(t("output-chart-copied").into()),
                 Ok(false) => {}
                 Err(e) => return Err(e),
             }
         }
-        let what = match tables.len() {
-            1 => "1 table".to_string(),
-            n => format!("{n} tables"),
-        };
+        let what = [("count", tables.len().into())];
         if !rich {
             ui.ctx().copy_text(text);
-            return Ok(format!("{what} copied as text"));
+            return Ok(t_args("output-copied-as-text", &what));
         }
         let html = output::clipboard_html(&tables);
         if self.clipboard.is_none() {
@@ -424,12 +422,10 @@ impl OutputView {
             .as_mut()
             .map(|c| c.set_html(&html, Some(&text)))
         {
-            Some(Ok(())) => Ok(format!("{what} copied")),
+            Some(Ok(())) => Ok(t_args("output-copied", &what)),
             _ => {
                 ui.ctx().copy_text(text);
-                Err(format!(
-                    "{what} copied as text: the clipboard took no rich text"
-                ))
+                Err(t_args("output-copied-no-rich-text", &what))
             }
         }
     }
@@ -458,7 +454,7 @@ impl OutputView {
         if self.is_empty() {
             ui.add_space(40.0);
             ui.vertical_centered(|ui| {
-                ui.heading("No output yet");
+                ui.heading(t("output-none-yet"));
             });
             return None;
         }
@@ -490,48 +486,45 @@ impl OutputView {
         ui.horizontal(|ui| {
             let some = !self.selected.is_empty();
             if ui
-                .add_enabled(some, egui::Button::new("Copy"))
-                .on_hover_text("Copy the selected tables with their layout (Ctrl+C)")
+                .add_enabled(some, egui::Button::new(t("output-copy")))
+                .on_hover_text(t("output-copy-hint"))
                 .clicked()
             {
                 request = Some(Request::Status(self.copy(ui, true)));
             }
             if ui
-                .add_enabled(some, egui::Button::new("Copy as text"))
-                .on_hover_text("Tab-separated text, for a spreadsheet")
+                .add_enabled(some, egui::Button::new(t("output-copy-as-text")))
+                .on_hover_text(t("output-copy-as-text-hint"))
                 .clicked()
             {
                 request = Some(Request::Status(self.copy(ui, false)));
             }
             if ui
-                .add_enabled(some, egui::Button::new("Delete"))
-                .on_hover_text("Delete the selected tables (Delete)")
+                .add_enabled(some, egui::Button::new(t("output-delete")))
+                .on_hover_text(t("output-delete-hint"))
                 .clicked()
             {
                 request = Some(Request::Delete);
             }
             if ui
-                .add_enabled(some, egui::Button::new("Export..."))
-                .on_hover_text("Export the selected tables")
+                .add_enabled(some, egui::Button::new(t("menu-export")))
+                .on_hover_text(t("output-export-hint"))
                 .clicked()
             {
                 request = Some(Request::Export);
             }
             ui.separator();
-            if ui.button("Select all").clicked() {
+            if ui.button(t("output-select-all")).clicked() {
                 self.selected = output::tables(&self.runs).map(|t| t.id).collect();
             }
-            if ui.button("Clear output").clicked() {
+            if ui.button(t("output-clear")).clicked() {
                 self.selected = output::tables(&self.runs).map(|t| t.id).collect();
                 request = Some(Request::Delete);
             }
             match self.selected.len() {
                 0 => {}
-                1 => {
-                    ui.weak("1 table selected");
-                }
                 n => {
-                    ui.weak(format!("{n} tables selected"));
+                    ui.weak(t_args("output-selected", &[("count", n.into())]));
                 }
             }
         });
@@ -570,15 +563,15 @@ impl OutputView {
             .default_size(150.0)
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.weak("Syntax");
-                    if ui.small_button("Copy").clicked() {
+                    ui.weak(t("dialog-syntax"));
+                    if ui.small_button(t("output-copy")).clicked() {
                         ui.ctx().copy_text(item.syntax.clone());
-                        request = Some(Request::Status(Ok("syntax copied".into())));
+                        request = Some(Request::Status(Ok(t("output-syntax-copied").into())));
                     }
-                    if ui.small_button("Paste").clicked() {
+                    if ui.small_button(t("button-paste")).clicked() {
                         request = Some(Request::Paste(item.syntax.clone()));
                     }
-                    if ui.small_button("Run again").clicked() {
+                    if ui.small_button(t("output-run-again")).clicked() {
                         request = Some(Request::Run(item.syntax.clone()));
                     }
                 });
@@ -654,7 +647,7 @@ impl OutputView {
                         Row::Heading(..) => {
                             let key = (item.id, Part::Heading);
                             let own = !self.hidden.contains(&key);
-                            let label = RichText::new("Heading");
+                            let label = RichText::new(t("output-heading"));
                             let (flipped, clicked) =
                                 element(ui, 22.0, own, shown.heading(item), label, all);
                             flip = flip.or(flipped.then_some(Flip::Hidden(key)));
@@ -682,8 +675,8 @@ impl OutputView {
                             let key = (t.id, part);
                             let own = !self.hidden.contains(&key);
                             let label = match part {
-                                Part::Title => "Title",
-                                _ => "Notes",
+                                Part::Title => i18n::t("output-title"),
+                                _ => i18n::t("output-notes"),
                             };
                             let label = RichText::new(label);
                             let (flipped, clicked) =
@@ -882,9 +875,9 @@ impl OutputView {
                     let drawn = matches!(scenes.get(&t.id), Some(Some(_)));
                     response.context_menu(|ui| {
                         for (label, action) in [
-                            ("Copy", Menu::Copy),
-                            ("Copy as text", Menu::CopyText),
-                            ("Delete", Menu::Delete),
+                            (i18n::t("output-copy"), Menu::Copy),
+                            (i18n::t("output-copy-as-text"), Menu::CopyText),
+                            (i18n::t("output-delete"), Menu::Delete),
                         ] {
                             if ui.button(label).clicked() {
                                 menu = Some((action, t.id));
@@ -894,13 +887,13 @@ impl OutputView {
                         if drawn {
                             ui.separator();
                             let show = match as_data.contains(&t.id) {
-                                true => "Show chart",
-                                false => "Show data",
+                                true => i18n::t("output-show-chart"),
+                                false => i18n::t("output-show-data"),
                             };
                             for (label, action) in [
                                 (show, Menu::ShowData),
-                                ("Save chart as PNG...", Menu::Save { png: true }),
-                                ("Save chart as SVG...", Menu::Save { png: false }),
+                                (i18n::t("output-save-png"), Menu::Save { png: true }),
+                                (i18n::t("output-save-svg"), Menu::Save { png: false }),
                             ] {
                                 if ui.button(label).clicked() {
                                     menu = Some((action, t.id));

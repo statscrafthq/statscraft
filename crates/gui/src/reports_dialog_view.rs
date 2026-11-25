@@ -2,6 +2,7 @@
 
 use crate::analyze_dialogs::MEANS_CELLS;
 use crate::app::{checkboxes, choice, field, means_body, target_list};
+use crate::i18n::{t, t_args};
 use crate::reports_dialog::{
     CODEBOOK_ATTRIBUTE, CODEBOOK_FILEINFO, CODEBOOK_ORDERS, CODEBOOK_STATISTICS, CODEBOOK_VARINFO,
     Codebook, OlapCubes, OlapDifference, Summarize,
@@ -12,75 +13,91 @@ use eframe::egui::{self, Ui};
 pub fn summarize(ui: &mut Ui, d: &mut Summarize, picked: &mut Vec<String>) {
     means_body(ui, &mut d.means, picked);
     ui.add_space(6.0);
-    egui::CollapsingHeader::new("Listing").show(ui, |ui| {
-        ui.checkbox(&mut d.list, "List the cases");
+    egui::CollapsingHeader::new(t("stats-reports-listing")).show(ui, |ui| {
+        ui.checkbox(&mut d.list, t("stats-reports-list-the-cases"));
         ui.add_enabled_ui(d.list, |ui| {
-            ui.checkbox(&mut d.valid_only, "Only cases valid on every variable");
+            ui.checkbox(&mut d.valid_only, t("stats-reports-only-valid-cases"));
             ui.horizontal(|ui| {
-                ui.label("Use only the first");
+                ui.label(t("stats-reports-use-only-first"));
                 small_field(ui, true, &mut d.limit);
-                ui.label("cases (empty for all)");
+                ui.label(t("stats-reports-cases-empty-for-all"));
             });
-            ui.checkbox(&mut d.case_numbers, "Number the cases");
+            ui.checkbox(&mut d.case_numbers, t("stats-reports-number-the-cases"));
             field(
                 ui,
-                "Show system-missing values as",
+                t("stats-reports-show-sysmis-as"),
                 &mut d.missing_text,
                 120.0,
             );
         })
         .response
-        .on_disabled_hover_text("Turn on List the cases");
+        .on_disabled_hover_text(t("stats-reports-turn-on-list"));
     });
-    egui::CollapsingHeader::new("Options").show(ui, |ui| {
-        ui.checkbox(&mut d.total_label, "Label the total rows Total");
-        ui.checkbox(
-            &mut d.tablewise,
-            "Leave out a case missing on any summarized variable",
-        );
-        field(ui, "Title", &mut d.title, 260.0);
-        field(ui, "Footnote", &mut d.footnote, 260.0);
-        ui.weak("\\n in a title or footnote starts a new line");
+    egui::CollapsingHeader::new(t("stats-reports-options")).show(ui, |ui| {
+        ui.checkbox(&mut d.total_label, t("stats-reports-label-total-rows"));
+        ui.checkbox(&mut d.tablewise, t("stats-reports-leave-out-missing"));
+        field(ui, t("stats-reports-title"), &mut d.title, 260.0);
+        field(ui, t("stats-reports-footnote"), &mut d.footnote, 260.0);
+        ui.weak(t("stats-reports-new-line-hint"));
     });
 }
 
 pub fn codebook(ui: &mut Ui, d: &mut Codebook, picked: &mut Vec<String>) {
-    target_list(ui, "Variables and sets", &mut d.variables, picked);
-    ui.weak("Empty: every variable, then every multiple response set");
+    target_list(
+        ui,
+        t("stats-reports-variables-and-sets"),
+        &mut d.variables,
+        picked,
+    );
+    ui.weak(t("stats-reports-empty-every-variable"));
     ui.add_space(6.0);
-    egui::CollapsingHeader::new("Variable entries").show(ui, |ui| {
+    egui::CollapsingHeader::new(t("stats-reports-variable-entries")).show(ui, |ui| {
         checkboxes(ui, &CODEBOOK_VARINFO, &mut d.varinfo);
     });
-    egui::CollapsingHeader::new("File").show(ui, |ui| {
-        ui.label("A table about the data file (none checked: no table)");
+    egui::CollapsingHeader::new(t("stats-reports-file")).show(ui, |ui| {
+        ui.label(t("stats-reports-file-table-hint"));
         checkboxes(ui, &CODEBOOK_FILEINFO, &mut d.fileinfo);
     });
-    egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
-        ui.weak("Counts and percents for categories, the rest for scale variables; none checked: no statistics");
+    egui::CollapsingHeader::new(t("stats-reports-statistics")).show(ui, |ui| {
+        ui.weak(t("stats-reports-codebook-statistics-hint"));
         checkboxes(ui, &CODEBOOK_STATISTICS, &mut d.statistics);
         field(
             ui,
-            "Leave out the values of a variable with more than",
+            t("stats-reports-leave-out-values"),
             &mut d.maxcats,
             50.0,
         );
     });
-    egui::CollapsingHeader::new("Order").show(ui, |ui| {
-        choice(ui, "Order", &CODEBOOK_ORDERS, &mut d.order);
+    egui::CollapsingHeader::new(t("stats-reports-order")).show(ui, |ui| {
+        choice(ui, t("stats-reports-order"), &CODEBOOK_ORDERS, &mut d.order);
         if d.order == CODEBOOK_ATTRIBUTE {
-            field(ui, "Attribute", &mut d.attribute, 160.0);
+            field(ui, t("stats-reports-attribute"), &mut d.attribute, 160.0);
         }
-        ui.checkbox(&mut d.descending, "Descending");
+        ui.checkbox(&mut d.descending, t("stats-reports-descending"));
     });
 }
 
 pub fn olap_cubes(ui: &mut Ui, d: &mut OlapCubes, picked: &mut Vec<String>) {
-    target_list(ui, "Summary variables", &mut d.summary, picked);
+    target_list(
+        ui,
+        t("stats-reports-summary-variables"),
+        &mut d.summary,
+        picked,
+    );
     ui.horizontal(|ui| {
         let count = d.layers.len();
-        ui.label(format!("Layer {} of {count}", d.layer + 1));
+        ui.label(t_args(
+            "stats-reports-layer-of",
+            &[
+                ("layer", (d.layer + 1).to_string().into()),
+                ("count", count.to_string().into()),
+            ],
+        ));
         if ui
-            .add_enabled(d.layer > 0, egui::Button::new("Previous").small())
+            .add_enabled(
+                d.layer > 0,
+                egui::Button::new(t("stats-reports-previous")).small(),
+            )
             .clicked()
         {
             d.layer -= 1;
@@ -89,7 +106,7 @@ pub fn olap_cubes(ui: &mut Ui, d: &mut OlapCubes, picked: &mut Vec<String>) {
         if ui
             .add_enabled(
                 d.layer + 1 < count || can_add,
-                egui::Button::new("Next").small(),
+                egui::Button::new(t("stats-reports-next")).small(),
             )
             .clicked()
         {
@@ -101,40 +118,44 @@ pub fn olap_cubes(ui: &mut Ui, d: &mut OlapCubes, picked: &mut Vec<String>) {
     });
     target_list(
         ui,
-        "Group by (each layer is nested in the one before)",
+        t("stats-reports-group-by-nested"),
         &mut d.layers[d.layer],
         picked,
     );
     ui.add_space(6.0);
-    egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
-        ui.weak("None checked: no statistics, only the case counts");
+    egui::CollapsingHeader::new(t("stats-reports-statistics")).show(ui, |ui| {
+        ui.weak(t("stats-reports-olap-statistics-hint"));
         checkboxes(ui, &MEANS_CELLS, &mut d.cells);
     });
-    egui::CollapsingHeader::new("Differences").show(ui, |ui| {
-        ui.radio_value(&mut d.difference, OlapDifference::None, "None");
+    egui::CollapsingHeader::new(t("stats-reports-differences")).show(ui, |ui| {
+        ui.radio_value(
+            &mut d.difference,
+            OlapDifference::None,
+            t("stats-reports-none"),
+        );
         ui.radio_value(
             &mut d.difference,
             OlapDifference::Groups,
-            "Between two categories of a grouping variable",
+            t("stats-reports-between-categories"),
         );
         ui.radio_value(
             &mut d.difference,
             OlapDifference::Variables,
-            "Between two summary variables",
+            t("stats-reports-between-summary-variables"),
         );
         if d.difference == OlapDifference::None {
             return;
         }
-        ui.checkbox(&mut d.absolute, "Second minus first");
-        ui.checkbox(&mut d.percent, "Change as a percent of the first");
+        ui.checkbox(&mut d.absolute, t("stats-reports-second-minus-first"));
+        ui.checkbox(&mut d.percent, t("stats-reports-percent-change"));
         let groups = d.difference == OlapDifference::Groups;
         if groups {
             let layers: Vec<String> = d.layers.iter().flatten().cloned().collect();
             ui.horizontal(|ui| {
-                ui.label("Grouping variable");
+                ui.label(t("stats-reports-grouping-variable"));
                 egui::ComboBox::new("olap_group", "")
                     .selected_text(if d.group.is_empty() {
-                        "choose one"
+                        t("stats-reports-choose-one")
                     } else {
                         &d.group
                     })
@@ -146,16 +167,16 @@ pub fn olap_cubes(ui: &mut Ui, d: &mut OlapCubes, picked: &mut Vec<String>) {
             });
         }
         ui.label(if groups {
-            "Pairs of category values (first, second)"
+            t("stats-reports-pairs-of-values")
         } else {
-            "Pairs of summary variables (first, second)"
+            t("stats-reports-pairs-of-variables")
         });
         let mut remove = None;
         for (i, pair) in d.pairs.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut pair[0]).desired_width(90.0));
                 ui.add(egui::TextEdit::singleline(&mut pair[1]).desired_width(90.0));
-                if ui.small_button("Remove").clicked() {
+                if ui.small_button(t("stats-reports-remove")).clicked() {
                     remove = Some(i);
                 }
             });
@@ -163,18 +184,18 @@ pub fn olap_cubes(ui: &mut Ui, d: &mut OlapCubes, picked: &mut Vec<String>) {
         if let Some(i) = remove {
             d.pairs.remove(i);
         }
-        if ui.small_button("Add a pair").clicked() {
+        if ui.small_button(t("stats-reports-add-a-pair")).clicked() {
             d.pairs.push(Default::default());
         }
     });
-    egui::CollapsingHeader::new("Titles and counts").show(ui, |ui| {
-        field(ui, "Title", &mut d.title, 260.0);
-        field(ui, "Footnote", &mut d.footnote, 260.0);
-        ui.weak("\\n in a title or footnote starts a new line");
+    egui::CollapsingHeader::new(t("stats-reports-titles-and-counts")).show(ui, |ui| {
+        field(ui, t("stats-reports-title"), &mut d.title, 260.0);
+        field(ui, t("stats-reports-footnote"), &mut d.footnote, 260.0);
+        ui.weak(t("stats-reports-new-line-hint"));
         ui.horizontal(|ui| {
-            ui.checkbox(&mut d.hide_small, "Show counts below");
+            ui.checkbox(&mut d.hide_small, t("stats-reports-show-counts-below"));
             small_field(ui, d.hide_small, &mut d.hide_below);
-            ui.label("as small");
+            ui.label(t("stats-reports-as-small"));
         });
     });
 }

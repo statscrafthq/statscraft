@@ -6,20 +6,21 @@ use crate::advanced_dialogs::coefficient;
 use crate::analyze_dialogs::{DUNNETT_SIDES, POST_HOC_TESTS, keywords};
 use crate::bootstrap_dialog::Bootstrap;
 use crate::dialogs::whole;
+use crate::i18n::{t, t_args};
 use crate::stats_dialogs::{Block, parse, percent};
 use crate::syntax_text::{names, number, probability, quote};
 
 /// Keyword and label of every table of the descriptives on /PRINT.
 pub const FACTOR_DESCRIPTIVES: [(&str, &str); 9] = [
-    ("UNIVARIATE", "Univariate descriptives"),
-    ("INITIAL", "Initial solution"),
-    ("CORRELATION", "Coefficients"),
-    ("SIG", "Significance levels"),
-    ("DET", "Determinant"),
-    ("KMO", "KMO and Bartlett's test of sphericity"),
-    ("INV", "Inverse"),
-    ("REPR", "Reproduced"),
-    ("AIC", "Anti-image"),
+    ("UNIVARIATE", "stats-model-univariate-descriptives"),
+    ("INITIAL", "stats-model-initial-solution"),
+    ("CORRELATION", "stats-model-coefficients"),
+    ("SIG", "stats-model-significance-levels"),
+    ("DET", "stats-model-determinant"),
+    ("KMO", "stats-model-kmo-bartlett"),
+    ("INV", "stats-model-inverse"),
+    ("REPR", "stats-model-reproduced"),
+    ("AIC", "stats-model-anti-image"),
 ];
 
 /// The initial solution, which FACTOR shows without /PRINT.
@@ -27,19 +28,19 @@ const FACTOR_DEFAULT_DESCRIPTIVES: [bool; 9] =
     [false, true, false, false, false, false, false, false, false];
 
 pub const FACTOR_EXTRACTIONS: [(&str, &str); 7] = [
-    ("PC", "Principal components"),
-    ("ULS", "Unweighted least squares"),
-    ("GLS", "Generalized least squares"),
-    ("ML", "Maximum likelihood"),
-    ("PAF", "Principal axis factoring"),
-    ("ALPHA", "Alpha factoring"),
-    ("IMAGE", "Image factoring"),
+    ("PC", "stats-model-principal-components"),
+    ("ULS", "stats-model-unweighted-least-squares"),
+    ("GLS", "stats-model-generalized-least-squares"),
+    ("ML", "stats-model-maximum-likelihood"),
+    ("PAF", "stats-model-principal-axis-factoring"),
+    ("ALPHA", "stats-model-alpha-factoring"),
+    ("IMAGE", "stats-model-image-factoring"),
 ];
 
 pub const FACTOR_ROTATIONS: [(&str, &str); 6] = [
-    ("NOROTATE", "None"),
+    ("NOROTATE", "stats-model-rotation-none"),
     ("VARIMAX", "Varimax"),
-    ("OBLIMIN", "Direct oblimin"),
+    ("OBLIMIN", "stats-model-direct-oblimin"),
     ("QUARTIMAX", "Quartimax"),
     ("EQUAMAX", "Equamax"),
     ("PROMAX", "Promax"),
@@ -49,15 +50,15 @@ pub const FACTOR_ROTATIONS: [(&str, &str); 6] = [
 const FACTOR_DEFAULT_ROTATION: usize = 1;
 
 pub const FACTOR_SCORES: [(&str, &str); 3] = [
-    ("REG", "Regression"),
+    ("REG", "stats-model-regression"),
     ("BART", "Bartlett"),
     ("AR", "Anderson-Rubin"),
 ];
 
 pub const FACTOR_MISSING: [(&str, &str); 3] = [
-    ("LISTWISE", "Leave out a case missing on any variable"),
-    ("PAIRWISE", "Use the valid cases of each pair of variables"),
-    ("MEANSUB", "Replace a missing value with the mean"),
+    ("LISTWISE", "stats-model-missing-listwise"),
+    ("PAIRWISE", "stats-model-missing-pairwise"),
+    ("MEANSUB", "stats-model-missing-meansub"),
 ];
 
 /// FACTOR of the variables.
@@ -129,7 +130,7 @@ impl FactorAnalysis {
 
     pub fn syntax(&self) -> Result<String, String> {
         if self.variables.len() < 2 {
-            return Err("add at least two variables".into());
+            return Err(t("stats-model-add-two-variables").into());
         }
         let mut text = format!("FACTOR /VARIABLES={}", self.variables.join(" "));
         if self.missing > 0 {
@@ -150,9 +151,9 @@ impl FactorAnalysis {
                 format.push("SORT".to_string());
             }
             if self.blank {
-                let value = parse(&self.blank_value, "the smallest value shown")?;
+                let value = parse(&self.blank_value, t("stats-model-smallest-value-shown"))?;
                 if value < 0.0 {
-                    return Err("the smallest value shown cannot be negative".into());
+                    return Err(t("stats-model-smallest-value-negative").into());
                 }
                 format.push(format!("BLANK({})", number(value)));
             }
@@ -160,20 +161,20 @@ impl FactorAnalysis {
         }
         let mut criteria = Vec::new();
         if self.fixed {
-            match whole(&self.factors, 1, "the number of factors")? {
+            match whole(&self.factors, 1, t("stats-model-number-of-factors"))? {
                 Some(n) => criteria.push(format!("FACTORS({n})")),
-                None => return Err("give the number of factors".into()),
+                None => return Err(t("stats-model-give-number-of-factors").into()),
             }
         } else {
-            let min = parse(&self.min_eigen, "the smallest eigenvalue")?;
+            let min = parse(&self.min_eigen, t("stats-model-smallest-eigenvalue"))?;
             if min < 0.0 {
-                return Err("the smallest eigenvalue cannot be negative".into());
+                return Err(t("stats-model-smallest-eigenvalue-negative").into());
             }
             if min != 1.0 {
                 criteria.push(format!("MINEIGEN({})", number(min)));
             }
         }
-        match whole(&self.iterations, 1, "the maximum number of iterations")? {
+        match whole(&self.iterations, 1, t("stats-model-max-iterations"))? {
             Some(n) if n != 25 => criteria.push(format!("ITERATE({n})")),
             _ => {}
         }
@@ -191,7 +192,7 @@ impl FactorAnalysis {
             if rotation == "OBLIMIN" {
                 let delta = parse(&self.delta, "delta")?;
                 if delta > 0.8 {
-                    return Err("delta must be at most 0.8".into());
+                    return Err(t("stats-model-delta-max").into());
                 }
                 if delta != 0.0 {
                     rotation.push_str(&format!("({})", number(delta)));
@@ -199,7 +200,7 @@ impl FactorAnalysis {
             } else if rotation == "PROMAX" {
                 let kappa = parse(&self.kappa, "kappa")?;
                 if kappa <= 1.0 {
-                    return Err("kappa must be above 1".into());
+                    return Err(t("stats-model-kappa-min").into());
                 }
                 if kappa != 4.0 {
                     rotation.push_str(&format!("({})", number(kappa)));
@@ -257,24 +258,27 @@ impl Default for KMeans {
 
 impl KMeans {
     pub fn syntax(&self) -> Result<String, String> {
-        let mut text = format!("QUICK CLUSTER {}", names(&self.variables, "Variables")?);
+        let mut text = format!(
+            "QUICK CLUSTER {}",
+            names(&self.variables, t("stats-model-variables"))?
+        );
         if self.pairwise {
             text.push_str("\n  /MISSING=PAIRWISE");
         }
         let mut criteria = Vec::new();
-        match whole(&self.clusters, 2, "the number of clusters")? {
+        match whole(&self.clusters, 2, t("stats-model-number-of-clusters"))? {
             Some(2) => {}
             Some(k) => criteria.push(format!("CLUSTER({k})")),
-            None => return Err("give the number of clusters".into()),
+            None => return Err(t("stats-model-give-number-of-clusters").into()),
         }
         if !self.classify_only {
-            match whole(&self.iterations, 1, "the maximum number of iterations")? {
+            match whole(&self.iterations, 1, t("stats-model-max-iterations"))? {
                 Some(n) if n != 10 => criteria.push(format!("MXITER({n})")),
                 _ => {}
             }
-            let converge = parse(&self.converge, "the convergence criterion")?;
+            let converge = parse(&self.converge, t("stats-model-convergence-criterion"))?;
             if !(0.0..1.0).contains(&converge) {
-                return Err("the convergence criterion must be from 0 up to 1".into());
+                return Err(t("stats-model-convergence-range").into());
             }
             if converge != 0.0 {
                 criteria.push(format!("CONVERGE({})", number(converge)));
@@ -318,47 +322,51 @@ impl KMeans {
 }
 
 pub const CLUSTER_METHODS: [(&str, &str); 7] = [
-    ("BAVERAGE", "Between-groups linkage"),
-    ("WAVERAGE", "Within-groups linkage"),
-    ("SINGLE", "Nearest neighbor"),
-    ("COMPLETE", "Furthest neighbor"),
-    ("CENTROID", "Centroid clustering"),
-    ("MEDIAN", "Median clustering"),
-    ("WARD", "Ward's method"),
+    ("BAVERAGE", "stats-model-between-groups-linkage"),
+    ("WAVERAGE", "stats-model-within-groups-linkage"),
+    ("SINGLE", "stats-model-nearest-neighbor"),
+    ("COMPLETE", "stats-model-furthest-neighbor"),
+    ("CENTROID", "stats-model-centroid-clustering"),
+    ("MEDIAN", "stats-model-median-clustering"),
+    ("WARD", "stats-model-wards-method"),
 ];
 
 /// The kinds of data a measure is for.
-pub const CLUSTER_DATA: [&str; 3] = ["Interval", "Counts", "Binary"];
+pub const CLUSTER_DATA: [&str; 3] = [
+    "stats-model-data-interval",
+    "stats-model-data-counts",
+    "stats-model-data-binary",
+];
 
 pub const CLUSTER_INTERVAL: [(&str, &str); 8] = [
-    ("SEUCLID", "Squared Euclidean distance"),
-    ("EUCLID", "Euclidean distance"),
-    ("COSINE", "Cosine"),
-    ("CORRELATION", "Pearson correlation"),
+    ("SEUCLID", "stats-model-squared-euclidean"),
+    ("EUCLID", "stats-model-euclidean"),
+    ("COSINE", "stats-model-cosine"),
+    ("CORRELATION", "stats-model-pearson-correlation"),
     ("CHEBYCHEV", "Chebychev"),
-    ("BLOCK", "Block"),
+    ("BLOCK", "stats-model-block"),
     ("MINKOWSKI", "Minkowski"),
-    ("POWER", "Customized"),
+    ("POWER", "stats-model-customized"),
 ];
 
 pub const CLUSTER_COUNTS: [(&str, &str); 2] = [
-    ("CHISQ", "Chi-squared measure"),
-    ("PH2", "Phi-squared measure"),
+    ("CHISQ", "stats-model-chi-squared-measure"),
+    ("PH2", "stats-model-phi-squared-measure"),
 ];
 
 /// The binary measures offered; the syntax has more.
 pub const CLUSTER_BINARY: [(&str, &str); 11] = [
-    ("BSEUCLID", "Squared Euclidean distance"),
-    ("BEUCLID", "Euclidean distance"),
-    ("SM", "Simple matching"),
+    ("BSEUCLID", "stats-model-squared-euclidean"),
+    ("BEUCLID", "stats-model-euclidean"),
+    ("SM", "stats-model-simple-matching"),
     ("JACCARD", "Jaccard"),
     ("DICE", "Dice"),
-    ("RR", "Russell and Rao"),
-    ("RT", "Rogers and Tanimoto"),
+    ("RR", "stats-model-russell-rao"),
+    ("RT", "stats-model-rogers-tanimoto"),
     ("HAMANN", "Hamann"),
     ("OCHIAI", "Ochiai"),
-    ("PHI", "Phi 4-point correlation"),
-    ("Q", "Yule's Q"),
+    ("PHI", "stats-model-phi-4-point"),
+    ("Q", "stats-model-yules-q"),
 ];
 
 /// The solutions of the cluster membership: none, one number of clusters, or a range.
@@ -375,19 +383,20 @@ impl Solutions {
     /// `CLUSTER(n)` or `CLUSTER(min,max)`, None for no solution.
     fn keyword(&self) -> Result<Option<String>, String> {
         let need = |text: &str, what: &str| -> Result<u32, String> {
-            whole(text, 2, what)?.ok_or_else(|| format!("give {what}"))
+            whole(text, 2, what)?
+                .ok_or_else(|| t_args("stats-model-give-what", &[("what", what.into())]))
         };
         Ok(match self.kind {
             0 => None,
             1 => Some(format!(
                 "CLUSTER({})",
-                need(&self.clusters, "the number of clusters")?
+                need(&self.clusters, t("stats-model-number-of-clusters"))?
             )),
             _ => {
-                let min = need(&self.min, "the smallest number of clusters")?;
-                let max = need(&self.max, "the largest number of clusters")?;
+                let min = need(&self.min, t("stats-model-smallest-number-of-clusters"))?;
+                let max = need(&self.max, t("stats-model-largest-number-of-clusters"))?;
                 if min >= max {
-                    return Err("the smallest number of clusters must be below the largest".into());
+                    return Err(t("stats-model-clusters-min-below-max").into());
                 }
                 Some(format!("CLUSTER({min},{max})"))
             }
@@ -461,7 +470,10 @@ impl ClusterMeasure {
         let positive = |text: &str, what: &str| -> Result<f64, String> {
             let n = parse(text, what)?;
             if n <= 0.0 {
-                return Err(format!("{what} must be above 0"));
+                return Err(t_args(
+                    "stats-model-must-be-above-zero",
+                    &[("what", what.into())],
+                ));
             }
             Ok(n)
         };
@@ -470,22 +482,25 @@ impl ClusterMeasure {
                 let keyword = CLUSTER_INTERVAL[self.interval].0;
                 match keyword {
                     "MINKOWSKI" => {
-                        format!("MINKOWSKI({})", number(positive(&self.power, "the power")?))
+                        format!(
+                            "MINKOWSKI({})",
+                            number(positive(&self.power, t("stats-model-the-power"))?)
+                        )
                     }
                     "POWER" => format!(
                         "POWER({},{})",
-                        number(positive(&self.power, "the power")?),
-                        number(positive(&self.root, "the root")?)
+                        number(positive(&self.power, t("stats-model-the-power"))?),
+                        number(positive(&self.root, t("stats-model-the-root"))?)
                     ),
                     _ => keyword.into(),
                 }
             }
             1 => CLUSTER_COUNTS[self.counts].0.into(),
             _ => {
-                let present = parse(&self.present, "the value of presence")?;
-                let absent = parse(&self.absent, "the value of absence")?;
+                let present = parse(&self.present, t("stats-model-value-of-presence"))?;
+                let absent = parse(&self.absent, t("stats-model-value-of-absence"))?;
                 if present == absent {
-                    return Err("the values of presence and absence must differ".into());
+                    return Err(t("stats-model-presence-absence-differ").into());
                 }
                 let keyword = CLUSTER_BINARY[self.binary].0;
                 if (present, absent) == (1.0, 0.0) {
@@ -500,7 +515,10 @@ impl ClusterMeasure {
 
 impl Hierarchical {
     pub fn syntax(&self) -> Result<String, String> {
-        let mut text = format!("CLUSTER {}", names(&self.variables, "Variables")?);
+        let mut text = format!(
+            "CLUSTER {}",
+            names(&self.variables, t("stats-model-variables"))?
+        );
         let measure = self.measure.syntax()?;
         if measure != "SEUCLID" {
             text.push_str(&format!("\n  /MEASURE={measure}"));
@@ -533,37 +551,37 @@ impl Hierarchical {
 
 /// The stepwise methods of DISCRIMINANT.
 pub const DISCRIMINANT_METHODS: [(&str, &str); 5] = [
-    ("WILKS", "Wilks' lambda"),
-    ("MAHAL", "Mahalanobis distance"),
-    ("MAXMINF", "Smallest F ratio"),
-    ("MINRESID", "Unexplained variance"),
-    ("RAO", "Rao's V"),
+    ("WILKS", "stats-model-wilks-lambda"),
+    ("MAHAL", "stats-model-mahalanobis"),
+    ("MAXMINF", "stats-model-smallest-f-ratio"),
+    ("MINRESID", "stats-model-unexplained-variance"),
+    ("RAO", "stats-model-raos-v"),
 ];
 
 /// Keyword and label of every table on /STATISTICS but the classification results.
 pub const DISCRIMINANT_STATISTICS: [(&str, &str); 9] = [
-    ("MEAN STDDEV", "Means"),
-    ("UNIVF", "Univariate ANOVAs"),
-    ("BOXM", "Box's M"),
-    ("COEFF", "Fisher's"),
-    ("RAW", "Unstandardized"),
-    ("CORR", "Within-groups correlation"),
-    ("COV", "Within-groups covariance"),
-    ("GCOV", "Separate-groups covariance"),
-    ("TCOV", "Total covariance"),
+    ("MEAN STDDEV", "stats-model-means"),
+    ("UNIVF", "stats-model-univariate-anovas"),
+    ("BOXM", "stats-model-boxs-m"),
+    ("COEFF", "stats-model-fishers"),
+    ("RAW", "stats-model-unstandardized"),
+    ("CORR", "stats-model-within-groups-correlation"),
+    ("COV", "stats-model-within-groups-covariance"),
+    ("GCOV", "stats-model-separate-groups-covariance"),
+    ("TCOV", "stats-model-total-covariance"),
 ];
 
 /// The groups of `DISCRIMINANT_STATISTICS`: title and the range of its entries.
 pub const DISCRIMINANT_STATISTICS_GROUPS: [(&str, std::ops::Range<usize>); 3] = [
-    ("Descriptives", 0..3),
-    ("Function coefficients", 3..5),
-    ("Matrices", 5..9),
+    ("stats-model-descriptives", 0..3),
+    ("stats-model-function-coefficients", 3..5),
+    ("stats-model-matrices", 5..9),
 ];
 
 pub const DISCRIMINANT_SAVE: [(&str, &str); 3] = [
-    ("CLASS", "Predicted group membership"),
-    ("SCORES", "Discriminant scores"),
-    ("PROBS", "Probabilities of group membership"),
+    ("CLASS", "stats-model-predicted-group"),
+    ("SCORES", "stats-model-discriminant-scores"),
+    ("PROBS", "stats-model-group-probabilities"),
 ];
 
 /// DISCRIMINANT of a grouping variable by independent variables.
@@ -643,23 +661,26 @@ impl Discriminant {
     pub fn syntax(&self) -> Result<String, String> {
         let group = self.group.trim();
         if group.is_empty() {
-            return Err("choose the grouping variable".into());
+            return Err(t("stats-model-choose-grouping").into());
         }
         let bound = |text: &str, what: &str| -> Result<f64, String> {
             let n = parse(text, what)?;
             if n.fract() != 0.0 {
-                return Err(format!("{what} must be a whole number"));
+                return Err(t_args(
+                    "stats-model-must-be-whole",
+                    &[("what", what.into())],
+                ));
             }
             Ok(n)
         };
-        let min = bound(&self.min, "the smallest group value")?;
-        let max = bound(&self.max, "the largest group value")?;
+        let min = bound(&self.min, t("stats-model-smallest-group-value"))?;
+        let max = bound(&self.max, t("stats-model-largest-group-value"))?;
         if min >= max {
-            return Err("the smallest group value must be below the largest".into());
+            return Err(t("stats-model-group-min-below-max").into());
         }
-        let variables = names(&self.variables, "Independents")?;
+        let variables = names(&self.variables, t("stats-model-independents"))?;
         if self.variables.iter().any(|n| n == group) {
-            return Err(format!("{group} is the grouping variable"));
+            return Err(t_args("stats-model-is-grouping", &[("name", group.into())]));
         }
         let mut text = format!(
             "DISCRIMINANT GROUPS={group}({},{})\n  /VARIABLES={variables}",
@@ -668,7 +689,10 @@ impl Discriminant {
         );
         let select = self.select.trim();
         if !select.is_empty() {
-            let value = parse(&self.select_value, "the value of the selection variable")?;
+            let value = parse(
+                &self.select_value,
+                t("stats-model-selection-variable-value"),
+            )?;
             text.push_str(&format!("\n  /SELECT={select}({})", number(value)));
         }
         // the analysis block, before the global subcommands
@@ -677,13 +701,11 @@ impl Discriminant {
                 "\n  /METHOD={}",
                 DISCRIMINANT_METHODS[self.method].0
             ));
-            let entry = parse(&self.entry, "the entry value")?;
-            let removal = parse(&self.removal, "the removal value")?;
+            let entry = parse(&self.entry, t("stats-model-entry-value"))?;
+            let removal = parse(&self.removal, t("stats-model-removal-value"))?;
             if self.use_f {
                 if !(removal >= 0.0 && entry > removal) {
-                    return Err(
-                        "the F to enter must be above the F to remove, which is 0 or more".into(),
-                    );
+                    return Err(t("stats-model-f-enter-above-remove").into());
                 }
                 if (entry, removal) != (3.84, 2.71) {
                     text.push_str(&format!(
@@ -694,10 +716,7 @@ impl Discriminant {
                 }
             } else {
                 if !(entry > 0.0 && entry < removal && removal <= 1.0) {
-                    return Err(
-                        "the probability to enter must be above 0 and below the probability to remove, which is at most 1"
-                            .into(),
-                    );
+                    return Err(t("stats-model-p-enter-below-remove").into());
                 }
                 // PIN without POUT would remove by FOUT
                 text.push_str(&format!(
@@ -730,24 +749,24 @@ impl Discriminant {
 
 /// Keyword and label of every method of a block of covariates.
 pub const LOGISTIC_METHODS: [(&str, &str); 7] = [
-    ("ENTER", "Enter"),
-    ("FSTEP(COND)", "Forward: Conditional"),
-    ("FSTEP(LR)", "Forward: LR"),
-    ("FSTEP(WALD)", "Forward: Wald"),
-    ("BSTEP(COND)", "Backward: Conditional"),
-    ("BSTEP(LR)", "Backward: LR"),
-    ("BSTEP(WALD)", "Backward: Wald"),
+    ("ENTER", "stats-model-enter"),
+    ("FSTEP(COND)", "stats-model-forward-conditional"),
+    ("FSTEP(LR)", "stats-model-forward-lr"),
+    ("FSTEP(WALD)", "stats-model-forward-wald"),
+    ("BSTEP(COND)", "stats-model-backward-conditional"),
+    ("BSTEP(LR)", "stats-model-backward-lr"),
+    ("BSTEP(WALD)", "stats-model-backward-wald"),
 ];
 
 /// Keyword and label of every contrast of a categorical covariate.
 pub const LOGISTIC_CONTRASTS: [(&str, &str); 7] = [
-    ("INDICATOR", "Indicator"),
-    ("SIMPLE", "Simple"),
-    ("DIFFERENCE", "Difference"),
+    ("INDICATOR", "stats-model-indicator"),
+    ("SIMPLE", "stats-model-simple"),
+    ("DIFFERENCE", "stats-model-difference"),
     ("HELMERT", "Helmert"),
-    ("REPEATED", "Repeated"),
-    ("POLYNOMIAL", "Polynomial"),
-    ("DEVIATION", "Deviation"),
+    ("REPEATED", "stats-model-repeated"),
+    ("POLYNOMIAL", "stats-model-polynomial"),
+    ("DEVIATION", "stats-model-deviation"),
 ];
 
 /// The contrasts measured against a reference category.
@@ -760,23 +779,23 @@ pub fn has_reference(contrast: usize) -> bool {
 
 /// Keyword and label of every variable LOGISTIC REGRESSION saves.
 pub const LOGISTIC_SAVE: [(&str, &str); 10] = [
-    ("PRED", "Probabilities"),
-    ("PGROUP", "Group membership"),
-    ("RESID", "Unstandardized"),
+    ("PRED", "stats-model-probabilities"),
+    ("PGROUP", "stats-model-group-membership"),
+    ("RESID", "stats-model-unstandardized"),
     ("LRESID", "Logit"),
-    ("SRESID", "Studentized"),
-    ("ZRESID", "Standardized"),
-    ("DEV", "Deviance"),
-    ("COOK", "Cook's"),
-    ("LEVER", "Leverage values"),
+    ("SRESID", "stats-model-studentized"),
+    ("ZRESID", "stats-model-standardized"),
+    ("DEV", "stats-model-deviance"),
+    ("COOK", "stats-model-cooks"),
+    ("LEVER", "stats-model-leverage"),
     ("DFBETA", "DfBeta"),
 ];
 
 /// The groups of `LOGISTIC_SAVE`: title and the range of its entries.
 pub const LOGISTIC_SAVE_GROUPS: [(&str, std::ops::Range<usize>); 3] = [
-    ("Predicted values", 0..2),
-    ("Residuals", 2..7),
-    ("Influence", 7..10),
+    ("stats-model-predicted-values", 0..2),
+    ("stats-model-residuals", 2..7),
+    ("stats-model-influence", 7..10),
 ];
 
 /// A categorical covariate: its name, its contrast and whether the reference is the first
@@ -810,12 +829,12 @@ pub(crate) fn categorical_syntax(categorical: &[Categorical], default: usize) ->
 
 /// Keyword and label of each relation of a selection rule.
 pub const SELECT_RELATIONS: [(&str, &str); 6] = [
-    ("EQ", "equal to"),
-    ("NE", "not equal to"),
-    ("LT", "less than"),
-    ("LE", "less than or equal to"),
-    ("GT", "greater than"),
-    ("GE", "greater than or equal to"),
+    ("EQ", "stats-model-equal-to"),
+    ("NE", "stats-model-not-equal-to"),
+    ("LT", "stats-model-less-than"),
+    ("LE", "stats-model-less-equal"),
+    ("GT", "stats-model-greater-than"),
+    ("GE", "stats-model-greater-equal"),
 ];
 
 /// LOGISTIC REGRESSION: one dependent variable and blocks of covariates.
@@ -875,7 +894,7 @@ impl Logistic {
     pub fn syntax(&self) -> Result<String, String> {
         let dependent = self.dependent.trim();
         if dependent.is_empty() {
-            return Err("choose the dependent variable".into());
+            return Err(t("stats-model-choose-dependent").into());
         }
         let blocks: Vec<&Block> = self
             .blocks
@@ -883,18 +902,24 @@ impl Logistic {
             .filter(|b| !b.variables.is_empty())
             .collect();
         if blocks.is_empty() {
-            return Err("add at least one variable to Covariates".into());
+            return Err(t("stats-model-add-covariate").into());
         }
         let covariates: Vec<&String> = blocks.iter().flat_map(|b| &b.variables).collect();
         if covariates.contains(&&dependent.to_string()) {
-            return Err(format!("{dependent} is the dependent variable"));
+            return Err(t_args(
+                "stats-model-is-dependent",
+                &[("name", dependent.into())],
+            ));
         }
         if let Some(c) = self
             .categorical
             .iter()
             .find(|c| !covariates.contains(&&c.name))
         {
-            return Err(format!("{} is categorical but in no block", c.name));
+            return Err(t_args(
+                "stats-model-categorical-no-block",
+                &[("name", c.name.as_str().into())],
+            ));
         }
         let mut text = format!("LOGISTIC REGRESSION VARIABLES={dependent}");
         for b in blocks {
@@ -903,7 +928,7 @@ impl Logistic {
         }
         let select = self.select.trim();
         if !select.is_empty() {
-            let value = parse(&self.select_value, "the value of the selection rule")?;
+            let value = parse(&self.select_value, t("stats-model-selection-rule-value"))?;
             let relation = SELECT_RELATIONS[self.select_relation].0;
             text.push_str(&format!(
                 "\n  /SELECT={select} {relation} {}",
@@ -925,7 +950,7 @@ impl Logistic {
         if self.ci {
             let level = percent(&self.ci_level)?;
             if level.fract() != 0.0 {
-                return Err("the confidence level must be a whole number from 1 to 99".into());
+                return Err(t("stats-model-ci-whole").into());
             }
             print.push(format!("CI({})", number(level)));
         }
@@ -933,13 +958,10 @@ impl Logistic {
             text.push_str(&format!("\n  /PRINT={}", print.join(" ")));
         }
         let mut criteria = Vec::new();
-        let entry = parse(&self.entry, "the entry probability")?;
-        let removal = parse(&self.removal, "the removal probability")?;
+        let entry = parse(&self.entry, t("stats-model-entry-probability"))?;
+        let removal = parse(&self.removal, t("stats-model-removal-probability"))?;
         if !(entry > 0.0 && entry < removal && removal <= 1.0) {
-            return Err(
-                "the probability to enter must be above 0 and below the probability to remove, which is at most 1"
-                    .into(),
-            );
+            return Err(t("stats-model-p-enter-below-remove").into());
         }
         if entry != 0.05 {
             criteria.push(format!("PIN({})", number(entry)));
@@ -947,13 +969,13 @@ impl Logistic {
         if removal != 0.10 {
             criteria.push(format!("POUT({})", number(removal)));
         }
-        match whole(&self.iterations, 1, "the maximum number of iterations")? {
+        match whole(&self.iterations, 1, t("stats-model-max-iterations"))? {
             Some(n) if n != 20 => criteria.push(format!("ITERATE({n})")),
             _ => {}
         }
-        let cut = parse(&self.cut, "the classification cutoff")?;
+        let cut = parse(&self.cut, t("stats-model-classification-cutoff"))?;
         if !(cut > 0.0 && cut < 1.0) {
-            return Err("the classification cutoff must lie between 0 and 1".into());
+            return Err(t("stats-model-cutoff-range").into());
         }
         if cut != 0.5 {
             criteria.push(format!("CUT({})", number(cut)));
@@ -971,10 +993,10 @@ impl Logistic {
 
 /// The types of sums of squares, keyword and label.
 pub const SUM_OF_SQUARES: [(&str, &str); 4] = [
-    ("1", "Type I"),
-    ("2", "Type II"),
-    ("3", "Type III"),
-    ("4", "Type IV"),
+    ("1", "stats-model-type-1"),
+    ("2", "stats-model-type-2"),
+    ("3", "stats-model-type-3"),
+    ("4", "stats-model-type-4"),
 ];
 
 /// Type III, the sums of squares without /METHOD.
@@ -983,26 +1005,26 @@ const DEFAULT_SUM_OF_SQUARES: usize = 2;
 /// Keyword and label of every table of the options on /PRINT: Repeated Measures offers the
 /// first three, Univariate the first eight, Multivariate all.
 pub const GLM_PRINT: [(&str, &str); 11] = [
-    ("DESCRIPTIVE", "Descriptive statistics"),
-    ("ETASQ", "Estimates of effect size"),
-    ("OPOWER", "Observed power"),
-    ("PARAMETER", "Parameter estimates"),
-    ("HOMOGENEITY", "Homogeneity tests"),
-    ("LOF", "Lack of fit test"),
-    ("TEST(LMATRIX)", "Contrast coefficient matrix"),
-    ("GEF", "General estimable function"),
-    ("RSSCP", "Residual SSCP, covariance and correlation"),
-    ("TEST(SSCP)", "Hypothesis and error SSCP of each effect"),
-    ("TEST(MMATRIX)", "Coefficients of the M matrix"),
+    ("DESCRIPTIVE", "stats-model-descriptive-statistics"),
+    ("ETASQ", "stats-model-effect-size"),
+    ("OPOWER", "stats-model-observed-power"),
+    ("PARAMETER", "stats-model-parameter-estimates"),
+    ("HOMOGENEITY", "stats-model-homogeneity-tests"),
+    ("LOF", "stats-model-lack-of-fit"),
+    ("TEST(LMATRIX)", "stats-model-contrast-matrix"),
+    ("GEF", "stats-model-general-estimable"),
+    ("RSSCP", "stats-model-residual-sscp"),
+    ("TEST(SSCP)", "stats-model-hypothesis-sscp"),
+    ("TEST(MMATRIX)", "stats-model-m-coefficients"),
 ];
 
 /// The tests for heteroskedasticity on /PRINT, keyword and label; the first three are run on
 /// the auxiliary model of `HET_DESIGNS`.
 pub const GLM_HET_TESTS: [(&str, &str); 4] = [
-    ("MBP", "Modified Breusch-Pagan test"),
-    ("BP", "Breusch-Pagan test"),
-    ("F", "F test"),
-    ("WHITE", "White's test"),
+    ("MBP", "stats-model-modified-bp"),
+    ("BP", "stats-model-bp"),
+    ("F", "stats-model-f-test"),
+    ("WHITE", "stats-model-whites-test"),
 ];
 
 /// The subcommand of the auxiliary model of each of the first three `GLM_HET_TESTS`.
@@ -1011,8 +1033,8 @@ const HET_DESIGNS: [&str; 3] = ["MBPDESIGN", "BPDESIGN", "FDESIGN"];
 /// The auxiliary model of a test for heteroskedasticity: the predicted values (no subcommand)
 /// or the terms of the model (a bare design subcommand).
 pub const HET_MODELS: [(&str, &str); 2] = [
-    ("", "on the predicted values"),
-    ("DESIGN", "on the terms of the model"),
+    ("", "stats-model-on-predicted"),
+    ("DESIGN", "stats-model-on-terms"),
 ];
 
 /// The estimators of the robust covariance of /ROBUST.
@@ -1032,13 +1054,13 @@ pub const PRINT_M_MATRIX: usize = 10;
 
 /// The contrasts of a factor, keyword and label; the first adds no CONTRAST.
 pub const GLM_CONTRASTS: [(&str, &str); 7] = [
-    ("", "None"),
-    ("DEVIATION", "Deviation"),
-    ("SIMPLE", "Simple"),
-    ("DIFFERENCE", "Difference"),
+    ("", "stats-model-contrast-none"),
+    ("DEVIATION", "stats-model-deviation"),
+    ("SIMPLE", "stats-model-simple"),
+    ("DIFFERENCE", "stats-model-difference"),
     ("HELMERT", "Helmert"),
-    ("REPEATED", "Repeated"),
-    ("POLYNOMIAL", "Polynomial"),
+    ("REPEATED", "stats-model-repeated"),
+    ("POLYNOMIAL", "stats-model-polynomial"),
 ];
 
 /// The entries of `GLM_CONTRASTS` measured against a reference category.
@@ -1057,9 +1079,9 @@ pub struct FactorContrast {
 
 /// The error bars of the profile plots, keyword and label; the first adds no ERRORBAR.
 pub const PROFILE_ERROR_BARS: [(&str, &str); 3] = [
-    ("", "None"),
-    ("CI", "Confidence interval"),
-    ("SE", "Two standard errors"),
+    ("", "stats-model-bars-none"),
+    ("CI", "stats-model-confidence-interval"),
+    ("SE", "stats-model-two-se"),
 ];
 
 /// One column of the M matrix: its label and the coefficient typed for each dependent
@@ -1071,28 +1093,28 @@ pub struct MColumn {
 }
 
 pub const GLM_ADJUSTMENTS: [(&str, &str); 3] = [
-    ("LSD", "LSD (none)"),
+    ("LSD", "stats-model-lsd-none"),
     ("BONFERRONI", "Bonferroni"),
     ("SIDAK", "Sidak"),
 ];
 
 /// Keyword and label of every variable UNIANOVA saves.
 pub const GLM_SAVE: [(&str, &str); 8] = [
-    ("PRED", "Unstandardized"),
-    ("SEPRED", "Standard error"),
-    ("RESID", "Unstandardized"),
-    ("ZRESID", "Standardized"),
-    ("SRESID", "Studentized"),
-    ("DRESID", "Deleted"),
-    ("COOK", "Cook's distance"),
-    ("LEVER", "Leverage values"),
+    ("PRED", "stats-model-unstandardized"),
+    ("SEPRED", "stats-model-standard-error"),
+    ("RESID", "stats-model-unstandardized"),
+    ("ZRESID", "stats-model-standardized"),
+    ("SRESID", "stats-model-studentized"),
+    ("DRESID", "stats-model-deleted"),
+    ("COOK", "stats-model-cooks-distance"),
+    ("LEVER", "stats-model-leverage"),
 ];
 
 /// The groups of `GLM_SAVE`: title and the range of its entries.
 pub const GLM_SAVE_GROUPS: [(&str, std::ops::Range<usize>); 3] = [
-    ("Predicted values", 0..2),
-    ("Residuals", 2..6),
-    ("Diagnostics", 6..8),
+    ("stats-model-predicted-values", 0..2),
+    ("stats-model-residuals", 2..6),
+    ("stats-model-diagnostics", 6..8),
 ];
 
 /// `/METHOD`, `/PRINT` and `/CRITERIA` of UNIANOVA and GLM.
@@ -1325,33 +1347,46 @@ impl Univariate {
         let (command, dependents) = if self.multivariate {
             // one dependent would make GLM univariate and drop the multivariate tables
             if self.dependents.len() < 2 {
-                return Err("add at least two dependent variables".into());
+                return Err(t("stats-model-add-two-dependents").into());
             }
             ("GLM", self.dependents.clone())
         } else {
             let dependent = self.dependent.trim();
             if dependent.is_empty() {
-                return Err("choose the dependent variable".into());
+                return Err(t("stats-model-choose-dependent").into());
             }
             ("UNIANOVA", vec![dependent.to_string()])
         };
         let random = self.random();
         if self.factors.is_empty() && random.is_empty() && self.covariates.is_empty() {
-            return Err("add a fixed factor or a covariate".into());
+            return Err(t("stats-model-add-factor-or-covariate").into());
         }
         let model = self.model();
         if let Some(n) = model.iter().find(|n| dependents.contains(n)) {
-            let which = if self.multivariate { "a" } else { "the" };
-            return Err(format!("{n} is {which} dependent variable"));
+            let args = [("name", n.as_str().into())];
+            return Err(if self.multivariate {
+                t_args("stats-model-is-a-dependent", &args)
+            } else {
+                t_args("stats-model-is-dependent", &args)
+            });
         }
         if let Some(n) = self.factors.iter().find(|n| self.covariates.contains(n)) {
-            return Err(format!("{n} is both a factor and a covariate"));
+            return Err(t_args(
+                "stats-model-factor-and-covariate",
+                &[("name", n.as_str().into())],
+            ));
         }
         if let Some(n) = random.iter().find(|n| self.covariates.contains(n)) {
-            return Err(format!("{n} is both a factor and a covariate"));
+            return Err(t_args(
+                "stats-model-factor-and-covariate",
+                &[("name", n.as_str().into())],
+            ));
         }
         if let Some(n) = random.iter().find(|n| self.factors.contains(n)) {
-            return Err(format!("{n} is both a fixed and a random factor"));
+            return Err(t_args(
+                "stats-model-fixed-and-random",
+                &[("name", n.as_str().into())],
+            ));
         }
         let by: Vec<String> = self.factors.iter().chain(random).cloned().collect();
         let mut text = format!(
@@ -1396,8 +1431,8 @@ impl Univariate {
             .collect();
         match (post_hoc.is_empty(), tests.is_empty()) {
             (true, true) => {}
-            (true, false) => return Err("choose the factors of the post hoc tests".into()),
-            (false, true) => return Err("choose at least one post hoc test".into()),
+            (true, false) => return Err(t("stats-model-choose-post-hoc-factors").into()),
+            (false, true) => return Err(t("stats-model-choose-post-hoc-test").into()),
             (false, false) => text.push_str(&format!(
                 "\n  /POSTHOC={}({})",
                 post_hoc.join(" "),
@@ -1483,13 +1518,14 @@ impl Univariate {
         }
         if self.custom {
             if self.terms.is_empty() {
-                return Err("add at least one term to the model".into());
+                return Err(t("stats-model-add-term").into());
             }
             let mut terms = Vec::new();
             for term in &self.terms {
                 if let Some(n) = term.iter().find(|n| !model.contains(n)) {
-                    return Err(format!(
-                        "{n} in the model is no longer a factor or covariate"
+                    return Err(t_args(
+                        "stats-model-term-not-in-model",
+                        &[("name", n.as_str().into())],
                     ));
                 }
                 terms.push(term.join("*"));
@@ -1515,23 +1551,28 @@ impl Univariate {
         }
         // without LMATRIX the M matrix transforms the test of the intercept
         if !self.intercept {
-            return Err("the M matrix tests the intercept; include it in the model".into());
+            return Err(t("stats-model-m-intercept").into());
         }
         let (m, r) = (self.m_matrix.len(), self.dependents.len());
         if m > r {
-            return Err(format!(
-                "the M matrix has {m} columns but there are {r} dependent variables; it can have at most one column per dependent"
+            return Err(t_args(
+                "stats-model-m-too-many",
+                &[
+                    ("columns", m.to_string().into()),
+                    ("dependents", r.to_string().into()),
+                ],
             ));
         }
         let mut columns = Vec::new();
         let mut values: Vec<Vec<f64>> = Vec::new();
         for (i, column) in self.m_matrix.iter().enumerate() {
             let label = column.label.trim();
-            let name = if label.is_empty() {
-                format!("column {}", i + 1)
+            let column_name = if label.is_empty() {
+                (i + 1).to_string()
             } else {
-                format!("column {label}")
+                label.to_string()
             };
+            let name = t_args("stats-model-m-column", &[("column", column_name.into())]);
             let mut entries = Vec::new();
             if !label.is_empty() {
                 entries.push(quote(label));
@@ -1543,8 +1584,12 @@ impl Univariate {
                     continue;
                 }
                 let Some(value) = coefficient(typed) else {
-                    return Err(format!(
-                        "{name} of the M matrix: the coefficient of {dependent} must be a number or a fraction such as 1/3"
+                    return Err(t_args(
+                        "stats-model-m-coefficient",
+                        &[
+                            ("column", name.as_str().into()),
+                            ("dependent", dependent.as_str().into()),
+                        ],
                     ));
                 };
                 let v = match value.split_once('/') {
@@ -1559,15 +1604,17 @@ impl Univariate {
                 }
             }
             if entries.len() == usize::from(!label.is_empty()) {
-                return Err(format!(
-                    "{name} of the M matrix needs a coefficient other than 0"
+                return Err(t_args(
+                    "stats-model-m-nonzero",
+                    &[("column", name.as_str().into())],
                 ));
             }
             values.push(column_values);
             // dependent columns leave the transformed error matrix singular
             if rank(&values) < values.len() {
-                return Err(format!(
-                    "{name} of the M matrix is a combination of the columns before it; the columns must be linearly independent"
+                return Err(t_args(
+                    "stats-model-m-independent",
+                    &[("column", name.as_str().into())],
                 ));
             }
             columns.push(entries.join(" "));
@@ -1654,35 +1701,45 @@ impl RepeatedMeasures {
         for w in &self.within {
             let name = w.name.trim();
             if name.is_empty() || name.contains(char::is_whitespace) {
-                return Err("a within-subjects factor needs a name of one word".into());
+                return Err(t("stats-model-within-name").into());
             }
             if factors
                 .iter()
                 .any(|(f, _): &(&str, u32)| f.eq_ignore_ascii_case(name))
             {
-                return Err(format!("{name} is the name of two within-subjects factors"));
+                return Err(t_args("stats-model-within-twice", &[("name", name.into())]));
             }
-            let what = format!("the number of levels of {name}");
+            let what = t_args("stats-model-levels-of", &[("name", name.into())]);
             let Some(levels) = whole(&w.levels, 2, &what)? else {
-                return Err(format!("give the number of levels of {name}"));
+                return Err(t_args(
+                    "stats-model-give-levels-of",
+                    &[("name", name.into())],
+                ));
             };
             combinations *= levels as usize;
             factors.push((name, levels));
         }
         if factors.is_empty() {
-            return Err("add a within-subjects factor".into());
+            return Err(t("stats-model-add-within").into());
         }
         if self.dependents.len() != combinations {
-            return Err(format!(
-                "Within-subjects variables needs {combinations} variables, one for each combination of levels"
+            return Err(t_args(
+                "stats-model-within-count",
+                &[("count", combinations.to_string().into())],
             ));
         }
         let between: Vec<&String> = self.factors.iter().chain(&self.covariates).collect();
         if let Some(n) = self.dependents.iter().find(|n| between.contains(n)) {
-            return Err(format!("{n} is a within-subjects variable"));
+            return Err(t_args(
+                "stats-model-is-within-variable",
+                &[("name", n.as_str().into())],
+            ));
         }
         if let Some(n) = self.factors.iter().find(|n| self.covariates.contains(n)) {
-            return Err(format!("{n} is both a factor and a covariate"));
+            return Err(t_args(
+                "stats-model-factor-and-covariate",
+                &[("name", n.as_str().into())],
+            ));
         }
         let mut text = format!(
             "GLM {}",

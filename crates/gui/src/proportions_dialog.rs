@@ -3,6 +3,7 @@
 //! syntax, so the command runs with its own defaults.
 
 use crate::analyze_dialogs::keywords;
+use crate::i18n::t;
 use crate::reports_dialog::loose_value;
 use crate::syntax_text::{names, number};
 
@@ -14,21 +15,21 @@ pub enum ProportionsKind {
 }
 
 pub const PROPORTIONS_KINDS: [(ProportionsKind, &str); 3] = [
-    (ProportionsKind::OneSample, "One sample"),
-    (ProportionsKind::Paired, "Related samples"),
-    (ProportionsKind::Independent, "Independent samples"),
+    (ProportionsKind::OneSample, "stats-prop-kind-one-sample"),
+    (ProportionsKind::Paired, "stats-prop-kind-related"),
+    (ProportionsKind::Independent, "stats-prop-kind-independent"),
 ];
 
 /// Keyword and label of the tests and intervals of one kind, in the order shown.
 type Methods = &'static [(&'static str, &'static str)];
 
 const ONE_TESTS: Methods = &[
-    ("EXACT", "Exact"),
-    ("MIDP", "Mid-p exact"),
-    ("SCORE", "Score"),
-    ("SCORECC", "Score, continuity corrected"),
+    ("EXACT", "stats-prop-exact"),
+    ("MIDP", "stats-prop-mid-p"),
+    ("SCORE", "stats-prop-score"),
+    ("SCORECC", "stats-prop-score-cc"),
     ("WALD", "Wald"),
-    ("WALDCC", "Wald, continuity corrected"),
+    ("WALDCC", "stats-prop-wald-cc"),
 ];
 const ONE_INTERVALS: Methods = &[
     ("AGRESTI_COULL", "Agresti-Coull"),
@@ -37,40 +38,40 @@ const ONE_INTERVALS: Methods = &[
     ("JEFFREYS", "Jeffreys"),
     ("LOGIT", "Logit"),
     ("WALD", "Wald"),
-    ("WALDCC", "Wald, continuity corrected"),
-    ("WILSON_SCORE", "Wilson score"),
-    ("WILSON_SCORECC", "Wilson score, continuity corrected"),
+    ("WALDCC", "stats-prop-wald-cc"),
+    ("WILSON_SCORE", "stats-prop-wilson"),
+    ("WILSON_SCORECC", "stats-prop-wilson-cc"),
 ];
 const PAIRED_TESTS: Methods = &[
-    ("EXACT", "Exact"),
-    ("MIDP", "Mid-p exact"),
+    ("EXACT", "stats-prop-exact"),
+    ("MIDP", "stats-prop-mid-p"),
     ("MCNEMAR", "McNemar"),
-    ("MCNEMARCC", "McNemar, continuity corrected"),
+    ("MCNEMARCC", "stats-prop-mcnemar-cc"),
     ("WALD", "Wald"),
-    ("WALDCC", "Wald, continuity corrected"),
+    ("WALDCC", "stats-prop-wald-cc"),
 ];
 const PAIRED_INTERVALS: Methods = &[
     ("AGRESTI_MIN", "Agresti-Min"),
     ("BONETT_PRICE", "Bonett-Price"),
     ("NEWCOMBE", "Newcombe"),
     ("WALD", "Wald"),
-    ("WALDCC", "Wald, continuity corrected"),
+    ("WALDCC", "stats-prop-wald-cc"),
 ];
 const INDEPENDENT_TESTS: Methods = &[
     ("HAUCK_ANDERSON", "Hauck-Anderson"),
     ("WALD", "Wald"),
-    ("WALDCC", "Wald, continuity corrected"),
-    ("WALDH0", "Wald, variance under no difference"),
-    ("WALDH0CC", "Wald, variance under no difference, corrected"),
+    ("WALDCC", "stats-prop-wald-cc"),
+    ("WALDH0", "stats-prop-wald-h0"),
+    ("WALDH0CC", "stats-prop-wald-h0-cc"),
 ];
 const INDEPENDENT_INTERVALS: Methods = &[
     ("AGRESTI_CAFFO", "Agresti-Caffo"),
     ("BROWN_LI_JEFFREYS", "Brown-Li-Jeffreys"),
     ("HAUCK_ANDERSON", "Hauck-Anderson"),
     ("NEWCOMBE", "Newcombe"),
-    ("NEWCOMBECC", "Newcombe, continuity corrected"),
+    ("NEWCOMBECC", "stats-prop-newcombe-cc"),
     ("WALD", "Wald"),
-    ("WALDCC", "Wald, continuity corrected"),
+    ("WALDCC", "stats-prop-wald-cc"),
 ];
 
 impl ProportionsKind {
@@ -99,19 +100,19 @@ impl ProportionsKind {
 
 /// How the two groups of independent samples are picked from the grouping variable.
 pub const PROPORTIONS_GROUPS: [(&str, &str); 4] = [
-    ("", "The values 1 and 2"),
-    ("LEVEL", "Two values"),
-    ("MIDPOINT", "Below and above the middle of its range"),
-    ("CUTPOINT", "Below and from a cut point"),
+    ("", "stats-prop-groups-1-2"),
+    ("LEVEL", "stats-prop-groups-two-values"),
+    ("MIDPOINT", "stats-prop-groups-midpoint"),
+    ("CUTPOINT", "stats-prop-groups-cutpoint"),
 ];
 
 /// What counts as a success.
 pub const PROPORTIONS_SUCCESS: [(&str, &str); 5] = [
-    ("", "The highest value"),
-    ("FIRST", "The lowest value"),
-    ("LEVEL", "Listed values"),
-    ("MIDPOINT", "From the middle of the range up"),
-    ("CUTPOINT", "From a cut point up"),
+    ("", "stats-prop-success-highest"),
+    ("FIRST", "stats-prop-success-lowest"),
+    ("LEVEL", "stats-prop-success-listed"),
+    ("MIDPOINT", "stats-prop-success-midpoint"),
+    ("CUTPOINT", "stats-prop-success-cutpoint"),
 ];
 
 #[derive(Clone, PartialEq, Debug)]
@@ -184,12 +185,12 @@ impl Proportions {
     }
 
     pub fn title(&self) -> &'static str {
-        "Proportions"
+        t("stats-prop-title")
     }
 
     pub fn syntax(&self) -> Result<String, String> {
         let k = self.kind;
-        let vars = names(&self.variables, "Variables")?;
+        let vars = names(&self.variables, t("stats-prop-variables"))?;
         let mut text = match k {
             ProportionsKind::OneSample => format!("PROPORTIONS /ONESAMPLE {vars}"),
             ProportionsKind::Paired => {
@@ -198,20 +199,18 @@ impl Proportions {
                     t.push_str(&format!(" WITH {}", self.with.join(" ")));
                     if self.in_order {
                         if self.with.len() != self.variables.len() {
-                            return Err(
-                                "pairing in order needs as many variables on each side".into()
-                            );
+                            return Err(crate::i18n::t("stats-prop-in-order-lengths").into());
                         }
                         t.push_str(" (PAIRED)");
                     }
                 } else if self.variables.len() < 2 {
-                    return Err("add a second variable, or a list to pair with".into());
+                    return Err(crate::i18n::t("stats-prop-second-variable").into());
                 }
                 t
             }
             ProportionsKind::Independent => {
                 let [group] = self.group.as_slice() else {
-                    return Err("choose one grouping variable".into());
+                    return Err(t("stats-prop-one-grouping").into());
                 };
                 format!("PROPORTIONS /INDEPENDENTSAMPLES {vars} BY {group}")
             }
@@ -223,7 +222,7 @@ impl Proportions {
                         text.push_str(&format!(" TESTVAL={}", number(p)));
                     }
                 }
-                _ => return Err("the test value must be a number between 0 and 1".into()),
+                _ => return Err(t("stats-prop-test-value-range").into()),
             }
         }
         if k == ProportionsKind::Independent {
@@ -271,7 +270,7 @@ impl Proportions {
                     text.push_str(&format!("\n  /CRITERIA CILEVEL={}", number(p)));
                 }
             }
-            _ => return Err("the confidence level must be a percentage between 0 and 100".into()),
+            _ => return Err(t("stats-prop-level-range").into()),
         }
         text.push('.');
         Ok(text)
@@ -284,7 +283,7 @@ impl Proportions {
                 let [a, b] = &self.group_values;
                 let (a, b) = (a.trim(), b.trim());
                 if a.is_empty() || b.is_empty() {
-                    return Err("fill in both group values".into());
+                    return Err(t("stats-prop-both-group-values").into());
                 }
                 format!(" SELECT=LEVEL({}, {})", loose_value(a), loose_value(b))
             }
@@ -305,7 +304,7 @@ impl Proportions {
                     .map(loose_value)
                     .collect();
                 if values.is_empty() {
-                    return Err("list the values that count as a success".into());
+                    return Err(t("stats-prop-success-values").into());
                 }
                 Some(format!("LEVEL({})", values.join(", ")))
             }
@@ -319,7 +318,7 @@ impl Proportions {
 fn cut(text: &str) -> Result<String, String> {
     match text.trim().parse::<f64>() {
         Ok(n) if n.is_finite() => Ok(number(n)),
-        _ => Err("the cut point must be a number".into()),
+        _ => Err(t("stats-prop-cut-point-number").into()),
     }
 }
 

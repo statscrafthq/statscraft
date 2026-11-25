@@ -3,27 +3,25 @@
 //! classifier measures. The older ROC Curve dialog stays beside it. Options left as they are
 //! add nothing to the syntax, so the command runs with its own defaults.
 
+use crate::i18n::{t, t_args};
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::syntax_text::{names, number, value};
 use statscraft_data::Dataset;
 
 /// The curves of /PLOT, the ROC curve first (the command's own choice).
 pub const ROC_CURVES: [(&str, &str); 4] = [
-    ("ROC", "ROC curve"),
-    ("PR", "Precision-recall curve"),
-    ("ROC PR", "Both curves"),
-    ("NONE", "No curves"),
+    ("ROC", "stats-roc-roc-curve"),
+    ("PR", "stats-roc-pr-curve"),
+    ("ROC PR", "stats-roc-both-curves"),
+    ("NONE", "stats-roc-no-curves"),
 ];
 const NO_CURVES: usize = 3;
 
 /// How a grouping variable makes the two groups.
 pub const ROC_SELECTS: [(&str, &str); 3] = [
-    ("LEVEL", "Two values of the variable"),
-    (
-        "MIDPOINT",
-        "At or above the midpoint of its range, and below it",
-    ),
-    ("CUTPOINT", "At or above a value, and below it"),
+    ("LEVEL", "stats-roc-two-values"),
+    ("MIDPOINT", "stats-roc-midpoint"),
+    ("CUTPOINT", "stats-roc-cutpoint"),
 ];
 pub const LEVEL: usize = 0;
 pub const CUTPOINT: usize = 2;
@@ -108,14 +106,14 @@ impl RocAnalysis {
 
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         numeric(data, &self.tests)?;
-        let tests = names(&self.tests, "Test variables")?;
+        let tests = names(&self.tests, t("stats-roc-test-variables"))?;
         let string = |name: &str| data.variable(name.trim()).is_ok_and(|v| v.is_string());
         let state = self.state.trim();
         if state.is_empty() {
-            return Err("set the state variable".into());
+            return Err(t("stats-roc-set-state").into());
         }
         if self.value.trim().is_empty() {
-            return Err("give the value of the positive state".into());
+            return Err(t("stats-roc-give-positive-value").into());
         }
         // string values are compared without their trailing blanks only
         let given = match string(state) {
@@ -128,9 +126,7 @@ impl RocAnalysis {
         // groups take the place of the paired design
         let paired = self.pair && !grouped;
         if paired && self.tests.len() < 2 {
-            return Err(
-                "comparing areas on the same cases needs at least two test variables".into(),
-            );
+            return Err(t("stats-roc-paired-needs-two").into());
         }
         if grouped {
             let group = self.group.trim();
@@ -139,20 +135,23 @@ impl RocAnalysis {
                 LEVEL => {
                     let (a, b) = (self.first.trim(), self.second.trim());
                     if a.is_empty() || b.is_empty() {
-                        return Err("give the two values of the grouping variable".into());
+                        return Err(t("stats-roc-give-two-values").into());
                     }
                     if a == b {
-                        return Err("the two group values must differ".into());
+                        return Err(t("stats-roc-values-differ").into());
                     }
                     format!("LEVEL({} {})", value(a, by)?, value(b, by)?)
                 }
                 i if by => {
-                    return Err(format!(
-                        "{group} is a string; {} needs a numeric grouping variable",
-                        ROC_SELECTS[i].0
+                    return Err(t_args(
+                        "stats-roc-string-group",
+                        &[("name", group.into()), ("keyword", ROC_SELECTS[i].0.into())],
                     ));
                 }
-                CUTPOINT => format!("CUTPOINT({})", number(parse(&self.cut, "the cut point")?)),
+                CUTPOINT => format!(
+                    "CUTPOINT({})",
+                    number(parse(&self.cut, t("stats-roc-what-cut-point"))?)
+                ),
                 _ => "MIDPOINT".into(),
             };
             text.push_str(&format!("\n  /DESIGN GROUP={group} SELECT={select}"));

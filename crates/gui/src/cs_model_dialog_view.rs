@@ -205,7 +205,7 @@ pub fn sample_model(
         let options = if d.logistic { LOGISTIC_SAVE } else { GLM_SAVE };
         for (i, (_, label)) in options.iter().enumerate() {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut d.save[i], *label);
+                ui.checkbox(&mut d.save[i], crate::i18n::t(label));
                 ui.label(if d.logistic && i == 0 { "root" } else { "name" });
                 small_field(ui, d.save[i], &mut d.save_names[i]);
             });
