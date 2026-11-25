@@ -3497,7 +3497,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20[/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] | DIFFERENCE | HELMERT | REPEATED |\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20POLYNOMIAL[(metric)] | SPECIAL(matrix)] ... [/PARTITION(factor)[=(n, m*k ...)]] ...\n\
                  \x20\x20\x20[/PRINT | NOPRINT=[CELLINFO[(MEANS SSCP COV COR ALL)]] [HOMOGENEITY[(BARTLETT COCHRAN BOXM ALL)]]\n\
-                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[PARAMETERS[(ESTIM NEGSUM ORTHO COR EFSIZE ALL)]] [DESIGN[(OVERALL ONEWAY)]] [TRANSFORM]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[PARAMETERS[(ESTIM NEGSUM ORTHO COR EFSIZE ALL)]] [DESIGN[(OVERALL ONEWAY DECOMP COLLINEARITY)]] [TRANSFORM]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20[SIGNIF(MULTIV UNIV EIGEN DIMENR HYPOTH STEPDOWN BRIEF SINGLEDF AVERF AVONLY GG HF EFSIZE)]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20[ERROR[(SSCP COV COR STDDEV)]]]\n\
                  \x20\x20\x20[/OMEANS=[VARIABLES(varlist)] TABLES(factor [BY factor] | CONSTANT, ...)]\n\
@@ -3558,7 +3558,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  with standard error, t, Sig. and interval (ESTIM, default), NEGSUM (minus their sum), ORTHO\n\
                  (orthogonal estimates) or COR (their correlations). ERROR prints error matrices (COV, COR, STDDEV\n\
                  by default, or SSCP), TRANSFORM the transformation matrix, DESIGN the design matrix (OVERALL,\n\
-                 default) or ONEWAY bases. CELLINFO gives cell MEANS (default), SSCP, COV or COR; HOMOGENEITY gives\n\
+                 default), ONEWAY bases, DECOMP the upper triangular factor R of the weighted design (R'R = X'WX,\n\
+                 positive diagonal, a zero row for a redundant column) or COLLINEARITY the singular values of the\n\
+                 design with its columns scaled to unit length, their condition indexes and the share of each\n\
+                 parameter's variance that goes with each singular value. CELLINFO gives cell MEANS (default), SSCP, COV or COR; HOMOGENEITY gives\n\
                  BARTLETT, COCHRAN and BOXM (all by default).\n\
                  OMEANS gives weighted and unweighted means of the VARIABLES over the factors on TABLES; alone it\n\
                  gives cell means. PMEANS gives observed, adjusted and estimated cell means with residuals, and with\n\

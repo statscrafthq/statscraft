@@ -513,6 +513,92 @@ fn contrasts_partitions_and_the_constant() {
     check(&p, &[(SIG, "A(2)", "SS", 10.0910891453018)]);
 }
 
+/// The numbers of a table, row by row from the second column on; None for an empty cell.
+fn grid(table: &Table) -> Vec<Vec<Option<f64>>> {
+    let cell = |c: &Cell| match c {
+        Cell::Number(v) => Some(*v),
+        _ => None,
+    };
+    table
+        .rows
+        .iter()
+        .map(|r| r[1..].iter().map(cell).collect())
+        .collect()
+}
+
+// Groups of 2, 3 and 4 cases with deviation contrasts: the design rows are (1, 1, 0),
+// (1, 0, 1) and (1, -1, -1), so X'X = [[9, -2, -1], [-2, 6, 4], [-1, 4, 7]] by hand.
+#[test]
+fn design_decomposition_and_collinearity() {
+    let xtx = [[9.0, -2.0, -1.0], [-2.0, 6.0, 4.0], [-1.0, 4.0, 7.0]];
+    let print = "/PRINT=DESIGN(DECOMP COLLINEARITY) /DESIGN.";
+    let cases = run(&format!(
+        "DATA LIST FREE /g y.\nBEGIN DATA\n1 3 1 5 2 4 2 8 2 6 3 1 3 2 3 7 3 5\nEND DATA.\n\
+         MANOVA y BY g(1,3) {print}"
+    ));
+    // one weighted case per group is the same design
+    let weighted = run(&format!(
+        "DATA LIST FREE /g y w.\nBEGIN DATA\n1 4 2 2 6 3 3 4 4\nEND DATA.\nWEIGHT BY w.\n\
+         MANOVA y BY g(1,3) {print}"
+    ));
+    let find = |tables: &[Table], title: &str| {
+        let t = tables.iter().find(|t| t.title == title);
+        grid(t.unwrap_or_else(|| panic!("no {title}")))
+    };
+    let near = |a: &[Vec<Option<f64>>], b: &[Vec<Option<f64>>]| {
+        let flat = |m: &[Vec<Option<f64>>]| m.iter().flatten().copied().collect::<Vec<_>>();
+        let (a, b) = (flat(a), flat(b));
+        assert_eq!(a.len(), b.len());
+        for (x, y) in a.iter().zip(&b) {
+            match (x, y) {
+                (Some(x), Some(y)) => assert!((x - y).abs() < 1e-12, "{x} vs {y}"),
+                _ => assert_eq!(x, y),
+            }
+        }
+    };
+    let r = find(&cases, "Decomposition of the Design");
+    near(&r, &find(&weighted, "Decomposition of the Design"));
+    let at = |a: usize, b: usize| r[a][b].unwrap_or(0.0);
+    for a in 0..3 {
+        assert!(at(a, a) > 0.0);
+        for b in 0..a {
+            assert_eq!(r[a][b], None, "below the diagonal");
+        }
+        for b in 0..3 {
+            let rtr: f64 = (0..3).map(|i| at(i, a) * at(i, b)).sum();
+            assert!((rtr - xtx[a][b]).abs() < 1e-12, "{a} {b}: {rtr}");
+        }
+    }
+    // by hand: r11 = 3, r22 = sqrt(50) / 3, r23 = 34 / (3 sqrt(50)), r33 = sqrt(4.32)
+    let hand = [
+        (0, 0, 3.0),
+        (1, 1, 50f64.sqrt() / 3.0),
+        (1, 2, 34.0 / (3.0 * 50f64.sqrt())),
+    ];
+    for (a, b, v) in hand.into_iter().chain([(2, 2, 4.32f64.sqrt())]) {
+        assert!((at(a, b) - v).abs() < 1e-12, "{a} {b}");
+    }
+    let c = find(&cases, "Collinearity Diagnostics");
+    near(&c, &find(&weighted, "Collinearity Diagnostics"));
+    // the squared singular values are the eigenvalues of the scaled X'X: their sum is its
+    // trace 3 and their product its determinant
+    let scaled = |a: usize, b: usize| xtx[a][b] / (xtx[a][a] * xtx[b][b]).sqrt();
+    let det = 1.0 - scaled(0, 1).powi(2) - scaled(0, 2).powi(2) - scaled(1, 2).powi(2)
+        + 2.0 * scaled(0, 1) * scaled(0, 2) * scaled(1, 2);
+    let squares: Vec<f64> = c.iter().map(|row| row[0].unwrap().powi(2)).collect();
+    assert!((squares.iter().sum::<f64>() - 3.0).abs() < 1e-12);
+    assert!((squares.iter().product::<f64>() - det).abs() < 1e-12);
+    let largest = c[0][0].unwrap();
+    for row in &c {
+        let index = row[1].unwrap();
+        assert!((index - largest / row[0].unwrap()).abs() < 1e-12);
+    }
+    for t in 0..3 {
+        let total: f64 = c.iter().map(|row| row[2 + t].unwrap()).sum();
+        assert!((total - 1.0).abs() < 1e-12, "parameter {t}: {total}");
+    }
+}
+
 #[test]
 fn unsupported_parts_say_so() {
     for (source, words) in [

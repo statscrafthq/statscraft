@@ -1424,7 +1424,7 @@ impl Engine {
                 &cap(&error_name(default)),
             ));
         }
-        if pr.overall || pr.oneway {
+        if pr.overall || pr.oneway || pr.decomp || pr.collinearity {
             out.extend(design_tables(s, &x, &bases, pr, continuous, &cap(method))?);
         }
         if let Some((ea, dfe)) = &adjusted {
@@ -3163,6 +3163,81 @@ fn design_tables(
             Some(caption.to_string()),
         ));
     }
+    let parameters = || -> Vec<(String, String)> {
+        let mut columns = plain(&["Parameter"]);
+        columns.extend((1..=x.len()).map(|c| (String::new(), format!("{c}"))));
+        columns
+    };
+    if pr.decomp {
+        let r = upper_factor(&weighted_cross(s, x));
+        let rows = r
+            .iter()
+            .enumerate()
+            .map(|(a, row)| {
+                let mut cells = vec![text(format!("{}", a + 1))];
+                // below the diagonal is empty, as the factor is upper triangular
+                cells.extend(
+                    row.iter()
+                        .enumerate()
+                        .map(|(b, v)| if b < a { Cell::Empty } else { number(Some(*v)) }),
+                );
+                cells
+            })
+            .collect();
+        out.push(table(
+            "Decomposition of the Design",
+            1,
+            parameters(),
+            rows,
+            Some(caption.to_string()),
+        ));
+    }
+    if pr.collinearity {
+        let c = weighted_cross(s, x);
+        let k = c.len();
+        let scaled: Matrix = (0..k)
+            .map(|a| {
+                (0..k)
+                    .map(|b| {
+                        let d = (c[a][a] * c[b][b]).sqrt();
+                        if d > 0.0 { c[a][b] / d } else { 0.0 }
+                    })
+                    .collect()
+            })
+            .collect();
+        let pairs = crate::matrix::symmetric_eigen(&scaled);
+        let largest = pairs.first().map_or(f64::NAN, |p| p.0);
+        // a parameter's variance is the sum of v^2 / lambda over the dimensions
+        let phi: Vec<Vec<f64>> = pairs
+            .iter()
+            .map(|(lambda, v)| v.iter().map(|x| x * x / lambda).collect())
+            .collect();
+        let totals: Vec<f64> = (0..k).map(|t| phi.iter().map(|row| row[t]).sum()).collect();
+        let mut columns = plain(&["Dimension", "Singular Value", "Condition Index"]);
+        columns.extend((1..=k).map(|c| ("Variance Proportions".to_string(), format!("{c}"))));
+        let rows = pairs
+            .iter()
+            .enumerate()
+            .map(|(d, (lambda, _))| {
+                let mut row = vec![
+                    text(format!("{}", d + 1)),
+                    number(Some(lambda.max(0.0).sqrt())),
+                    number(Some((largest / lambda).sqrt()).filter(|v| v.is_finite())),
+                ];
+                row.extend(
+                    (0..k).map(|t| number(Some(phi[d][t] / totals[t]).filter(|v| v.is_finite()))),
+                );
+                row
+            })
+            .collect();
+        out.push(table(
+            "Collinearity Diagnostics",
+            1,
+            columns,
+            rows,
+            Some(caption.to_string()),
+        ));
+    }
     if pr.oneway {
         for (f, b) in s.factors.iter().zip(bases) {
             let mut columns = plain(&[&f.name]);
@@ -3186,6 +3261,39 @@ fn design_tables(
         }
     }
     Ok(out)
+}
+
+/// X'WX of the design columns over the cases, weighted.
+fn weighted_cross(s: &Setup, x: &[Vec<f64>]) -> Matrix {
+    let k = x.len();
+    let mut c = vec![vec![0.0; k]; k];
+    for (i, case) in s.cases.iter().enumerate() {
+        for a in 0..k {
+            for b in 0..k {
+                c[a][b] += case.w * x[a][i] * x[b][i];
+            }
+        }
+    }
+    c
+}
+
+/// The upper triangular R with R'R = `a` and a positive diagonal; a column that the earlier
+/// ones explain (redundant) gets a zero row.
+fn upper_factor(a: &Matrix) -> Matrix {
+    let k = a.len();
+    let mut r = vec![vec![0.0; k]; k];
+    for j in 0..k {
+        let s = a[j][j] - (0..j).map(|i| r[i][j] * r[i][j]).sum::<f64>();
+        if s <= 1e-10 * a[j][j].abs().max(f64::MIN_POSITIVE) {
+            continue;
+        }
+        r[j][j] = s.sqrt();
+        for l in j + 1..k {
+            let t = a[j][l] - (0..j).map(|i| r[i][j] * r[i][l]).sum::<f64>();
+            r[j][l] = t / r[j][j];
+        }
+    }
+    r
 }
 
 /// The design part of the fit of dependent row `row` for case `i`, from the swept columns.

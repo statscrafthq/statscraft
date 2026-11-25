@@ -107,9 +107,11 @@ pub struct ManovaPrint {
     pub efsize: bool,
     pub singledf: bool,
     pub transform: bool,
-    /// PRINT DESIGN(OVERALL) and DESIGN(ONEWAY).
+    /// PRINT DESIGN(OVERALL), DESIGN(ONEWAY), DESIGN(DECOMP) and DESIGN(COLLINEARITY).
     pub overall: bool,
     pub oneway: bool,
+    pub decomp: bool,
+    pub collinearity: bool,
     /// PARAMETERS(ORTHO) and PARAMETERS(COR).
     pub ortho: bool,
     pub param_cor: bool,
@@ -675,11 +677,13 @@ fn print(p: &mut Parser, on: bool, d: &mut ManovaDesign, m: &mut Manova) -> PRes
                     "ALL",
                 ],
             )?;
-            if let Some(k) = o.iter().find(|k| !["OVERALL", "ONEWAY"].contains(k)) {
+            let given = ["OVERALL", "ONEWAY", "DECOMP", "COLLINEARITY"];
+            if let Some(k) = o.iter().find(|k| !given.contains(k)) {
                 return Err(SyntaxError::new(
                     p.span_from(start),
                     format!(
-                        "PRINT DESIGN({k}) of MANOVA is not supported yet; OVERALL and ONEWAY are"
+                        "PRINT DESIGN({k}) of MANOVA is not supported yet; OVERALL, ONEWAY, DECOMP \
+                         and COLLINEARITY are"
                     ),
                 ));
             }
@@ -688,6 +692,12 @@ fn print(p: &mut Parser, on: bool, d: &mut ManovaDesign, m: &mut Manova) -> PRes
             }
             if o.contains(&"ONEWAY") {
                 d.print.oneway = on;
+            }
+            if o.contains(&"DECOMP") {
+                d.print.decomp = on;
+            }
+            if o.contains(&"COLLINEARITY") {
+                d.print.collinearity = on;
             }
         } else {
             return Err(p.unexpected(&[
