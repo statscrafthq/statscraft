@@ -4,7 +4,11 @@
 //! deleted), the scale statistics, the ANOVA with Tukey's nonadditivity, Hotelling's T-squared,
 //! the intraclass correlations (psych::ICC), the split-half statistics, Guttman's lambdas 1 to
 //! 6, the parallel model (the Box-corrected likelihood ratio chi-square of equal variances and
-//! covariances) and McDonald's omega by the manual's closed form with its item-deleted values.
+//! covariances) and McDonald's omega by the manual's closed form with its item-deleted values;
+//! then the item summaries (variances over all ordered pairs, as the manual's denominators
+//! have it), the strictly parallel model, the one-way intraclass correlations, Friedman's test
+//! (friedman.test) with Kendall's W on 24 people's ranks of four items, and Cochran's Q by its
+//! formula on 30 people's four pass or fail tasks.
 
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
@@ -329,4 +333,230 @@ fn omega_and_omega_if_deleted_follow_the_closed_form() {
             item,
         );
     }
+}
+
+/// 24 people ranking four items 1 to 4.
+const RANKS: &str = "DATA LIST FREE /r1 r2 r3 r4.
+BEGIN DATA
+3 2 1 4
+1 3 2 4
+1 2 3 4
+2 3 1 4
+4 2 1 3
+1 4 3 2
+1 3 2 4
+1 3 2 4
+2 1 4 3
+1 2 3 4
+3 2 1 4
+1 3 4 2
+4 3 2 1
+2 1 3 4
+1 3 2 4
+2 4 1 3
+2 1 3 4
+1 4 2 3
+2 1 4 3
+1 2 3 4
+2 3 1 4
+1 3 2 4
+3 2 1 4
+4 3 1 2
+END DATA.
+";
+
+/// 30 people on four pass (1) or fail (0) tasks.
+const TASKS: &str = "DATA LIST FREE /t1 t2 t3 t4.
+BEGIN DATA
+1 1 1 0
+1 0 0 0
+1 0 1 0
+1 0 0 0
+0 0 0 0
+0 1 0 1
+1 1 1 0
+1 0 0 0
+1 0 0 0
+1 0 0 1
+0 1 0 0
+1 0 1 0
+0 1 1 0
+0 1 0 1
+1 0 1 0
+1 0 0 0
+0 0 1 0
+0 1 1 1
+1 1 1 0
+1 1 1 0
+0 1 1 0
+1 1 1 0
+1 0 0 1
+0 1 1 0
+0 1 0 0
+1 1 0 1
+1 1 1 0
+1 0 1 1
+1 0 0 0
+1 1 0 0
+END DATA.
+";
+
+fn run_on(data: &str, syntax: &str) -> Vec<Table> {
+    let (commands, errors) = parse(&format!("{data}{syntax}"));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut tables = Vec::new();
+    for command in &commands {
+        tables.extend(engine.execute(&command.command).expect("runs"));
+    }
+    tables
+}
+
+#[test]
+fn item_summaries_strict_parallel_and_one_way_icc_agree_with_r() {
+    let t = run(
+        "RELIABILITY VARIABLES=i1 TO i5 /SUMMARY=MEANS VARIANCE COV CORR /STATISTICS=DESCRIPTIVES.",
+    );
+    // mean, minimum, maximum, range, maximum over minimum, variance of the item means,
+    // variances, covariances and correlations (the last two over the 20 ordered pairs)
+    let summary = table(&t, "Summary Item Statistics");
+    let want = [
+        [
+            3.297625,
+            2.98175,
+            4.369125,
+            1.387375,
+            1.465288840446,
+            0.362882359375,
+        ],
+        [
+            1.204799586538,
+            0.725629166667,
+            1.883146009615,
+            1.157516842949,
+            2.595190623698,
+            0.176306973689,
+        ],
+        [
+            0.5116882884615,
+            0.1697772115385,
+            0.72105,
+            0.5512727884615,
+            4.2470364159365,
+            0.0234357121702,
+        ],
+        [
+            0.4551442211341,
+            0.1154471348402,
+            0.6412279209493,
+            0.5257807861091,
+            5.5542991329917,
+            0.0225122789644,
+        ],
+    ];
+    for (row, want) in want.iter().enumerate() {
+        for (c, name) in [
+            "Mean",
+            "Minimum",
+            "Maximum",
+            "Range",
+            "Maximum / Minimum",
+            "Variance",
+        ]
+        .iter()
+        .enumerate()
+        {
+            near(
+                at(summary, row, name),
+                want[c],
+                &format!("summary row {row} {name}"),
+            );
+        }
+        near(at(summary, row, "N of Items"), 5.0, "items");
+    }
+    // the item means and standard deviations
+    let items = table(&t, "Item Statistics");
+    near(at(items, 4, "Mean"), 4.369125, "i5 mean");
+    near(at(items, 4, "Std. Deviation"), 1.372277672, "i5 sd");
+
+    // the strictly parallel model: the manual's formulas with the mean square within people
+    let t = run("RELIABILITY VARIABLES=i1 TO i5 /MODEL=STRICTPARALLEL.");
+    let fit = last_numbers(table(&t, "Test for Goodness of Fit"));
+    near(fit[0], 95.0789668229, "chi-square");
+    near(fit[1], 17.0, "df");
+    near(fit[3], -1.14136413344, "log determinant");
+    near(fit[4], 1.39706136478, "constrained log determinant");
+    let rel = last_numbers(table(&t, "Reliability Statistics"));
+    for (got, want, what) in [
+        (rel[0], 3.297625, "common mean"),
+        (rel[1], 1.49510547404, "common variance"),
+        (rel[2], 0.456439599038, "true variance"),
+        (rel[3], 1.038665875, "error variance"),
+        (rel[4], 0.293699557798, "common inter-item correlation"),
+        (rel[5], 0.675234036854, "reliability"),
+        (rel[6], 0.69959148409, "unbiased reliability"),
+    ] {
+        near(got, want, what);
+    }
+
+    // one-way random effects: 90% limits from the F quantiles, the test against 0.2
+    let t = run("RELIABILITY VARIABLES=i1 TO i5 /ICC=MODEL(ONEWAY) CIN=90 TESTVAL=0.2.");
+    let icc = table(&t, "Intraclass Correlation Coefficient");
+    let want = [
+        [
+            0.298787774156,
+            0.183311332251,
+            0.438915140821,
+            1.39133727801,
+            39.0,
+            160.0,
+            0.0810784981852,
+        ],
+        [
+            0.680563116169,
+            0.52880953776,
+            0.796388253817,
+            2.50440710041,
+            39.0,
+            160.0,
+            3.30260155552e-05,
+        ],
+    ];
+    for (row, want) in want.iter().enumerate() {
+        let got = &icc.rows[row];
+        for (c, w) in want.iter().enumerate() {
+            let Cell::Number(g) = got[c + 1] else {
+                panic!("{got:?}")
+            };
+            near(g, *w, &format!("icc row {row} column {c}"));
+        }
+    }
+}
+
+#[test]
+fn friedman_kendall_and_cochran_agree_with_r() {
+    // the values are ranks: friedman.test gives 18.6 on 3 df, and W = chi-square / (n (k - 1))
+    let t = run_on(
+        RANKS,
+        "RELIABILITY VARIABLES=r1 TO r4 /STATISTICS=ANOVA FRIEDMAN.",
+    );
+    let anova = table(&t, "ANOVA");
+    near(at(anova, 1, "Friedman's Chi-Square"), 18.6, "Friedman");
+    near(at(anova, 1, "Sig."), 0.000330721427364, "Friedman p");
+    let caption = anova.caption.clone().expect("caption");
+    let w: f64 = caption
+        .split("W = ")
+        .nth(1)
+        .and_then(|s| s.trim_end_matches('.').split(". ").next())
+        .and_then(|s| s.trim_end_matches('.').parse().ok())
+        .expect("W in the caption");
+    near(w, 0.258333333333, "Kendall's W");
+    // Cochran's Q = (k - 1) (k sum C^2 - T^2) / (k T - sum R^2)
+    let t = run_on(
+        TASKS,
+        "RELIABILITY VARIABLES=t1 TO t4 /STATISTICS=ANOVA COCHRAN.",
+    );
+    let anova = table(&t, "ANOVA");
+    near(at(anova, 1, "Cochran's Q"), 10.8979591837, "Cochran");
+    near(at(anova, 1, "Sig."), 0.0122906411447, "Cochran p");
 }
