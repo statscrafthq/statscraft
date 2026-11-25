@@ -272,6 +272,7 @@ fn glm_outfile_files_and_datasets() {
             covb: Some("c.sav".into()),
             corb: Some("corr".into()),
             hccovb: None,
+            effect: None,
             design: Some("d.sav".into()),
         })
     );
@@ -291,10 +292,16 @@ fn glm_outfile_files_and_datasets() {
             .message
             .contains("ROBUST")
     );
+    // EFFECT names the file of the between-subjects table
+    assert!(
+        glm("UNIANOVA y BY a /OUTFILE EFFECT('e.sav').")
+            .outfile
+            .is_some_and(|o| o.effect.as_deref() == Some("e.sav"))
+    );
     // a keyword is needed
     err("UNIANOVA y BY a /OUTFILE.");
     assert!(
-        err("UNIANOVA y BY a /OUTFILE EFFECT('e.sav').")
+        err("UNIANOVA y BY a /OUTFILE TRANSFORM('e.sav').")
             .expected
             .iter()
             .any(|e| e == "COVB")

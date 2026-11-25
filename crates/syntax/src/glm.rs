@@ -228,6 +228,8 @@ pub struct GlmOutfile {
     pub corb: Option<String>,
     /// The covariance matrix of the robust estimator of ROBUST.
     pub hccovb: Option<String>,
+    /// The Tests of Between-Subjects Effects table.
+    pub effect: Option<String>,
     pub design: Option<String>,
 }
 
@@ -1508,10 +1510,12 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
                     &mut out.corb
                 } else if p.eat_keyword("HCCOVB") {
                     &mut out.hccovb
+                } else if p.eat_keyword("EFFECT") {
+                    &mut out.effect
                 } else if p.eat_keyword("DESIGN") {
                     &mut out.design
                 } else {
-                    return Err(p.unexpected(&["COVB", "CORB", "HCCOVB", "DESIGN"]));
+                    return Err(p.unexpected(&["COVB", "CORB", "HCCOVB", "EFFECT", "DESIGN"]));
                 };
                 // COVB('file') as the manual writes it, or COVB=file
                 let target = if p.eat(Punct::LParen) {
@@ -1531,7 +1535,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
                 *slot = Some(target);
             }
             if out == GlmOutfile::default() {
-                return Err(p.unexpected(&["COVB", "CORB", "HCCOVB", "DESIGN"]));
+                return Err(p.unexpected(&["COVB", "CORB", "HCCOVB", "EFFECT", "DESIGN"]));
             }
             command.outfile = Some(out);
         } else {

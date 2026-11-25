@@ -3058,3 +3058,56 @@ fn outfile_hccovb_writes_the_robust_standard_errors() {
         }
     }
 }
+
+// EFFECT writes the Tests of Between-Subjects Effects as numbers, a record per row of the table
+// (the numbers of that table are checked against R above): the source in SOURCE_, then SS, DF, MS,
+// F and SIG, and with PRINT=ETASQ OPOWER also ETASQ, NONCENT and POWER. The cells a row has no
+// value for (the F of the error and of the totals) are missing.
+#[test]
+fn outfile_effect_writes_the_between_subjects_table() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DATA}\nDATASET DECLARE eff.\n\
+             UNIANOVA y BY a b WITH x /PRINT=ETASQ OPOWER /DESIGN=a b a*b x \
+             /OUTFILE EFFECT(eff)."
+        ),
+    );
+    let table = tables
+        .iter()
+        .find(|t| t.title == "Tests of Between-Subjects Effects")
+        .unwrap();
+    run(&mut engine, "DATASET ACTIVATE eff.");
+    let data = engine.dataset().unwrap();
+    assert_eq!(data.case_count(), table.rows.len());
+    let sources: Vec<String> = match data.variable("SOURCE_").unwrap().values() {
+        Values::String(v) => v.iter().map(|s| s.trim_end().to_string()).collect(),
+        Values::Numeric(_) => panic!("SOURCE_ is numeric"),
+    };
+    let keys = row_keys(table);
+    assert_eq!(sources, keys);
+    for (variable, column) in [
+        ("SS", "Type III Sum of Squares"),
+        ("DF", "df"),
+        ("MS", "Mean Square"),
+        ("F", "F"),
+        ("SIG", "Sig."),
+        ("ETASQ", "Partial Eta Squared"),
+        ("NONCENT", "Noncent. Parameter"),
+        ("POWER", "Observed Power"),
+    ] {
+        let written = values(&engine, variable);
+        for (r, key) in keys.iter().enumerate() {
+            match cell(&tables, "Tests of Between-Subjects Effects", key, column) {
+                Cell::Number(n) => assert!(close(written[r].unwrap(), *n), "{variable} of {key}"),
+                _ => assert_eq!(written[r], None, "{variable} of {key}"),
+            }
+        }
+    }
+    // the error has no F and the totals no mean square
+    let at = |name: &str| sources.iter().position(|s| s == name).unwrap();
+    assert_eq!(values(&engine, "F")[at("Error")], None);
+    assert!(values(&engine, "F")[at("a")].is_some());
+    assert_eq!(values(&engine, "MS")[at("Total")], None);
+}

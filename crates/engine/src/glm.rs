@@ -1283,6 +1283,45 @@ impl Engine {
             let part = self.matrix_part(name, &file)?;
             self.write_data_file(target, part)?;
         }
+        if let Some(target) = &out.effect {
+            // the Tests of Between-Subjects Effects as numbers: a record for every row of the
+            // table, the source in SOURCE_
+            let (table, _) = between_subjects(command, d, fit, &flags_of(command));
+            let mut part = Dataset::new(table.rows.len());
+            let sources: Vec<String> = table
+                .rows
+                .iter()
+                .map(|row| match &row[0] {
+                    Cell::Text(t) => t.clone(),
+                    _ => String::new(),
+                })
+                .collect();
+            let width = sources.iter().map(String::len).max().unwrap_or(1).max(8);
+            part.set_string_values("SOURCE_", width, sources)?;
+            for (c, column) in table.columns.iter().enumerate().skip(1) {
+                let (variable, label) = match column.as_str() {
+                    "df" => ("DF", "Degrees of freedom"),
+                    "Mean Square" => ("MS", "Mean square"),
+                    "F" => ("F", "F statistic"),
+                    "Sig." => ("SIG", "Significance of F"),
+                    "Partial Eta Squared" => ("ETASQ", "Partial eta squared"),
+                    "Noncent. Parameter" => ("NONCENT", "Noncentrality parameter"),
+                    "Observed Power" => ("POWER", "Observed power"),
+                    _ => ("SS", "Sum of squares"),
+                };
+                let values = table
+                    .rows
+                    .iter()
+                    .map(|row| match row[c] {
+                        Cell::Number(n) => Some(n),
+                        _ => None,
+                    })
+                    .collect();
+                part.set_numeric_values(variable, values)?;
+                part.set_variable_label(variable, Some(label))?;
+            }
+            self.write_data_file(target, part)?;
+        }
         if let Some(target) = &out.design {
             let mut part = Dataset::new(fit.x.len());
             for k in 0..size {
