@@ -1195,7 +1195,9 @@ impl Engine {
                 })
                 .collect();
             // under SPLIT FILE every group's cases are put in one file when all groups ran
-            if let Some(cases) = self.case_numbers.clone() {
+            if self.split_group.is_some()
+                && let Some(cases) = self.case_numbers.clone()
+            {
                 kept.push((file, cases, filled));
                 continue;
             }
