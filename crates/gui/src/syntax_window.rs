@@ -63,6 +63,8 @@ pub(crate) struct SyntaxWindow {
     /// The full help of a command, from F1.
     help: Option<String>,
     find: Option<Find>,
+    /// The find bar's text, options and replacement when it last closed.
+    last_find: (editor::Search, String),
     /// Scroll the editor to the selection in the next frame.
     reveal: bool,
 }
@@ -80,6 +82,7 @@ impl SyntaxWindow {
             completion: None,
             help: None,
             find: None,
+            last_find: Default::default(),
             reveal: false,
         }
     }
@@ -92,9 +95,10 @@ impl SyntaxWindow {
             self.selection.0.max(self.selection.1),
         );
         let selected: String = self.text.chars().skip(a).take(b - a).collect();
+        let last = &self.last_find;
         let find = self.find.get_or_insert_with(|| Find {
-            search: editor::Search::default(),
-            with: String::new(),
+            search: last.0.clone(),
+            with: last.1.clone(),
             replace: false,
             focus: true,
             note: None,
@@ -136,6 +140,7 @@ impl SyntaxWindow {
             return;
         };
         if step == FindStep::Close {
+            self.last_find = (find.search.clone(), find.with.clone());
             self.find = None;
             if let Some(id) = self.editor_id {
                 ctx.memory_mut(|m| m.request_focus(id));

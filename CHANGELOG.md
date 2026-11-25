@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- The syntax editor finds and replaces text: Ctrl+F opens a find bar and Ctrl+H a replace row, with Match case, Whole word, F3 for the next match and Replace all. See [the window](docs/window.md#find-and-replace).
+
 ## 0.46.0 (2026-11-25)
 
 Expressions read today's date and the page size, GLM names its saved variables per dependent variable, and MANOVA shows the decomposition and collinearity of its design.
