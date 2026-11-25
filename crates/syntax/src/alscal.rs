@@ -53,6 +53,21 @@ pub struct Alscal {
     pub plot: Option<bool>,
     pub outfile: Option<String>,
     pub matrix_in: Option<Option<String>>,
+    /// `/FILE`: the configuration and weights file the iterations start from.
+    pub file: Option<AlscalFile>,
+}
+
+/// `/FILE=file [CONFIG | ROWCONF] [SUBJWGHT]`: what is read from the configuration/weights file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlscalFile {
+    pub name: String,
+    /// The stimulus coordinates (TYPE_ CON or ROW) start the iterations.
+    pub config: bool,
+    /// The subject weights (TYPE_ SUB) start the weights of MODEL=INDSCAL.
+    pub weights: bool,
+    /// What to read was listed; if not, the model's default: the configuration and, for
+    /// INDSCAL, the subject weights.
+    pub listed: bool,
 }
 
 fn number_in_parens(p: &mut Parser, what: &str) -> PResult<f64> {
@@ -101,6 +116,7 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
         plot: None,
         outfile: None,
         matrix_in: None,
+        file: None,
     };
     let mut first = true;
     loop {
@@ -296,8 +312,42 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
                 return Err(p.unexpected(&["IN"]));
             }
             command.matrix_in = Some(matrix_source(p)?);
+        } else if p.eat_keyword("FILE") {
+            p.eat(Punct::Eq);
+            let name = crate::files::dataset_or_file(p)?;
+            let (mut config, mut weights, mut given) = (false, false, false);
+            while !at_end(p) {
+                let start = p.pos;
+                if p.eat_keyword("CONFIG") || p.eat_keyword("ROWCONF") {
+                    config = true;
+                } else if p.eat_keyword("SUBJWGHT") {
+                    weights = true;
+                } else {
+                    return Err(p.unexpected(&["CONFIG", "ROWCONF", "SUBJWGHT"]));
+                }
+                given = true;
+                if p.eat(Punct::LParen) {
+                    if p.eat_keyword("FIXED") {
+                        return Err(SyntaxError::new(
+                            p.span_from(start),
+                            "FIXED coordinates and weights in ALSCAL /FILE are not supported yet; INITIAL is",
+                        ));
+                    }
+                    if !p.eat_keyword("INITIAL") {
+                        return Err(p.unexpected(&["INITIAL", "FIXED"]));
+                    }
+                    p.expect(Punct::RParen)?;
+                }
+                p.eat(Punct::Comma);
+            }
+            command.file = Some(AlscalFile {
+                name,
+                config: config || !given,
+                weights,
+                listed: given,
+            });
         } else if matches!(p.peek(), Some(TokenKind::Word(_))) {
-            return Err(p.subcommand_error("ALSCAL", &["FILE"]));
+            return Err(p.subcommand_error("ALSCAL", &[]));
         } else {
             return Err(p.unexpected(&["VARIABLES"]));
         }

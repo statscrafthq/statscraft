@@ -228,7 +228,7 @@ mod xgraph;
 pub use adp::{Adp, AdpDuration, AdpLevels, AdpRescale};
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
 pub use aim::{Aim, AimImportance, MeasurementLevel, Ranking, Selectpred};
-pub use alscal::{Alscal, AlscalLevel};
+pub use alscal::{Alscal, AlscalFile, AlscalLevel};
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
 pub use bayes::{

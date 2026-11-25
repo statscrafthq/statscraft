@@ -237,3 +237,125 @@ fn matrix_input_takes_the_items_that_variables_names() {
     );
     assert_eq!(coordinates(&tables, "Stimulus Coordinates").len(), 5);
 }
+
+/// A starting configuration of 8 places that is not the default start: the iterations from it
+/// reach the minimum the oracle found for the default start (ratio level, two dimensions).
+#[test]
+fn a_configuration_file_starts_the_iterations() {
+    let config = "DATA LIST FREE /TYPE_ (A8) DIM1 DIM2.
+BEGIN DATA.
+CON 2 1
+CON -1 3
+CON 3 -2
+CON -2 1
+CON 1 1
+CON -3 -3
+CON 0 2
+CON 1 -1
+END DATA.
+DATASET NAME start.
+";
+    let tables = run(
+        &format!("{config}{PLACES}"),
+        &format!(
+            "ALSCAL VARIABLES=o1 TO o8 /LEVEL=RATIO /FILE=start CONFIG(INITIAL) /CRITERIA={TIGHT}."
+        ),
+    );
+    let got = sstress(&tables, "Iteration History");
+    assert!((got - 0.102447767905).abs() < 1e-9, "{got}");
+    // the same without naming the part to read: the model's default is the configuration
+    let again = run(
+        &format!("{config}{PLACES}"),
+        &format!("ALSCAL VARIABLES=o1 TO o8 /LEVEL=RATIO /FILE=start /CRITERIA={TIGHT}."),
+    );
+    assert!((sstress(&again, "Iteration History") - got).abs() < 1e-12);
+}
+
+/// The OUTFILE of a run is a file to start the next one from: at its minimum the first
+/// iteration does not move, so the S-stress is the same and few iterations are needed.
+#[test]
+fn the_outfile_of_a_run_starts_the_next_at_its_minimum() {
+    let mut engine = Engine::default();
+    let first = run_on(
+        &mut engine,
+        &format!(
+            "{PLACES}DATASET DECLARE conf.\nALSCAL VARIABLES=o1 TO o8 /LEVEL=RATIO /CRITERIA={TIGHT} /OUTFILE=conf.\n"
+        ),
+    );
+    let second = run_on(
+        &mut engine,
+        &format!("ALSCAL VARIABLES=o1 TO o8 /LEVEL=RATIO /FILE=conf /CRITERIA={TIGHT}."),
+    );
+    let (a, b) = (
+        sstress(&first, "Iteration History"),
+        sstress(&second, "Iteration History"),
+    );
+    assert!((a - b).abs() < 1e-12, "{a} {b}");
+    let steps = |t: &[Table]| table(t, "Iteration History").rows.len();
+    assert!(
+        steps(&second) < steps(&first),
+        "{} {}",
+        steps(&second),
+        steps(&first)
+    );
+}
+
+/// INDSCAL starts its weights from the SUB rows of the file too.
+#[test]
+fn the_outfile_of_indscal_gives_weights_as_well() {
+    let mut engine = Engine::default();
+    let first = run_on(
+        &mut engine,
+        &format!(
+            "{JUDGES}DATASET DECLARE conf.\nALSCAL VARIABLES=a1 TO a7 /LEVEL=RATIO /MODEL=INDSCAL /CRITERIA={TIGHT} /OUTFILE=conf.\n"
+        ),
+    );
+    let second = run_on(
+        &mut engine,
+        &format!(
+            "ALSCAL VARIABLES=a1 TO a7 /LEVEL=RATIO /MODEL=INDSCAL /FILE=conf CONFIG SUBJWGHT /CRITERIA={TIGHT}."
+        ),
+    );
+    let (a, b) = (
+        sstress(&first, "Iteration History"),
+        sstress(&second, "Iteration History"),
+    );
+    assert!((a - b).abs() < 1e-9, "{a} {b}");
+    let steps = |t: &[Table]| table(t, "Iteration History").rows.len();
+    assert!(
+        steps(&second) < steps(&first),
+        "{} {}",
+        steps(&second),
+        steps(&first)
+    );
+}
+
+#[test]
+fn a_configuration_file_is_checked() {
+    let fails = |source: &str| {
+        let (commands, errors) = parse(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut engine = Engine::default();
+        for command in &commands {
+            if let Err(e) = engine.execute(&command.command) {
+                return e.to_string();
+            }
+        }
+        panic!("no error");
+    };
+    let few = "DATA LIST FREE /TYPE_ (A8) DIM1 DIM2.\nBEGIN DATA.\nCON 1 2\nCON 3 4\nEND DATA.\nDATASET NAME few.\n";
+    assert!(
+        fails(&format!(
+            "{few}{PLACES}ALSCAL VARIABLES=o1 TO o8 /FILE=few."
+        ))
+        .contains("2 configuration rows")
+    );
+    let one =
+        "DATA LIST FREE /TYPE_ (A8) DIM1.\nBEGIN DATA.\nCON 1\nEND DATA.\nDATASET NAME one.\n";
+    assert!(
+        fails(&format!(
+            "{one}{PLACES}ALSCAL VARIABLES=o1 TO o8 /FILE=one."
+        ))
+        .contains("no variable DIM2")
+    );
+}

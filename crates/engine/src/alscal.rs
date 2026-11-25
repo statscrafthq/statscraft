@@ -36,7 +36,7 @@ use crate::npar_tests::text;
 use crate::plot::{Plot, Point, PointGroup};
 use crate::proxscal::{Reading, coordinates, space_chart, square};
 use crate::{Cell, Chart, Engine, Error, Table};
-use statscraft_data::Dataset;
+use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{Alscal, AlscalLevel, ProxShape};
 
 /// The data of the scaling: per subject the proximities and which pairs count.
@@ -560,7 +560,93 @@ fn finish(mut fit: Fit, indscal: bool) -> Fit {
     fit
 }
 
+/// The coordinates (n by p) and subject weights (m by p) a configuration/weights file gives.
+type FileStart = (Option<Matrix>, Option<Matrix>);
+
 impl Engine {
+    /// Reads the stimulus coordinates (rows whose TYPE_ starts with CON or ROW) and the subject
+    /// weights (SUB) for `p` dimensions from the file of an ALSCAL /FILE: the first `n` or `m`
+    /// such rows with a value for DIMp, which is the block an OUTFILE of `p` dimensions writes.
+    fn alscal_file(
+        &self,
+        file: &statscraft_syntax::AlscalFile,
+        n: usize,
+        m: usize,
+        p: usize,
+        indscal: bool,
+        warnings: &mut Vec<String>,
+    ) -> Result<FileStart, Error> {
+        let data = self.data_file(&file.name)?;
+        let who = "ALSCAL /FILE";
+        let kind = data
+            .variables()
+            .find(|v| v.name().eq_ignore_ascii_case("TYPE_") && v.is_string())
+            .ok_or_else(|| Error(format!("{who}: the file needs the string variable TYPE_")))?;
+        let dims: Vec<_> = (1..=p)
+            .map(|a| {
+                data.variable(&format!("DIM{a}")).map_err(|_| {
+                    Error(format!(
+                        "{who}: the file has no variable DIM{a}, and {p} dimensions are scaled"
+                    ))
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        let Values::String(types) = kind.values() else {
+            unreachable!("TYPE_ is a string");
+        };
+        let rows_of = |prefixes: &[&str]| -> Vec<Vec<f64>> {
+            (0..data.case_count())
+                .filter(|&c| {
+                    let t = types.get(c).trim().to_uppercase();
+                    prefixes.iter().any(|x| t.starts_with(x))
+                })
+                .filter_map(|c| {
+                    dims.iter()
+                        .map(|v| match v.values() {
+                            Values::Numeric(values) => values.get(c),
+                            Values::String(_) => None,
+                        })
+                        .collect::<Option<Vec<f64>>>()
+                })
+                .collect()
+        };
+        let config = if file.config {
+            let rows = rows_of(&["CON", "ROW"]);
+            if rows.len() < n {
+                return Err(Error(format!(
+                    "{who}: the file has {} configuration rows (TYPE_ CON or ROW) with {p} dimensions, and {n} stimuli are scaled",
+                    rows.len()
+                )));
+            }
+            Some(rows[..n].to_vec())
+        } else {
+            None
+        };
+        let wants_weights = file.weights || (!file.listed && indscal);
+        let weights = if wants_weights && indscal {
+            let rows = rows_of(&["SUB"]);
+            if rows.len() >= m {
+                Some(rows[..m].to_vec())
+            } else if file.weights {
+                return Err(Error(format!(
+                    "{who}: the file has {} subject weight rows (TYPE_ SUB) with {p} dimensions, and there are {m} matrices",
+                    rows.len()
+                )));
+            } else {
+                warnings
+                    .push("ALSCAL: the file has no subject weights; the weights start at 1".into());
+                None
+            }
+        } else {
+            if file.weights {
+                warnings
+                    .push("ALSCAL: subject weights are used by MODEL=INDSCAL only; ignored".into());
+            }
+            None
+        };
+        Ok((config, weights))
+    }
+
     pub(crate) fn alscal(&mut self, command: &Alscal) -> Result<Vec<Table>, Error> {
         let input = self.proximity_input(&Reading {
             who: "ALSCAL",
@@ -656,15 +742,22 @@ impl Engine {
             ..command.clone()
         };
         let mut fits: Vec<(usize, Fit)> = Vec::new();
+        // the configuration and weights file, for the largest dimensionality
+        let given = match &command.file {
+            Some(file) => Some(self.alscal_file(file, n, m, max_dim, indscal, &mut warnings)?),
+            None => None,
+        };
         for p in (min_dim..=max_dim).rev() {
-            let x = match fits.last() {
-                None => start(&data, p),
-                Some((_, previous)) => previous.x.iter().map(|r| r[..p].to_vec()).collect(),
+            let x = match (fits.last(), &given) {
+                (None, Some((Some(x), _))) => x.clone(),
+                (None, _) => start(&data, p),
+                (Some((_, previous)), _) => previous.x.iter().map(|r| r[..p].to_vec()).collect(),
             };
-            let w = match fits.last() {
-                Some((_, previous)) if indscal => {
+            let w = match (fits.last(), &given) {
+                (Some((_, previous)), _) if indscal => {
                     previous.w.iter().map(|w| w[..p].to_vec()).collect()
                 }
+                (None, Some((_, Some(w)))) => w.clone(),
                 _ => vec![vec![1.0; p]; m],
             };
             let fit = finish(iterate(&data, &run, x, w), indscal);

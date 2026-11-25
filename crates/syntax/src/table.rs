@@ -2991,7 +2991,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/LEVEL=ORDINAL[([UNTIE] [SIMILAR])] | INTERVAL[(1..4)] | RATIO[(1..4)] | NOMINAL]\n\
                  \x20  [/CONDITION=MATRIX | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL]\n\
                  \x20  [/CRITERIA=[NEGATIVE] [CUTOFF(0)] [CONVERGE(.001)] [ITER(30)] [STRESSMIN(.005)] [DIMENS(2[,max])]]\n\
-                 \x20  [/PRINT=[DATA] [HEADER]] [/PLOT[=DEFAULT | ALL]] [/OUTFILE='file' | dataset].\n\
+                 \x20  [/PRINT=[DATA] [HEADER]] [/PLOT[=DEFAULT | ALL]] [/OUTFILE='file' | dataset]\n\
+                 \x20  [/FILE='file' | dataset [CONFIG | ROWCONF] [SUBJWGHT] [(INITIAL)]].\n\
                  Each case is a row of a square matrix of dissimilarities and each variable a column; only the\n\
                  triangle below the diagonal is read, and more cases than variables hold one matrix per subject.\n\
                  MATRIX=IN reads a matrix file of PROXIMITIES or CLUSTER instead, VARIABLES picking its items; a\n\
@@ -3017,7 +3018,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  gives the configuration, the subject weights, the linear fit (disparities against distances), the\n\
                  nonlinear fit (data against distances) for ORDINAL and NOMINAL and the transformation (data against\n\
                  disparities), with ALL one per matrix. OUTFILE writes TYPE_ (CON for coordinates, SUB for subject\n\
-                 weights), DIMENS, MATNUM (0 for coordinates) and DIM1, DIM2, ... for every dimensionality.",
+                 weights), DIMENS, MATNUM (0 for coordinates) and DIM1, DIM2, ... for every dimensionality. FILE\n\
+                 reads such a file (or any with TYPE_, DIM1, DIM2, ...) to start the iterations from: the first rows\n\
+                 of TYPE_ CON or ROW with a value in the last dimension, one for each stimulus, are the starting\n\
+                 coordinates of the largest dimensionality, and with MODEL=INDSCAL the TYPE_ SUB rows, one for each\n\
+                 matrix, the starting weights (they are read when SUBJWGHT is listed, or when nothing is listed). The\n\
+                 words may be cut to three letters; only INITIAL is supported, not FIXED.",
         example: "ALSCAL VARIABLES=s1 TO s9 /LEVEL=ORDINAL /CRITERIA=DIMENS(2,3) /PLOT.",
         parse: alscal::alscal,
     },

@@ -712,11 +712,35 @@ fn alscal_defaults_and_keywords() {
 }
 
 #[test]
+fn alscal_file() {
+    assert_eq!(alscal("ALSCAL VARIABLES=a b c d.").file, None);
+    let f = alscal("ALSCAL VARIABLES=a b c d /FILE=start.")
+        .file
+        .unwrap();
+    assert_eq!(
+        (f.name.as_str(), f.config, f.weights, f.listed),
+        ("start", true, false, false)
+    );
+    let f = alscal("ALSCAL VARIABLES=a b c d /FILE='s.sav' CONFIG(INITIAL) SUBJWGHT.")
+        .file
+        .unwrap();
+    assert_eq!(
+        (f.name.as_str(), f.config, f.weights, f.listed),
+        ("s.sav", true, true, true)
+    );
+    let f = alscal("ALSCAL VARIABLES=a b c d /FILE=start SUBJWGHT.")
+        .file
+        .unwrap();
+    assert!(!f.config && f.weights);
+}
+
+#[test]
 fn alscal_errors() {
     assert!(err("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC.").contains("not supported"));
     assert!(err("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL.").contains("not supported"));
     assert!(err("ALSCAL VARIABLES=a b c d /CONDITION=ROW.").contains("not supported"));
-    assert!(err("ALSCAL VARIABLES=a b c d /FILE=start.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /FILE=start CONFIG(FIXED).").contains("FIXED"));
+    assert!(err("ALSCAL VARIABLES=a b c d /FILE=start STIMWGHT.").contains("STIMWGHT"));
     assert!(err("ALSCAL VARIABLES=a b c d /LEVEL=RATIO(5).").contains("1 to 4"));
     assert!(err("ALSCAL VARIABLES=a b c d /CRITERIA=DIMENS(7).").contains("1 to 6"));
     assert!(
