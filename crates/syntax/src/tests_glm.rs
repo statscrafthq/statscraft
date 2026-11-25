@@ -264,6 +264,32 @@ fn glm_methods_criteria_and_matrices() {
 }
 
 #[test]
+fn glm_outfile_files_and_datasets() {
+    let g = glm("UNIANOVA y BY a /OUTFILE COVB('c.sav') CORB(corr) DESIGN='d.sav'.");
+    assert_eq!(
+        g.outfile,
+        Some(GlmOutfile {
+            covb: Some("c.sav".into()),
+            corb: Some("corr".into()),
+            design: Some("d.sav".into()),
+        })
+    );
+    assert!(
+        err("UNIANOVA y BY a /OUTFILE COVB('a.sav') COVB('b.sav').")
+            .message
+            .contains("only once")
+    );
+    // a keyword is needed
+    err("UNIANOVA y BY a /OUTFILE.");
+    assert!(
+        err("UNIANOVA y BY a /OUTFILE EFFECT('e.sav').")
+            .expected
+            .iter()
+            .any(|e| e == "COVB")
+    );
+}
+
+#[test]
 fn glm_errors() {
     for (source, message) in [
         (

@@ -1097,6 +1097,13 @@ impl Engine {
                 "{name}: ROBUST applies to a model with one dependent variable and is ignored"
             ));
         }
+        if command.outfile.is_some()
+            && (dependents.len() > 1 || !command.wsfactors.is_empty() || !command.random.is_empty())
+        {
+            return Err(Error(format!(
+                "{name}: OUTFILE is for a model with one dependent variable, without WSFACTOR and RANDOM"
+            )));
+        }
         let label_of = |f: usize, l: usize| level_texts[f][l].clone();
         let dependent_texts: Vec<String> = dep_vars.iter().map(|v| shown.variable(v)).collect();
         let mut tables = Vec::new();
@@ -1163,6 +1170,9 @@ impl Engine {
             if !command.save.is_empty() {
                 self.save_glm(command, &d, &fit, &dependents[0], cases)?;
             }
+            if let Some(out) = &command.outfile {
+                self.glm_outfile(name, out, &d, &fit, &dependent_texts[0])?;
+            }
         }
         // the dependents of the multivariate model repeat the same warnings
         let mut seen = std::collections::HashSet::new();
@@ -1171,6 +1181,86 @@ impl Engine {
             self.warn(w);
         }
         Ok(tables)
+    }
+
+    /// OUTFILE: the covariance (COVB) or correlation (CORB) matrix of the parameters, with the
+    /// estimates, standard errors, residual degrees of freedom and significances, and the
+    /// design matrix (DESIGN, one row per case used and a column DES_k per parameter).
+    fn glm_outfile(
+        &mut self,
+        name: &str,
+        out: &statscraft_syntax::GlmOutfile,
+        d: &Data,
+        fit: &Fit,
+        dependent: &str,
+    ) -> Result<(), Error> {
+        if self.split_group.is_some() {
+            return Err(Error(format!(
+                "{name}: OUTFILE is not available under SPLIT FILE"
+            )));
+        }
+        let names: Vec<String> = fit
+            .effects
+            .iter()
+            .flat_map(|e| e.cells.iter().map(move |cell| parameter_name(d, e, cell)))
+            .collect();
+        let size = fit.p;
+        let dfe = fit.df_error();
+        let mse = fit.s[0][0] / dfe;
+        let estimated: Vec<usize> = (0..size).filter(|&j| !fit.redundant[j]).collect();
+        let columns: Vec<String> = (1..=size).map(|k| format!("P{k}")).collect();
+        let labels: Vec<Option<String>> = names.iter().cloned().map(Some).collect();
+        for (target, correlations) in [(&out.covb, false), (&out.corb, true)] {
+            let Some(target) = target else {
+                continue;
+            };
+            let mut file = crate::matrix_file::MatrixRows::new(columns.clone(), labels.clone());
+            for &j in &estimated {
+                let mut row = vec![f64::NAN; size];
+                for &l in &estimated {
+                    row[l] = if correlations {
+                        fit.ginv[j][l] / (fit.ginv[j][j] * fit.ginv[l][l]).sqrt()
+                    } else {
+                        mse * fit.ginv[j][l]
+                    };
+                }
+                file.push(if correlations { "CORR" } else { "COV" }, &names[j], row);
+            }
+            let mut estimate = vec![f64::NAN; size];
+            let mut error = vec![f64::NAN; size];
+            let mut freedom = vec![f64::NAN; size];
+            let mut significance = vec![f64::NAN; size];
+            for j in 0..size {
+                if fit.redundant[j] {
+                    estimate[j] = 0.0;
+                    continue;
+                }
+                let b = fit.b[j][0];
+                let se = (mse * fit.ginv[j][j]).sqrt();
+                estimate[j] = b;
+                error[j] = se;
+                freedom[j] = dfe;
+                significance[j] = t_p(b / se, dfe);
+            }
+            file.push("EST", dependent, estimate);
+            file.push("SE", dependent, error);
+            file.push("DF", dependent, freedom);
+            file.push("SIG", dependent, significance);
+            let part = self.matrix_part(name, &file)?;
+            self.write_data_file(target, part)?;
+        }
+        if let Some(target) = &out.design {
+            let mut part = Dataset::new(fit.x.len());
+            for k in 0..size {
+                let column = fit.x.iter().map(|row| Some(row[k])).collect();
+                let variable = format!("DES_{}", k + 1);
+                part.set_numeric_values(&variable, column)?;
+                part.set_format(&variable, "F10.4")?;
+                part.set_variable_label(&variable, Some(&names[k]))?;
+            }
+            self.write_data_file(target, part)?;
+        }
+        Ok(())
     }
 
     fn save_glm(

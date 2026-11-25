@@ -217,6 +217,16 @@ pub struct Glm {
     /// `/ROBUST=HCn`: the heteroskedasticity-consistent covariance, n from 0 to 4 (3 when
     /// none is named; the last ROBUST counts).
     pub robust: Option<u8>,
+    pub outfile: Option<GlmOutfile>,
+}
+
+/// OUTFILE: the files for the covariance matrix of the parameters (COVB), their correlation
+/// matrix (CORB) and the design matrix (DESIGN), each a file or a dataset.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GlmOutfile {
+    pub covb: Option<String>,
+    pub corb: Option<String>,
+    pub design: Option<String>,
 }
 
 /// A plot of PLOT.
@@ -1259,7 +1269,7 @@ fn wsfactors(p: &mut Parser) -> PResult<Vec<WsFactor>> {
     Ok(out)
 }
 
-const SUBCOMMANDS_LATER: [&str; 5] = ["OUTFILE", "MEASURE", "SPLIT", "PLOT", "CONTRAST"];
+const SUBCOMMANDS_LATER: [&str; 4] = ["MEASURE", "SPLIT", "PLOT", "CONTRAST"];
 
 /// `UNIANOVA ...` and `GLM ...`.
 pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command> {
@@ -1304,6 +1314,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         mbp_design: None,
         bp_design: None,
         f_design: None,
+        outfile: None,
     };
     while p.eat(Punct::Slash) {
         if p.eat_keyword("METHOD") {
@@ -1484,6 +1495,41 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
                 }
             }
             command.robust = Some(level);
+        } else if p.eat_keyword("OUTFILE") {
+            p.eat(Punct::Eq);
+            let mut out = GlmOutfile::default();
+            while !at_end(p) {
+                let at = p.pos;
+                let slot = if p.eat_keyword("COVB") {
+                    &mut out.covb
+                } else if p.eat_keyword("CORB") {
+                    &mut out.corb
+                } else if p.eat_keyword("DESIGN") {
+                    &mut out.design
+                } else {
+                    return Err(p.unexpected(&["COVB", "CORB", "DESIGN"]));
+                };
+                // COVB('file') as the manual writes it, or COVB=file
+                let target = if p.eat(Punct::LParen) {
+                    let target = crate::files::dataset_or_file(p)?;
+                    p.expect(Punct::RParen)?;
+                    target
+                } else {
+                    p.eat(Punct::Eq);
+                    crate::files::dataset_or_file(p)?
+                };
+                if slot.is_some() {
+                    return Err(SyntaxError::new(
+                        p.span_from(at),
+                        "each keyword of OUTFILE is given only once",
+                    ));
+                }
+                *slot = Some(target);
+            }
+            if out == GlmOutfile::default() {
+                return Err(p.unexpected(&["COVB", "CORB", "DESIGN"]));
+            }
+            command.outfile = Some(out);
         } else {
             let mut later: Vec<&str> = SUBCOMMANDS_LATER.to_vec();
             later.retain(|s| *s != "PLOT" && *s != "CONTRAST");

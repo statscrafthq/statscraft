@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [UNIANOVA](docs/commands/unianova.md) and GLM with one dependent variable write the parameter covariance matrix (`/OUTFILE COVB`), their correlation matrix (`CORB`) and the design matrix (`DESIGN`) to files or datasets.
+
 - [GENLIN](docs/commands/genlin.md) writes the covariance or correlation matrix of its parameters with the estimates, standard errors, significances and degrees of freedom to a file or a dataset (`/OUTFILE COVB=` or `CORB=`), and `/CRITERIA INITIAL=` reads start values from such a file or dataset, group by group under SPLIT FILE, as well as from numbers.
 - [STRING](docs/commands/string.md) also writes the custom currency formats CCA to CCE, as SET defines them.
 - CURVEFIT and WLS take /APPLY: the previous command's specifications run again on the same or new variables, with the changes the new command gives.

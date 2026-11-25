@@ -2866,3 +2866,112 @@ fn profile_plots_with_measures_have_a_chart_for_each() {
         assert!((got - want).abs() < 1e-8, "{got} vs {want}");
     }
 }
+
+// OUTFILE writes the covariance (COVB) and correlation (CORB) matrix of the parameters with the
+// estimates, standard errors, residual degrees of freedom and significances, and the design
+// matrix (DESIGN): the numbers are those of the Parameter Estimates table, the diagonal of the
+// covariance matrix is the squared standard errors, and the design columns are the intercept,
+// the covariate and the dummy variables of the factor.
+#[test]
+fn outfile_writes_covariances_correlations_and_the_design_matrix() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DATA}\nDATASET DECLARE covb.\nDATASET DECLARE corb.\nDATASET DECLARE des.\n\
+             UNIANOVA y BY a WITH x /PRINT=PARAMETER /DESIGN=a x \
+             /OUTFILE COVB(covb) CORB(corb) DESIGN(des)."
+        ),
+    );
+    let keys = row_keys(
+        tables
+            .iter()
+            .find(|t| t.title == "Parameter Estimates")
+            .unwrap(),
+    );
+    let pe = |row: &str, column: &str| number(cell(&tables, "Parameter Estimates", row, column));
+    let text = |engine: &Engine, name: &str| -> Vec<String> {
+        let data = engine.dataset().unwrap();
+        match data.variable(name).unwrap().values() {
+            Values::String(v) => (0..data.case_count())
+                .map(|k| v.get(k).trim_end().to_string())
+                .collect(),
+            Values::Numeric(_) => panic!("{name} is not a string"),
+        }
+    };
+    run(&mut engine, "DATASET ACTIVATE covb.");
+    let kinds = text(&engine, "ROWTYPE_");
+    // the intercept, the three levels of a (the last redundant) and x: five parameters
+    let size = keys.len();
+    assert_eq!(size, 5, "{keys:?}");
+    let covered = size - 1;
+    assert_eq!(kinds[..covered], vec!["COV"; covered]);
+    assert_eq!(kinds[covered..], ["EST", "SE", "DF", "SIG"]);
+    let columns: Vec<Vec<Option<f64>>> = (1..=size)
+        .map(|k| values(&engine, &format!("P{k}")))
+        .collect();
+    for (j, key) in keys.iter().enumerate() {
+        let redundant = key.contains("redundant");
+        if redundant {
+            assert_eq!(
+                columns[j][covered],
+                Some(0.0),
+                "the redundant estimate is 0"
+            );
+            assert!(columns[j][..covered].iter().all(Option::is_none));
+            continue;
+        }
+        let name = key.as_str();
+        assert!(
+            close(columns[j][covered].unwrap(), pe(name, "B")),
+            "{name} estimate"
+        );
+        let se = columns[j][covered + 1].unwrap();
+        assert!(close(se, pe(name, "Std. Error")), "{name} standard error");
+        // 40 cases less the 4 estimated parameters
+        assert!(
+            close(columns[j][covered + 2].unwrap(), 36.0),
+            "{name} error df"
+        );
+        assert!(
+            close(columns[j][covered + 3].unwrap(), pe(name, "Sig.")),
+            "{name} significance"
+        );
+    }
+    // the variance of an estimate is its squared standard error
+    let estimated: Vec<usize> = (0..size)
+        .filter(|&j| !keys[j].contains("redundant"))
+        .collect();
+    for (row, &j) in estimated.iter().enumerate() {
+        let variance = columns[j][row].unwrap();
+        let se = columns[j][covered + 1].unwrap();
+        assert!(close(variance, se * se), "variance {j}");
+    }
+    run(&mut engine, "DATASET ACTIVATE corb.");
+    for (row, &j) in estimated.iter().enumerate() {
+        let one = values(&engine, &format!("P{}", j + 1))[row].unwrap();
+        assert!(close(one, 1.0), "correlation of {j} with itself");
+    }
+    // the design matrix: 40 cases, the intercept, x, the dummies of a
+    run(&mut engine, "DATASET ACTIVATE des.");
+    let intercept = values(&engine, "DES_1");
+    assert_eq!(intercept.len(), 40);
+    assert!(intercept.iter().all(|v| *v == Some(1.0)));
+}
+
+#[test]
+fn outfile_is_for_one_dependent_without_random_and_not_under_split_file() {
+    let message = run_error(&format!(
+        "{DATA}\nDATASET DECLARE c.\nGLM y x BY a /OUTFILE COVB(c)."
+    ));
+    assert!(message.contains("one dependent variable"), "{message}");
+    let message = run_error(&format!(
+        "{DATA}\nDATASET DECLARE c.\nUNIANOVA y BY a b /RANDOM=b /OUTFILE COVB(c)."
+    ));
+    assert!(message.contains("RANDOM"), "{message}");
+    let message = run_error(&format!(
+        "{DATA}\nDATASET DECLARE c.\nSORT CASES BY b.\nSPLIT FILE BY b.\n\
+         UNIANOVA y BY a /OUTFILE COVB(c)."
+    ));
+    assert!(message.contains("SPLIT FILE"), "{message}");
+}

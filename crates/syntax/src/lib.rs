@@ -302,8 +302,8 @@ pub use ggraph::{
     read_gpl,
 };
 pub use glm::{
-    Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, GlmTest,
-    GlmTestError, LMatrix, LRow, MColumn, Profile, RefCat, Term, WsFactor,
+    Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmOutfile, GlmPlot, GlmPrint,
+    GlmTemp, GlmTest, GlmTestError, LMatrix, LRow, MColumn, Profile, RefCat, Term, WsFactor,
 };
 pub use graph::{
     Graph, GraphChart, GraphData, GraphFunction, GraphInterval, GraphPanel, GraphSummary,

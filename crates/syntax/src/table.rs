@@ -4655,6 +4655,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20[/ROBUST[=HC0 | HC1 | HC2 | HC3 | HC4]] [/RANDOM=factors]\n\
                  \x20\x20\x20[/MBPDESIGN[=effects]] [/BPDESIGN[=effects]] [/FDESIGN[=effects]]\n\
                  \x20\x20\x20[/SAVE=tempvar[(name)] ...]\n\
+                 \x20\x20\x20[/OUTFILE=[COVB('file' | dataset)] [CORB('file' | dataset)] [DESIGN('file' | dataset)]]\n\
                  \x20\x20\x20[/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...\n\
                  The command fits a general linear model to one dependent variable: analysis of variance with factors\n\
@@ -4696,7 +4697,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  or FDESIGN (bare: the effects of DESIGN); WHITE uses every column, square and cross product of the\n\
                  design.\n\
                  SAVE adds variables to the data: PRED WPRED RESID WRESID DRESID ZRESID SRESID SEPRED COOK LEVER,\n\
-                 named PRE_1, RES_1 and so on unless a name is given. PLOT gives chart data. PROFILE draws the\n\
+                 named PRE_1, RES_1 and so on unless a name is given. OUTFILE writes files for one dependent variable\n\
+                 without RANDOM, not under SPLIT FILE, each to a .sav file or a dataset made with DATASET DECLARE (a\n\
+                 different one for each keyword): COVB the parameter covariance matrix and CORB their correlation\n\
+                 matrix, as RowType_ (COV or CORR), VarName_ and a column P1, P2, ... for every parameter in the order\n\
+                 of the Parameter Estimates (a redundant one blank), with a record per estimated parameter and then\n\
+                 the records EST (the estimates, a redundant one 0), SE, DF (the error degrees of freedom) and SIG\n\
+                 (the significance of t), named by the dependent variable; DESIGN the design matrix of the cases used,\n\
+                 one variable DES_1, DES_2, ... for each parameter. PLOT gives chart data. PROFILE draws the\n\
                  estimated marginal means over the levels of the first factor, one line per level of a second\n\
                  factor and one chart per level of a third (TYPE=BAR for bars); MEANREFERENCE adds the grand mean,\n\
                  ERRORBAR=CI the confidence intervals at 1 minus ALPHA, and SE(n) n standard errors (2 by\n\
