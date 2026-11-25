@@ -26,6 +26,12 @@ struct Saved {
     pplot: Option<Box<Pplot>>,
 }
 
+/// A command with its APPLY name taken out, and the previous models from before.
+pub(crate) struct Renamed {
+    pub(crate) command: Command,
+    pub(crate) before: (Models, Option<Box<Pplot>>),
+}
+
 /// The kind of model a command makes, and the name its APPLY gives.
 fn family(command: &Command) -> Option<(&'static str, Option<&str>)> {
     fn named(apply: &Option<Option<String>>) -> Option<&str> {
@@ -100,8 +106,9 @@ impl Models {
 
 impl Engine {
     /// For `APPLY 'name'`: makes the named model the previous one of its kind and returns the
-    /// command as a plain APPLY. None for any other command.
-    pub(crate) fn named_apply(&mut self, command: &Command) -> Result<Option<Command>, Error> {
+    /// command as a plain APPLY, with the previous models to put back should the command fail.
+    /// None for any other command.
+    pub(crate) fn named_apply(&mut self, command: &Command) -> Result<Option<Renamed>, Error> {
         let Some((family, Some(name))) = family(command) else {
             return Ok(None);
         };
@@ -118,11 +125,20 @@ impl Engine {
                 saved.name, saved.family
             )));
         }
+        let before = (self.ts_models.clone(), self.pplot_model.clone());
         self.ts_models.restore(&saved.models, family);
         if family == "PPLOT" {
             self.pplot_model.clone_from(&saved.pplot);
         }
-        Ok(Some(unnamed(command)))
+        Ok(Some(Renamed {
+            command: unnamed(command),
+            before,
+        }))
+    }
+
+    /// A command that failed leaves the previous models as they were before its APPLY 'name'.
+    pub(crate) fn undo_named_apply(&mut self, before: (Models, Option<Box<Pplot>>)) {
+        (self.ts_models, self.pplot_model) = before;
     }
 
     /// Gives the model `command` just made the next name.

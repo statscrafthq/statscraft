@@ -1152,11 +1152,13 @@ impl Engine {
             });
         }
         self.program_fault.set(false);
-        let renamed = self.named_apply(command)?;
-        let command = renamed.as_ref().unwrap_or(command);
+        let mut renamed = self.named_apply(command)?;
+        let command = renamed.as_ref().map_or(command, |r| &r.command);
         let tables = self.execute_command(command);
         if tables.is_ok() {
             self.name_model(command);
+        } else if let Some(r) = renamed.take() {
+            self.undo_named_apply(r.before);
         }
         if runs_program {
             let program = self.running_program.take();

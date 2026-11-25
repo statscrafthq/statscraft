@@ -926,6 +926,24 @@ fn curvefit_apply_a_named_model() {
     same_tables(&applied.tables, &direct.tables);
 }
 
+/// A named APPLY that fails leaves the previous model as it was.
+#[test]
+fn a_failed_named_apply_keeps_the_previous_model() {
+    let source = "CURVEFIT y /MODEL=LINEAR /PLOT=NONE.\nCURVEFIT y /MODEL=CUBIC /PLOT=NONE.\n\
+                  CURVEFIT nosuch /APPLY 'MOD_1'.\n";
+    let (commands, errors) = parse(&format!("{SERIES}{source}CURVEFIT x /APPLY."));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut last = Vec::new();
+    for command in &commands {
+        if let Ok(tables) = engine.execute(&command.command) {
+            last = tables;
+        }
+    }
+    let direct = run(SERIES, "CURVEFIT x /MODEL=CUBIC /PLOT=NONE.");
+    same_tables(&last, &direct.tables);
+}
+
 #[test]
 fn a_named_model_must_exist_and_be_of_the_command() {
     let message = error(SERIES, "CURVEFIT y /MODEL=LINEAR.\nCURVEFIT APPLY 'MOD_7'.");
