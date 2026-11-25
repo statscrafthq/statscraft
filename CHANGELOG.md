@@ -6,10 +6,11 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [UNIANOVA](docs/commands/unianova.md) and GLM write the robust covariance matrix of `/ROBUST` with `/OUTFILE HCCOVB`.
+
 ## 0.42.0 (2026-11-25)
 
 AUTORECODE keeps its codes from file to file, ALTER TYPE reads more string formats, and ALSCAL can start from a saved configuration.
-
 - [AUTORECODE](docs/commands/autorecode.md) saves its scheme to a template file (`/SAVE TEMPLATE`) and applies one (`/APPLY TEMPLATE`), so another file is recoded with the same codes and its new values get the next ones.
 - [ALTER TYPE](docs/commands/alter-type.md) turns a string into a date (DATE, ADATE, EDATE, SDATE) or a number in the E, DOLLAR, PCT and N formats, as well as F, COMMA and DOT.
 - ALSCAL `/FILE` starts the iterations from the coordinates (and, for INDSCAL, the subject weights) of a configuration file, such as the one its own OUTFILE writes.

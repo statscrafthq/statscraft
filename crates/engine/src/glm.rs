@@ -1171,7 +1171,7 @@ impl Engine {
                 self.save_glm(command, &d, &fit, &dependents[0], cases)?;
             }
             if let Some(out) = &command.outfile {
-                self.glm_outfile(name, out, &d, &fit, &dependent_texts[0])?;
+                self.glm_outfile(command, out, &d, &fit, &dependent_texts[0])?;
             }
         }
         // the dependents of the multivariate model repeat the same warnings
@@ -1188,12 +1188,13 @@ impl Engine {
     /// design matrix (DESIGN, one row per case used and a column DES_k per parameter).
     fn glm_outfile(
         &mut self,
-        name: &str,
+        command: &Glm,
         out: &statscraft_syntax::GlmOutfile,
         d: &Data,
         fit: &Fit,
         dependent: &str,
     ) -> Result<(), Error> {
+        let name = command.command;
         if self.split_group.is_some() {
             return Err(Error(format!(
                 "{name}: OUTFILE is not available under SPLIT FILE"
@@ -1237,6 +1238,39 @@ impl Engine {
                 }
                 let b = fit.b[j][0];
                 let se = (mse * fit.ginv[j][j]).sqrt();
+                estimate[j] = b;
+                error[j] = se;
+                freedom[j] = dfe;
+                significance[j] = t_p(b / se, dfe);
+            }
+            file.push("EST", dependent, estimate);
+            file.push("SE", dependent, error);
+            file.push("DF", dependent, freedom);
+            file.push("SIG", dependent, significance);
+            let part = self.matrix_part(name, &file)?;
+            self.write_data_file(target, part)?;
+        }
+        if let (Some(target), Some(hc)) = (&out.hccovb, command.robust) {
+            // the robust covariance matrix with its diagonal only, the robust standard errors
+            // and the significances of t on the error degrees of freedom
+            let psi = robust_covariance(d, fit, hc);
+            let mut file = crate::matrix_file::MatrixRows::new(columns.clone(), labels.clone());
+            for &j in &estimated {
+                let mut row = vec![f64::NAN; size];
+                row[j] = psi[j][j];
+                file.push("COV", &names[j], row);
+            }
+            let mut estimate = vec![f64::NAN; size];
+            let mut error = vec![f64::NAN; size];
+            let mut freedom = vec![f64::NAN; size];
+            let mut significance = vec![f64::NAN; size];
+            for j in 0..size {
+                if fit.redundant[j] {
+                    estimate[j] = 0.0;
+                    continue;
+                }
+                let b = fit.b[j][0];
+                let se = psi[j][j].sqrt();
                 estimate[j] = b;
                 error[j] = se;
                 freedom[j] = dfe;

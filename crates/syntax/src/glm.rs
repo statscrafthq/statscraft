@@ -226,6 +226,8 @@ pub struct Glm {
 pub struct GlmOutfile {
     pub covb: Option<String>,
     pub corb: Option<String>,
+    /// The covariance matrix of the robust estimator of ROBUST.
+    pub hccovb: Option<String>,
     pub design: Option<String>,
 }
 
@@ -1504,10 +1506,12 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
                     &mut out.covb
                 } else if p.eat_keyword("CORB") {
                     &mut out.corb
+                } else if p.eat_keyword("HCCOVB") {
+                    &mut out.hccovb
                 } else if p.eat_keyword("DESIGN") {
                     &mut out.design
                 } else {
-                    return Err(p.unexpected(&["COVB", "CORB", "DESIGN"]));
+                    return Err(p.unexpected(&["COVB", "CORB", "HCCOVB", "DESIGN"]));
                 };
                 // COVB('file') as the manual writes it, or COVB=file
                 let target = if p.eat(Punct::LParen) {
@@ -1527,7 +1531,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
                 *slot = Some(target);
             }
             if out == GlmOutfile::default() {
-                return Err(p.unexpected(&["COVB", "CORB", "DESIGN"]));
+                return Err(p.unexpected(&["COVB", "CORB", "HCCOVB", "DESIGN"]));
             }
             command.outfile = Some(out);
         } else {
@@ -1540,6 +1544,12 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         }
     }
     p.finish(&["'/'"])?;
+    if command.outfile.as_ref().is_some_and(|o| o.hccovb.is_some()) && command.robust.is_none() {
+        return Err(SyntaxError::new(
+            p.span(),
+            "HCCOVB of OUTFILE needs the ROBUST subcommand",
+        ));
+    }
     if command.factors.is_empty() && command.covariates.is_empty() && !command.intercept {
         let in_design = command
             .design

@@ -2988,3 +2988,65 @@ fn outfile_is_for_one_dependent_without_random_and_not_under_split_file() {
     ));
     assert!(message.contains("SPLIT FILE"), "{message}");
 }
+
+// HCCOVB writes the robust covariance matrix of ROBUST, its diagonal only, with the estimates,
+// the robust standard errors, the error degrees of freedom and the significances of t: the
+// numbers of the Robust Parameter Estimates table.
+#[test]
+fn outfile_hccovb_writes_the_robust_standard_errors() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DATA}\nDATASET DECLARE hc.\n\
+             UNIANOVA y BY a WITH x /ROBUST=HC3 /DESIGN=a x /OUTFILE HCCOVB(hc)."
+        ),
+    );
+    let keys = row_keys(
+        tables
+            .iter()
+            .find(|t| t.title == "Robust Parameter Estimates")
+            .unwrap(),
+    );
+    let robust =
+        |row: &str, column: &str| number(cell(&tables, "Robust Parameter Estimates", row, column));
+    run(&mut engine, "DATASET ACTIVATE hc.");
+    let size = keys.len();
+    let columns: Vec<Vec<Option<f64>>> = (1..=size)
+        .map(|k| values(&engine, &format!("P{k}")))
+        .collect();
+    // the intercept, the three levels of a (the last redundant) and x: four are estimated
+    assert_eq!(columns[0].len(), 4 + 4);
+    let mut diagonal = 0;
+    for (j, key) in keys.iter().enumerate() {
+        if key.contains("redundant") {
+            assert_eq!(columns[j][4], Some(0.0));
+            continue;
+        }
+        assert!(
+            close(columns[j][4].unwrap(), robust(key, "B")),
+            "{key} estimate"
+        );
+        let se = columns[j][5].unwrap();
+        assert!(
+            close(se, robust(key, "Robust Std. Error")),
+            "{key} robust standard error"
+        );
+        assert!(close(columns[j][6].unwrap(), 36.0), "{key} error df");
+        assert!(
+            close(columns[j][7].unwrap(), robust(key, "Sig.")),
+            "{key} significance"
+        );
+        // the covariance record holds the squared error on the diagonal and nothing off it
+        assert!(
+            close(columns[j][diagonal].unwrap(), se * se),
+            "{key} variance"
+        );
+        for (other, column) in columns.iter().enumerate() {
+            if other != j {
+                assert_eq!(column[diagonal], None, "off the diagonal");
+            }
+        }
+        diagonal += 1;
+    }
+}

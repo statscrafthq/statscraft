@@ -271,6 +271,7 @@ fn glm_outfile_files_and_datasets() {
         Some(GlmOutfile {
             covb: Some("c.sav".into()),
             corb: Some("corr".into()),
+            hccovb: None,
             design: Some("d.sav".into()),
         })
     );
@@ -278,6 +279,17 @@ fn glm_outfile_files_and_datasets() {
         err("UNIANOVA y BY a /OUTFILE COVB('a.sav') COVB('b.sav').")
             .message
             .contains("only once")
+    );
+    // HCCOVB is the matrix of ROBUST, wherever ROBUST stands
+    assert!(
+        glm("UNIANOVA y BY a /OUTFILE HCCOVB(h) /ROBUST=HC2.")
+            .outfile
+            .is_some_and(|o| o.hccovb.as_deref() == Some("h"))
+    );
+    assert!(
+        err("UNIANOVA y BY a /OUTFILE HCCOVB(h).")
+            .message
+            .contains("ROBUST")
     );
     // a keyword is needed
     err("UNIANOVA y BY a /OUTFILE.");
