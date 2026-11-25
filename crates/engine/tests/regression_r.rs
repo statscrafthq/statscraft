@@ -7,6 +7,11 @@
 //! correlations from the t values and the reduced fits, tolerance and VIF from the
 //! regressions of each predictor on the others, and the collinearity diagnostics from the
 //! eigenvalues of X'X scaled to unit columns (the variance proportions from the eigenvectors).
+//! The last tests cover regression weights (REGWGT: lm with weights, the weighted diagnostics in
+//! the manual's own formulas, which differ from R's where the manual leaves out the weight),
+//! mean substitution (lm on the filled-in data), pairwise deletion (the normal equations from
+//! the pairwise correlations with each variable's own mean and deviation) and regression
+//! through the origin (lm without an intercept).
 
 use statscraft_data::Values;
 use statscraft_engine::{Cell, Engine, Table};
@@ -362,5 +367,319 @@ fn the_tables_agree_with_r() {
         at(&tables, outliers, 1, "Case Number"),
         38.0,
         "second outlier case",
+    );
+}
+
+/// Forty cases with a regression weight g.
+const WEIGHTED: &str = "DATA LIST FREE /y x1 x2 x3 g.
+BEGIN DATA
+14.87 8.9 6.23 6.13 3
+16.48 12.18 7.89 4.9 1.5
+11.45 11.28 7.04 4.24 1.5
+16.25 12.09 8.11 4.76 3
+9.69 10.34 8.3 4.86 0.5
+15.12 12.28 8.41 5.71 2
+20.49 8.06 4.5 5.2 1
+14.44 9.74 7.62 6.08 0.5
+13.24 10.29 7.67 5 1
+11.78 12.88 9.67 1.74 0.5
+10.41 4.12 1.32 6.32 1.5
+13.37 9.51 7.72 6.25 2
+9.6 9.72 9.61 4.93 1
+6.03 9.93 7.55 -0.11 2
+11.99 10.56 4.67 2.73 3
+15.88 11.18 5.39 5.38 0.5
+14.3 12.05 8.27 4.29 3
+17.5 14.21 8.8 6.47 1
+18.69 10.31 9.11 8.65 0.5
+12.27 11.83 6.78 4.88 1
+10.5 9.49 7.12 4.03 2
+9.11 13.04 9.16 2.57 1.5
+15.39 13.56 8.29 5.19 1
+12.67 8.24 5.78 3.95 2
+8.98 6.94 4.66 2.56 1
+10.74 10.27 7.7 4.54 0.5
+13.57 8.58 5.5 5.44 1
+11.34 7.18 4.46 6.68 3
+12.13 13.66 9.77 3.84 3
+14.77 12.58 11.02 5.72 2
+14.23 5.28 1.73 6.09 1
+12.93 8.9 5.83 5.19 1
+11.24 9.39 7.11 3.46 0.5
+11.58 8.5 6.28 3.97 0.5
+14.74 10.29 6.9 4.81 1
+13.58 8.9 9.05 5.02 1
+11.66 10.32 6.97 3.71 1
+11.75 9.82 6.93 7.12 1
+13.61 10.16 4.42 4.82 1.5
+16.24 11.8 9.36 6.79 1.5
+END DATA.
+";
+
+/// The same cases with -99 (user-missing) in seven of them: x1 three times, x2 and y and x3 once
+/// or twice.
+const MISSING: &str = "DATA LIST FREE /y x1 x2 x3 g.
+MISSING VALUES y x1 x2 x3 (-99).
+BEGIN DATA
+14.87 8.9 6.23 6.13 3
+16.48 12.18 7.89 4.9 1.5
+11.45 11.28 7.04 4.24 1.5
+16.25 -99 8.11 4.76 3
+9.69 10.34 8.3 4.86 0.5
+15.12 12.28 8.41 5.71 2
+20.49 8.06 4.5 5.2 1
+14.44 9.74 7.62 6.08 0.5
+13.24 10.29 7.67 5 1
+11.78 12.88 -99 1.74 0.5
+10.41 4.12 1.32 6.32 1.5
+13.37 9.51 7.72 6.25 2
+9.6 9.72 9.61 4.93 1
+6.03 9.93 7.55 -0.11 2
+11.99 -99 4.67 2.73 3
+15.88 11.18 5.39 5.38 0.5
+14.3 12.05 8.27 4.29 3
+17.5 14.21 8.8 6.47 1
+18.69 10.31 9.11 8.65 0.5
+12.27 11.83 6.78 4.88 1
+-99 9.49 7.12 4.03 2
+9.11 13.04 9.16 2.57 1.5
+15.39 13.56 8.29 5.19 1
+12.67 8.24 5.78 3.95 2
+8.98 6.94 4.66 2.56 1
+10.74 10.27 7.7 4.54 0.5
+13.57 8.58 -99 5.44 1
+11.34 7.18 4.46 6.68 3
+12.13 13.66 9.77 3.84 3
+14.77 12.58 11.02 5.72 2
+14.23 5.28 1.73 6.09 1
+12.93 8.9 5.83 -99 1
+11.24 9.39 7.11 3.46 0.5
+11.58 8.5 6.28 3.97 0.5
+14.74 10.29 6.9 4.81 1
+13.58 -99 9.05 5.02 1
+11.66 10.32 6.97 3.71 1
+11.75 9.82 6.93 7.12 1
+13.61 10.16 4.42 4.82 1.5
+16.24 11.8 9.36 6.79 1.5
+END DATA.
+";
+
+fn run_on(data: &str, syntax: &str) -> (Engine, Vec<Table>) {
+    let (commands, errors) = parse(&format!("{data}{syntax}"));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut tables = Vec::new();
+    for command in &commands {
+        tables.extend(engine.execute(&command.command).expect("runs"));
+    }
+    (engine, tables)
+}
+
+/// The Model Summary, ANOVA and Coefficients tables against R: R, R square, adjusted R square,
+/// standard error, F, its significance and the coefficients (B, standard error, t, significance).
+fn check_fit(tables: &[Table], summary: [f64; 4], f: (f64, f64), coefficients: &[[f64; 4]]) {
+    near(
+        at(tables, "Model Summary", 0, "R Square"),
+        summary[0],
+        "R square",
+    );
+    near(
+        at(tables, "Model Summary", 0, "Adjusted R Square"),
+        summary[1],
+        "adjusted R square",
+    );
+    near(
+        at(tables, "Model Summary", 0, "Std. Error of the Estimate"),
+        summary[2],
+        "standard error",
+    );
+    near(at(tables, "Model Summary", 0, "R"), summary[3], "R");
+    near(at(tables, "ANOVA", 0, "F"), f.0, "F");
+    near(at(tables, "ANOVA", 0, "Sig."), f.1, "F significance");
+    for (row, want) in coefficients.iter().enumerate() {
+        near(
+            at(tables, "Coefficients", row, "B"),
+            want[0],
+            &format!("B {row}"),
+        );
+        near(
+            at(tables, "Coefficients", row, "Std. Error"),
+            want[1],
+            &format!("se {row}"),
+        );
+        near(
+            at(tables, "Coefficients", row, "t"),
+            want[2],
+            &format!("t {row}"),
+        );
+        near(
+            at(tables, "Coefficients", row, "Sig."),
+            want[3],
+            &format!("p {row}"),
+        );
+    }
+}
+
+#[test]
+fn regression_weights_agree_with_weighted_lm_and_the_manuals_diagnostics() {
+    let (engine, tables) = run_on(
+        WEIGHTED,
+        "REGRESSION /REGWGT=g /STATISTICS=COEFF OUTS R ANOVA /DEPENDENT=y /METHOD=ENTER x1 x2 x3\n\
+         /RESIDUALS=DURBIN\n\
+         /SAVE=PRED(p) RESID(e) ZPRED(zp) ZRESID(ze) SRESID(sr) DRESID(dr) SDRESID(sdr) ADJPRED(ap)\n\
+         SEPRED(sep) MAHAL(mh) COOK(ck) LEVER(lv) DFBETA(dfb) SDBETA(sdb) DFFIT(dff) SDFIT(sdf)\n\
+         COVRATIO(cr).",
+    );
+    // summary(lm(y ~ x1 + x2 + x3, weights = g)): R square 0.5474769698, F 14.51798737
+    check_fit(
+        &tables,
+        [
+            0.5474769698,
+            0.5097667173,
+            2.26570054,
+            0.5474769698_f64.sqrt(),
+        ],
+        (14.51798737, 2.338055690e-06),
+        &[
+            [1.8169197912, 1.9312890695, 0.9407808597, 0.3530874725],
+            [0.8449927598, 0.2404753006, 3.5138442811, 0.001211216278],
+            [-0.4558914790, 0.2483740072, -1.8355039814, 0.07470288013],
+            [1.2045471027, 0.1978861377, 6.0870716688, 5.317403589e-07],
+        ],
+    );
+    // Durbin-Watson of the residuals times the square root of the regression weight
+    near(
+        at(&tables, "Model Summary", 0, "Durbin-Watson"),
+        1.904010104744,
+        "Durbin-Watson",
+    );
+    // the saved values at cases 1, 7, 20 and 38: R's fitted, resid, rstandard, hatvalues,
+    // cooks.distance and dfbeta, and the manual's formulas for the rest
+    let expected: [(&str, [f64; 4]); 14] = [
+        ("p", [13.88102518, 12.83969471, 14.60042977, 15.53179611]),
+        ("e", [0.9889748212, 7.650305286, -2.330429773, -3.781796114]),
+        ("sr", [0.7994577876, 3.453280573, -1.056589307, -1.71915491]),
+        ("dr", [1.105833142, 8.001842173, -2.459129609, -4.011778336]),
+        (
+            "sdr",
+            [0.4564640235, 4.163744414, -1.05835037, -1.769291535],
+        ),
+        ("ap", [13.76416686, 12.48815783, 14.72912961, 15.76177834]),
+        (
+            "sep",
+            [0.4252329411, 0.474889939, 0.518323376, 0.5424768091],
+        ),
+        ("mh", [2.068672375, 1.029137261, 1.356874901, 1.551532807]),
+        (
+            "ck",
+            [0.01888015211, 0.1369922112, 0.01541325648, 0.04493307983],
+        ),
+        (
+            "lv",
+            [0.05304288141, 0.0263881349, 0.03479166413, 0.03978289248],
+        ),
+        (
+            "dfb1",
+            [
+                -0.01807431361,
+                -0.003350707525,
+                -0.04842542716,
+                -0.001387772693,
+            ],
+        ),
+        (
+            "sdb1",
+            [-0.0743298029, -0.01680034663, -0.201709447, -0.005939258791],
+        ),
+        (
+            "dff",
+            [0.1168583205, 0.3515368867, -0.1286998361, -0.2299822223],
+        ),
+        ("cr", [1.222168861, 0.2341497154, 1.041260421, 0.8428760546]),
+    ];
+    for (name, want) in expected {
+        let got = saved(&engine, name);
+        for (case, want) in [0usize, 6, 19, 37].iter().zip(want) {
+            near(got[*case], want, &format!("{name}[{case}]"));
+        }
+    }
+    let sdf = saved(&engine, "sdf");
+    for (case, want) in
+        [0usize, 6, 19, 37]
+            .iter()
+            .zip([0.1569075195, 0.8925450199, -0.2487141265, -0.4363123208])
+    {
+        near(sdf[*case], want, &format!("sdf[{case}]"));
+    }
+    // the standardized predicted value and residual are not defined with a regression weight
+    for name in ["zp", "ze"] {
+        let data = engine.dataset().unwrap();
+        let Values::Numeric(v) = data.variable(name).unwrap().values() else {
+            panic!("{name} is not numeric")
+        };
+        assert!((0..data.case_count()).all(|c| v.get(c).is_none()), "{name}");
+    }
+}
+
+#[test]
+fn mean_substitution_pairwise_deletion_and_the_origin_agree_with_r() {
+    // lm on the data with each variable's missing values replaced by its mean of the valid ones
+    let (_, tables) = run_on(
+        MISSING,
+        "REGRESSION /MISSING=MEANSUBSTITUTION /DEPENDENT=y /METHOD=ENTER x1 x2 x3 /STATISTICS=COEFF R ANOVA.",
+    );
+    check_fit(
+        &tables,
+        [0.5009755547, 0.4593901843, 2.062939114, 0.7077962664],
+        (12.04691817, 1.306336456e-05),
+        &[
+            [3.2032782453, 2.0399365853, 1.570283247, 0.1250981195],
+            [0.7203026705, 0.2478828480, 2.905818923, 0.006229603283],
+            [-0.4639972833, 0.2599983108, -1.784616530, 0.08275317330],
+            [1.2213520172, 0.2143079771, 5.699050654, 1.754876375e-06],
+        ],
+    );
+    // pairwise deletion: each variable's own mean and deviation, the correlations from the
+    // cases that have both, N the smallest of the pair counts (35)
+    let (_, tables) = run_on(
+        MISSING,
+        "REGRESSION /MISSING=PAIRWISE /DEPENDENT=y /METHOD=ENTER x1 x2 x3 /STATISTICS=COEFF R ANOVA.",
+    );
+    check_fit(
+        &tables,
+        [
+            0.5382601316,
+            0.4935756282,
+            2.022750193,
+            0.5382601316_f64.sqrt(),
+        ],
+        (12.04578972, 2.150083408e-05),
+        &[
+            [2.607707331, 2.116463865, 1.2321057657, 0.2271735590],
+            [0.8982184582, 0.2815546378, 3.190210133, 0.003246350819],
+            [-0.6690563931, 0.2992156390, -2.236034170, 0.03268634113],
+            [1.268332429, 0.2239341803, 5.663862605, 3.202573722e-06],
+        ],
+    );
+    // through the origin, on the 33 complete cases: lm(y ~ 0 + x1 + x2 + x3), the R square
+    // from the uncentered total
+    let (_, tables) = run_on(
+        MISSING,
+        "REGRESSION /ORIGIN /DEPENDENT=y /METHOD=ENTER x1 x2 x3 /STATISTICS=COEFF R ANOVA.",
+    );
+    check_fit(
+        &tables,
+        [
+            0.9770132185,
+            0.9747145404,
+            2.144471556,
+            0.9770132185_f64.sqrt(),
+        ],
+        (425.0326303, 1.171020160e-24),
+        &[
+            [1.0269881589, 0.2381517040, 4.312327571, 0.0001608323506],
+            [-0.6512086441, 0.3064013642, -2.125345120, 0.04190588603],
+            [1.4375195254, 0.1904225038, 7.549105261, 2.039684905e-08],
+        ],
     );
 }
