@@ -2989,10 +2989,9 @@ fn outfile_is_for_one_dependent_without_random_and_not_under_split_file() {
     assert!(message.contains("SPLIT FILE"), "{message}");
 }
 
-// HCCOVB writes the robust covariance matrix of ROBUST, whole and symmetric as COVB is, with the
-// estimates, the robust standard errors, the error degrees of freedom and the significances of t:
-// the numbers of the Robust Parameter Estimates table. The off-diagonal cells are checked against
-// (X'X)^-1 X' diag(e^2 / (1 - h)^2) X (X'X)^-1 worked out in R for the same data (HC3).
+// HCCOVB writes the robust covariance matrix of ROBUST with its diagonal terms only (blank off
+// the diagonal), then the estimates, the robust standard errors, the error degrees of freedom and
+// the significances of t: the numbers of the Robust Parameter Estimates table.
 #[test]
 fn outfile_hccovb_writes_the_robust_standard_errors() {
     let mut engine = Engine::default();
@@ -3038,34 +3037,22 @@ fn outfile_hccovb_writes_the_robust_standard_errors() {
             close(columns[j][7].unwrap(), robust(key, "Sig.")),
             "{key} significance"
         );
-        // the diagonal of the covariance matrix is the squared robust standard error
+        // a diagonal term of the covariance matrix is the squared robust standard error
         assert!(
             close(columns[j][diagonal].unwrap(), se * se),
             "{key} variance"
         );
         diagonal += 1;
     }
-    // the matrix is whole and symmetric; its rows are the intercept, a=1, a=2 and x, and the
-    // column of the redundant parameter is empty
+    // blank off the diagonal: the rows are the intercept, a=1, a=2 and x, and the column of the
+    // redundant parameter is empty
     let estimated = [0, 1, 2, 4];
-    for (r, &row_column) in estimated.iter().enumerate() {
+    for r in 0..estimated.len() {
         assert_eq!(columns[3][r], None, "redundant column");
         for (c, &column) in estimated.iter().enumerate() {
-            let here = columns[column][r].unwrap();
-            let mirror = columns[row_column][c].unwrap();
-            assert!(close(here, mirror), "symmetry of {r},{c}");
+            if c != r {
+                assert_eq!(columns[column][r], None, "off the diagonal {r},{c}");
+            }
         }
-    }
-    // covariances from R: (Intercept, x), (a=1, a=2) and (a=2, x)
-    for (r, column, want) in [
-        (0, 4, -0.08561536369783),
-        (1, 2, 0.09462819025071),
-        (2, 4, 0.00607124669523),
-    ] {
-        let got = columns[column][r].unwrap();
-        assert!(
-            (got - want).abs() < 1e-10,
-            "covariance {r},{column}: {got} against {want}"
-        );
     }
 }

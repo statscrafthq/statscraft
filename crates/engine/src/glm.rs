@@ -1251,15 +1251,13 @@ impl Engine {
             self.write_data_file(target, part)?;
         }
         if let (Some(target), Some(hc)) = (&out.hccovb, command.robust) {
-            // the robust covariance matrix, whole and symmetric as COVB is, then the robust
-            // standard errors and the significances of t on the error degrees of freedom
+            // the robust covariance matrix holds its diagonal terms only, as the manual says;
+            // then the robust standard errors and the significances of t on the error df
             let psi = robust_covariance(d, fit, hc);
             let mut file = crate::matrix_file::MatrixRows::new(columns.clone(), labels.clone());
             for &j in &estimated {
                 let mut row = vec![f64::NAN; size];
-                for &l in &estimated {
-                    row[l] = psi[j][l];
-                }
+                row[j] = psi[j][j];
                 file.push("COV", &names[j], row);
             }
             let mut estimate = vec![f64::NAN; size];

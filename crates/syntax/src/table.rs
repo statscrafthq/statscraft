@@ -4732,7 +4732,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  of the Parameter Estimates (a redundant one blank), with a record per estimated parameter and then\n\
                  the records EST (the estimates, a redundant one 0), SE, DF (the error degrees of freedom) and SIG\n\
                  (the significance of t), named by the dependent variable; HCCOVB the covariance matrix of the robust\n\
-                 estimator of ROBUST (needed) in the layout of COVB, with the robust standard errors and the\n\
+                 estimator of ROBUST (needed) in the layout of COVB but with its diagonal terms only, and the robust standard errors and the\n\
                  significances they give; DESIGN the design matrix of the cases used,\n\
                  one variable DES_1, DES_2, ... for each parameter. PLOT gives chart data. PROFILE draws the\n\
                  estimated marginal means over the levels of the first factor, one line per level of a second\n\
