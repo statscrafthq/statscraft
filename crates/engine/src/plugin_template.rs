@@ -83,7 +83,7 @@ pub fn with_template(
     let Some(template) = template else {
         return all;
     };
-    for s in description.settings.iter().filter(|s| !s.per_file) {
+    for s in description.settings.iter().filter(|s| s.in_templates()) {
         let preset = s.presets.then(|| description.preset_attribute(&s.key));
         for name in [Some(description.attribute(&s.key)), preset]
             .into_iter()
@@ -220,6 +220,7 @@ mod tests {
 
     fn setting(key: &str, presets: bool, per_file: bool) -> Setting {
         Setting {
+            global: false,
             choices: Vec::new(),
             key: key.into(),
             label: key.into(),

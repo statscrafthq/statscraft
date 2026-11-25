@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - [UNIANOVA](docs/commands/unianova.md) and GLM write the robust covariance matrix of `/ROBUST` with `/OUTFILE HCCOVB`.
+- A plugin setting can hold for every data file: the window keeps the last value chosen on the computer, also with no data open, and marks it (all data files) in Plugin Settings.
 
 ## 0.42.0 (2026-11-25)
 

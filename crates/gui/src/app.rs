@@ -4447,9 +4447,12 @@ impl App {
             if let Some(file) = file {
                 self.settings.remember_values(&file, &values);
             }
-            // the templates and the active one changed with OK
+            // the templates, the active one and the global values changed with OK
             let _ = self.settings.save();
-            self.run(&syntax, None, After::Show);
+            // with no data open only the values kept on the computer change
+            if !syntax.is_empty() && self.session.dataset().is_some() {
+                self.run(&syntax, None, After::Show);
+            }
             self.plugins.again();
         }
         if self.settings.log_hidden != log_hidden {

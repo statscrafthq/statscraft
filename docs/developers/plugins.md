@@ -69,7 +69,13 @@ list instead of a text field. Statscraft versions before choices show the text f
 plugin reads any other text as its default.
 Any setting may add `"per_file": true` when its value belongs to one data file rather than to a
 look, such as the size of the population the sample was drawn from: design templates leave it
-out, and it always comes from the data file. Any setting may add `"group"` with the heading
+out, and it always comes from the data file. A setting may instead add `"global": true` when
+one value should hold for every data file on the computer, the last one chosen: the window keeps
+it in its own settings, also with no data open, writes it to no data file and leaves it out of
+design templates, and its value wins over a data file attribute of the same name. On the command
+line, which never reads the window's settings, a data file attribute (`DATAFILE ATTRIBUTE` in
+the syntax) sets it. Statscraft versions before global settings treat it as an ordinary setting.
+Any setting may add `"group"` with the heading
 of its section in the dialog. A plugin whose `protocol` is not 1 is refused. A plugin that
 answers `--update-check` adds `"updates": true` (see [Updates](#updates)); without it,
 Statscraft never asks.

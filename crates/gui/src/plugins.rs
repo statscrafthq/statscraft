@@ -233,7 +233,10 @@ fn attribute(data: Option<&Dataset>, name: &str) -> Option<String> {
 /// The attributes the plugin's settings are read from: the active data's own, then the values
 /// remembered for its file that the data does not carry (a file read again before it was saved).
 fn attributes(settings: &Settings, data: Option<&Dataset>) -> Vec<(String, Vec<String>)> {
-    let mut all = data.map(|d| d.attributes().to_vec()).unwrap_or_default();
+    // a global setting's last value first: it holds for every data file
+    let global = settings.global_values.iter();
+    let mut all: Vec<_> = global.map(|(a, v)| (a.clone(), vec![v.clone()])).collect();
+    all.extend(data.map(|d| d.attributes().to_vec()).unwrap_or_default());
     if let Some(file) = data.and_then(Dataset::file) {
         for (name, value) in settings.values_for(file) {
             if !all.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
@@ -560,7 +563,8 @@ impl Plugins {
             .show(ctx, |ui| {
                 ui.weak(
                     "Kept with the active data (save the data file to take them along) and \
-                     remembered on this computer for its file.",
+                     remembered on this computer for its file; one marked (all data files) is \
+                     kept on this computer for every file, also with no data open.",
                 );
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
@@ -727,14 +731,22 @@ impl Plugins {
 
 impl Dialog {
     /// OK: the chosen template becomes the active one (or none) and takes the values of the
-    /// template settings; every value, per file or not, goes to the data through syntax.
+    /// template settings; a global setting's value is kept on the computer, every other value,
+    /// per file or not, goes to the data through syntax (none when all are global).
     fn finish(mut self, settings: &mut Settings) -> (String, Vec<(String, String)>) {
         if let Some(name) = &self.chosen {
             save_template(&self.description, &self.fields, &mut self.templates, name);
         }
         settings.set_templates(&self.description, self.templates, self.chosen);
-        let pairs = attribute_values(&self.description, &self.fields);
-        (attribute_syntax(&pairs), pairs)
+        let (global, local): (Vec<&Field>, Vec<&Field>) =
+            self.fields.iter().partition(|f| f.setting.global);
+        settings.remember_global(&attribute_values(&self.description, global));
+        let pairs = attribute_values(&self.description, local);
+        let syntax = match pairs.is_empty() {
+            true => String::new(),
+            false => attribute_syntax(&pairs),
+        };
+        (syntax, pairs)
     }
 }
 
@@ -747,7 +759,7 @@ fn load_template(description: &Description, fields: &mut [Field], template: &Tem
             .find(|(a, _)| a.eq_ignore_ascii_case(&name));
         found.map(|(_, v)| v.clone())
     };
-    for f in fields.iter_mut().filter(|f| !f.setting.per_file) {
+    for f in fields.iter_mut().filter(|f| f.setting.in_templates()) {
         let Some(text) = value(description.attribute(&f.setting.key)) else {
             continue;
         };
@@ -766,7 +778,7 @@ fn save_template(
     templates: &mut Vec<Template>,
     name: &str,
 ) -> String {
-    let mine = fields.iter().filter(|f| !f.setting.per_file);
+    let mine = fields.iter().filter(|f| f.setting.in_templates());
     let values = attribute_values(description, mine);
     let template = Template::new(&description.name, name, &values);
     let name = template.name.clone();
@@ -785,7 +797,7 @@ fn export_file(
     name: &str,
     presets: &[Preset],
 ) -> TemplateFile {
-    let mine = fields.iter().filter(|f| !f.setting.per_file);
+    let mine = fields.iter().filter(|f| f.setting.in_templates());
     let values = attribute_values(description, mine);
     let attributes = preset_attributes(description);
     TemplateFile {
@@ -868,7 +880,10 @@ fn sections(settings: &[plugin::Setting]) -> Vec<(String, Vec<usize>)> {
 /// One row of Edit > Plugin Settings: the label, the value and the presets, or for a style its
 /// preview and Define.
 fn setting_ui(ui: &mut Ui, f: &mut Field, description: &Description, presets: &mut Vec<Preset>) {
-    ui.label(&f.setting.label);
+    match f.setting.global {
+        true => ui.label(format!("{} (all data files)", f.setting.label)),
+        false => ui.label(&f.setting.label),
+    };
     if f.setting.kind == Kind::Style {
         ui.horizontal(|ui| {
             preview(ui, &StyleEdit::read(&f.text));
@@ -1262,9 +1277,97 @@ mod tests {
         assert_eq!(plugins.waiting.len(), 1);
     }
 
+    /// A global setting (the population size) is kept on the computer by OK, not written to
+    /// the data, and holds over the data file's own attribute; the others go to the data.
+    #[test]
+    fn a_global_setting_is_kept_on_the_computer_for_every_file() {
+        let setting = |key: &str, global| plugin::Setting {
+            global,
+            choices: Vec::new(),
+            key: key.into(),
+            label: key.into(),
+            kind: Kind::Number,
+            default: 0.into(),
+            presets: global,
+            per_file: false,
+            group: None,
+        };
+        let description = Description {
+            name: "Margins".into(),
+            version: "1".into(),
+            protocol: 1,
+            updates: false,
+            settings: vec![setting("confidence", false), setting("population", true)],
+        };
+        let field = |s: &plugin::Setting, text: &str| Field {
+            setting: s.clone(),
+            text: text.into(),
+            preset: (s.global).then(|| ("Estonia".to_string(), text.to_string())),
+            new_name: String::new(),
+            style: None,
+        };
+        let dialog = Dialog {
+            fields: vec![
+                field(&description.settings[0], "90"),
+                field(&description.settings[1], "1100000"),
+            ],
+            description,
+            templates: Vec::new(),
+            chosen: None,
+            new_name: String::new(),
+            note: String::new(),
+        };
+        let mut settings = Settings::default();
+        let (syntax, pairs) = dialog.finish(&mut settings);
+        assert_eq!(
+            syntax,
+            "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_margins_confidence('90')."
+        );
+        assert_eq!(pairs.len(), 1);
+        let kept = [
+            (
+                "plugin_margins_population".to_string(),
+                "1100000".to_string(),
+            ),
+            (
+                "plugin_margins_population_preset".to_string(),
+                "Estonia".to_string(),
+            ),
+        ];
+        assert_eq!(settings.global_values, kept);
+        // the computer's value comes first, before an old attribute of the data file
+        let all = attributes(&settings, None);
+        assert_eq!(
+            first_value(&all, "plugin_margins_population").as_deref(),
+            Some("1100000")
+        );
+        // with only global settings OK writes nothing to the data
+        let only = Dialog {
+            fields: vec![field(&setting("population", true), "5")],
+            description: Description {
+                name: "Margins".into(),
+                version: "1".into(),
+                protocol: 1,
+                updates: false,
+                settings: vec![setting("population", true)],
+            },
+            templates: Vec::new(),
+            chosen: None,
+            new_name: String::new(),
+            note: String::new(),
+        };
+        assert!(only.finish(&mut settings).0.is_empty());
+        let all = attributes(&settings, None);
+        assert_eq!(
+            first_value(&all, "plugin_margins_population").as_deref(),
+            Some("5")
+        );
+    }
+
     #[test]
     fn plugin_settings_are_kept_as_data_file_attributes() {
         let setting = |key: &str, kind, default: f64| plugin::Setting {
+            global: false,
             choices: Vec::new(),
             key: key.into(),
             label: key.into(),
@@ -1324,6 +1427,7 @@ mod tests {
             protocol: 1,
             updates: false,
             settings: vec![plugin::Setting {
+                global: false,
                 choices: Vec::new(),
                 key: "limit".into(),
                 label: "Upper limit".into(),
@@ -1406,6 +1510,7 @@ mod tests {
             protocol: 1,
             updates: false,
             settings: vec![plugin::Setting {
+                global: false,
                 choices: Vec::new(),
                 key: "head".into(),
                 label: "Header".into(),
@@ -1442,6 +1547,7 @@ mod tests {
     /// kept per data file.
     fn client_plugin() -> Description {
         let setting = |key: &str, kind, default: Value, presets, per_file| plugin::Setting {
+            global: false,
             choices: Vec::new(),
             key: key.into(),
             label: key.into(),
@@ -1597,6 +1703,7 @@ mod tests {
     #[test]
     fn settings_are_shown_in_sections() {
         let setting = |key: &str, group: Option<&str>| plugin::Setting {
+            global: false,
             choices: Vec::new(),
             key: key.into(),
             label: key.into(),
@@ -1695,6 +1802,7 @@ mod tests {
             version: "1".into(),
             protocol: 1,
             settings: vec![plugin::Setting {
+                global: false,
                 choices: Vec::new(),
                 key: "limit".into(),
                 label: "Limit".into(),

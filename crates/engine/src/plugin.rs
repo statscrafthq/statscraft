@@ -48,6 +48,11 @@ pub struct Setting {
     /// The window keeps the setting for each data file and leaves it out of design templates.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub per_file: bool,
+    /// The window keeps one value of the setting on the computer, the last one chosen, for
+    /// every data file and with no data open; it is not written to the data and design
+    /// templates leave it out. Elsewhere (the command line) a data file attribute sets it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub global: bool,
     /// The heading of the section the window shows the setting in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
@@ -66,6 +71,13 @@ pub enum Kind {
     Bool,
     /// An object of optional font, size, bold, italic, text, fill and align keys.
     Style,
+}
+
+impl Setting {
+    /// Whether design templates hold the setting: not one per data file or one for all.
+    pub fn in_templates(&self) -> bool {
+        !self.per_file && !self.global
+    }
 }
 
 impl Description {

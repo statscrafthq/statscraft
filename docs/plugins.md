@@ -24,6 +24,7 @@ A plugin that fails, or takes longer than two minutes, adds nothing, and the sta
 **Settings...** opens the plugin's own settings for the active data. Settings with a heading of their own are grouped under it.
 
 - Click **OK** to keep the settings with the data. Save the data file to take them to another computer.
+- A setting marked **(all data files)** is kept on this computer instead, the last value you chose, for every data file. You can set it with no data open. On the command line, give it with `DATAFILE ATTRIBUTE` in the syntax.
 - A setting you leave empty takes the plugin's default.
 - A style setting shows a sample. **Define...** sets its font, size, bold, italic, text color, fill and alignment.
 - Some settings have **presets**: saved values you can choose from a list. Type a name and click **Save as preset** to add one. Presets belong to the window, so they are there for every data file.
@@ -34,7 +35,7 @@ A design template is a named set of settings for one plugin, for example one loo
 
 - Choose a template in the **Template** row at the top of Plugin Settings, or **(none)**.
 - Type a name and click **Save as template** to keep the current settings. **Delete** removes the chosen template.
-- **OK** makes the chosen template active. While it is active, its settings hold for every data file. Settings that belong to one data file, such as the size of its population, still come from the data.
+- **OK** makes the chosen template active. While it is active, its settings hold for every data file. Settings that belong to one data file still come from the data, and those marked (all data files) from this computer.
 - **Export...** writes the chosen template and the plugin's presets to a text file. **Import...** reads such a file, for example one a colleague exported.
 
 ## What shows where

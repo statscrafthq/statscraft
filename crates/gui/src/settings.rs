@@ -59,6 +59,9 @@ pub struct Settings {
     /// The plugin settings last chosen for each data file, by its path: they hold when the
     /// file is read again (GET FILE in a syntax) before its new data file attributes were saved.
     pub file_values: Vec<FileValue>,
+    /// The values of the plugin settings kept for every data file (a setting marked global),
+    /// as (attribute, value): the last one chosen.
+    pub global_values: Vec<(String, String)>,
     /// Design templates of the plugins' settings, and the one in use for each plugin as
     /// (plugin name, template name); the plugin name is empty in a line from before there were
     /// several plugins.
@@ -215,6 +218,7 @@ impl Settings {
     /// `export hidden`, one line per plugin in order (`plugin PATH`, or `plugin-off PATH` for
     /// one turned off), `excel-comments off`,
     /// `preset ATTRIBUTE<tab>NAME<tab>VALUE`, `plugin-value ATTRIBUTE<tab>VALUE<tab>FILE`,
+    /// `plugin-global ATTRIBUTE<tab>VALUE`,
     /// `plugin-template PLUGIN<tab>NAME<tab>ATTRIBUTE<tab>VALUE` (or `plugin-template
     /// PLUGIN<tab>NAME` for one without values), `plugin-template-active PLUGIN<tab>NAME` and
     /// `plugin-checked SECONDS<tab>PATH`, with `<tab>VERSION<tab>URL<tab>SHA256<tab>NOTES` after
@@ -290,6 +294,15 @@ impl Settings {
                             attribute: attribute.to_string(),
                             value: value.to_string(),
                         });
+                    }
+                }
+                "plugin-global" => {
+                    if let Some((attribute, value)) = rest.split_once('\t')
+                        && !attribute.is_empty()
+                    {
+                        settings
+                            .global_values
+                            .push((attribute.into(), value.into()));
                     }
                 }
                 "plugin-template" => {
@@ -424,6 +437,9 @@ impl Settings {
                 v.file.display()
             ));
         }
+        for (attribute, value) in &self.global_values {
+            text.push_str(&format!("plugin-global {attribute}\t{value}\n"));
+        }
         for t in &self.templates {
             let head = format!("plugin-template {}\t{}", t.plugin, t.name);
             if t.values.is_empty() {
@@ -512,6 +528,16 @@ impl Settings {
                 attribute: clean(attribute),
                 value: clean(value),
             });
+        }
+    }
+
+    /// Keeps the values of global plugin settings, replacing earlier ones of the same
+    /// attributes.
+    pub fn remember_global(&mut self, values: &[(String, String)]) {
+        for (attribute, value) in values {
+            self.global_values
+                .retain(|(a, _)| !a.eq_ignore_ascii_case(attribute));
+            self.global_values.push((clean(attribute), clean(value)));
         }
     }
 
@@ -630,6 +656,7 @@ mod tests {
                 attribute: "plugin_house_limit".into(),
                 value: "1043000".into(),
             }],
+            global_values: vec![("plugin_house_universe".into(), "1 000 000".into())],
             templates: vec![
                 Template::new(
                     "House",
