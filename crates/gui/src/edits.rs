@@ -1,5 +1,6 @@
 //! What the Data View and Variable View show, and the syntax an edit in them becomes.
 
+use crate::i18n::t;
 use crate::syntax_text::{number, quote, value};
 use statscraft_data::{Measure, MissingValues, Value, Values, Variable};
 use statscraft_engine::{Currencies, format_value};
@@ -184,18 +185,18 @@ impl Field {
 
     pub fn title(self) -> &'static str {
         match self {
-            Field::Name => "Name",
-            Field::Type => "Type",
-            Field::Format => "Format",
-            Field::Width => "Width",
-            Field::Decimals => "Decimals",
-            Field::Label => "Label",
-            Field::Values => "Value labels",
-            Field::Missing => "Missing values",
-            Field::Columns => "Columns",
-            Field::Align => "Align",
-            Field::Measure => "Measure",
-            Field::Role => "Role",
+            Field::Name => t("data-field-name"),
+            Field::Type => t("data-field-type"),
+            Field::Format => t("data-format"),
+            Field::Width => t("data-width"),
+            Field::Decimals => t("data-decimals"),
+            Field::Label => t("data-label"),
+            Field::Values => t("data-field-values"),
+            Field::Missing => t("data-field-missing"),
+            Field::Columns => t("data-field-columns"),
+            Field::Align => t("data-field-align"),
+            Field::Measure => t("data-field-measure"),
+            Field::Role => t("data-field-role"),
         }
     }
 

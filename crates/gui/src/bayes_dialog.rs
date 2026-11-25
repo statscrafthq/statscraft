@@ -10,6 +10,7 @@
 
 use crate::advanced_dialogs::ci_level;
 use crate::dialogs::whole;
+use crate::i18n::t;
 use crate::loglinear_dialog::optional;
 use crate::stats_dialogs::numeric;
 use crate::survival_dialog::{numbers, saved, values};
@@ -32,18 +33,20 @@ pub enum BayesKind {
 }
 
 /// The items of Analyze > Bayesian Statistics.
-pub const BAYES_MENU: [(&str, BayesKind); 10] = [
-    ("One Sample Normal...", BayesKind::Normal),
-    ("One Sample Binomial...", BayesKind::Binomial),
-    ("One Sample Poisson...", BayesKind::Poisson),
-    ("Related Samples Normal...", BayesKind::Related),
-    ("Independent Samples Normal...", BayesKind::Independent),
-    ("Pearson Correlation...", BayesKind::Correlation),
-    ("One-way ANOVA...", BayesKind::Anova),
-    ("Linear Regression...", BayesKind::Regression),
-    ("Repeated Measures...", BayesKind::Repeated),
-    ("Log-Linear Regression Models...", BayesKind::Loglinear),
-];
+pub fn bayes_menu() -> [(&'static str, BayesKind); 10] {
+    [
+        (t("menu-one-sample-normal"), BayesKind::Normal),
+        (t("menu-one-sample-binomial"), BayesKind::Binomial),
+        (t("menu-one-sample-poisson"), BayesKind::Poisson),
+        (t("menu-related-samples-normal"), BayesKind::Related),
+        (t("menu-independent-samples-normal"), BayesKind::Independent),
+        (t("menu-pearson-correlation"), BayesKind::Correlation),
+        (t("menu-one-way-anova"), BayesKind::Anova),
+        (t("menu-linear-regression"), BayesKind::Regression),
+        (t("menu-repeated-measures"), BayesKind::Repeated),
+        (t("menu-log-linear-regression-models"), BayesKind::Loglinear),
+    ]
+}
 
 /// ANALYSIS, the default first.
 pub const BAYES_ANALYSES: [(&str, &str); 3] = [

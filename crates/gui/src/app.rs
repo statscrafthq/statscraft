@@ -8,7 +8,7 @@ use crate::analyze_dialogs::{
     MultResponse, ONEWAY_POLYNOMIALS, ONEWAY_STATISTICS, Oneway, SPEARMAN_CI, STANDARDIZERS,
     TREE_LEVELS, TREE_SAVE, TTest, TTestKind, Tree,
 };
-use crate::bayes_dialog::{BAYES_MENU, Bayesian};
+use crate::bayes_dialog::{Bayesian, bayes_menu};
 use crate::catreg_dialog::CategoricalRegression;
 use crate::conjoint_dialog::Design;
 use crate::connect_window::Connect;
@@ -30,6 +30,7 @@ use crate::edits::{self, Field};
 use crate::export_dialog::{Choice, Format};
 use crate::graph_dialogs::{ChartBuilder, ProbabilityPlot, RocCurve};
 use crate::graph_dialogs_view;
+use crate::i18n::{t, t_args};
 use crate::imputation_dialog::Imputation;
 use crate::legacy_scaling_dialog::{LegacyScaling, ScalingKind};
 use crate::loglinear_dialog::GeneralLoglinear;
@@ -45,7 +46,7 @@ use crate::neural_dialog_view;
 use crate::nptests_dialog::{NpKind, Nptests};
 use crate::output;
 use crate::output_view;
-use crate::power_dialog::{POWER_MENU, PowerAnalysis};
+use crate::power_dialog::{PowerAnalysis, power_menu};
 use crate::response_rate_dialog::ResponseRate;
 use crate::roc_analysis_dialog::RocAnalysis;
 use crate::settings::{Settings, usable_position, usable_size};
@@ -727,7 +728,7 @@ impl App {
             })
         });
         let status = match &server {
-            Ok(_) => Ok("Ready".into()),
+            Ok(_) => Ok(t("status-ready").into()),
             Err(e) => Err(format!("the command line cannot reach this window: {e}")),
         };
         app_ctx.all_styles_mut(|style| {
@@ -1093,7 +1094,10 @@ impl App {
             if let Some(file) = &file {
                 self.add_recent(file);
                 if request.action == Action::Save {
-                    self.status = Ok(format!("syntax saved to {}", file.display()));
+                    self.status = Ok(t_args(
+                        "status-saved-syntax",
+                        &[("file", file.display().to_string().into())],
+                    ));
                 }
             }
             let mut front: Vec<WindowId> = self.windows.ids();
@@ -1289,8 +1293,11 @@ impl App {
             view.field_edit = None;
         }
         let first = syntax.lines().next().unwrap_or_default();
-        let word = if undo { "undone" } else { "redone" };
-        self.status = Ok(format!("{word}: {first}"));
+        let args = [("syntax", first.into())];
+        self.status = Ok(match undo {
+            true => t_args("status-undone", &args),
+            false => t_args("status-redone", &args),
+        });
         Some(syntax)
     }
 
@@ -1398,7 +1405,7 @@ impl App {
     fn delete_output(&mut self, id: WindowId) {
         if !self.runs.is_idle() {
             // the run works on a copy of the session that still has them
-            self.status = Err("wait until the run ends to delete output".into());
+            self.status = Err(t("status-wait-to-delete-output").into());
             return;
         }
         if let Some(o) = self.windows.output_mut(id)
@@ -1571,7 +1578,10 @@ impl App {
         match std::fs::write(&path, &w.text) {
             Ok(()) => {
                 w.saved = w.text.clone();
-                self.status = Ok(format!("syntax saved to {}", path.display()));
+                self.status = Ok(t_args(
+                    "status-saved-syntax",
+                    &[("file", path.display().to_string().into())],
+                ));
                 w.file = Some(path.clone());
                 self.add_recent(&path);
                 true
@@ -1638,14 +1648,14 @@ impl App {
             .and_then(|id| self.windows.output(id))
             .is_some_and(|o| !o.view.is_empty());
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui.button("Open data...").clicked()
+            ui.menu_button(t("menu-file"), |ui| {
+                if ui.button(t("menu-open-data")).clicked()
                     && let Some(path) = self
                         .file_dialog()
-                        .add_filter("Data files", &["sav", "zsav"])
-                        .add_filter("Excel workbooks", &["xlsx", "xlsm", "xls"])
-                        .add_filter("Text files", &["csv", "txt", "tab", "dat"])
-                        .add_filter("Stata files", &["dta"])
+                        .add_filter(t("filter-data-files"), &["sav", "zsav"])
+                        .add_filter(t("filter-excel-workbooks"), &["xlsx", "xlsm", "xls"])
+                        .add_filter(t("filter-text-files"), &["csv", "txt", "tab", "dat"])
+                        .add_filter(t("filter-stata-files"), &["dta"])
                         .pick_file()
                 {
                     let stata = path
@@ -1665,7 +1675,7 @@ impl App {
                     }
                 }
                 if ui
-                    .add_enabled(has_data, egui::Button::new("Save data"))
+                    .add_enabled(has_data, egui::Button::new(t("menu-save-data")))
                     .clicked()
                 {
                     let name = self.data_here();
@@ -1675,19 +1685,19 @@ impl App {
                     }
                 }
                 if ui
-                    .add_enabled(has_data, egui::Button::new("Save data as..."))
+                    .add_enabled(has_data, egui::Button::new(t("menu-save-data-as")))
                     .clicked()
                 {
                     self.save_data_as();
                 }
                 if ui
-                    .add_enabled(has_data, egui::Button::new("Export data..."))
+                    .add_enabled(has_data, egui::Button::new(t("menu-export-data")))
                     .clicked()
                 {
                     self.open_dialog(Dialog::ExportData(Default::default()));
                 }
                 if ui
-                    .add_enabled(has_data, egui::Button::new("Apply Data Dictionary..."))
+                    .add_enabled(has_data, egui::Button::new(t("menu-apply-data-dictionary")))
                     .clicked()
                 {
                     self.open_dialog(Dialog::Advanced(Advanced::CopyDictionary(
@@ -1695,33 +1705,33 @@ impl App {
                     )));
                 }
                 ui.separator();
-                ui.menu_button("New", |ui| {
-                    if ui.button("Syntax").clicked() {
+                ui.menu_button(t("menu-new"), |ui| {
+                    if ui.button(t("menu-syntax")).clicked() {
                         self.windows.open_syntax(String::new(), None);
                     }
-                    if ui.button("Output").clicked() {
+                    if ui.button(t("menu-output")).clicked() {
                         self.run("OUTPUT NEW.", None, After::Show);
                     }
                 });
-                if ui.button("Open syntax...").clicked()
+                if ui.button(t("menu-open-syntax")).clicked()
                     && let Some(path) = self
                         .file_dialog()
-                        .add_filter("Syntax", &["sps"])
+                        .add_filter(t("filter-syntax"), &["sps"])
                         .pick_file()
                 {
                     self.load_syntax(path);
                 }
-                if ui.button("Open output...").clicked()
+                if ui.button(t("menu-open-output")).clicked()
                     && let Some(path) = self
                         .file_dialog()
-                        .add_filter("Statscraft output", &["scout"])
+                        .add_filter(t("filter-statscraft-output"), &["scout"])
                         .pick_file()
                 {
                     self.open_output(path);
                 }
                 let recent = self.settings.recent.clone();
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
-                    ui.menu_button("Recent files", |ui| {
+                    ui.menu_button(t("menu-recent-files"), |ui| {
                         for path in recent {
                             let name = path.file_name().map_or_else(
                                 || path.display().to_string(),
@@ -1745,61 +1755,67 @@ impl App {
                 });
                 let syntax = self.windows.syntax(self.here).is_some();
                 if ui
-                    .add_enabled(syntax, egui::Button::new("Save syntax"))
+                    .add_enabled(syntax, egui::Button::new(t("menu-save-syntax")))
                     .clicked()
                 {
                     self.save_syntax_now(self.here);
                 }
                 if ui
-                    .add_enabled(syntax, egui::Button::new("Save syntax as..."))
+                    .add_enabled(syntax, egui::Button::new(t("menu-save-syntax-as")))
                     .clicked()
                 {
                     self.save_syntax_as(self.here);
                 }
                 ui.separator();
                 if ui
-                    .add_enabled(output.is_some(), egui::Button::new("Save output"))
+                    .add_enabled(output.is_some(), egui::Button::new(t("menu-save-output")))
                     .clicked()
                     && let Some(id) = output
                 {
                     self.save_output(id, false);
                 }
                 if ui
-                    .add_enabled(output.is_some(), egui::Button::new("Save output as..."))
+                    .add_enabled(
+                        output.is_some(),
+                        egui::Button::new(t("menu-save-output-as")),
+                    )
                     .clicked()
                     && let Some(id) = output
                 {
                     self.save_output(id, true);
                 }
                 if ui
-                    .add_enabled(has_output, egui::Button::new("Export..."))
+                    .add_enabled(has_output, egui::Button::new(t("menu-export")))
                     .clicked()
                     && let Some(id) = output
                 {
                     self.open_export(id, false, self.here);
                 }
-                ui.menu_button("Output Management", |ui| {
-                    if ui.button("Start...").clicked() {
+                ui.menu_button(t("menu-output-management"), |ui| {
+                    if ui.button(t("menu-start")).clicked() {
                         self.open_dialog(Dialog::Advanced(Advanced::Oms(Default::default())));
                     }
-                    if ui.button("End...").clicked() {
+                    if ui.button(t("menu-end")).clicked() {
                         self.open_dialog(Dialog::Advanced(Advanced::Omsend(Default::default())));
                     }
                 });
                 ui.separator();
-                if ui.button("Close").clicked() {
+                if ui.button(t("menu-close")).clicked() {
                     self.close_window(self.here);
                 }
-                if ui.button("Exit").clicked() {
+                if ui.button(t("menu-exit")).clicked() {
                     self.quit(self.here);
                 }
             });
-            ui.menu_button("Edit", |ui| {
+            ui.menu_button(t("menu-edit"), |ui| {
                 let idle = self.runs.is_idle();
                 let undo = self.session.undoable().map(str::to_string);
                 let redo = self.session.redoable().map(str::to_string);
-                for (verb, syntax, shortcut) in [("Undo", undo, "Ctrl+Z"), ("Redo", redo, "Ctrl+Y")]
-                {
+                let steps = [
+                    (t("menu-undo"), undo, "Ctrl+Z", true),
+                    (t("menu-redo"), redo, "Ctrl+Y", false),
+                ];
+                for (verb, syntax, shortcut, is_undo) in steps {
                     let button = egui::Button::new(step_label(verb, syntax.as_deref()))
                         .shortcut_text(shortcut);
                     let response = ui.add_enabled(idle && syntax.is_some(), button);
@@ -1808,17 +1824,18 @@ impl App {
                         None => response,
                     };
                     if response.clicked() {
-                        match verb {
-                            "Undo" => self.undo(),
-                            _ => self.redo(),
+                        match is_undo {
+                            true => self.undo(),
+                            false => self.redo(),
                         };
                     }
                 }
                 ui.separator();
                 if let Some(w) = self.windows.syntax_mut(self.here) {
-                    for (label, shortcut, replace) in
-                        [("Find...", "Ctrl+F", false), ("Replace...", "Ctrl+H", true)]
-                    {
+                    for (label, shortcut, replace) in [
+                        (t("menu-find"), "Ctrl+F", false),
+                        (t("menu-replace"), "Ctrl+H", true),
+                    ] {
                         let button = egui::Button::new(label).shortcut_text(shortcut);
                         if ui.add(button).clicked() {
                             w.open_find(replace);
@@ -1826,41 +1843,50 @@ impl App {
                     }
                     ui.separator();
                 }
-                if ui.button("Settings...").clicked() {
+                if ui.button(t("menu-settings")).clicked() {
                     self.settings_section = Some(Section::default());
                     self.popups = self.here;
                 }
             });
-            ui.menu_button("Data", |ui| {
+            ui.menu_button(t("menu-data"), |ui| {
                 let data = window_data(&self.session, &self.windows, self.here);
                 let weight = data.and_then(|d| d.weight_variable()).map(str::to_string);
                 let split = SplitFile::current(data.and_then(|d| d.split_file()));
                 for (label, dialog) in [
                     (
-                        "Define Multiple Response Sets...",
+                        t("menu-define-multiple-response-sets"),
                         Dialog::Mrsets(Default::default()),
                     ),
-                    ("Sort Cases...", Dialog::SortCases(Default::default())),
+                    (t("menu-sort-cases"), Dialog::SortCases(Default::default())),
                     (
-                        "Sort Variables...",
+                        t("menu-sort-variables"),
                         Dialog::SortVariables(Default::default()),
                     ),
-                    ("Restructure...", Dialog::Restructure(Default::default())),
-                    ("Split File...", Dialog::SplitFile(split)),
-                    ("Select Cases...", Dialog::SelectCases(Default::default())),
                     (
-                        "Select Cases by Time Range...",
+                        t("menu-restructure"),
+                        Dialog::Restructure(Default::default()),
+                    ),
+                    (t("menu-split-file"), Dialog::SplitFile(split)),
+                    (
+                        t("menu-select-cases"),
+                        Dialog::SelectCases(Default::default()),
+                    ),
+                    (
+                        t("menu-select-cases-by-time-range"),
                         Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Range(
                             TimeRange::new(false),
                         )))),
                     ),
                     (
-                        "Weight Cases...",
+                        t("menu-weight-cases"),
                         Dialog::WeightCases(WeightCases::current(weight.as_deref())),
                     ),
-                    ("Aggregate...", Dialog::Aggregate(Default::default(), 0)),
                     (
-                        "Define Dates...",
+                        t("menu-aggregate"),
+                        Dialog::Aggregate(Default::default(), 0),
+                    ),
+                    (
+                        t("menu-define-dates"),
                         Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Dates(
                             Default::default(),
                         )))),
@@ -1870,15 +1896,15 @@ impl App {
                         self.open_dialog(dialog);
                     }
                 }
-                ui.menu_button("Orthogonal Design", |ui| {
+                ui.menu_button(t("menu-orthogonal-design"), |ui| {
                     // a plan is made from typed factors, so Generate needs no data
-                    if ui.button("Generate...").clicked() {
+                    if ui.button(t("menu-generate")).clicked() {
                         self.open_dialog(Dialog::Advanced(Advanced::Conjoint(Box::new(
                             Design::Generate(Default::default()),
                         ))));
                     }
                     if ui
-                        .add_enabled(has_data, egui::Button::new("Display..."))
+                        .add_enabled(has_data, egui::Button::new(t("menu-display")))
                         .clicked()
                     {
                         self.open_dialog(Dialog::Advanced(Advanced::Conjoint(Box::new(
@@ -1887,20 +1913,21 @@ impl App {
                     }
                 });
                 ui.add_enabled_ui(has_data, |ui| {
-                    ui.menu_button("Validation", |ui| {
-                        if ui.button("Validate Data...").clicked() {
+                    ui.menu_button(t("menu-validation"), |ui| {
+                        if ui.button(t("menu-validate-data")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Validate(
                                 Default::default(),
                             )));
                         }
                     });
-                    if ui.button("Compare Datasets...").clicked() {
+                    if ui.button(t("menu-compare-datasets")).clicked() {
                         self.open_dialog(Dialog::Advanced(Advanced::Compare(Default::default())));
                     }
-                    ui.menu_button("Merge Files", |ui| {
-                        for (label, add_variables) in
-                            [("Add Cases...", false), ("Add Variables...", true)]
-                        {
+                    ui.menu_button(t("menu-merge-files"), |ui| {
+                        for (label, add_variables) in [
+                            (t("menu-add-cases"), false),
+                            (t("menu-add-variables"), true),
+                        ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::MergeFiles(MergeFiles {
                                     add_variables,
@@ -1911,13 +1938,16 @@ impl App {
                     });
                 });
             });
-            ui.menu_button("Analyze", |ui| {
+            ui.menu_button(t("menu-analyze"), |ui| {
                 ui.add_enabled_ui(has_data, |ui| {
-                    ui.menu_button("Reports", |ui| {
+                    ui.menu_button(t("menu-reports"), |ui| {
                         for (label, dialog) in [
-                            ("Codebook...", Advanced::Codebook(Default::default())),
-                            ("Case Summaries...", Advanced::Summarize(Default::default())),
-                            ("OLAP Cubes...", Advanced::Olap(Default::default())),
+                            (t("menu-codebook"), Advanced::Codebook(Default::default())),
+                            (
+                                t("menu-case-summaries"),
+                                Advanced::Summarize(Default::default()),
+                            ),
+                            (t("menu-olap-cubes"), Advanced::Olap(Default::default())),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));
@@ -1926,10 +1956,10 @@ impl App {
                     });
                 });
                 // these take typed numbers, so they need no data
-                ui.menu_button("Power Analysis", |ui| {
-                    for (menu, items) in POWER_MENU {
+                ui.menu_button(t("menu-power-analysis"), |ui| {
+                    for (menu, items) in power_menu() {
                         ui.menu_button(menu, |ui| {
-                            for &(label, kind) in items {
+                            for (label, kind) in items {
                                 if ui.button(label).clicked() {
                                     let d = PowerAnalysis::new(kind);
                                     self.open_dialog(Dialog::Advanced(Advanced::Power(Box::new(
@@ -1941,13 +1971,16 @@ impl App {
                     }
                 });
                 // typed distributions and expressions, so no data is needed
-                ui.menu_button("Simulation", |ui| {
+                ui.menu_button(t("menu-simulation"), |ui| {
                     for (label, dialog) in [
                         (
-                            "Build Simulation Plan...",
+                            t("menu-build-simulation-plan"),
                             Simulation::Plan(Default::default()),
                         ),
-                        ("Run Simulation...", Simulation::Run(Default::default())),
+                        (
+                            t("menu-run-simulation"),
+                            Simulation::Run(Default::default()),
+                        ),
                     ] {
                         if ui.button(label).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Simulation(Box::new(
@@ -1957,14 +1990,20 @@ impl App {
                     }
                 });
                 ui.add_enabled_ui(has_data, |ui| {
-                    ui.menu_button("Descriptive Statistics", |ui| {
+                    ui.menu_button(t("menu-descriptive-statistics"), |ui| {
                         for (label, dialog) in [
-                            ("Frequencies...", Dialog::Frequencies(Default::default())),
-                            ("Descriptives...", Dialog::Descriptives(Default::default())),
-                            ("Explore...", Dialog::Explore(Default::default())),
-                            ("Crosstabs...", Dialog::Crosstabs(Default::default())),
                             (
-                                "Ratio...",
+                                t("menu-frequencies"),
+                                Dialog::Frequencies(Default::default()),
+                            ),
+                            (
+                                t("menu-descriptives"),
+                                Dialog::Descriptives(Default::default()),
+                            ),
+                            (t("menu-explore"), Dialog::Explore(Default::default())),
+                            (t("menu-crosstabs"), Dialog::Crosstabs(Default::default())),
+                            (
+                                t("menu-ratio"),
                                 Dialog::Advanced(Advanced::Ratio(Default::default())),
                             ),
                         ] {
@@ -1973,8 +2012,8 @@ impl App {
                             }
                         }
                     });
-                    ui.menu_button("Bayesian Statistics", |ui| {
-                        for (label, kind) in BAYES_MENU {
+                    ui.menu_button(t("menu-bayesian-statistics"), |ui| {
+                        for (label, kind) in bayes_menu() {
                             if ui.button(label).clicked() {
                                 let d = Box::new(Bayesian::new(kind));
                                 self.open_dialog(Dialog::Advanced(Advanced::Bayes(d)));
@@ -1983,30 +2022,30 @@ impl App {
                     });
                 });
                 if ui
-                    .add_enabled(has_data, egui::Button::new("Custom Tables..."))
+                    .add_enabled(has_data, egui::Button::new(t("menu-custom-tables")))
                     .clicked()
                 {
                     self.open_dialog(Dialog::CustomTables(Default::default(), Default::default()));
                 }
                 ui.add_enabled_ui(has_data, |ui| {
-                    ui.menu_button("Compare Means", |ui| {
+                    ui.menu_button(t("menu-compare-means"), |ui| {
                         for (label, dialog) in [
-                            ("Means...", Dialog::Means(Default::default())),
+                            (t("menu-means"), Dialog::Means(Default::default())),
                             (
-                                "One-Sample T Test...",
+                                t("menu-one-sample-t-test"),
                                 Dialog::TTest(TTest::new(TTestKind::OneSample)),
                             ),
                             (
-                                "Independent-Samples T Test...",
+                                t("menu-independent-samples-t-test"),
                                 Dialog::TTest(TTest::new(TTestKind::Independent)),
                             ),
                             (
-                                "Paired-Samples T Test...",
+                                t("menu-paired-samples-t-test"),
                                 Dialog::TTest(TTest::new(TTestKind::Paired)),
                             ),
-                            ("One-Way ANOVA...", Dialog::Oneway(Default::default())),
+                            (t("menu-one-way-anova"), Dialog::Oneway(Default::default())),
                             (
-                                "Proportions...",
+                                t("menu-proportions"),
                                 Dialog::Advanced(Advanced::Proportions(Default::default())),
                             ),
                         ] {
@@ -2015,84 +2054,90 @@ impl App {
                             }
                         }
                     });
-                    ui.menu_button("General Linear Model", |ui| {
-                        if ui.button("Univariate...").clicked() {
+                    ui.menu_button(t("menu-general-linear-model"), |ui| {
+                        if ui.button(t("menu-univariate")).clicked() {
                             self.open_dialog(Dialog::Univariate(Default::default()));
                         }
-                        if ui.button("Multivariate...").clicked() {
+                        if ui.button(t("menu-multivariate")).clicked() {
                             self.open_dialog(Dialog::Univariate(Univariate::multivariate()));
                         }
-                        if ui.button("Variance Components...").clicked() {
+                        if ui.button(t("menu-variance-components")).clicked() {
                             self.open_dialog(Dialog::VarianceComponents(Default::default()));
                         }
-                        if ui.button("Repeated Measures...").clicked() {
+                        if ui.button(t("menu-repeated-measures")).clicked() {
                             self.open_dialog(Dialog::RepeatedMeasures(Default::default()));
                         }
-                        if ui.button("MANOVA (classic)...").clicked() {
+                        if ui.button(t("menu-manova-classic")).clicked() {
                             self.open_dialog(Dialog::Advanced(
                                 Advanced::Manova(Default::default()),
                             ));
                         }
                     });
-                    ui.menu_button("Generalized Linear Models", |ui| {
-                        if ui.button("Generalized Linear Models...").clicked() {
+                    ui.menu_button(t("menu-generalized-linear-models"), |ui| {
+                        if ui
+                            .button(t("menu-generalized-linear-models-dialog"))
+                            .clicked()
+                        {
                             self.open_dialog(Dialog::Advanced(
                                 Advanced::Genlin(Default::default()),
                             ));
                         }
                     });
-                    ui.menu_button("Mixed Models", |ui| {
-                        if ui.button("Linear...").clicked() {
+                    ui.menu_button(t("menu-mixed-models"), |ui| {
+                        if ui.button(t("menu-linear")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Mixed(Default::default())));
                         }
-                        if ui.button("Generalized Linear...").clicked() {
+                        if ui.button(t("menu-generalized-linear")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Glmm(Default::default())));
                         }
                     });
-                    ui.menu_button("Correlate", |ui| {
-                        if ui.button("Bivariate...").clicked() {
+                    ui.menu_button(t("menu-correlate"), |ui| {
+                        if ui.button(t("menu-bivariate")).clicked() {
                             self.open_dialog(Dialog::Correlations(Default::default()));
                         }
-                        if ui.button("Partial...").clicked() {
+                        if ui.button(t("menu-partial")).clicked() {
                             self.open_dialog(Dialog::PartialCorr(Default::default()));
                         }
-                        if ui.button("Distances...").clicked() {
+                        if ui.button(t("menu-distances")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Distances(
                                 Default::default(),
                             )));
                         }
                     });
-                    ui.menu_button("Regression", |ui| {
-                        if ui.button("Linear...").clicked() {
+                    ui.menu_button(t("menu-regression"), |ui| {
+                        if ui.button(t("menu-linear")).clicked() {
                             self.open_dialog(Dialog::Regression(Default::default()));
                         }
-                        if ui.button("Curve Estimation...").clicked() {
+                        if ui.button(t("menu-curve-estimation")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Curve(Default::default())));
                         }
-                        if ui.button("Quantile...").clicked() {
+                        if ui.button(t("menu-quantile")).clicked() {
                             self.open_dialog(Dialog::QuantileRegression(Default::default()));
                         }
-                        if ui.button("Binary Logistic...").clicked() {
+                        if ui.button(t("menu-binary-logistic")).clicked() {
                             self.open_dialog(Dialog::Logistic(Default::default()));
                         }
-                        if ui.button("Optimal Scaling (CATREG)...").clicked() {
+                        if ui.button(t("menu-optimal-scaling-catreg")).clicked() {
                             self.open_dialog(Dialog::Catreg(Default::default()));
                         }
-                        if ui.button("2-Stage Least Squares...").clicked() {
+                        if ui.button(t("menu-2-stage-least-squares")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::TimeSeries(Box::new(
                                 TimeSeries::TwoSls(Default::default()),
                             ))));
                         }
                         for (label, dialog) in [
                             (
-                                "Multinomial Logistic...",
+                                t("menu-multinomial-logistic"),
                                 Advanced::Multinomial(Default::default()),
                             ),
-                            ("Ordinal...", Advanced::Ordinal(Default::default())),
-                            ("Probit...", Advanced::Probit(Default::default())),
-                            ("Weight Estimation...", Advanced::Wls(Default::default())),
+                            (t("menu-ordinal"), Advanced::Ordinal(Default::default())),
+                            (t("menu-probit"), Advanced::Probit(Default::default())),
                             (
-                                "Partial Least Squares...",
+                                t("menu-weight-estimation"),
+                                Advanced::Wls(Default::default()),
+                            ),
+                            (
+                                t("menu-partial-least-squares"),
                                 Advanced::Pls(Default::default()),
                             ),
                         ] {
@@ -2101,18 +2146,18 @@ impl App {
                             }
                         }
                     });
-                    ui.menu_button("Loglinear", |ui| {
+                    ui.menu_button(t("menu-loglinear"), |ui| {
                         for (label, dialog) in [
                             (
-                                "General...",
+                                t("menu-general"),
                                 Advanced::Genlog(Box::new(GeneralLoglinear::new(false))),
                             ),
                             (
-                                "Logit...",
+                                t("menu-logit"),
                                 Advanced::Genlog(Box::new(GeneralLoglinear::new(true))),
                             ),
                             (
-                                "Model Selection...",
+                                t("menu-model-selection"),
                                 Advanced::Hiloglinear(Default::default()),
                             ),
                         ] {
@@ -2121,91 +2166,94 @@ impl App {
                             }
                         }
                     });
-                    ui.menu_button("Classify", |ui| {
-                        if ui.button("K-Means Cluster...").clicked() {
+                    ui.menu_button(t("menu-classify"), |ui| {
+                        if ui.button(t("menu-k-means-cluster")).clicked() {
                             self.open_dialog(Dialog::KMeans(Default::default()));
                         }
-                        if ui.button("Hierarchical Cluster...").clicked() {
+                        if ui.button(t("menu-hierarchical-cluster")).clicked() {
                             self.open_dialog(Dialog::Hierarchical(Default::default()));
                         }
-                        if ui.button("TwoStep Cluster...").clicked() {
+                        if ui.button(t("menu-twostep-cluster")).clicked() {
                             self.open_dialog(Dialog::TwoStep(Default::default()));
                         }
-                        if ui.button("Attribute Importance (AIM)...").clicked() {
+                        if ui.button(t("menu-attribute-importance-aim")).clicked() {
                             self.open_dialog(Dialog::Aim(Default::default()));
                         }
-                        if ui.button("Feature Selection (SELECTPRED)...").clicked() {
+                        if ui.button(t("menu-feature-selection-selectpred")).clicked() {
                             self.open_dialog(Dialog::FeatureSelection(Default::default()));
                         }
-                        if ui.button("Identify Unusual Cases...").clicked() {
+                        if ui.button(t("menu-identify-unusual-cases")).clicked() {
                             self.open_dialog(Dialog::Anomaly(Default::default()));
                         }
-                        if ui.button("Discriminant...").clicked() {
+                        if ui.button(t("menu-discriminant")).clicked() {
                             self.open_dialog(Dialog::Discriminant(Default::default()));
                         }
-                        if ui.button("Tree...").clicked() {
+                        if ui.button(t("menu-tree")).clicked() {
                             self.open_dialog(Dialog::Tree(Default::default()));
                         }
-                        if ui.button("ROC Analysis...").clicked() {
+                        if ui.button(t("menu-roc-analysis")).clicked() {
                             self.open_dialog(Dialog::RocAnalysis(Default::default()));
                         }
-                        if ui.button("Response Rate...").clicked() {
+                        if ui.button(t("menu-response-rate")).clicked() {
                             self.open_dialog(Dialog::ResponseRate(Default::default()));
                         }
-                        if ui.button("Nearest Neighbor...").clicked() {
+                        if ui.button(t("menu-nearest-neighbor")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Knn(Default::default())));
                         }
-                        if ui.button("Naive Bayes...").clicked() {
+                        if ui.button(t("menu-naive-bayes")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::NaiveBayes(
                                 Default::default(),
                             )));
                         }
                     });
-                    ui.menu_button("Neural Networks", |ui| {
-                        if ui.button("Multilayer Perceptron...").clicked() {
+                    ui.menu_button(t("menu-neural-networks"), |ui| {
+                        if ui.button(t("menu-multilayer-perceptron")).clicked() {
                             self.open_dialog(Dialog::Mlp(Default::default()));
                         }
-                        if ui.button("Radial Basis Function...").clicked() {
+                        if ui.button(t("menu-radial-basis-function")).clicked() {
                             self.open_dialog(Dialog::Rbf(Default::default()));
                         }
                     });
-                    ui.menu_button("Dimension Reduction", |ui| {
-                        if ui.button("Factor...").clicked() {
+                    ui.menu_button(t("menu-dimension-reduction"), |ui| {
+                        if ui.button(t("menu-factor")).clicked() {
                             self.open_dialog(Dialog::FactorAnalysis(Default::default()));
                         }
-                        if ui.button("Correspondence Analysis...").clicked() {
+                        if ui.button(t("menu-correspondence-analysis")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Correspondence(
                                 Default::default(),
                             )));
                         }
-                        if ui.button("Multiple Correspondence...").clicked() {
+                        if ui.button(t("menu-multiple-correspondence")).clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Mca(Default::default())));
                         }
-                        if ui.button("Categorical Principal Components...").clicked() {
+                        if ui
+                            .button(t("menu-categorical-principal-components"))
+                            .clicked()
+                        {
                             self.open_dialog(Dialog::Advanced(
                                 Advanced::Catpca(Default::default()),
                             ));
                         }
-                        ui.menu_button("Older Optimal Scaling Commands", |ui| {
+                        ui.menu_button(t("menu-older-optimal-scaling-commands"), |ui| {
                             for (label, dialog) in [
                                 (
-                                    "Homogeneity Analysis (HOMALS)...",
+                                    t("menu-homogeneity-analysis-homals"),
                                     Advanced::Homals(Default::default()),
                                 ),
                                 (
-                                    "Nonlinear Principal Components (PRINCALS)...",
+                                    t("menu-nonlinear-principal-components-princals"),
                                     Advanced::Princals(Box::new(LegacyScaling::new(
                                         ScalingKind::Princals,
                                     ))),
                                 ),
                                 (
-                                    "Nonlinear Canonical Correlation (OVERALS)...",
+                                    t("menu-nonlinear-canonical-correlation-overals"),
                                     Advanced::Overals(Box::new(LegacyScaling::new(
                                         ScalingKind::Overals,
                                     ))),
                                 ),
                                 (
-                                    "Correspondence Analysis (ANACOR, older command)...",
+                                    t("menu-correspondence-analysis-anacor-older-command"),
                                     Advanced::Anacor(Default::default()),
                                 ),
                             ] {
@@ -2215,29 +2263,29 @@ impl App {
                             }
                         });
                     });
-                    ui.menu_button("Scale", |ui| {
-                        if ui.button("Reliability Analysis...").clicked() {
+                    ui.menu_button(t("menu-scale"), |ui| {
+                        if ui.button(t("menu-reliability-analysis")).clicked() {
                             self.open_dialog(Dialog::Reliability(Default::default()));
                         }
                         for (label, dialog) in [
                             (
-                                "Multidimensional Scaling (PROXSCAL)...",
+                                t("menu-multidimensional-scaling-proxscal"),
                                 Advanced::Proxscal(Default::default()),
                             ),
                             (
-                                "Multidimensional Scaling (ALSCAL)...",
+                                t("menu-multidimensional-scaling-alscal"),
                                 Advanced::Alscal(Default::default()),
                             ),
                             (
-                                "Multidimensional Unfolding (PREFSCAL)...",
+                                t("menu-multidimensional-unfolding-prefscal"),
                                 Advanced::Prefscal(Default::default()),
                             ),
                             (
-                                "Weighted Kappa...",
+                                t("menu-weighted-kappa"),
                                 Advanced::WeightedKappa(Default::default()),
                             ),
                             (
-                                "Fleiss Multirater Kappa...",
+                                t("menu-fleiss-multirater-kappa"),
                                 Advanced::Fleiss(Default::default()),
                             ),
                         ] {
@@ -2246,16 +2294,16 @@ impl App {
                             }
                         }
                     });
-                    if ui.button("Conjoint...").clicked() {
+                    if ui.button(t("menu-conjoint")).clicked() {
                         self.open_dialog(Dialog::Advanced(Advanced::Conjoint(Box::new(
                             Design::Analysis(Default::default()),
                         ))));
                     }
-                    ui.menu_button("Nonparametric Tests", |ui| {
+                    ui.menu_button(t("menu-nonparametric-tests"), |ui| {
                         for (label, kind) in [
-                            ("One Sample...", NpKind::OneSample),
-                            ("Independent Samples...", NpKind::Independent),
-                            ("Related Samples...", NpKind::Related),
+                            (t("menu-one-sample"), NpKind::OneSample),
+                            (t("menu-independent-samples"), NpKind::Independent),
+                            (t("menu-related-samples"), NpKind::Related),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(Advanced::Nptests(Box::new(
@@ -2263,7 +2311,7 @@ impl App {
                                 ))));
                             }
                         }
-                        ui.menu_button("Legacy Dialogs", |ui| {
+                        ui.menu_button(t("menu-legacy-dialogs"), |ui| {
                             for kind in NparKind::ALL {
                                 if ui.button(kind.menu()).clicked() {
                                     self.open_dialog(Dialog::NparTests(NparTests::new(kind)));
@@ -2271,18 +2319,21 @@ impl App {
                             }
                         });
                     });
-                    ui.menu_button("Survival", |ui| {
+                    ui.menu_button(t("menu-survival"), |ui| {
                         for (label, dialog) in [
-                            ("Life Tables...", Advanced::LifeTables(Default::default())),
-                            ("Kaplan-Meier...", Advanced::Km(Default::default())),
-                            ("Cox Regression...", Advanced::Cox(Default::default())),
+                            (
+                                t("menu-life-tables"),
+                                Advanced::LifeTables(Default::default()),
+                            ),
+                            (t("menu-kaplan-meier"), Advanced::Km(Default::default())),
+                            (t("menu-cox-regression"), Advanced::Cox(Default::default())),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));
                             }
                         }
                     });
-                    ui.menu_button("Forecasting", |ui| {
+                    ui.menu_button(t("menu-forecasting"), |ui| {
                         for (label, dialog) in forecasting_menu() {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(Advanced::TimeSeries(Box::new(
@@ -2291,14 +2342,14 @@ impl App {
                             }
                         }
                     });
-                    ui.menu_button("Quality Control", |ui| {
-                        if ui.button("Control Charts...").clicked() {
+                    ui.menu_button(t("menu-quality-control"), |ui| {
+                        if ui.button(t("menu-control-charts")).clicked() {
                             self.open_dialog(Dialog::ControlCharts(Default::default()));
                         }
                     });
-                    ui.menu_button("Multiple Response", |ui| {
+                    ui.menu_button(t("menu-multiple-response"), |ui| {
                         for (label, crosstabs) in
-                            [("Frequencies...", false), ("Crosstabs...", true)]
+                            [(t("menu-frequencies"), false), (t("menu-crosstabs"), true)]
                         {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::MultResponse(MultResponse {
@@ -2308,13 +2359,13 @@ impl App {
                             }
                         }
                     });
-                    if ui.button("Missing Value Analysis...").clicked() {
+                    if ui.button(t("menu-missing-value-analysis")).clicked() {
                         self.open_dialog(Dialog::Advanced(Advanced::Mva(Default::default())));
                     }
-                    ui.menu_button("Multiple Imputation", |ui| {
+                    ui.menu_button(t("menu-multiple-imputation"), |ui| {
                         for (label, patterns_only) in [
-                            ("Analyze Patterns...", true),
-                            ("Impute Missing Data Values...", false),
+                            (t("menu-analyze-patterns"), true),
+                            (t("menu-impute-missing-data-values"), false),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(Advanced::Imputation(Box::new(
@@ -2323,7 +2374,7 @@ impl App {
                             }
                         }
                     });
-                    ui.menu_button("Complex Samples", |ui| {
+                    ui.menu_button(t("menu-complex-samples"), |ui| {
                         let tables = |crosstabs| {
                             Advanced::Tables(SampleTables {
                                 crosstabs,
@@ -2331,32 +2382,35 @@ impl App {
                             })
                         };
                         for (label, dialog) in [
-                            ("Sampling Plan...", Advanced::Sampling(Default::default())),
                             (
-                                "Select a Sample...",
+                                t("menu-sampling-plan"),
+                                Advanced::Sampling(Default::default()),
+                            ),
+                            (
+                                t("menu-select-a-sample"),
                                 Advanced::Selection(Default::default()),
                             ),
-                            ("Analysis Plan...", Advanced::Plan(Default::default())),
+                            (t("menu-analysis-plan"), Advanced::Plan(Default::default())),
                             (
-                                "Descriptives...",
+                                t("menu-descriptives"),
                                 Advanced::Descriptives(Default::default()),
                             ),
-                            ("Frequencies...", tables(false)),
-                            ("Crosstabs...", tables(true)),
+                            (t("menu-frequencies"), tables(false)),
+                            (t("menu-crosstabs"), tables(true)),
                             (
-                                "General Linear Model...",
+                                t("menu-general-linear-model-dialog"),
                                 Advanced::Model(Box::new(SampleModel::new(false))),
                             ),
                             (
-                                "Logistic Regression...",
+                                t("menu-logistic-regression"),
                                 Advanced::Model(Box::new(SampleModel::new(true))),
                             ),
                             (
-                                "Ordinal Regression...",
+                                t("menu-ordinal-regression"),
                                 Advanced::Model(Box::new(SampleModel::new_ordinal())),
                             ),
                             (
-                                "Cox Regression...",
+                                t("menu-cox-regression"),
                                 Advanced::Model(Box::new(SampleModel::new_cox())),
                             ),
                         ] {
@@ -2367,20 +2421,23 @@ impl App {
                     });
                 });
             });
-            ui.menu_button("Graphs", |ui| {
+            ui.menu_button(t("menu-graphs"), |ui| {
                 for (label, dialog) in [
-                    ("Chart Builder...", Dialog::ChartBuilder(Default::default())),
                     (
-                        "P-P Plots...",
+                        t("menu-chart-builder"),
+                        Dialog::ChartBuilder(Default::default()),
+                    ),
+                    (
+                        t("menu-p-p-plots"),
                         Dialog::ProbabilityPlot(ProbabilityPlot::new(true)),
                     ),
                     (
-                        "Q-Q Plots...",
+                        t("menu-q-q-plots"),
                         Dialog::ProbabilityPlot(ProbabilityPlot::new(false)),
                     ),
-                    ("ROC Curve...", Dialog::RocCurve(Default::default())),
+                    (t("menu-roc-curve"), Dialog::RocCurve(Default::default())),
                     (
-                        "Case Plots...",
+                        t("menu-case-plots"),
                         Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Chart(
                             SeriesChart::new(true),
                         )))),
@@ -2391,21 +2448,24 @@ impl App {
                     }
                 }
             });
-            ui.menu_button("Transform", |ui| {
+            ui.menu_button(t("menu-transform"), |ui| {
                 if ui
-                    .add_enabled(has_data, egui::Button::new("Compute Variable..."))
+                    .add_enabled(has_data, egui::Button::new(t("menu-compute-variable")))
                     .clicked()
                 {
                     self.open_dialog(Dialog::Compute(Default::default(), String::new()));
                 }
                 if ui
-                    .add_enabled(has_data, egui::Button::new("Recode..."))
+                    .add_enabled(has_data, egui::Button::new(t("menu-recode")))
                     .clicked()
                 {
                     self.open_dialog(Dialog::Recode(Default::default(), Default::default()));
                 }
                 if ui
-                    .add_enabled(has_data, egui::Button::new("Count Values within Cases..."))
+                    .add_enabled(
+                        has_data,
+                        egui::Button::new(t("menu-count-values-within-cases")),
+                    )
                     .clicked()
                 {
                     self.open_dialog(Dialog::Count(
@@ -2416,21 +2476,21 @@ impl App {
                 }
                 ui.separator();
                 for (label, dialog) in [
-                    ("Rank Cases...", Dialog::Rank(Default::default())),
+                    (t("menu-rank-cases"), Dialog::Rank(Default::default())),
                     (
-                        "Optimal Binning...",
+                        t("menu-optimal-binning"),
                         Dialog::OptimalBinning(Default::default()),
                     ),
                     (
-                        "Prepare Data for Modeling (ADP)...",
+                        t("menu-prepare-data-for-modeling-adp"),
                         Dialog::PrepareData(Default::default()),
                     ),
                     (
-                        "Automatic Recode...",
+                        t("menu-automatic-recode"),
                         Dialog::Autorecode(Default::default()),
                     ),
                     (
-                        "Create Time Series...",
+                        t("menu-create-time-series"),
                         Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Create(
                             Default::default(),
                         )))),
@@ -2441,12 +2501,16 @@ impl App {
                     }
                 }
             });
-            ui.menu_button("Window", |ui| self.window_menu(ui));
-            ui.menu_button("Help", |ui| {
-                if ui.button("Documentation").on_hover_text(DOCS).clicked() {
+            ui.menu_button(t("menu-window"), |ui| self.window_menu(ui));
+            ui.menu_button(t("menu-help"), |ui| {
+                if ui
+                    .button(t("menu-documentation"))
+                    .on_hover_text(DOCS)
+                    .clicked()
+                {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(DOCS));
                 }
-                if ui.button("About Statscraft").clicked() {
+                if ui.button(t("menu-about-statscraft")).clicked() {
                     self.about = true;
                     self.popups = self.here;
                 }
@@ -2489,8 +2553,8 @@ impl App {
 
     fn data_file_dialog(&self) -> Option<PathBuf> {
         self.file_dialog()
-            .add_filter("Data file", &["sav"])
-            .add_filter("Compressed data file", &["zsav"])
+            .add_filter(t("filter-data-file"), &["sav"])
+            .add_filter(t("filter-compressed-data-file"), &["zsav"])
             .save_file()
     }
 
@@ -2539,7 +2603,7 @@ impl App {
         let designate =
             (self.windows.syntax(self.here).is_some() || output.is_some()) && !designated;
         if ui
-            .add_enabled(designate, egui::Button::new("Designate window"))
+            .add_enabled(designate, egui::Button::new(t("menu-designate-window")))
             .clicked()
         {
             match output {
@@ -2562,7 +2626,7 @@ impl App {
             Some(Kind::Data(d)) => {
                 let name = d.dataset.as_deref();
                 if dataset_named(&self.session, name).is_none() {
-                    return "Data".into();
+                    return t("window-data").into();
                 }
                 let file = self.file_of(name).0.and_then(Path::file_name);
                 let file = file.map(|f| f.to_string_lossy().into_owned());
@@ -2570,10 +2634,10 @@ impl App {
                     (Some(file), Some(name)) => format!("{file} [{name}]"),
                     (Some(file), None) => file,
                     (None, Some(name)) => name.to_string(),
-                    (None, None) => "Untitled".into(),
+                    (None, None) => t("window-untitled").into(),
                 };
                 match same(name, active_name(&self.session).as_deref()) {
-                    true => format!("{title} (active)"),
+                    true => t_args("window-active", &[("title", title.into())]),
                     false => title,
                 }
             }
@@ -2774,10 +2838,10 @@ impl App {
         let modal = egui::Modal::new(egui::Id::unique("unsaved")).show(ctx, |ui| {
             ui.set_max_width(460.0);
             ui.label(match then {
-                Then::Quit(_) => "Save the changes before closing?",
-                Then::Close(_) if syntax => "Save the changes to the syntax first?",
-                Then::Close(_) if output => "Save the output first?",
-                Then::Close(_) | Then::Replace(..) => "Save the changes to the data first?",
+                Then::Quit(_) => t("unsaved-quit"),
+                Then::Close(_) if syntax => t("unsaved-syntax"),
+                Then::Close(_) if output => t("unsaved-output"),
+                Then::Close(_) | Then::Replace(..) => t("unsaved-data"),
             });
             ui.add_space(4.0);
             for item in items {
@@ -2785,13 +2849,16 @@ impl App {
             }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.add(crate::brand::primary(ui, "Save")).clicked() {
+                if ui
+                    .add(crate::brand::primary(ui, t("button-save")))
+                    .clicked()
+                {
                     answer = Some(Answer::Save);
                 }
-                if ui.button("Don't save").clicked() {
+                if ui.button(t("button-dont-save")).clicked() {
                     answer = Some(Answer::Discard);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(t("button-cancel")).clicked() {
                     answer = Some(Answer::Cancel);
                 }
             });
@@ -2892,9 +2959,9 @@ impl App {
             let _ = self.settings.save();
         }
         let (kind, extension) = match choice.format {
-            Format::Excel => ("Excel workbook", "xlsx"),
-            Format::Html => ("Web page", "html"),
-            Format::Pdf => ("PDF document", "pdf"),
+            Format::Excel => (t("filter-excel-workbook"), "xlsx"),
+            Format::Html => (t("filter-web-page"), "html"),
+            Format::Pdf => (t("filter-pdf-document"), "pdf"),
         };
         if let Some(path) = self
             .file_dialog()
@@ -2911,8 +2978,8 @@ impl App {
     /// Saves a chart as a PNG or SVG picture on the paper the window shows it on.
     fn save_chart(&mut self, chart: &Chart, png: bool, paper: Paper) {
         let (kind, extension) = match png {
-            true => ("PNG image", "png"),
-            false => ("SVG image", "svg"),
+            true => (t("filter-png-image"), "png"),
+            false => (t("filter-svg-image"), "svg"),
         };
         let name: String = chart
             .title
@@ -2935,26 +3002,32 @@ impl App {
         };
         self.status = match bytes {
             Some(Ok(bytes)) => match std::fs::write(&path, bytes) {
-                Ok(()) => Ok(format!("chart saved to {}", path.display())),
+                Ok(()) => Ok(t_args(
+                    "status-saved-chart",
+                    &[("file", path.display().to_string().into())],
+                )),
                 Err(e) => Err(format!("{}: {e}", file_name(&path))),
             },
             Some(Err(e)) => Err(e),
-            None => Err("this kind of chart has no picture yet".into()),
+            None => Err(t("status-chart-no-picture").into()),
         };
     }
 
     fn tabs(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            for (tab, label) in [(Tab::Data, "Data"), (Tab::Variables, "Variables")] {
+            for (tab, label) in [
+                (Tab::Data, t("data-view")),
+                (Tab::Variables, t("data-variable-view")),
+            ] {
                 ui.selectable_value(&mut self.view.tab, tab, RichText::new(label).size(15.0));
             }
             ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                 if let Some(data) = window_data(&self.session, &self.windows, self.here) {
-                    ui.weak(format!(
-                        "{} cases, {} variables",
-                        data.case_count(),
-                        data.variable_count()
-                    ));
+                    let counts = [
+                        ("cases", data.case_count().into()),
+                        ("variables", data.variable_count().into()),
+                    ];
+                    ui.weak(t_args("data-size", &counts));
                 }
             });
         });
@@ -2979,15 +3052,18 @@ impl App {
     fn status(&mut self, ui: &mut Ui) {
         if let Some((run, label)) = self.runs.running() {
             let text = match &run.after {
-                After::OpenData(path) => format!("Opening {}", path.display()),
-                _ => format!("Running {label}"),
+                After::OpenData(path) => t_args(
+                    "status-opening",
+                    &[("file", path.display().to_string().into())],
+                ),
+                _ => t_args("status-running", &[("what", label.to_string().into())]),
             };
             let waiting = self.runs.waiting();
             ui.horizontal(|ui| {
                 ui.spinner();
                 ui.label(text);
                 if waiting > 0 {
-                    ui.strong(format!("{waiting} waiting"));
+                    ui.strong(t_args("status-waiting", &[("count", waiting.into())]));
                 }
             });
             return;
@@ -3043,8 +3119,8 @@ impl App {
 
     fn log(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            ui.strong("Log");
-            if ui.small_button("Copy syntax").clicked() {
+            ui.strong(t("log-title"));
+            if ui.small_button(t("log-copy-syntax")).clicked() {
                 let text: Vec<&str> = self
                     .session
                     .log
@@ -3062,14 +3138,18 @@ impl App {
                 for entry in &self.session.log {
                     ui.add(egui::Label::new(RichText::new(&entry.syntax).monospace()).wrap());
                     match &entry.result {
-                        Ok(summary) if entry.undone => ui.weak(format!("{summary}; undone")),
+                        Ok(summary) if entry.undone => ui.weak(t_args(
+                            "log-undone",
+                            &[("summary", summary.as_str().into())],
+                        )),
                         Ok(summary) => ui.weak(summary),
                         Err(errors) => {
                             ui.colored_label(ui.visuals().error_fg_color, error_text(errors))
                         }
                     };
                     for warning in &entry.warnings {
-                        ui.colored_label(ui.visuals().warn_fg_color, format!("warning: {warning}"));
+                        let text = t_args("log-warning", &[("warning", warning.as_str().into())]);
+                        ui.colored_label(ui.visuals().warn_fg_color, text);
                     }
                     ui.add_space(4.0);
                 }
@@ -3079,7 +3159,7 @@ impl App {
     fn no_data(ui: &mut Ui) {
         ui.add_space(40.0);
         ui.vertical_centered(|ui| {
-            ui.heading("No data yet");
+            ui.heading(t("data-none-yet"));
         });
     }
 
@@ -3088,7 +3168,7 @@ impl App {
             return Self::no_data(ui);
         }
         ui.horizontal(|ui| {
-            ui.checkbox(&mut self.value_labels, "Show value labels");
+            ui.checkbox(&mut self.value_labels, t("data-show-value-labels"));
             self.find_bar(ui);
         });
         paper(ui, !self.settings.paper_follows_system);
@@ -3345,7 +3425,7 @@ impl App {
         };
         let response = ui.add(
             TextEdit::singleline(text)
-                .hint_text("Find a variable by name or label")
+                .hint_text(t("data-find-hint"))
                 .desired_width(260.0),
         );
         if std::mem::take(&mut self.view.find_focus) {
@@ -3404,7 +3484,10 @@ impl App {
                 self.view.follow = true;
             }
             None if needle.trim().is_empty() => {}
-            None => self.status = Err(format!("no variable name or label holds {needle:?}")),
+            None => {
+                let needle = format!("{needle:?}");
+                self.status = Err(t_args("data-find-none", &[("text", needle.into())]))
+            }
         }
     }
 
@@ -3443,8 +3526,8 @@ impl App {
         let lines = text.lines().count().saturating_sub(1);
         ctx.copy_text(text);
         self.status = Ok(match wide {
-            true => format!("{lines} row(s) copied with their headers"),
-            false => "the cell copied".into(),
+            true => t_args("data-rows-copied", &[("count", lines.into())]),
+            false => t("data-cell-copied").into(),
         });
     }
 
@@ -3475,7 +3558,7 @@ impl App {
         let picked: Vec<usize> = picked.into_iter().flatten().copied().collect();
         if picked.is_empty() {
             if variable_view {
-                self.status = Err("select variables by their row numbers to delete them".into());
+                self.status = Err(t("data-select-rows-to-delete").into());
             }
             return;
         }
@@ -3494,46 +3577,46 @@ impl App {
         };
         let mut answer = None;
         let syntax = d.syntax();
-        egui::Window::new(format!("Type and format of {}", d.name))
-            .collapsible(false)
-            .resizable(false)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .show(ctx, |ui| {
-                ui.set_max_width(440.0);
-                egui::Grid::new("format grid")
-                    .num_columns(2)
-                    .show(ui, |ui| {
-                        ui.label("Format");
-                        let before = d.kind;
-                        ComboBox::new("format kind", "")
-                            .selected_text(edits::FORMAT_KINDS[d.kind].label)
-                            .height(400.0)
-                            .show_index(ui, &mut d.kind, edits::FORMAT_KINDS.len(), |i| {
-                                edits::FORMAT_KINDS[i].label
-                            });
-                        if d.kind != before {
-                            d.fit();
-                        }
-                        ui.end_row();
-                        ui.label("Width");
-                        ui.add(TextEdit::singleline(&mut d.width).desired_width(60.0));
-                        ui.end_row();
-                        let decimals = edits::FORMAT_KINDS[d.kind].decimals;
-                        ui.label("Decimals");
-                        ui.add_enabled(
-                            decimals,
-                            TextEdit::singleline(&mut d.decimals).desired_width(60.0),
-                        );
-                        ui.end_row();
-                    });
-                if d.changes_type() {
-                    ui.colored_label(
-                        ui.visuals().warn_fg_color,
-                        "A new type drops the value labels and missing values.",
+        egui::Window::new(t_args(
+            "data-format-title",
+            &[("variable", d.name.as_str().into())],
+        ))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            ui.set_max_width(440.0);
+            egui::Grid::new("format grid")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.label(t("data-format"));
+                    let before = d.kind;
+                    ComboBox::new("format kind", "")
+                        .selected_text(edits::FORMAT_KINDS[d.kind].label)
+                        .height(400.0)
+                        .show_index(ui, &mut d.kind, edits::FORMAT_KINDS.len(), |i| {
+                            edits::FORMAT_KINDS[i].label
+                        });
+                    if d.kind != before {
+                        d.fit();
+                    }
+                    ui.end_row();
+                    ui.label(t("data-width"));
+                    ui.add(TextEdit::singleline(&mut d.width).desired_width(60.0));
+                    ui.end_row();
+                    let decimals = edits::FORMAT_KINDS[d.kind].decimals;
+                    ui.label(t("data-decimals"));
+                    ui.add_enabled(
+                        decimals,
+                        TextEdit::singleline(&mut d.decimals).desired_width(60.0),
                     );
-                }
-                answer = dialog_footer(ui, &syntax, false);
-            });
+                    ui.end_row();
+                });
+            if d.changes_type() {
+                ui.colored_label(ui.visuals().warn_fg_color, t("data-new-type-drops"));
+            }
+            answer = dialog_footer(ui, &syntax, false);
+        });
         if self.finish_small(answer, syntax) {
             self.view.format_dialog = None;
         }
@@ -3546,73 +3629,75 @@ impl App {
         };
         let syntax = d.syntax();
         let mut answer = None;
-        egui::Window::new(format!("Value labels of {}", d.name))
-            .collapsible(false)
-            .resizable(false)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .show(ctx, |ui| {
-                ui.set_width(460.0);
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut d.quick, false, "One by one");
-                    ui.selectable_value(&mut d.quick, true, "Paste many");
-                });
-                ui.separator();
-                if d.quick {
-                    ui.add(
-                        TextEdit::multiline(&mut d.pasted)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(8)
-                            .font(TextStyle::Monospace),
-                    );
-                    ui.radio_value(
-                        &mut d.replace,
-                        false,
-                        "Update: add new codes, change the labels of codes there are",
-                    );
-                    ui.radio_value(
-                        &mut d.replace,
-                        true,
-                        "Replace: the pasted list is the whole set",
-                    );
-                } else {
-                    let mut remove = None;
-                    ScrollArea::vertical()
-                        .max_height(300.0)
-                        .auto_shrink([false, true])
-                        .show(ui, |ui| {
-                            let row = ui.text_style_height(&TextStyle::Body) + 6.0;
-                            ui.horizontal(|ui| {
-                                ui.add_sized(
-                                    [80.0, row],
-                                    egui::Label::new(RichText::new("Code").strong()),
-                                );
-                                ui.strong("Label");
-                            });
-                            for (i, (code, label)) in d.pairs.iter_mut().enumerate() {
-                                ui.horizontal(|ui| {
-                                    ui.add_sized([80.0, row], TextEdit::singleline(code));
-                                    ui.add_sized([320.0, row], TextEdit::singleline(label));
-                                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
-                                        remove = Some(i);
-                                    }
-                                });
-                            }
-                        });
-                    if let Some(i) = remove {
-                        d.pairs.remove(i);
-                    }
-                    if ui.button("Add a label").clicked() {
-                        d.pairs.push(Default::default());
-                    }
-                }
-                if !d.others.is_empty() {
-                    ui.checkbox(
-                        &mut d.apply_to_others,
-                        format!("Also for {}", edits::listed(&d.others)),
-                    );
-                }
-                answer = dialog_footer(ui, &syntax, false);
+        egui::Window::new(t_args(
+            "data-labels-title",
+            &[("variable", d.name.as_str().into())],
+        ))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            ui.set_width(460.0);
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut d.quick, false, t("data-one-by-one"));
+                ui.selectable_value(&mut d.quick, true, t("data-paste-many"));
             });
+            ui.separator();
+            if d.quick {
+                ui.add(
+                    TextEdit::multiline(&mut d.pasted)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(8)
+                        .font(TextStyle::Monospace),
+                );
+                ui.radio_value(&mut d.replace, false, t("data-labels-update"));
+                ui.radio_value(&mut d.replace, true, t("data-labels-replace"));
+            } else {
+                let mut remove = None;
+                ScrollArea::vertical()
+                    .max_height(300.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        let row = ui.text_style_height(&TextStyle::Body) + 6.0;
+                        ui.horizontal(|ui| {
+                            ui.add_sized(
+                                [80.0, row],
+                                egui::Label::new(RichText::new(t("data-code")).strong()),
+                            );
+                            ui.strong(t("data-label"));
+                        });
+                        for (i, (code, label)) in d.pairs.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.add_sized([80.0, row], TextEdit::singleline(code));
+                                ui.add_sized([320.0, row], TextEdit::singleline(label));
+                                if ui
+                                    .small_button("\u{d7}")
+                                    .on_hover_text(t("data-remove"))
+                                    .clicked()
+                                {
+                                    remove = Some(i);
+                                }
+                            });
+                        }
+                    });
+                if let Some(i) = remove {
+                    d.pairs.remove(i);
+                }
+                if ui.button(t("data-add-label")).clicked() {
+                    d.pairs.push(Default::default());
+                }
+            }
+            if !d.others.is_empty() {
+                ui.checkbox(
+                    &mut d.apply_to_others,
+                    t_args(
+                        "data-also-for",
+                        &[("variables", edits::listed(&d.others).into())],
+                    ),
+                );
+            }
+            answer = dialog_footer(ui, &syntax, false);
+        });
         if self.finish_small(answer, syntax) {
             self.view.labels_dialog = None;
         }
@@ -3625,47 +3710,53 @@ impl App {
         };
         let syntax = d.syntax();
         let mut answer = None;
-        egui::Window::new(format!("Missing values of {}", d.name))
-            .collapsible(false)
-            .resizable(false)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .show(ctx, |ui| {
-                ui.set_width(420.0);
-                ui.radio_value(&mut d.range, false, "Up to three values");
+        egui::Window::new(t_args(
+            "data-missing-title",
+            &[("variable", d.name.as_str().into())],
+        ))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            ui.set_width(420.0);
+            ui.radio_value(&mut d.range, false, t("data-up-to-three"));
+            ui.horizontal(|ui| {
+                ui.add_space(24.0);
+                for v in &mut d.values {
+                    ui.add_enabled(!d.range, TextEdit::singleline(v).desired_width(80.0));
+                }
+            });
+            if !d.string {
+                ui.radio_value(&mut d.range, true, t("data-range-and-one"));
                 ui.horizontal(|ui| {
                     ui.add_space(24.0);
-                    for v in &mut d.values {
-                        ui.add_enabled(!d.range, TextEdit::singleline(v).desired_width(80.0));
-                    }
-                });
-                if !d.string {
-                    ui.radio_value(&mut d.range, true, "A range and one value more");
-                    ui.horizontal(|ui| {
-                        ui.add_space(24.0);
-                        ui.add_enabled(
-                            d.range,
-                            TextEdit::singleline(&mut d.low).desired_width(70.0),
-                        );
-                        ui.label("through");
-                        ui.add_enabled(
-                            d.range,
-                            TextEdit::singleline(&mut d.high).desired_width(70.0),
-                        );
-                        ui.label("and");
-                        ui.add_enabled(
-                            d.range,
-                            TextEdit::singleline(&mut d.extra).desired_width(70.0),
-                        );
-                    });
-                }
-                if !d.others.is_empty() {
-                    ui.checkbox(
-                        &mut d.apply_to_others,
-                        format!("Also for {}", edits::listed(&d.others)),
+                    ui.add_enabled(
+                        d.range,
+                        TextEdit::singleline(&mut d.low).desired_width(70.0),
                     );
-                }
-                answer = dialog_footer(ui, &syntax, false);
-            });
+                    ui.label(t("data-through"));
+                    ui.add_enabled(
+                        d.range,
+                        TextEdit::singleline(&mut d.high).desired_width(70.0),
+                    );
+                    ui.label(t("data-and"));
+                    ui.add_enabled(
+                        d.range,
+                        TextEdit::singleline(&mut d.extra).desired_width(70.0),
+                    );
+                });
+            }
+            if !d.others.is_empty() {
+                ui.checkbox(
+                    &mut d.apply_to_others,
+                    t_args(
+                        "data-also-for",
+                        &[("variables", edits::listed(&d.others).into())],
+                    ),
+                );
+            }
+            answer = dialog_footer(ui, &syntax, false);
+        });
         if self.finish_small(answer, syntax) {
             self.view.missing_dialog = None;
         }
@@ -3719,7 +3810,7 @@ impl App {
                 if ui.button(c.button).clicked() {
                     answer = Some(true);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(t("button-cancel")).clicked() {
                     answer = Some(false);
                 }
             });
@@ -4014,7 +4105,10 @@ impl App {
                 started: false,
             });
         } else {
-            self.status = Err(format!("{} cannot be changed here yet", field.title()));
+            self.status = Err(t_args(
+                "data-field-not-here",
+                &[("field", field.title().into())],
+            ));
         }
     }
 
@@ -4216,7 +4310,7 @@ impl App {
             painter.text(
                 screen.center(),
                 Align2::CENTER_CENTER,
-                "Drop data, workbook, text, .sps or .scout files to open them",
+                t("window-drop-files"),
                 FontId::proportional(20.0),
                 Color32::WHITE,
             );
@@ -4335,18 +4429,18 @@ impl App {
         let mut run = None;
         let mut chosen = None;
         ui.horizontal(|ui| {
-            if ui.button("Run all").clicked() {
+            if ui.button(t("syntax-run-all")).clicked() {
                 run = Some(false);
             }
             if ui
-                .button("Run selection")
+                .button(t("syntax-run-selection"))
                 .on_hover_text("Ctrl+Enter")
                 .clicked()
             {
                 run = Some(true);
             }
             ui.separator();
-            ui.label("Active");
+            ui.label(t("syntax-active"));
             let (names, active) = syntax_window::datasets(&self.session);
             ui.add_enabled_ui(!names.is_empty(), |ui| {
                 ComboBox::from_id_salt(("active", id))
@@ -4475,7 +4569,7 @@ impl App {
         if self.settings.log_hidden != log_hidden {
             self.show_log = !self.settings.log_hidden;
         }
-        egui::Window::new("About Statscraft")
+        egui::Window::new(t("about-title"))
             .open(&mut self.about)
             .collapsible(false)
             .resizable(false)
@@ -4484,15 +4578,18 @@ impl App {
                     ui.add(egui::Image::new(&self.logo).fit_to_exact_size(egui::vec2(48.0, 48.0)));
                     ui.heading("Statscraft");
                 });
-                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
-                ui.label("Statistics with a command language, on .sav data files.");
-                ui.label("License: MIT");
-                ui.hyperlink_to("Source code", REPOSITORY);
-                ui.hyperlink_to("Documentation", DOCS);
-                ui.collapsing("Color themes", |ui| {
+                ui.label(t_args(
+                    "about-version",
+                    &[("version", env!("CARGO_PKG_VERSION").into())],
+                ));
+                ui.label(t("about-what"));
+                ui.label(t("about-license"));
+                ui.hyperlink_to(t("about-source"), REPOSITORY);
+                ui.hyperlink_to(t("menu-documentation"), DOCS);
+                ui.collapsing(t("about-themes"), |ui| {
                     ui.add(egui::Label::new(RichText::new(themes::NOTICES).small()).wrap());
                 });
-                ui.collapsing("Fonts", |ui| {
+                ui.collapsing(t("about-fonts"), |ui| {
                     ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
                         ui.add(
                             egui::Label::new(RichText::new(crate::fonts::NOTICES).small()).wrap(),
@@ -4689,7 +4786,10 @@ fn write_export(
             }
         };
     match written {
-        Ok(()) => Ok(format!("output exported to {}", path.display())),
+        Ok(()) => Ok(t_args(
+            "status-exported",
+            &[("file", path.display().to_string().into())],
+        )),
         Err(e) => Err(format!("{}: {e}", file_name(path))),
     }
 }
@@ -4872,8 +4972,17 @@ fn unsaved_output(session: &Session, name: &str) -> Option<String> {
     let document = output_document(session, name).filter(|d| d.unsaved)?;
     let file = document.file.as_deref().and_then(Path::file_name);
     Some(match file {
-        Some(file) => format!("Output: {} ({})", document.name, file.to_string_lossy()),
-        None => format!("Output: {}, not saved to a file yet", document.name),
+        Some(file) => t_args(
+            "unsaved-output-file",
+            &[
+                ("name", document.name.as_str().into()),
+                ("file", file.to_string_lossy().into_owned().into()),
+            ],
+        ),
+        None => t_args(
+            "unsaved-output-no-file",
+            &[("name", document.name.as_str().into())],
+        ),
     })
 }
 
@@ -4927,11 +5036,11 @@ fn unsaved_data(
     let file = data_file.and_then(Path::file_name);
     let name = match (file, dataset) {
         (Some(file), _) => file.to_string_lossy().into_owned(),
-        (None, Some(dataset)) => format!("{dataset}, not saved to a file yet"),
-        (None, None) => "not saved to a file yet".into(),
+        (None, Some(dataset)) => t_args("unsaved-dataset-no-file", &[("name", dataset.into())]),
+        (None, None) => t("unsaved-no-file").into(),
     };
     data.is_some_and(|d| Some(d) != data_saved)
-        .then(|| format!("Data: {name}"))
+        .then(|| t_args("unsaved-data-item", &[("name", name.into())]))
         .into_iter()
         .collect()
 }
@@ -4949,8 +5058,7 @@ fn ends_on_file(commands: &[CommandResult]) -> bool {
 fn warning_note(warnings: usize) -> Option<String> {
     match warnings {
         0 => None,
-        1 => Some("1 warning, see the log".into()),
-        n => Some(format!("{n} warnings, see the log")),
+        n => Some(t_args("status-warnings", &[("count", n.into())])),
     }
 }
 
@@ -4979,21 +5087,24 @@ fn filtered_out(data: &Dataset) -> impl Fn(usize) -> bool + '_ {
 fn data_states(data: &Dataset) -> Vec<(String, Dialog)> {
     let mut states = Vec::new();
     if let Some(split) = data.split_file() {
-        let how = if split.layered { "layered" } else { "separate" };
+        let args = [("variables", split.variables.join(" ").into())];
         states.push((
-            format!("Split by {} ({how})", split.variables.join(" ")),
+            match split.layered {
+                true => t_args("status-split-layered", &args),
+                false => t_args("status-split-separate", &args),
+            },
             Dialog::SplitFile(SplitFile::current(Some(split))),
         ));
     }
     if let Some(name) = data.filter_variable() {
         states.push((
-            format!("Filter: {name}"),
+            t_args("status-filter", &[("name", name.into())]),
             Dialog::SelectCases(Default::default()),
         ));
     }
     if let Some(name) = data.weight_variable() {
         states.push((
-            format!("Weight: {name}"),
+            t_args("status-weight", &[("name", name.into())]),
             Dialog::WeightCases(WeightCases::current(Some(name))),
         ));
     }
@@ -5089,7 +5200,7 @@ fn import_body(ui: &mut Ui, d: &mut ImportData) {
     ui.add_space(6.0);
     if is_workbook(Path::new(&d.path)) {
         ui.horizontal(|ui| {
-            ui.strong("Sheet");
+            ui.strong(t("import-sheet"));
             let shown = d.sheets.get(d.sheet).cloned().unwrap_or_default();
             ComboBox::new("import sheet", "")
                 .selected_text(shown)
@@ -5099,30 +5210,32 @@ fn import_body(ui: &mut Ui, d: &mut ImportData) {
                     }
                 });
         });
-        ui.checkbox(&mut d.names, "Read variable names from the first row");
+        ui.checkbox(&mut d.names, t("import-names-first-row"));
         ui.horizontal(|ui| {
-            ui.strong("Range");
+            ui.strong(t("import-range"));
             ui.add(
                 TextEdit::singleline(&mut d.range)
-                    .hint_text("whole sheet")
+                    .hint_text(t("import-whole-sheet"))
                     .desired_width(120.0),
             );
         });
     } else {
         ui.horizontal(|ui| {
-            ui.strong("Delimiter");
-            for (c, label) in TEXT_DELIMITERS {
+            ui.strong(t("import-delimiter"));
+            for (c, _) in TEXT_DELIMITERS {
+                let label = match c {
+                    ',' => t("import-comma"),
+                    ';' => t("import-semicolon"),
+                    _ => t("import-tab"),
+                };
                 ui.radio_value(&mut d.delimiter, c, label);
             }
         });
-        ui.checkbox(&mut d.names, "Read variable names from the first line");
-        ui.weak("First line");
+        ui.checkbox(&mut d.names, t("import-names-first-line"));
+        ui.weak(t("import-first-line"));
         ui.label(RichText::new(&d.first_line).monospace());
     }
 }
-
-/// The files the window opens, for the note on files it leaves alone.
-const OPENS: &str = "Statscraft opens .sav, .zsav, .xlsx, .xlsm, .xls, .csv, .txt, .tab, .dat, .sps and .scout files";
 
 /// A workbook or text file, which opens through the Open Data dialog.
 fn is_import_file(path: &Path) -> bool {
@@ -5180,18 +5293,18 @@ fn dropped(paths: Vec<PathBuf>) -> Dropped {
     };
     let mut reasons = Vec::new();
     if !extra.is_empty() {
-        reasons.push("one data file and one syntax file open at a time");
+        reasons.push(t("window-one-data-one-syntax"));
     }
     if !other.is_empty() {
-        reasons.push(OPENS);
+        reasons.push(t("window-opens"));
     }
     if !reasons.is_empty() {
         let names: Vec<String> = extra.iter().chain(&other).map(name).collect();
-        drop.note = Some(format!(
-            "not opened: {} ({})",
-            names.join(", "),
-            reasons.join("; ")
-        ));
+        let args = [
+            ("files", names.join(", ").into()),
+            ("reasons", reasons.join("; ").into()),
+        ];
+        drop.note = Some(t_args("window-not-opened", &args));
     }
     drop
 }
@@ -5206,7 +5319,7 @@ fn dialog_footer(
     // a list drawn open in this frame, above, takes the Escape
     let escape = ui.input(|i| i.key_pressed(Key::Escape)) && !ui.ctx().any_popup_open();
     ui.separator();
-    ui.weak("Syntax");
+    ui.weak(t("dialog-syntax"));
     match syntax {
         Ok(text) => {
             ui.add(egui::Label::new(RichText::new(text).monospace()).wrap());
@@ -5220,18 +5333,21 @@ fn dialog_footer(
     ui.horizontal(|ui| {
         let ready = syntax.is_ok();
         if ui
-            .add_enabled(ready, crate::brand::primary(ui, "OK"))
+            .add_enabled(ready, crate::brand::primary(ui, t("button-ok")))
             .clicked()
         {
             action = Some(DialogAction::Ok);
         }
-        if ui.add_enabled(ready, egui::Button::new("Paste")).clicked() {
+        if ui
+            .add_enabled(ready, egui::Button::new(t("button-paste")))
+            .clicked()
+        {
             action = Some(DialogAction::Paste);
         }
-        if reset && ui.button("Reset").clicked() {
+        if reset && ui.button(t("button-reset")).clicked() {
             action = Some(DialogAction::Reset);
         }
-        if ui.button("Cancel").clicked() {
+        if ui.button(t("button-cancel")).clicked() {
             action = Some(DialogAction::Cancel);
         }
     });
@@ -6138,7 +6254,11 @@ fn dialog_body(
                         .or_else(|_| value.syntax(true))
                         .unwrap_or_else(|e| e);
                     ui.monospace(text);
-                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    if ui
+                        .small_button("\u{d7}")
+                        .on_hover_text(t("data-remove"))
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                 });
@@ -6156,7 +6276,7 @@ fn dialog_body(
                     ui.add(TextEdit::singleline(&mut draft.low).desired_width(70.0));
                 }
                 if draft.old == 1 {
-                    ui.label("through");
+                    ui.label(t("data-through"));
                     ui.add(TextEdit::singleline(&mut draft.high).desired_width(70.0));
                 }
                 if ui.button("Add value").clicked() {
@@ -6188,7 +6308,7 @@ fn dialog_body(
                                 .hint_text("1"),
                         );
                         if !d.cut_point {
-                            ui.label("and");
+                            ui.label(t("data-and"));
                             ui.add(
                                 TextEdit::singleline(&mut d.group2)
                                     .desired_width(60.0)
@@ -6205,7 +6325,11 @@ fn dialog_body(
                     for (i, (a, b)) in d.pairs.iter().enumerate() {
                         ui.horizontal(|ui| {
                             ui.label(format!("{a}  with  {b}"));
-                            if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                            if ui
+                                .small_button("\u{d7}")
+                                .on_hover_text(t("data-remove"))
+                                .clicked()
+                            {
                                 remove = Some(i);
                             }
                         });
@@ -6391,7 +6515,11 @@ fn dialog_body(
                     if ui.small_button(order).clicked() {
                         *descending = !*descending;
                     }
-                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    if ui
+                        .small_button("\u{d7}")
+                        .on_hover_text(t("data-remove"))
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                 });
@@ -6480,7 +6608,11 @@ fn dialog_body(
                         "= {}({})",
                         AGGREGATE_FUNCTIONS[v.function].0, v.source
                     ));
-                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    if ui
+                        .small_button("\u{d7}")
+                        .on_hover_text(t("data-remove"))
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                 });
@@ -6630,7 +6762,11 @@ fn dialog_body(
                             ui.add(TextEdit::singleline(&mut g.name).desired_width(110.0));
                             ui.label("Label");
                             ui.add(TextEdit::singleline(&mut g.label).desired_width(170.0));
-                            if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                            if ui
+                                .small_button("\u{d7}")
+                                .on_hover_text(t("data-remove"))
+                                .clicked()
+                            {
                                 remove = Some(i);
                             }
                         });
@@ -6645,7 +6781,7 @@ fn dialog_body(
                             ui.radio_value(&mut g.dichotomy, false, "Categories from");
                             if !g.dichotomy {
                                 ui.add(TextEdit::singleline(&mut g.value).desired_width(40.0));
-                                ui.label("through");
+                                ui.label(t("data-through"));
                                 ui.add(TextEdit::singleline(&mut g.max).desired_width(40.0));
                             }
                         });
@@ -6697,7 +6833,7 @@ fn dialog_body(
                         ui.horizontal(|ui| {
                             ui.label(name.as_str());
                             ui.add(TextEdit::singleline(min).desired_width(40.0));
-                            ui.label("through");
+                            ui.label(t("data-through"));
                             ui.add(TextEdit::singleline(max).desired_width(40.0));
                         });
                     }
@@ -6751,7 +6887,11 @@ fn dialog_body(
                     ComboBox::from_id_salt(("predictor level", i))
                         .selected_text(TREE_LEVELS[*level].1)
                         .show_index(ui, level, TREE_LEVELS.len(), |i| TREE_LEVELS[i].1);
-                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    if ui
+                        .small_button("\u{d7}")
+                        .on_hover_text(t("data-remove"))
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                     ui.end_row();
@@ -6852,7 +6992,10 @@ fn dialog_body(
                                 ui.label("New variable");
                                 ui.add(TextEdit::singleline(&mut make.name).desired_width(120.0));
                                 if i > 0
-                                    && ui.small_button("\u{d7}").on_hover_text("Remove").clicked()
+                                    && ui
+                                        .small_button("\u{d7}")
+                                        .on_hover_text(t("data-remove"))
+                                        .clicked()
                                 {
                                     remove = Some(i);
                                 }
@@ -6962,7 +7105,11 @@ fn dialog_body(
                         .or_else(|_| rule.syntax(true))
                         .unwrap_or_else(|e| e);
                     ui.monospace(text);
-                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    if ui
+                        .small_button("\u{d7}")
+                        .on_hover_text(t("data-remove"))
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                 });
@@ -6980,7 +7127,7 @@ fn dialog_body(
                     ui.add(TextEdit::singleline(&mut draft.low).desired_width(70.0));
                 }
                 if draft.old == 1 {
-                    ui.label("through");
+                    ui.label(t("data-through"));
                     ui.add(TextEdit::singleline(&mut draft.high).desired_width(70.0));
                 }
                 ui.label("becomes");
@@ -7093,7 +7240,11 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
                     label => label,
                 };
                 ui.label(format!("{label}: {}", subtotal.values.join(", ")));
-                if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                if ui
+                    .small_button("\u{d7}")
+                    .on_hover_text(t("data-remove"))
+                    .clicked()
+                {
                     remove = Some(s);
                 }
             });
@@ -7243,7 +7394,8 @@ mod tests {
             drop.note.unwrap(),
             format!(
                 "not opened: c.sav, notes.pdf (one data file and one syntax file open at a time; \
-                 {OPENS})"
+                 {})",
+                t("window-opens")
             )
         );
         // a workbook or text file counts as the data file; it opens the Open Data dialog

@@ -1,6 +1,7 @@
 //! A syntax window: its text and file, the editor with colors, completion and F1 help, and the
 //! Active list of its toolbar. Runs go to the window's one session (app.rs).
 
+use crate::i18n::{t, t_args};
 use crate::settings::Settings;
 use crate::{complete, editor, highlight, themes};
 use eframe::egui::{
@@ -185,7 +186,10 @@ impl SyntaxWindow {
                     self.select_bytes(ctx, at..at);
                 }
                 if let Some(find) = self.find.as_mut() {
-                    find.note = Some(format!("Replaced {}", matches.len()));
+                    find.note = Some(t_args(
+                        "syntax-replaced",
+                        &[("count", matches.len().into())],
+                    ));
                 }
                 return;
             }
@@ -216,7 +220,7 @@ impl SyntaxWindow {
                 let field = ui.add(
                     TextEdit::singleline(&mut find.search.text)
                         .id_salt(("find_text", salt))
-                        .hint_text("Find")
+                        .hint_text(t("syntax-find"))
                         .desired_width(240.0),
                 );
                 if std::mem::take(&mut find.focus) {
@@ -234,8 +238,11 @@ impl SyntaxWindow {
                     field.request_focus();
                 }
                 fields.push(field);
-                if ui.checkbox(&mut find.search.case, "Match case").changed()
-                    | ui.checkbox(&mut find.search.word, "Whole word").changed()
+                if ui
+                    .checkbox(&mut find.search.case, t("syntax-match-case"))
+                    .changed()
+                    | ui.checkbox(&mut find.search.word, t("syntax-whole-word"))
+                        .changed()
                 {
                     step = Some(FindStep::First);
                 }
@@ -243,30 +250,38 @@ impl SyntaxWindow {
                 let count = match (&find.note, current, matches.len()) {
                     (Some(note), ..) => RichText::new(note),
                     _ if find.search.text.is_empty() => RichText::new(""),
-                    (_, _, 0) => RichText::new("No matches").color(ui.visuals().error_fg_color),
-                    (_, Some(i), n) => RichText::new(format!("{} of {n}", i + 1)),
-                    (_, None, 1) => RichText::new("1 match"),
-                    (_, None, n) => RichText::new(format!("{n} matches")),
+                    (_, _, 0) => {
+                        RichText::new(t("syntax-no-matches")).color(ui.visuals().error_fg_color)
+                    }
+                    (_, Some(i), n) => {
+                        let args = [("number", (i + 1).into()), ("count", n.into())];
+                        RichText::new(t_args("syntax-match-of", &args))
+                    }
+                    (_, None, n) => RichText::new(t_args("syntax-matches", &[("count", n.into())])),
                 };
                 ui.label(count);
                 let any = !matches.is_empty();
                 if ui
-                    .add_enabled(any, egui::Button::new("Previous"))
+                    .add_enabled(any, egui::Button::new(t("syntax-previous")))
                     .on_hover_text("Shift+F3")
                     .clicked()
                 {
                     step = Some(FindStep::Previous);
                 }
                 if ui
-                    .add_enabled(any, egui::Button::new("Next"))
+                    .add_enabled(any, egui::Button::new(t("syntax-next")))
                     .on_hover_text("F3")
                     .clicked()
                 {
                     step = Some(FindStep::Next);
                 }
-                ui.toggle_value(&mut find.replace, "Replace")
+                ui.toggle_value(&mut find.replace, t("syntax-replace"))
                     .on_hover_text("Ctrl+H");
-                if ui.button("Close").on_hover_text("Escape").clicked() {
+                if ui
+                    .button(t("button-close"))
+                    .on_hover_text("Escape")
+                    .clicked()
+                {
                     step = Some(FindStep::Close);
                 }
             });
@@ -275,7 +290,7 @@ impl SyntaxWindow {
                     let field = ui.add(
                         TextEdit::singleline(&mut find.with)
                             .id_salt(("replace_text", salt))
-                            .hint_text("Replace with")
+                            .hint_text(t("syntax-replace-with"))
                             .desired_width(240.0),
                     );
                     if field.lost_focus() && enter {
@@ -285,14 +300,14 @@ impl SyntaxWindow {
                     fields.push(field);
                     let any = !matches.is_empty();
                     if ui
-                        .add_enabled(any, egui::Button::new("Replace"))
+                        .add_enabled(any, egui::Button::new(t("syntax-replace")))
                         .on_hover_text("Enter")
                         .clicked()
                     {
                         step = Some(FindStep::Replace);
                     }
                     if ui
-                        .add_enabled(any, egui::Button::new("Replace all"))
+                        .add_enabled(any, egui::Button::new(t("syntax-replace-all")))
                         .clicked()
                     {
                         step = Some(FindStep::ReplaceAll);
@@ -317,7 +332,8 @@ impl SyntaxWindow {
     /// What would be lost if the window closed now: text that is not what its file holds, or
     /// new syntax that is not empty.
     pub fn unsaved(&self) -> Option<String> {
-        (self.text != self.saved).then(|| format!("Syntax: {}", self.name()))
+        (self.text != self.saved)
+            .then(|| t_args("unsaved-syntax-item", &[("name", self.name().into())]))
     }
 
     /// The lines of the whole commands the selection touches.
@@ -536,7 +552,7 @@ impl SyntaxWindow {
         }
         if let Some(text) = &self.help {
             let mut open = true;
-            egui::Window::new("Command help")
+            egui::Window::new(t("syntax-command-help"))
                 .id(egui::Id::unique(("command_help", salt)))
                 .open(&mut open)
                 .default_size([560.0, 420.0])
