@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - [GRAPH](docs/commands/graph.md) `/HILO` draws grouped high-low and high-low-close charts: with more than three series, each group of two or three stands beside the next in a category.
+- `INCLUDE` reads the inline data of a file as it is: a data line that starts with a minus sign or a period keeps it, and fixed-format records no longer get a blank record between them.
 - [CURVEFIT](docs/commands/curvefit.md) `/APPLY FIT` keeps the estimates of the earlier fit: the tables are the original ones, and the plot and the saved variables put its coefficients to use on the current data.
 
 ## 0.48.0 (2026-11-25)

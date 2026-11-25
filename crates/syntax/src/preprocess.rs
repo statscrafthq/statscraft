@@ -245,12 +245,22 @@ fn starts_with(words: &[String], expected: &[&str]) -> bool {
 }
 
 /// The text read by the batch rules, rewritten for the interactive ones: a blank line before
-/// every command, and the indent marker in the first column taken away.
+/// every command, and the indent marker in the first column taken away. The lines inside inline
+/// data and program blocks are not commands and stay as they are.
 fn batch_to_interactive(
     lines: Vec<(u32, String, Option<String>)>,
 ) -> Vec<(u32, String, Option<String>)> {
     let mut out: Vec<(u32, String, Option<String>)> = Vec::new();
+    // the block being read: its name, so that END <name> closes it
+    let mut block: Option<&'static str> = None;
     for (number, mut text, origin) in lines {
+        if let Some(name) = block {
+            if crate::split::is_line_command(&text, ["END", name]) {
+                block = None;
+            }
+            out.push((number, text, origin));
+            continue;
+        }
         let first = text.chars().next();
         if first.is_some_and(|c| !c.is_whitespace()) {
             if matches!(first, Some('+' | '-' | '.')) {
@@ -260,6 +270,9 @@ fn batch_to_interactive(
                 out.push((number, String::new(), None));
             }
         }
+        block = crate::split::block_start(&text).or_else(|| {
+            starts_with(&leading_words(&text), &["BEGIN", "PROGRAM"]).then_some("PROGRAM")
+        });
         out.push((number, text, origin));
     }
     out
