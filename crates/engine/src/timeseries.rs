@@ -59,6 +59,8 @@ pub(crate) struct Models {
     /// The last CURVEFIT and WLS, as they ran.
     pub(crate) curvefit: Option<Box<statscraft_syntax::Curvefit>>,
     pub(crate) wls: Option<Box<statscraft_syntax::Wls>>,
+    /// The estimates of that CURVEFIT, which APPLY FIT puts to use again.
+    pub(crate) curve_fits: Vec<crate::curvefit::Stored>,
     /// The last TSPLOT and CASEPLOT.
     pub(crate) plots: [Option<Box<statscraft_syntax::SeriesPlot>>; 2],
 }

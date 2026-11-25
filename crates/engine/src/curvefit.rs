@@ -99,6 +99,14 @@ fn exp_coefficients(model: CurveModel) -> (bool, bool) {
     )
 }
 
+/// The estimate of a model of the dependent in this place of the list, kept for APPLY FIT.
+#[derive(Clone)]
+pub(crate) struct Stored {
+    dependent: usize,
+    model: CurveModel,
+    ls: LeastSquares,
+}
+
 /// A fitted model of one dependent.
 struct Fitted {
     model: CurveModel,
@@ -191,6 +199,7 @@ impl Engine {
         (spec.save_pred, spec.save_resid, spec.save_cin) =
             (command.save_pred, command.save_resid, command.save_cin);
         spec.apply = None;
+        spec.apply_fit = command.apply_fit;
         spec.given = Default::default();
         Ok(spec)
     }
@@ -277,6 +286,14 @@ impl Engine {
             _ => 0.0,
         };
         let mut warnings = Vec::new();
+        if command.apply_fit {
+            warnings.push(
+                "CURVEFIT APPLY FIT: the tables show the estimates of the original fit; the plot \
+                 and the saved variables put them to use on the current data"
+                    .to_string(),
+            );
+        }
+        let mut stored: Vec<Stored> = Vec::new();
         if command.template {
             warnings.push("CURVEFIT: TEMPLATE is ignored; charts come as data".to_string());
         }
@@ -302,6 +319,23 @@ impl Engine {
             let y_text = shown.named(data, dependent);
             let mut fitted = Vec::new();
             for &model in models {
+                if command.apply_fit {
+                    let found = (self.ts_models.curve_fits.iter())
+                        .find(|s| s.dependent == d && s.model == model);
+                    match found {
+                        Some(s) => fitted.push(Fitted {
+                            model,
+                            ls: s.ls.clone(),
+                        }),
+                        None => warnings.push(format!(
+                            "APPLY FIT: the original CURVEFIT has no {} model for the dependent \
+                             variable in place {}; none is shown for {dependent}",
+                            label(model),
+                            d + 1
+                        )),
+                    }
+                    continue;
+                }
                 let rows: Option<Vec<(Vec<f64>, f64)>> = used
                     .iter()
                     .map(|&k| Some((terms(model, x[k])?, linear_y(model, y[k], inv_u)?)))
@@ -317,7 +351,14 @@ impl Engine {
                 let g = vec![1.0; xs.len()];
                 let ls = least_squares(&xs, &yl, &c, &g, constant).filter(|ls| ls.df_res() > 0.0);
                 match ls {
-                    Some(ls) if ls.tolerance >= tolerance => fitted.push(Fitted { model, ls }),
+                    Some(ls) if ls.tolerance >= tolerance => {
+                        stored.push(Stored {
+                            dependent: d,
+                            model,
+                            ls: ls.clone(),
+                        });
+                        fitted.push(Fitted { model, ls });
+                    }
                     Some(_) => warnings.push(format!(
                         "the {} model of {dependent} is not fitted: a term's tolerance is below {tolerance}",
                         label(model)
@@ -409,6 +450,9 @@ impl Engine {
         }
         for warning in warnings {
             self.warn(warning);
+        }
+        if !command.apply_fit {
+            self.ts_models.curve_fits = stored;
         }
         self.charts.extend(charts);
         let count = saves.len() * wanted.iter().filter(|w| **w).count();

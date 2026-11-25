@@ -3670,7 +3670,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [GROWTH] [EXPONENTIAL] [LGSTIC] [ALL]]\n\
                  \x20  [/CONSTANT | /NOCONSTANT] [/UPPERBOUND=NO | n] [/CIN=95] [/PRINT=ANOVA]\n\
                  \x20  [/SAVE=[PRED] [RESID] [CIN]] [/PLOT=FIT | NONE] [/ID=variable] [/TEMPLATE='file']\n\
-                 \x20  [/APPLY[=SPECIFICATIONS]].\n\
+                 \x20  [/APPLY[='model name'] [SPECIFICATIONS | FIT]].\n\
                  Model names may be cut to three letters. With x the independent (or 1, 2, 3, ... in case\n\
                  order when there is no WITH): LINEAR b0 + b1 x, LOGARITHMIC b0 + b1 ln x, INVERSE b0 + b1/x,\n\
                  QUADRATIC and CUBIC add x^2 and x^3, COMPOUND b0 b1^x, POWER b0 x^b1, S exp(b0 + b1/x),\n\
@@ -3695,7 +3695,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  subcommand given twice keeps the last. TEMPLATE is ignored. APPLY runs the previous CURVEFIT's\n\
                  specifications again: the dependents and the independent of the new command when it names\n\
                  some, else the old ones, and any subcommand it gives replaces the old one (SAVE is not\n\
-                 carried over); APPLY can also name the model named in quotes (MOD_1, MOD_2, ... in the order the session made them); APPLY FIT is not supported.",
+                 carried over); APPLY can also name the model named in quotes (MOD_1, MOD_2, ... in the order the session made them). APPLY FIT keeps the estimates of that earlier fit: the tables are the\n\
+                 original ones, while the plot and the saved variables put its coefficients to use on the current\n\
+                 data, with the original error variance and degrees of freedom for the limits; a model the earlier\n\
+                 command did not fit is left out with a warning.",
         example: "CURVEFIT VARIABLES=visitors WITH week /MODEL=LINEAR QUADRATIC GROWTH /PRINT=ANOVA /SAVE=PRED CIN.",
         parse: regression_more::curvefit,
     },

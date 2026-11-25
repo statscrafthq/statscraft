@@ -965,13 +965,6 @@ fn curvefit_apply_is_checked() {
         error(SERIES, "CURVEFIT y /MODEL=LINEAR.\nCURVEFIT APPLY 'quad'.")
             .contains("no model named")
     );
-    let (_, errors) = parse(&format!("{SERIES}CURVEFIT y /APPLY FIT."));
-    assert!(
-        errors[0]
-            .message
-            .contains("APPLY FIT of CURVEFIT is not supported yet"),
-        "{errors:?}"
-    );
 }
 
 #[test]
@@ -992,4 +985,80 @@ fn wls_apply_reuses_the_previous_specifications() {
     let direct = run(SHOPS, "WLS staff WITH area /SOURCE=area /DELTA=1.5.");
     same_tables(&applied.tables, &direct.tables);
     assert!(error(SHOPS, "WLS APPLY.").contains("no earlier WLS"));
+}
+
+/// APPLY FIT keeps the estimates of the original fit: the tables are the original ones, while
+/// the saved values put its coefficients to use on the current data, with the original error
+/// variance and degrees of freedom for the limits (least squares in R, the limits from the
+/// original design).
+#[test]
+fn curvefit_apply_fit_puts_the_original_coefficients_to_use() {
+    let first = "TSET NEWVAR=NONE.\nCURVEFIT y WITH x /MODEL=LINEAR /PLOT=NONE.\n";
+    let original = run(SERIES, first);
+    let r = run(
+        SERIES,
+        &format!("{first}COMPUTE x2 = x + 1.\nCURVEFIT y WITH x2 /APPLY FIT /SAVE=PRED RESID CIN."),
+    );
+    same_tables(&r.tables, &original.tables);
+    assert!(
+        r.warnings.iter().any(|w| w.contains("APPLY FIT")),
+        "{:?}",
+        r.warnings
+    );
+    // the fit at x2 = 3.2 with the coefficients of y on x
+    close(values(&r, "FIT_1")[2].unwrap(), 6.615780141844, 1e-9);
+    close(values(&r, "ERR_1")[2].unwrap(), -2.015780141844, 1e-9);
+    close(values(&r, "LCL_1")[2].unwrap(), 2.692293245066, 1e-7);
+    close(values(&r, "UCL_1")[2].unwrap(), 10.539267038621, 1e-7);
+    // a plain APPLY afterwards fits anew, and the latest fit is what FIT uses
+    let again = run(
+        SERIES,
+        &format!(
+            "{first}COMPUTE x2 = x + 1.\nCURVEFIT y WITH x2 /APPLY FIT.\n\
+             CURVEFIT y WITH x2 /APPLY.\nCURVEFIT y WITH x2 /APPLY FIT /SAVE=PRED."
+        ),
+    );
+    // the plain APPLY fitted y on x2, whose estimates FIT then used: the line of y on x at 2.2
+    close(values(&again, "FIT_1")[2].unwrap(), 3.531855791962, 1e-9);
+    let refit = run(
+        SERIES,
+        &format!(
+            "{first}COMPUTE x2 = x + 1.\nCURVEFIT y WITH x2 /APPLY FIT.\nCURVEFIT y WITH x2 /APPLY."
+        ),
+    );
+    let direct = run(
+        SERIES,
+        "COMPUTE x2 = x + 1.\nCURVEFIT y WITH x2 /MODEL=LINEAR /PLOT=NONE.",
+    );
+    same_tables(&refit.tables, &direct.tables);
+}
+
+#[test]
+fn curvefit_apply_fit_needs_the_original_models() {
+    // CUBIC was not fitted the first time: it is left out with a warning
+    let r = run(
+        SERIES,
+        "CURVEFIT y WITH x /MODEL=LINEAR QUADRATIC /PLOT=NONE.\n\
+         CURVEFIT y WITH x /APPLY FIT /MODEL=QUADRATIC CUBIC.",
+    );
+    let t = find(&r.tables, "Model Summary and Parameter Estimates", 0);
+    assert_eq!(t.rows.len(), 1);
+    assert!(
+        r.warnings.iter().any(|w| w.contains("no Cubic model")),
+        "{:?}",
+        r.warnings
+    );
+    let message = error(SERIES, "CURVEFIT y WITH x /APPLY FIT.");
+    assert!(message.contains("no earlier CURVEFIT"), "{message}");
+}
+
+#[test]
+fn curvefit_apply_fit_of_a_named_model_uses_that_models_estimates() {
+    let r = run(
+        SERIES,
+        "TSET NEWVAR=NONE.\nCURVEFIT y WITH x /MODEL=LINEAR /PLOT=NONE.\n\
+         CURVEFIT y WITH x /MODEL=CUBIC /PLOT=NONE.\nCOMPUTE x2 = x + 1.\n\
+         CURVEFIT y WITH x2 /APPLY 'MOD_1' FIT /SAVE=PRED.",
+    );
+    close(values(&r, "FIT_1")[2].unwrap(), 6.615780141844, 1e-9);
 }

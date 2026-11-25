@@ -47,6 +47,7 @@ pub(crate) fn numeric_column(
 
 /// A weighted least-squares fit, computed on the predictors centered (with a constant) and
 /// scaled to unit sums of squares, which keeps powers of a long series well conditioned.
+#[derive(Clone)]
 pub(crate) struct LeastSquares {
     pub constant: bool,
     /// The weighted means of the predictors (0 without a constant).

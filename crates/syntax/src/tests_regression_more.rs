@@ -132,7 +132,6 @@ fn curvefit_errors() {
     assert!(err("CURVEFIT y /UPPERBOUND=-2.").contains("positive"));
     assert!(err("CURVEFIT y /MODEL=SPLINE.").contains("unexpected"));
     assert!(err("CURVEFIT y /SAVE.").contains("unexpected"));
-    assert!(err("CURVEFIT y /APPLY FIT.").contains("APPLY FIT of CURVEFIT is not supported yet"));
     assert!(err("CURVEFIT /MODEL=CUBIC.").contains("VARIABLES"));
 }
 
@@ -168,7 +167,11 @@ fn wls_errors() {
 fn curvefit_and_wls_apply() {
     let c = curvefit("CURVEFIT y /APPLY.");
     assert_eq!(c.apply, Some(None));
-    assert!(!c.given.models);
+    assert!(!c.given.models && !c.apply_fit);
+    let c = curvefit("CURVEFIT z /APPLY FIT.");
+    assert!(c.apply == Some(None) && c.apply_fit);
+    let c = curvefit("CURVEFIT APPLY 'first' FIT /MODEL=CUBIC.");
+    assert!(c.apply == Some(Some("first".into())) && c.apply_fit && c.given.models);
     let c = curvefit("CURVEFIT APPLY 'first' SPECIFICATIONS /MODEL=CUBIC /NOCONSTANT.");
     assert_eq!(c.apply, Some(Some("first".into())));
     assert!(c.dependents.is_empty());

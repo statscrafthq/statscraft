@@ -97,7 +97,10 @@ impl Models {
             "2SLS" => self.two_stage.clone_from(&from.two_stage),
             "TSPLOT" => self.plots[0].clone_from(&from.plots[0]),
             "CASEPLOT" => self.plots[1].clone_from(&from.plots[1]),
-            "CURVEFIT" => self.curvefit.clone_from(&from.curvefit),
+            "CURVEFIT" => {
+                self.curvefit.clone_from(&from.curvefit);
+                self.curve_fits.clone_from(&from.curve_fits);
+            }
             "WLS" => self.wls.clone_from(&from.wls),
             _ => {}
         }

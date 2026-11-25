@@ -117,6 +117,8 @@ pub struct Curvefit {
     pub template: bool,
     /// `APPLY ['name']`: the previous CURVEFIT's specifications, but for those given here.
     pub apply: Option<Option<String>>,
+    /// `APPLY FIT`: the coefficients of the original fits, not new ones.
+    pub apply_fit: bool,
     /// Which specifications this command gives itself, for APPLY to replace only those.
     pub given: CurveGiven,
 }
@@ -410,6 +412,7 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
         save_cin: false,
         template: false,
         apply: None,
+        apply_fit: false,
         given: CurveGiven::default(),
     };
     // a leading slash is allowed when another subcommand comes before VARIABLES
@@ -419,13 +422,10 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
         if p.eat_keyword("APPLY") {
             command.apply = Some(crate::ts_models::apply_name(p)?);
             if p.eat_word("FIT") {
-                return Err(error(
-                    p,
-                    start,
-                    "APPLY FIT of CURVEFIT is not supported yet; APPLY SPECIFICATIONS is",
-                ));
+                command.apply_fit = true;
+            } else {
+                p.eat_keyword("SPECIFICATIONS");
             }
-            p.eat_keyword("SPECIFICATIONS");
             first = false;
             if !at_end(p) {
                 return Err(p.unexpected(&["'/'", "end of command"]));
