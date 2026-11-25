@@ -180,7 +180,7 @@ fn unianova_defaults_and_the_pasted_dialog_syntax() {
          /PRINT=ETASQ DESCRIPTIVE PARAMETER HOMOGENEITY OPOWER LOF\n  \
          /CRITERIA=ALPHA(.05)\n  /DESIGN=x a b a*b.",
     );
-    assert_eq!(g.save[3], (GlmTemp::Cook, Some("c".into())));
+    assert_eq!(g.save[3], (GlmTemp::Cook, vec!["c".to_string()]));
     let GlmPlot::Profile(profile) = &g.plots[0] else {
         panic!("{:?}", g.plots);
     };

@@ -574,7 +574,54 @@ fn means_post_hoc_and_saved_values_come_per_dependent() {
 }
 
 #[test]
+fn saved_values_take_one_new_name_per_dependent_in_order() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!("{DATA}\nGLM y1 y2 y3 BY g WITH x /SAVE=PRED RESID."),
+    );
+    run(
+        &mut engine,
+        "GLM y1 y2 y3 BY g WITH x /SAVE=PRED(p1 p2) RESID(r1, r2, r3).",
+    );
+    run(
+        &mut engine,
+        "GLM y1 y2 y3 BY g /WSFACTOR=t 3 /SAVE=PRED(w1 w2 w3).",
+    );
+    let data = engine.dataset().unwrap();
+    let values = |name: &str| match data.variable(name).unwrap().values() {
+        statscraft_data::Values::Numeric(v) => v.iter().collect::<Vec<_>>(),
+        _ => panic!("{name} is a string"),
+    };
+    // the third prediction has no name given, so it gets the next free default name
+    for (named, default) in [
+        ("p1", "PRE_1"),
+        ("p2", "PRE_2"),
+        ("PRE_4", "PRE_3"),
+        ("r1", "RES_1"),
+        ("r2", "RES_2"),
+        ("r3", "RES_3"),
+    ] {
+        assert_eq!(values(named), values(default), "{named}");
+    }
+    assert!(data.variable("PRE_5").is_err());
+    let label = data.variable("p2").unwrap().label().map(str::to_string);
+    assert_eq!(label.as_deref(), Some("Predicted Value for y2"));
+    for name in ["w1", "w2", "w3"] {
+        assert!(data.variable(name).is_ok(), "{name}");
+    }
+}
+
+#[test]
 fn errors_name_the_problem() {
+    assert_eq!(
+        run_error(&format!("{DATA}\nGLM y1 y2 BY g /SAVE=PRED(a b c).")),
+        "GLM /SAVE: 3 new names for 2 dependent variables; give one name per dependent variable at most"
+    );
+    assert_eq!(
+        run_error(&format!("{DATA}\nGLM y1 y2 BY g /SAVE=PRED(y2).")),
+        "GLM /SAVE: variable y2 already exists"
+    );
     assert_eq!(
         run_error(&format!("{DATA}\nGLM y1 y2 BY g /MMATRIX=y3 1.")),
         "MMATRIX names y3, which is not a dependent variable"

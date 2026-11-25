@@ -1097,6 +1097,17 @@ impl Engine {
                 "{name}: ROBUST applies to a model with one dependent variable and is ignored"
             ));
         }
+        if let Some((_, names)) = command
+            .save
+            .iter()
+            .find(|(_, n)| n.len() > dependents.len())
+        {
+            return Err(Error(format!(
+                "{name} /SAVE: {} new names for {} dependent variables; give one name per dependent variable at most",
+                names.len(),
+                dependents.len()
+            )));
+        }
         if command.outfile.is_some()
             && (dependents.len() > 1 || !command.wsfactors.is_empty() || !command.random.is_empty())
         {
@@ -1108,11 +1119,6 @@ impl Engine {
         let dependent_texts: Vec<String> = dep_vars.iter().map(|v| shown.variable(v)).collect();
         let mut tables = Vec::new();
         if !command.wsfactors.is_empty() {
-            if command.save.iter().any(|(_, name)| name.is_some()) {
-                return Err(Error(format!(
-                    "{name}: SAVE with a variable name is not supported yet with several dependent variables; leave the name out"
-                )));
-            }
             tables.extend(self.repeated_measures(
                 command,
                 &d,
@@ -1126,7 +1132,7 @@ impl Engine {
                 for (j, dependent) in dependents.iter().enumerate() {
                     let dj = d.only(j);
                     let fj = Fit::new(&dj, effects.clone(), &dj.y, command.eps);
-                    self.save_glm(command, &dj, &fj, dependent, cases)?;
+                    self.save_glm(command, &dj, &fj, (j, dependent), cases)?;
                 }
             }
         } else if !command.random.is_empty() && dependents.len() > 1 {
@@ -1168,7 +1174,7 @@ impl Engine {
             let charts = plots(command, &d, &fit, &dependent_texts[0], &label_of)?;
             self.charts.extend(charts);
             if !command.save.is_empty() {
-                self.save_glm(command, &d, &fit, &dependents[0], cases)?;
+                self.save_glm(command, &d, &fit, (0, &dependents[0]), cases)?;
             }
             if let Some(out) = &command.outfile {
                 self.glm_outfile(command, out, &d, &fit, &dependent_texts[0])?;
@@ -1342,7 +1348,7 @@ impl Engine {
         command: &Glm,
         d: &Data,
         fit: &Fit,
-        dependent: &str,
+        (j, dependent): (usize, &str),
         cases: usize,
     ) -> Result<(), Error> {
         if command.regwgt.is_none()
@@ -1406,7 +1412,7 @@ impl Engine {
             for (temp, given) in &command.save {
                 let at = temps.iter().position(|t| t.0 == *temp).expect("listed");
                 let (_, root, what) = temps[at];
-                let var = match given {
+                let var = match given.get(j) {
                     Some(n) => n.clone(),
                     None => {
                         let mut n = 1;
@@ -6238,12 +6244,6 @@ impl Engine {
                 dependents.len()
             )));
         }
-        if command.save.iter().any(|(_, name)| name.is_some()) {
-            return Err(Error(format!(
-                "{}: SAVE with a variable name is not supported yet with several dependent variables; leave the name out",
-                command.command
-            )));
-        }
         if command.print.mmatrix && given_m.is_none() {
             warnings.push(
                 "PRINT TEST(MMATRIX) shows the M matrix of MMATRIX, which is not given".into(),
@@ -6389,8 +6389,8 @@ impl Engine {
             self.charts.extend(charts);
         }
         if !command.save.is_empty() {
-            for ((dj, fj), name) in parts.iter().zip(dependents) {
-                self.save_glm(command, dj, fj, name, cases)?;
+            for (j, ((dj, fj), name)) in parts.iter().zip(dependents).enumerate() {
+                self.save_glm(command, dj, fj, (j, name), cases)?;
             }
         }
         Ok(out)

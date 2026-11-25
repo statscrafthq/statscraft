@@ -203,7 +203,8 @@ pub struct Glm {
     pub kmatrix: Option<Vec<Vec<f64>>>,
     /// The last MMATRIX: the columns of the transformation of the dependent variables.
     pub mmatrix: Option<Vec<MColumn>>,
-    pub save: Vec<(GlmTemp, Option<String>)>,
+    /// Each temporary variable with its new names, one per dependent variable in their order.
+    pub save: Vec<(GlmTemp, Vec<String>)>,
     /// PLOT, in the order asked.
     pub plots: Vec<GlmPlot>,
     /// `/RANDOM=factors`: the factors whose effects (and the effects containing them) are random;
@@ -1203,9 +1204,9 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
     Ok(out)
 }
 
-fn save(p: &mut Parser) -> PResult<Vec<(GlmTemp, Option<String>)>> {
+fn save(p: &mut Parser) -> PResult<Vec<(GlmTemp, Vec<String>)>> {
     p.eat(Punct::Eq);
-    let mut out: Vec<(GlmTemp, Option<String>)> = Vec::new();
+    let mut out: Vec<(GlmTemp, Vec<String>)> = Vec::new();
     while !at_end(p) {
         let Some(&(_, temp)) = GLM_TEMPS.iter().find(|(n, _)| p.at_keyword(n)) else {
             let names: Vec<&str> = GLM_TEMPS.iter().map(|(n, _)| *n).collect();
@@ -1213,20 +1214,21 @@ fn save(p: &mut Parser) -> PResult<Vec<(GlmTemp, Option<String>)>> {
         };
         let start = p.pos;
         p.pos += 1;
-        let name = if p.eat(Punct::LParen) {
-            let name = p.name("a variable name")?;
-            p.expect(Punct::RParen)?;
-            Some(name)
-        } else {
-            None
-        };
+        let mut names = Vec::new();
+        if p.eat(Punct::LParen) {
+            names.push(p.name("a variable name")?);
+            while !p.eat(Punct::RParen) {
+                p.eat(Punct::Comma);
+                names.push(p.name("a variable name or )")?);
+            }
+        }
         if out.iter().any(|(t, _)| *t == temp) {
             return Err(SyntaxError::new(
                 p.span_from(start),
                 "a temporary variable is saved only once",
             ));
         }
-        out.push((temp, name));
+        out.push((temp, names));
         p.eat(Punct::Comma);
     }
     if out.is_empty() {

@@ -4763,7 +4763,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  adds Box's M test of equal covariance matrices to Levene's test of each dependent. RSSCP gives the\n\
                  residual SSCP, covariance and correlation matrices and Bartlett's test of sphericity; TEST(SSCP)\n\
                  gives the SSCP of each effect and of the error. EMMEANS, POSTHOC, PLOT and SAVE work on each\n\
-                 dependent in turn (SAVE without names).\n\
+                 dependent in turn; SAVE PRED(p1 p2) names the new variable of each dependent in their order, one\n\
+                 left without a name gets the default PRE_n.\n\
                  MMATRIX transforms the dependents for a custom test L B M = K: each column ends with ';' and is\n\
                  named by its label or T1, T2, ... (the identity by default). L comes from LMATRIX (the intercept's\n\
                  test when only MMATRIX or KMATRIX is given) and K from KMATRIX (rows end with ';', zero by\n\
