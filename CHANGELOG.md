@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - [RMV](docs/commands/rmv.md) copies series with their missing values filled in: `LINT` interpolates, `MEAN` and `MEDIAN` use the nearest valid values on each side, `SMEAN` the series mean and `TREND` a fitted line.
+- [NLR](docs/commands/nlr.md) fits nonlinear models by least squares (Levenberg-Marquardt) to the model that [MODEL PROGRAM](docs/commands/model-program.md) and [DERIVATIVES](docs/commands/derivatives.md) define: iteration history, analysis of variance with R squared, estimates with asymptotic standard errors and 95% intervals, parameter correlations, FILE and OUTFILE for starting values, SAVE of predicted values, residuals and derivatives, and a check of the derivatives given against numerical ones. CLEAR MODEL PROGRAMS drops the programs.
 
 ## 0.49.0 (2026-11-25)
 
@@ -15,7 +16,6 @@ GRAPH draws grouped high-low charts, MVA writes its filled data under SPLIT FILE
 - [MVA](docs/commands/mva.md) writes its OUTFILE under SPLIT FILE: each group is filled from its own estimates, all in one file.
 - [GRAPH](docs/commands/graph.md) `/HILO` draws grouped high-low and high-low-close charts: with more than three series, each group of two or three stands beside the next in a category.
 - `INCLUDE` reads the inline data of a file as it is: a data line that starts with a minus sign or a period keeps it, and fixed-format records no longer get a blank record between them.
-- [NLR](docs/commands/nlr.md) fits nonlinear models by least squares (Levenberg-Marquardt) to the model that [MODEL PROGRAM](docs/commands/model-program.md) and [DERIVATIVES](docs/commands/derivatives.md) define: iteration history, analysis of variance with R squared, estimates with asymptotic standard errors and 95% intervals, parameter correlations, FILE and OUTFILE for starting values, SAVE of predicted values, residuals and derivatives, and a check of the derivatives given against numerical ones. CLEAR MODEL PROGRAMS drops the programs.
 - [CURVEFIT](docs/commands/curvefit.md) `/APPLY FIT` keeps the estimates of the earlier fit: the tables are the original ones, and the plot and the saved variables put its coefficients to use on the current data.
 
 ## 0.48.0 (2026-11-25)

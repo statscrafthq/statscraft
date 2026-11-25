@@ -347,3 +347,80 @@ fn misuse_is_refused() {
         .contains("needs a MODEL PROGRAM")
     );
 }
+
+/// The saved variables of every split group land in the same columns of the active data.
+#[test]
+fn saved_values_of_split_groups_are_kept() {
+    let t = run(
+        "SPLIT FILE BY g.\nMODEL PROGRAM a=8 b=1.\nCOMPUTE pred = a * x / (b + x).\n\
+         NLR y /SAVE=PRED RESID(r) /CRITERIA=SSCON(0) PCON(1E-10) RCON(0).\n\
+         SPLIT FILE OFF.\nCOMPUTE back = r + PRED - y.\n\
+         DESCRIPTIVES PRED r back /STATISTICS=MEAN MIN MAX.",
+    );
+    let d = t
+        .iter()
+        .find(|t| t.title == "Descriptive Statistics")
+        .expect("descriptives");
+    let cell = |label: &str, at: usize| match &d
+        .rows
+        .iter()
+        .find(|r| matches!(&r[0], Cell::Text(s) if s == label))
+        .expect("row")[at]
+    {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    // all twelve cases have a value from their own group's fit
+    assert_eq!(cell("PRED", 2), 12.0);
+    assert_eq!(cell("r", 2), 12.0);
+    assert!(cell("back", 4).abs() < 1e-9 && cell("back", 5).abs() < 1e-9);
+    // group 1: x = 0.5 with a = 8.3827562295417, b = 1.9815887281473 gives the smallest value
+    near(
+        cell("PRED", 4),
+        8.3827562295417 * 0.5 / (1.9815887281473 + 0.5),
+        "smallest prediction",
+    );
+    // group 2: x = 15 with a = 10.5184976681652, b = 3.1847312686696 gives the largest
+    near(
+        cell("PRED", 5),
+        10.5184976681652 * 15.0 / (3.1847312686696 + 15.0),
+        "largest prediction",
+    );
+}
+
+/// A label and the formats of the predicted values given inside the model program go to the
+/// saved variables: the prediction takes both, the residuals and the derivatives the format.
+#[test]
+fn format_and_label_of_the_predicted_values_reach_the_saved_variables() {
+    let t = run("MODEL PROGRAM a=8 b=1.\nCOMPUTE pred = a * x / (b + x).\n\
+         VARIABLE LABELS pred 'Fitted response'.\nFORMATS pred (F8.4).\n\
+         NLR y /SAVE=PRED RESID(r) DERIVATIVES.\n\
+         DISPLAY DICTIONARY /VARIABLES=PRED r D.a.");
+    let text = t
+        .iter()
+        .flat_map(|t| t.rows.iter().flatten())
+        .filter_map(|c| match c {
+            Cell::Text(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    assert!(text.contains("Fitted response"), "{text}");
+    assert!(text.matches("F8.4").count() >= 3, "{text}");
+}
+
+/// A program that recomputes the weight from the parameters: the weights are those of the
+/// model program at every trial. R: Gauss-Newton for the sum of w(theta) (y - f)^2 with
+/// w = 1 / f (a Poisson-like weighting), the derivative of w included in the Jacobian as the
+/// manual has it.
+#[test]
+fn a_weight_computed_from_the_parameters_agrees_with_r() {
+    let t = run(
+        "WEIGHT BY w.\nMODEL PROGRAM a=8 b=1.\nCOMPUTE pred = a * x / (b + x).\nCOMPUTE w = 1 / pred.\n\
+         NLR y /CRITERIA=SSCON(0) PCON(1E-10) RCON(0).",
+    );
+    let a = row(&t, "Parameter Estimates", "a");
+    let b = row(&t, "Parameter Estimates", "b");
+    near(a[0], 9.82499463854944, "a");
+    near(b[0], 2.52034145159067, "b");
+}

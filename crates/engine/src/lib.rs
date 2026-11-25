@@ -1088,9 +1088,18 @@ impl Engine {
             .as_mut()
             .filter(|p| p.section != nlr::Section::Closed)
         {
+            // a label and the formats of the predicted values belong to the program too
             if !matches!(command, Command::Derivatives)
                 && (is_transformation(command)
-                    || matches!(command, Command::Loop(_) | Command::EndLoop(_)))
+                    || matches!(
+                        command,
+                        Command::Loop(_)
+                            | Command::EndLoop(_)
+                            | Command::Formats(_)
+                            | Command::PrintFormats(_)
+                            | Command::WriteFormats(_)
+                            | Command::VariableLabels(_)
+                    ))
             {
                 match program.section {
                     nlr::Section::Derivatives => program.derivatives.push(command.clone()),

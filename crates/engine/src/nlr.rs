@@ -73,6 +73,9 @@ struct Eval {
     weight: Vec<f64>,
     /// The derivative of every parameter the derivatives program computed.
     derivatives: Vec<Option<Vec<f64>>>,
+    /// The format and the label the program gave the predicted values.
+    format: String,
+    label: Option<String>,
 }
 
 /// Runs the programs on a copy of the data.
@@ -149,10 +152,13 @@ impl Runner {
                 None
             });
         }
+        let variable = data.variable(&self.pred)?;
         Ok(Eval {
             pred,
             weight,
             derivatives: found,
+            format: variable.format().to_string(),
+            label: variable.label().map(str::to_string),
         })
     }
 }
@@ -460,9 +466,15 @@ impl Engine {
                 .iter()
                 .any(|t| t.eq_ignore_ascii_case(w))
         });
+        // the template every trial is cloned from carries neither the data nor the other datasets
         let mut engine = self.clone();
         engine.model_program = None;
         engine.dataset = None;
+        engine.session.clear_datasets();
+        engine.time_program = None;
+        engine.running_program = None;
+        engine.case_numbers = None;
+        engine.temporary = None;
         let mut runner = Runner {
             engine,
             base,
@@ -777,12 +789,13 @@ impl Engine {
         }
 
         // SAVE
-        let mut saved: Vec<(String, Vec<Option<f64>>)> = Vec::new();
+        let mut saved: Vec<(String, Vec<Option<f64>>, bool)> = Vec::new();
         let opt = |v: f64| Some(v).filter(|v| v.is_finite());
         if command.save.pred {
             saved.push((
                 pred_name.clone(),
                 current.pred.iter().map(|v| opt(*v)).collect(),
+                true,
             ));
         }
         if let Some(name) = &command.save.resid {
@@ -795,7 +808,7 @@ impl Engine {
                     }
                 })
                 .collect();
-            saved.push((name.clone(), values));
+            saved.push((name.clone(), values, false));
         }
         if command.save.derivatives {
             // the derivative of every parameter, those the program did not give numerically
@@ -814,10 +827,10 @@ impl Engine {
                     }
                 };
                 let short: String = names[k].chars().take(6).collect();
-                saved.push((format!("D.{short}"), column));
+                saved.push((format!("D.{short}"), column, false));
             }
         }
-        for (name, values) in saved {
+        for (name, values, is_pred) in saved {
             let data = self.active_mut()?;
             if data.variable_index(&name).is_some() {
                 self.warn(format!(
@@ -827,6 +840,11 @@ impl Engine {
             }
             data.set_numeric_values(&name, values)?;
             data.set_measure(&name, Measure::Scale)?;
+            // the residuals and the derivatives print like the predicted values
+            data.set_format(&name, &current.format)?;
+            if is_pred {
+                data.set_variable_label(&name, current.label.as_deref())?;
+            }
         }
         Ok(tables)
     }

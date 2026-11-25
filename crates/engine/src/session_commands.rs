@@ -47,6 +47,11 @@ pub(crate) struct State {
 }
 
 impl State {
+    /// Forgets the datasets other than the active one (an engine copy for a sub-run needs none).
+    pub(crate) fn clear_datasets(&mut self) {
+        self.datasets.clear();
+    }
+
     /// Only the settings, for the engines that run one case of a case-by-case pass.
     pub(crate) fn settings_only(&self) -> State {
         State {

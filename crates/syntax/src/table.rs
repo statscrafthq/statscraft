@@ -3238,7 +3238,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the predicted value of the dependent variable from the parameters and the variables of the\n\
                  data, into the variable PRED unless the PRED subcommand of NLR names another. Every parameter is\n\
                  named once and needs a starting value, here or from the FILE of NLR; a value of zero says\n\
-                 nothing about the scale of the parameter, so avoid it. The model program changes neither the\n\
+                 nothing about the scale of the parameter, so avoid it. VARIABLE LABELS and FORMATS for the\n\
+                 predicted values may stand among the transformations. The model program changes neither the\n\
                  data nor the variables: its parameters and the variables it creates exist only while NLR runs.\n\
                  DERIVATIVES. inside the program starts the derivatives program, whose COMPUTE commands give the\n\
                  derivative of the predicted value for a parameter in the variable D.parameter; a derivative it\n\
@@ -3291,7 +3292,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  variables, the parameters, SSE (the residual sum of squares) and NCASES, one case per group. SAVE\n\
                  appends the predicted values, the residuals (named in parentheses, else RESID or what the\n\
                  keyword was written as) and the derivatives D.parameter (the first six letters of the parameter\n\
-                 name) to the data; a variable whose name is taken is not saved. A case whose dependent variable,\n\
+                 name) to the data, the predicted values with the label and format the model program gave them,\n\
+                 the others with that format; a variable whose name is taken is not saved. A case whose dependent variable,\n\
                  weight or predicted value is missing, or whose weight is zero or negative, is left out.",
         example: "MODEL PROGRAM b0=2 b1=0.3.\nCOMPUTE pred = b0 * EXP(b1 * dose).\nNLR response.",
         parse: nlr::nlr,
