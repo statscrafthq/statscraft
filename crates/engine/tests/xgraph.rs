@@ -79,6 +79,18 @@ fn simple_bar_of_counts() {
 }
 
 #[test]
+fn grouped_percentile_of_spend() {
+    // East spend 10, 20, 30 and West 40 to 80, one case each: the cumulative weights at the
+    // midpoints are 0.5, 1.5, 2.5 (and 3.5, 4.5), and the quarter of the total (0.75 and 1.25)
+    // lies a quarter and three quarters of the way between the first two values
+    let chart = one("XGRAPH (spend [GPTILE(25)] [BAR]) BY zone[c].");
+    close(&chart.series[0].values, &[12.5, 47.5]);
+    // half the total is the middle value, exactly on a midpoint
+    let chart = one("XGRAPH (spend [GPTILE(50)] [BAR]) BY zone[c].");
+    close(&chart.series[0].values, &[20.0, 60.0]);
+}
+
+#[test]
 fn clustered_bar_of_means() {
     // East: a 10 20, b 30 (one missing); West: a 40 80, b 50 60 70
     for source in [

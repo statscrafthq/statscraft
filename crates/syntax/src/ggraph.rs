@@ -124,7 +124,7 @@ impl GplExpr {
 }
 
 /// (name, takes a variable, how many numbers follow)
-const FUNCTIONS: [(&str, bool, usize); 25] = [
+const FUNCTIONS: [(&str, bool, usize); 26] = [
     ("COUNT", false, 0),
     ("CASEVALUE", true, 0),
     ("MINIMUM", true, 0),
@@ -138,6 +138,7 @@ const FUNCTIONS: [(&str, bool, usize); 25] = [
     ("GMEDIAN", true, 0),
     ("MODE", true, 0),
     ("PTILE", true, 1),
+    ("GPTILE", true, 1),
     ("PLT", true, 1),
     ("PGT", true, 1),
     ("NLT", true, 1),
@@ -153,9 +154,8 @@ const FUNCTIONS: [(&str, bool, usize); 25] = [
 ];
 
 /// Functions of the manual this version does not compute.
-const NOT_YET: [&str; 7] = [
+const NOT_YET: [&str; 6] = [
     "RESPONSES",
-    "GPTILE",
     "COUNTCI",
     "MEDIANCI",
     "MEANCI",
@@ -327,6 +327,11 @@ fn items(p: &mut Parser) -> PResult<Vec<GraphItem>> {
                 return Err(SyntaxError::new(span, message));
             }
             "PTILE" => GraphStat::Graph(F::Ptile(x)),
+            "GPTILE" if x <= 0.0 || x >= 100.0 => {
+                let message = "the percentile of GPTILE lies above 0 and below 100";
+                return Err(SyntaxError::new(span, message));
+            }
+            "GPTILE" => GraphStat::Graph(F::Gptile(x)),
             "PLT" => GraphStat::Graph(F::Plt(x)),
             "PGT" => GraphStat::Graph(F::Pgt(x)),
             "NLT" => GraphStat::Graph(F::Nlt(x)),

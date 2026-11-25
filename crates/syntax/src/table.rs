@@ -5171,11 +5171,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  END GPL.\n\
                  item: a variable (ALL and TO allowed) with an optional [NAME=\"new\" LEVEL=SCALE | NOMINAL | ORDINAL],\n\
                  or a function with an optional [NAME=\"new\"]: COUNT(), MINIMUM MAXIMUM VALIDN SUM MEAN STDDEV\n\
-                 VARIANCE MEDIAN GMEDIAN MODE (var), PTILE PLT PGT NLT NGT NLE PLE NEQ PEQ NGE PGE (var, x), PIN NIN\n\
+                 VARIANCE MEDIAN GMEDIAN MODE (var), PTILE GPTILE PLT PGT NLT NGT NLE PLE NEQ PEQ NGE PGE (var, x), PIN NIN\n\
                  (var, low, high), CASEVALUE(var). Keywords are written in full. A function makes one row per\n\
                  combination of the other variables' values; its column is called by its name and arguments joined\n\
                  with underscores (MEAN_price, PTILE_price_90) unless NAME renames it. Without a function every\n\
                  case with a positive weight is a row, and $CASENUM numbers them. Weights count in every function.\n\
+                 GMEDIAN and GPTILE take each value as the midpoint of its interval and interpolate on the cumulative\n\
+                 weights; a percentile below the first midpoint or above the last is missing.\n\
                  LISTWISE drops a case missing on any listed variable; VARIABLEWISE drops it only from the functions\n\
                  of the variable it misses. REPORTMISSING=YES turns user-missing values of variables that are not at\n\
                  the scale level into categories of their own. VARSTOCASES makes a row of each function, numbered in\n\
@@ -5285,7 +5287,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  y: var [function] [element], (var + var ...) [function] [element], or [count function] [element].\n\
                  x, z: var [c] or [s], $CASENUM [LABEL=var], or 1, the stand-in for the y variables.\n\
                  function: COUNT PCT CUPCT CUFREQ (no variable); VALUE; MINIMUM MAXIMUM VALIDN SUM CUSUM MEAN\n\
-                 STDDEV VARIANCE MEDIAN GMEDIAN MODE, PTILE(p), PLT PGT NLT NGT(x), PIN NIN(low, high).\n\
+                 STDDEV VARIANCE MEDIAN GMEDIAN MODE, PTILE(p), GPTILE(p), PLT PGT NLT NGT(x), PIN NIN(low, high).\n\
                  element: BAR (the default), LINE, HISTOBAR, POINT, BOX. Square brackets are typed as shown,\n\
                  one keyword in each; names and keywords are written in full, each subcommand at most once.\n\
                  BAR and LINE draw the function of y for every category of x. A variable after > on y stacks\n\
@@ -5295,7 +5297,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  they form the categories, the series or the stack. [VALUE] draws a bar for every case, the\n\
                  cases numbered on the axis that holds $CASENUM or named by its LABEL variable; a variable on\n\
                  the other axis gives a chart for each of its categories. [COLOR] and [PATTERN] after a stack\n\
-                 or cluster variable are accepted and change nothing.\n\
+                 or cluster variable are accepted and change nothing. GMEDIAN and GPTILE take each value as the\n\
+                 midpoint of its interval and interpolate on the cumulative weights; a percentile below the first\n\
+                 midpoint or above the last is missing.\n\
                  COORDINATE SPLIT=YES turns a bar chart into a population pyramid: horizontal bars with a\n\
                  series for each category of z. HISTOBAR counts the cases in bins of a scale x and draws a\n\
                  histogram for each category of z, all with the same bins, which BIN sets (by default as\n\

@@ -206,6 +206,21 @@ fn line_of_means_and_lines_named_by_color() {
     assert_eq!(chart.title, "Mean of rain by field");
 }
 
+// GPTILE: the percentile of values taken as the midpoints of their intervals, interpolated on the
+// cumulative weights; North holds 2, 3 and 4 (twice), the cumulative weights at the midpoints
+// are 0.5, 1.5 and 3 of 4, so half the total (2) is a third of the way from 3 to 4.
+#[test]
+fn grouped_percentile_interpolates_the_midpoints() {
+    let chart = one(&program(
+        "field GPTILE(rain, 50)[NAME=\"gp\"]",
+        &format!(
+            "{FIELD}\nDATA: gp=col(source(s), name(\"gp\"))\n\
+             ELEMENT: line(position(field*gp), missing.wings())"
+        ),
+    ));
+    close(&chart.series[0].values, &[10.0 / 3.0, 3.0, 2.5]);
+}
+
 #[test]
 fn scatter_plot_of_cases_grouped_by_color() {
     let chart = one(&program(

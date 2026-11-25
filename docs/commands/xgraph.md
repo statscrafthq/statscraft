@@ -19,11 +19,11 @@ y: var \[function\] \[element\], (var + var ...) \[function\] \[element\], or \[
 
 x, z: var \[c\] or \[s\], \$CASENUM \[LABEL=var\], or 1, the stand-in for the y variables.
 
-function: COUNT PCT CUPCT CUFREQ (no variable); VALUE; MINIMUM MAXIMUM VALIDN SUM CUSUM MEAN STDDEV VARIANCE MEDIAN GMEDIAN MODE, PTILE(p), PLT PGT NLT NGT(x), PIN NIN(low, high).
+function: COUNT PCT CUPCT CUFREQ (no variable); VALUE; MINIMUM MAXIMUM VALIDN SUM CUSUM MEAN STDDEV VARIANCE MEDIAN GMEDIAN MODE, PTILE(p), GPTILE(p), PLT PGT NLT NGT(x), PIN NIN(low, high).
 
 element: BAR (the default), LINE, HISTOBAR, POINT, BOX. Square brackets are typed as shown, one keyword in each; names and keywords are written in full, each subcommand at most once.
 
-BAR and LINE draw the function of y for every category of x. A variable after \> on y stacks the bars; one after \> on x clusters them; z gives the series when neither is there. Every further dimension (a second cluster, or z next to a stack or cluster) repeats the chart for each of its categories, as PANEL does. Several y variables, joined with +, need the 1 where they form the categories, the series or the stack. \[VALUE\] draws a bar for every case, the cases numbered on the axis that holds \$CASENUM or named by its LABEL variable; a variable on the other axis gives a chart for each of its categories. \[COLOR\] and \[PATTERN\] after a stack or cluster variable are accepted and change nothing.
+BAR and LINE draw the function of y for every category of x. A variable after \> on y stacks the bars; one after \> on x clusters them; z gives the series when neither is there. Every further dimension (a second cluster, or z next to a stack or cluster) repeats the chart for each of its categories, as PANEL does. Several y variables, joined with +, need the 1 where they form the categories, the series or the stack. \[VALUE\] draws a bar for every case, the cases numbered on the axis that holds \$CASENUM or named by its LABEL variable; a variable on the other axis gives a chart for each of its categories. \[COLOR\] and \[PATTERN\] after a stack or cluster variable are accepted and change nothing. GMEDIAN and GPTILE take each value as the midpoint of its interval and interpolate on the cumulative weights; a percentile below the first midpoint or above the last is missing.
 
 COORDINATE SPLIT=YES turns a bar chart into a population pyramid: horizontal bars with a series for each category of z. HISTOBAR counts the cases in bins of a scale x and draws a histogram for each category of z, all with the same bins, which BIN sets (by default as FREQUENCIES makes them; COUNT(n) gives n bins from the start to the largest value).
 

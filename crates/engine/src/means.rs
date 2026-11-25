@@ -91,10 +91,16 @@ pub(crate) fn kind(cell: M) -> Option<Stat> {
     }
 }
 
-/// The grouped median (Algorithms manual, appendix Grouped Percentiles): each distinct value is
-/// the midpoint of its interval, and the cumulative weight up to the midpoints, cc_l = the
-/// weight below value l plus half its own, is interpolated linearly at half the total.
+/// The grouped median.
 pub(crate) fn grouped_median(cells: &[(f64, f64)]) -> Option<f64> {
+    grouped_percentile(cells, 0.5)
+}
+
+/// The grouped percentile of the fraction `p` (Algorithms manual, appendix Grouped Percentiles):
+/// each distinct value is the midpoint of its interval, and the cumulative weight up to the
+/// midpoints, cc_l = the weight below value l plus half its own, is interpolated linearly at p
+/// times the total. Missing when that lies below the first midpoint or above the last one.
+pub(crate) fn grouped_percentile(cells: &[(f64, f64)], p: f64) -> Option<f64> {
     let mut cells: Vec<(f64, f64)> = cells.iter().copied().filter(|(_, w)| *w > 0.0).collect();
     cells.sort_by(|a, b| a.0.total_cmp(&b.0));
     cells.dedup_by(|next, kept| {
@@ -104,21 +110,23 @@ pub(crate) fn grouped_median(cells: &[(f64, f64)]) -> Option<f64> {
         }
         same
     });
-    let half = cells.iter().map(|(_, w)| w).sum::<f64>() / 2.0;
+    let target = cells.iter().map(|(_, w)| w).sum::<f64>() * p;
     let (mut below, mut previous) = (0.0, None);
     for (value, weight) in cells {
         let cumulative = below + weight / 2.0;
-        if half < cumulative {
-            // half the total never lies below the first midpoint, where the manual leaves the
-            // percentile undefined
+        if target < cumulative {
+            // a target below the first midpoint has no lower bound to interpolate from, and
+            // the manual leaves the percentile undefined
             let (x, c): (f64, f64) = previous?;
-            let r = (half - c) / (cumulative - c);
+            let r = (target - c) / (cumulative - c);
             return Some((1.0 - r) * x + r * value);
         }
         previous = Some((value, cumulative));
         below += weight;
     }
-    previous.map(|(x, _)| x)
+    // the target is at or above the last midpoint: that value when it is exactly there, and
+    // undefined above it (the upper bound of the last interval is unknown)
+    previous.and_then(|(x, c)| (target == c).then_some(x))
 }
 
 /// True when the value of `variable` at `case` is valid; `include` makes user-missing valid.
@@ -801,7 +809,7 @@ fn anova(
 
 #[cfg(test)]
 mod tests {
-    use super::{Key, grouped_median, groups, in_group, members};
+    use super::{Key, grouped_median, grouped_percentile, groups, in_group, members};
 
     #[test]
     fn one_pass_groups_hold_the_cases_a_scan_finds() {
@@ -841,5 +849,20 @@ mod tests {
         );
         assert_eq!(grouped_median(&[(5.0, 2.0), (5.0, 1.5)]), Some(5.0));
         assert_eq!(grouped_median(&[(5.0, 0.0)]), None);
+    }
+
+    #[test]
+    fn grouped_percentile_interpolates_and_is_missing_outside_the_midpoints() {
+        // weights 2, 3, 3, 2 on 1 to 4: the cumulative weights at the midpoints are 1, 3.5, 6.5
+        // and 9 of 10, so the 25th percentile (2.5) lies 0.6 of the way from 1 to 2, as R's
+        // approx(c(1, 3.5, 6.5, 9), 1:4, 2.5) gives
+        let cells = [(1.0, 2.0), (2.0, 3.0), (3.0, 3.0), (4.0, 2.0)];
+        let near = |got: Option<f64>, want: f64| (got.unwrap() - want).abs() < 1e-12;
+        assert!(near(grouped_percentile(&cells, 0.25), 1.6));
+        assert!(near(grouped_percentile(&cells, 0.5), 2.5));
+        // exactly on the last midpoint: that value; above it, and below the first, missing
+        assert_eq!(grouped_percentile(&cells, 0.9), Some(4.0));
+        assert_eq!(grouped_percentile(&cells, 0.95), None);
+        assert_eq!(grouped_percentile(&cells, 0.05), None);
     }
 }

@@ -225,7 +225,12 @@ fn function(p: &mut Parser, name: &str, numbers: usize) -> PResult<XgraphStat> {
         ("MEDIAN", _) => F::Median,
         ("GMEDIAN", _) => F::Gmedian,
         ("MODE", _) => F::Mode,
-        ("GPTILE", _) => return bad("GPTILE, the grouped percentile, is not supported yet".into()),
+        ("GPTILE", &[x]) if x > 0.0 && x < 100.0 => F::Gptile(x),
+        ("GPTILE", &[x]) => {
+            return bad(format!(
+                "GPTILE needs a percentile between 0 and 100, got {x}"
+            ));
+        }
         ("PTILE", &[x]) if x > 0.0 && x < 100.0 => F::Ptile(x),
         ("PTILE", &[x]) => {
             return bad(format!(

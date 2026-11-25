@@ -58,6 +58,8 @@ pub enum GraphFunction {
     Gmedian,
     Mode,
     Ptile(f64),
+    /// The percentile of the grouped values (GPTILE).
+    Gptile(f64),
     Plt(f64),
     Pgt(f64),
     Nlt(f64),

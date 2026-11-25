@@ -111,7 +111,7 @@ fn errors() {
     err("XGRAPH (a [MEAN BAR]) BY g.");
     assert!(err("XGRAPH (a [MEAN] [SUM]) BY g.").contains("one function"));
     assert!(err("XGRAPH (a [MEAN] [BAR] + b [MEAN] [POINT]) BY g.").contains("same one"));
-    assert!(err("XGRAPH (a [GPTILE(5)]) BY g.").contains("not supported yet"));
+    assert!(err("XGRAPH (a [GPTILE(0)]) BY g.").contains("between 0 and 100"));
     assert!(err("XGRAPH (a [PTILE(100)]) BY g.").contains("between 0 and 100"));
     assert!(err("XGRAPH (a [NIN(5, 1)]) BY g.").contains("lower bound first"));
     assert!(err("XGRAPH (a [MEAN]) > s BY g > h BY z > k.").contains("two clusters"));

@@ -170,6 +170,10 @@ fn errors_name_what_is_not_supported() {
         "CASEVALUE does not mix with the summary functions in VARIABLES"
     );
     assert_eq!(
+        err(&base("VARIABLES=GPTILE(b, 100)")),
+        "the percentile of GPTILE lies above 0 and below 100"
+    );
+    assert_eq!(
         err(&base("VARIABLES=PTILE(b, 100)")),
         "the percentile of PTILE lies above 0 and below 100"
     );

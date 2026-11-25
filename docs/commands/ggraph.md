@@ -14,7 +14,9 @@ GGRAPH /GRAPHDATASET NAME="name" VARIABLES=item ... [TRANSFORM=NO | VARSTOCASES(
 
 BEGIN GPL chart program END GPL.
 
-item: a variable (ALL and TO allowed) with an optional \[NAME="new" LEVEL=SCALE \| NOMINAL \| ORDINAL\], or a function with an optional \[NAME="new"\]: COUNT(), MINIMUM MAXIMUM VALIDN SUM MEAN STDDEV VARIANCE MEDIAN GMEDIAN MODE (var), PTILE PLT PGT NLT NGT NLE PLE NEQ PEQ NGE PGE (var, x), PIN NIN (var, low, high), CASEVALUE(var). Keywords are written in full. A function makes one row per combination of the other variables' values; its column is called by its name and arguments joined with underscores (MEAN\_price, PTILE\_price\_90) unless NAME renames it. Without a function every case with a positive weight is a row, and \$CASENUM numbers them. Weights count in every function.
+item: a variable (ALL and TO allowed) with an optional \[NAME="new" LEVEL=SCALE \| NOMINAL \| ORDINAL\], or a function with an optional \[NAME="new"\]: COUNT(), MINIMUM MAXIMUM VALIDN SUM MEAN STDDEV VARIANCE MEDIAN GMEDIAN MODE (var), PTILE GPTILE PLT PGT NLT NGT NLE PLE NEQ PEQ NGE PGE (var, x), PIN NIN (var, low, high), CASEVALUE(var). Keywords are written in full. A function makes one row per combination of the other variables' values; its column is called by its name and arguments joined with underscores (MEAN\_price, PTILE\_price\_90) unless NAME renames it. Without a function every case with a positive weight is a row, and \$CASENUM numbers them. Weights count in every function.
+
+GMEDIAN and GPTILE take each value as the midpoint of its interval and interpolate on the cumulative weights; a percentile below the first midpoint or above the last is missing.
 
 LISTWISE drops a case missing on any listed variable; VARIABLEWISE drops it only from the functions of the variable it misses. REPORTMISSING=YES turns user-missing values of variables that are not at the scale level into categories of their own. VARSTOCASES makes a row of each function, numbered in the INDEX column with the value in the SUMMARY column. CASELIMIT keeps the first n rows.
 
