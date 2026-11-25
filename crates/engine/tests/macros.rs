@@ -306,8 +306,8 @@ fn show_takes_every_keyword_of_the_manual() {
             // tables follow TNUMBERS, so it has no note
             "TNUMBERS|LABELS|",
             "FUZZBITS|6|",
-            "$VARS|$CASENUM = the case number; $SYSMIS = system-missing|$DATE, $JDATE, $TIME, \
-             $LENGTH and $WIDTH are not supported yet",
+            "$VARS|$CASENUM = the case number; $SYSMIS = system-missing; $JDATE, $DATE, $DATE11 \
+             and $TIME = today and now; $LENGTH and $WIDTH = SET LENGTH and WIDTH|",
         ]
     );
 }

@@ -850,6 +850,42 @@ IF ($CASENUM = 1) monthly_spend = $SYSMIS.",
 }
 
 #[test]
+fn system_variables_give_today_now_and_the_page_size() {
+    let today = |engine: &Engine| number(engine, "day", 1).unwrap();
+    let mut engine = Engine::default();
+    let program = "DATA LIST FREE /x.\nBEGIN DATA\n4 7\nEND DATA.\n\
+                   STRING short (A9) / long (A11).\n\
+                   COMPUTE day = $JDATE.\nCOMPUTE now = $TIME.\n\
+                   COMPUTE short = $date.\nCOMPUTE long = $DATE11.\n\
+                   COMPUTE same = $DATE11 = STRING($JDATE * 86400, DATE11).\n\
+                   COMPUTE inside = $TIME >= $JDATE * 86400 AND $TIME < ($JDATE + 1) * 86400.\n\
+                   COMPUTE len = $LENGTH.\nCOMPUTE wid = $WIDTH.\n\
+                   SET LENGTH=NONE WIDTH=132.\nCOMPUTE len2 = $LENGTH.\nCOMPUTE wid2 = $WIDTH.";
+    let before = chrono::Local::now().date_naive();
+    try_run(&mut engine, program).unwrap();
+    let after = chrono::Local::now().date_naive();
+    // day 1 is 15 October 1582
+    let start = chrono::NaiveDate::from_ymd_opt(1582, 10, 14).unwrap();
+    let day = today(&engine);
+    let days = |d: chrono::NaiveDate| (d - start).num_days() as f64;
+    assert!(day == days(before) || day == days(after), "{day}");
+    assert_eq!(numbers(&engine, "inside"), [Some(1.0), Some(1.0)]);
+    assert!(number(&engine, "now", 2).unwrap() >= day * 86_400.0);
+    let on = start + chrono::Days::new(day as u64);
+    let long = on.format("%d-%b-%Y").to_string().to_uppercase();
+    assert_eq!(text(&engine, "long", 2), long);
+    assert_eq!(
+        text(&engine, "short", 1),
+        on.format("%d-%b-%y").to_string().to_uppercase()
+    );
+    assert_eq!(numbers(&engine, "same"), [Some(1.0), Some(1.0)]);
+    assert_eq!(numbers(&engine, "len"), [Some(59.0), Some(59.0)]);
+    assert_eq!(numbers(&engine, "wid"), [Some(80.0), Some(80.0)]);
+    assert_eq!(numbers(&engine, "len2"), [None, None]);
+    assert_eq!(numbers(&engine, "wid2"), [Some(132.0), Some(132.0)]);
+}
+
+#[test]
 fn a_function_name_may_be_shortened_to_three_letters_that_start_only_it() {
     let mut engine = Engine::default();
     let data = "DATA LIST FREE /x.\nBEGIN DATA\n1 . 3\nEND DATA.\n";

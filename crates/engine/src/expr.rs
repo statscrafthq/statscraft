@@ -302,6 +302,10 @@ pub(crate) struct Evaluator<'a> {
     pub reading: crate::data_list::Reading,
     /// SET CCA to CCE: the custom currencies STRING writes.
     pub currencies: crate::format::Currencies,
+    /// $TIME: whole seconds from 1582-10-14 to the local time the command runs.
+    pub now: f64,
+    /// $LENGTH and $WIDTH: SET LENGTH (None for NONE) and WIDTH.
+    pub page: (Option<f64>, f64),
 }
 
 fn finite(value: f64) -> Option<f64> {
@@ -746,6 +750,21 @@ impl Evaluator<'_> {
             return Ok(Column::Number(
                 cases.map(|case| Some(case as f64)).collect(),
             ));
+        }
+        let same = |value: Option<f64>| Column::Number(vec![value; self.data.case_count()]);
+        let date = |format: &str| {
+            let text = crate::format::format_value(self.now, format, false);
+            Column::String(vec![text; self.data.case_count()])
+        };
+        match name.to_uppercase().as_str() {
+            "$TIME" => return Ok(same(Some(self.now))),
+            // day 1 is 1582-10-15, the first day of the Gregorian calendar
+            "$JDATE" => return Ok(same(Some((self.now / 86_400.0).floor()))),
+            "$DATE" => return Ok(date("DATE9")),
+            "$DATE11" => return Ok(date("DATE11")),
+            "$LENGTH" => return Ok(same(self.page.0)),
+            "$WIDTH" => return Ok(same(Some(self.page.1))),
+            _ => {}
         }
         if name.starts_with('$') {
             let name = name.to_uppercase();

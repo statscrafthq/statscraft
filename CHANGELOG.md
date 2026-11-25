@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- Expressions read the system variables $JDATE, $DATE, $DATE11 and $TIME (today and now) and $LENGTH and $WIDTH (the SET page size).
+
 ## 0.45.0 (2026-11-25)
 
 UNIANOVA and GLM write their effects table as a data file, APPLY can repeat any earlier model of the session, and GGRAPH computes the percentile of grouped values.

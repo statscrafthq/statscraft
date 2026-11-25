@@ -854,7 +854,10 @@ impl Engine {
                     "LICENSE" => "MIT".into(),
                     "SCOMPRESSION" => "ON".into(),
                     "TMSRECORDING" => "NO".into(),
-                    "$VARS" => "$CASENUM = the case number; $SYSMIS = system-missing".into(),
+                    "$VARS" => "$CASENUM = the case number; $SYSMIS = system-missing; $JDATE, \
+                                 $DATE, $DATE11 and $TIME = today and now; $LENGTH and \
+                                 $WIDTH = SET LENGTH and WIDTH"
+                        .into(),
                     "EXTPATHS" | "PLUGINS" | "EXTENSIONS" | "MXMEMORY" => none(),
                     other => self.setting(other),
                 };
@@ -862,7 +865,6 @@ impl Engine {
                     "LICENSE" => "open source: every part of Statscraft is included",
                     "SCOMPRESSION" => "SAVE writes compressed files, zlib compressed for .zsav",
                     "TMSRECORDING" => "Statscraft has no TMS BEGIN",
-                    "$VARS" => "$DATE, $JDATE, $TIME, $LENGTH and $WIDTH are not supported yet",
                     "EXTPATHS" => {
                         "Statscraft has no custom dialogs, extension commands or R packages"
                     }

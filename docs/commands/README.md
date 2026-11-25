@@ -331,7 +331,10 @@ One page per supported command, generated from the same table that the parser an
   A function name may be shortened to three or more letters that start no other function.
   An expression nests at most 64 levels of parentheses and functions and holds at most 5000 operators.
   Scratch variables start with #: they begin at 0 or blank, keep their value from case to case,
-  are never saved and are gone when the next procedure starts. $CASENUM is the case number.
+  are never saved and are gone when the next procedure starts. System variables: $CASENUM
+  is the case number, $SYSMIS the system-missing value, $JDATE today as a day count (1 is
+  15 October 1582), $DATE and $DATE11 today as dd-mmm-yy and dd-mmm-yyyy text, $TIME now in
+  seconds (a date value), $LENGTH and $WIDTH the SET LENGTH and WIDTH.
 
 Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END LOOP IF):
   Arithmetic: ABS RND TRUNC MOD SQRT EXP LN LG10 LNGAMMA SIN COS TAN ARSIN ARCOS ARTAN.
