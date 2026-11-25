@@ -6,6 +6,10 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.45.0 (2026-11-25)
+
+UNIANOVA and GLM write their effects table as a data file, APPLY can repeat any earlier model of the session, and GGRAPH computes the percentile of grouped values.
+
 - GGRAPH and XGRAPH compute GPTILE, the percentile of grouped values.
 - `APPLY 'MOD_2'` repeats any earlier model of the session, not only the previous one: ACF, PACF, CCF, SEASON, EXSMOOTH, ARIMA, AREG, SPECTRA, 2SLS, TSPLOT, CASEPLOT, CURVEFIT, WLS and PPLOT number their models MOD_1, MOD_2, ... in the order the session runs them.
 - [UNIANOVA](docs/commands/unianova.md) and GLM write the Tests of Between-Subjects Effects as a data file with `/OUTFILE EFFECT`.
