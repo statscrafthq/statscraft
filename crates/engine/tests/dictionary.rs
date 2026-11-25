@@ -125,6 +125,55 @@ fn alter_type_changes_widths_and_types() {
     assert_eq!(data.variable("score").unwrap().format(), "F8.3");
 }
 
+// The manual's example of ALTER TYPE: a string variable becomes a date or number in the format
+// named, read as DATA LIST and NUMBER read it; a value that does not fit the format is missing.
+#[test]
+fn alter_type_reads_strings_as_dates_and_numbers() {
+    let mut s = Session::default();
+    run(
+        &mut s,
+        "DATA LIST LIST /d1 (A11) d2 (A10) d3 (A10) d4 (A10) m (A12) e (A8) p (A8).\n\
+         BEGIN DATA\n\
+         28-Oct-2007 10/28/2007 29.10.2008 2008/10/29 '$1,234.50' 1.5E2 12.5%\n\
+         '' 13/45/2007 'x' 2008/13/01 abc 1E 5\n\
+         END DATA.\n\
+         ALTER TYPE d1 (A11 = DATE11).\n\
+         ALTER TYPE d2 (A10 = ADATE10) d3 (A10 = EDATE10) d4 (SDATE10).\n\
+         ALTER TYPE m (DOLLAR12.2) e (E8) p (PCT8.1).\n\
+         COMPUTE ref1 = DATE.DMY(28, 10, 2007).\n\
+         COMPUTE ref2 = DATE.DMY(28, 10, 2007).\n\
+         COMPUTE ref3 = DATE.DMY(29, 10, 2008).\n\
+         COMPUTE ref4 = DATE.DMY(29, 10, 2008).",
+    );
+    let data = s.dataset().unwrap();
+    let at = |name: &str| numbers(data, name);
+    // the formats are the new ones
+    for (name, format) in [
+        ("d1", "DATE11"),
+        ("d2", "ADATE10"),
+        ("d3", "EDATE10"),
+        ("d4", "SDATE10"),
+    ] {
+        assert_eq!(data.variable(name).unwrap().format(), format, "{name}");
+    }
+    assert_eq!(at("d1")[0], at("ref1")[0]);
+    assert_eq!(at("d2")[0], at("ref2")[0]);
+    assert_eq!(at("d3")[0], at("ref3")[0]);
+    assert_eq!(at("d4")[0], at("ref4")[0]);
+    // a blank field, an impossible date and text are system-missing
+    assert!(
+        at("d1")[1].is_none()
+            && at("d2")[1].is_none()
+            && at("d3")[1].is_none()
+            && at("d4")[1].is_none()
+    );
+    // $1,234.50, 1.5E2 and 12.5%
+    assert_eq!(at("m")[0], Some(1234.5));
+    assert_eq!(at("e")[0], Some(150.0));
+    assert_eq!(at("p")[0], Some(12.5));
+    assert_eq!(at("m")[1], None);
+}
+
 fn temp_dir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("statscraft-dict-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

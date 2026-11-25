@@ -78,6 +78,26 @@ fn change_attributes(attributes: &mut Vec<(String, Vec<String>)>, change: &Attri
 }
 
 /// A number written in a string, for ALTER TYPE to a numeric format; None when it is none.
+/// The first `width` characters of `text` read as the number or date format `format` says;
+/// None for a blank field and for text that is not valid in the format.
+fn read_formatted(
+    text: &str,
+    format: statscraft_syntax::Format,
+    epoch: Option<f64>,
+) -> Option<f64> {
+    let field: String = text.chars().take(usize::from(format.width)).collect();
+    if field.trim().is_empty() {
+        return None;
+    }
+    let read = match format.kind {
+        FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
+            crate::data_list::date(&field, format.kind, epoch)
+        }
+        _ => crate::data_list::number(&field, format.kind, format.decimals),
+    };
+    read.ok().flatten()
+}
+
 fn read_number(text: &str, comma_decimal: bool) -> Option<f64> {
     let text = text.trim();
     if text.is_empty() {
@@ -184,6 +204,7 @@ impl Engine {
         }
         self.begin_pass()?;
         let comma = self.setting("DECIMAL").eq_ignore_ascii_case("COMMA");
+        let epoch = self.reading().epoch;
         for (name, group) in plan {
             let data = self.active_mut()?;
             let v = data.variable(&name)?;
@@ -262,17 +283,30 @@ impl Engine {
                     )?;
                 }
                 (Values::String(values), false) => {
-                    if !matches!(
-                        format.kind,
-                        FormatType::F | FormatType::Comma | FormatType::Dot
-                    ) {
-                        return Err(Error(format!(
-                            "ALTER TYPE from string to {} is not supported yet; use F, COMMA or DOT",
-                            format.kind.name()
-                        )));
-                    }
-                    let comma = comma || format.kind == FormatType::Dot;
-                    let values = values.iter().map(|s| read_number(s, comma)).collect();
+                    let values = match format.kind {
+                        FormatType::F | FormatType::Comma | FormatType::Dot => {
+                            let comma = comma || format.kind == FormatType::Dot;
+                            values.iter().map(|s| read_number(s, comma)).collect()
+                        }
+                        // the formats DATA LIST and NUMBER read: a number or a date, in the width
+                        FormatType::E
+                        | FormatType::Dollar
+                        | FormatType::Pct
+                        | FormatType::N
+                        | FormatType::Date
+                        | FormatType::Adate
+                        | FormatType::Edate
+                        | FormatType::Sdate => values
+                            .iter()
+                            .map(|s| read_formatted(s, format, epoch))
+                            .collect(),
+                        other => {
+                            return Err(Error(format!(
+                                "ALTER TYPE from string to {} is not supported yet; use F, COMMA, DOT, E, DOLLAR, PCT, N, DATE, ADATE, EDATE or SDATE",
+                                other.name()
+                            )));
+                        }
+                    };
                     data.retype_variable(&name, NewValues::Numeric(values), &text)?;
                 }
             }

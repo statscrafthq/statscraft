@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - ONEWAY, PPLOT and SPCHART accept /TEMPLATE and ignore it with a note, as the other commands with charts do, so scripts that name a chart template run.
+- [ALTER TYPE](docs/commands/alter-type.md) turns a string into a date (DATE, ADATE, EDATE, SDATE) or a number in the E, DOLLAR, PCT and N formats, as well as F, COMMA and DOT.
 - [AUTORECODE](docs/commands/autorecode.md) saves its scheme to a template file (`/SAVE TEMPLATE`) and applies one (`/APPLY TEMPLATE`), so another file is recoded with the same codes and its new values get the next ones.
 
 ## 0.41.0 (2026-11-25)

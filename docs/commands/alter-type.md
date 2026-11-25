@@ -10,7 +10,7 @@ Change the type, string width or format of variables.
 ALTER TYPE varlist ([input =] format | AMIN [+ n[%]]) [varlist (...) ...] [/PRINT ...].
 ```
 
-A string variable may get another width (A20); values longer than it are cut. A numeric variable may get another numeric format, or become a string holding its formatted values; a string may become numeric with an F, COMMA or DOT format, a value that is no number becoming system-missing. A type change drops value labels and missing values.
+A string variable may get another width (A20); values longer than it are cut. A numeric variable may get another numeric format, or become a string holding its formatted values; a string may become numeric with an F, COMMA, DOT, E, DOLLAR, PCT or N format, or a date with a DATE, ADATE, EDATE or SDATE format (ALTER TYPE d (A11 = DATE11)), read in the width of the format as DATA LIST reads it; a value that does not fit the format becomes system-missing. A type change drops value labels and missing values.
 
 input = (A=, F=, A10=) limits the change to variables of that type and width.
 
