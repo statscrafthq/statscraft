@@ -21,6 +21,10 @@ eframe = { version = "0.37.0", default-features = false, features = ["glow", "ac
 rfd = "0.18.0"
 # rich text (HTML) on the clipboard, which egui cannot put there; already built for eframe
 arboard = { version = "3.7.0", default-features = false }
+# The window's message catalogs (i18n.rs): Fluent (Apache-2.0 OR MIT), and the system's
+# language for the System choice (sys-locale, MIT OR Apache-2.0).
+fluent-bundle = "0.16.0"
+sys-locale = "0.3.2"
 
 # Files Finder opens with the app (open_files.rs): the Objective-C runtime and AppKit bindings
 # eframe already builds on macOS (objc2, block2, objc2-foundation: MIT; objc2-app-kit: Zlib OR
