@@ -872,6 +872,9 @@ pub struct Engine {
     /// MULTIPLE IMPUTATION: per split group, the stacked imputations (original data first)
     /// and the FCS iteration history.
     imputed: Vec<(Vec<Dataset>, Option<Dataset>)>,
+    /// MVA OUTFILE under SPLIT FILE: per group and file, the group's cases and the values of
+    /// each variable filled in them.
+    mva_filled: Vec<mva::Filled>,
     /// While a procedure runs on one imputation of data split by Imputation_: what it gives
     /// for the pooled results.
     pool_items: Option<Vec<pooling::PoolItem>>,
@@ -1343,6 +1346,17 @@ impl Engine {
                 return Ok(tables);
             }
             Command::Tsmodel(_) | Command::Tsapply(_) => return self.with_current_names(command),
+            Command::Mva(c)
+                if c.em
+                    .iter()
+                    .chain(&c.regression)
+                    .any(|e| e.outfile.is_some()) =>
+            {
+                self.mva_filled.clear();
+                let tables = self.procedure(command)?;
+                self.write_mva_files()?;
+                return Ok(tables);
+            }
             Command::Regression(c) if c.outfile.is_some() && c.matrix.output.is_none() => {
                 let target = Some(c.outfile.clone().expect("checked").target);
                 return self.procedure_with_matrix_out(command, &target);

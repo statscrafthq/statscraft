@@ -902,10 +902,46 @@ fn maxcat_and_errors() {
     };
     assert!(fails("MVA age km /CATEGORICAL=district.").contains("not on the MVA variable list"));
     assert!(fails("MVA age km /EM minutes.").contains("not on the MVA variable list"));
-    assert!(
-        fails("SPLIT FILE BY district.\nMVA age km /EM (OUTFILE='x.sav').")
-            .contains("not supported yet")
+}
+
+#[test]
+fn outfile_under_split_file_fills_each_group_from_its_own_estimates() {
+    let fill = "MVA age km minutes rating /NOUNI /EM (OUTFILE=filled).\n\
+                DATASET ACTIVATE filled.\nSPLIT FILE OFF.\n\
+                FORMATS minutes rating (F20.12).\nLIST resp district minutes rating.";
+    let (tables, warnings) = run(&format!(
+        "DATASET NAME survey.\nDATASET DECLARE filled.\nSORT CASES BY district.\n\
+         SPLIT FILE BY district.\n{fill}"
+    ));
+    // every case is in the one file, in the order of the sorted data
+    let resp = listed(&tables, "resp");
+    assert_eq!(resp.len(), 36);
+    let (district, minutes, rating) = (
+        listed(&tables, "district"),
+        listed(&tables, "minutes"),
+        listed(&tables, "rating"),
     );
+    // each district on its own gives the same values to its cases
+    for d in 1..=3 {
+        let (alone, _) = run(&format!(
+            "DATASET NAME survey.\nDATASET DECLARE filled.\nSELECT IF district = {d}.\n{fill}"
+        ));
+        let rows: Vec<usize> = (0..36).filter(|&i| district[i] == f64::from(d)).collect();
+        assert_eq!(
+            rows.iter().map(|&i| resp[i]).collect::<Vec<_>>(),
+            listed(&alone, "resp")
+        );
+        let pick = |v: &[f64]| rows.iter().map(|&i| v[i]).collect::<Vec<_>>();
+        close(&pick(&minutes), &listed(&alone, "minutes"), 1e-9);
+        close(&pick(&rating), &listed(&alone, "rating"), 1e-9);
+    }
+    // 107 and 122 have no district, so MVA ran in no group of theirs: they keep their values,
+    // and the refusal of 107 (99) is system-missing, as the file defines no missing values
+    assert_eq!(&resp[..2], [107.0, 122.0]);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(minutes[0], 32.0);
+    assert!(minutes[1].is_nan() && rating[0].is_nan());
+    assert_eq!(rating[1], 5.0);
 }
 
 #[test]

@@ -186,7 +186,8 @@ const MVA_SYNTAX: &str = "MVA [VARIABLES=] varlist | ALL\n\
                  shown (univariate, LISTWISE, PAIRWISE, EM, REGRESSION), summary tables compare their means and\n\
                  standard deviations (pairwise ones are those of all values). OUTFILE saves the active\n\
                  data with the missing values of the estimated variables filled in and their user-missing\n\
-                 definitions dropped.";
+                 definitions dropped. Under SPLIT FILE each group is filled from its own estimates, all in one file;\n\
+                 a case outside the groups that ran keeps its values, a user-missing one as system-missing.";
 
 const MULTIPLE_IMPUTATION_SYNTAX: &str = "MULTIPLE IMPUTATION varlist\n\
                  \x20  [/IMPUTE [METHOD=AUTO | FCS | MONOTONE | NONE] [NIMPUTATIONS=5] [SCALEMODEL=LINEAR | PMM[(5)]]\n\

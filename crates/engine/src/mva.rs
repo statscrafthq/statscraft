@@ -676,6 +676,10 @@ impl Estimate {
     }
 }
 
+/// MVA OUTFILE in one split group: the file, the group's cases, and each filled variable with
+/// its values in those cases.
+pub(crate) type Filled = (String, Vec<usize>, Vec<(String, Vec<Option<f64>>)>);
+
 impl Engine {
     /// The variables of a list inside MVA; ALL there means every variable on the MVA list.
     fn within(&self, items: &[VarItem], list: &[String], what: &str) -> Result<Vec<String>, Error> {
@@ -697,16 +701,6 @@ impl Engine {
         let mut seen = std::collections::HashSet::new();
         names.retain(|name| seen.insert(name.clone()));
         let categorical = self.within(&command.categorical, &names, "CATEGORICAL")?;
-        let outfile = command
-            .em
-            .iter()
-            .chain(&command.regression)
-            .any(|e| e.outfile.is_some());
-        if outfile && self.split_group.is_some() {
-            return Err(Error(
-                "OUTFILE of MVA with SPLIT FILE is not supported yet; turn SPLIT FILE off".into(),
-            ));
-        }
         let data = self.active()?;
         let shown = self.shown();
         let n = data.case_count();
@@ -1181,26 +1175,81 @@ impl Engine {
         }
 
         let mut files = Vec::new();
+        let mut kept = Vec::new();
         for (file, estimate) in saved {
+            let filled: Vec<(String, Vec<Option<f64>>)> = estimate
+                .predicted
+                .iter()
+                .map(|&p| {
+                    let column = &columns[estimate.model[p]];
+                    let values = (0..n)
+                        .map(|c| {
+                            let value = match column.missing(c) {
+                                true => estimate.filled[c][p],
+                                false => column.values[c],
+                            };
+                            Some(value).filter(|v| v.is_finite())
+                        })
+                        .collect();
+                    (column.name.clone(), values)
+                })
+                .collect();
+            // under SPLIT FILE every group's cases are put in one file when all groups ran
+            if let Some(cases) = self.case_numbers.clone() {
+                kept.push((file, cases, filled));
+                continue;
+            }
             let mut out: Dataset = data.clone();
-            for &p in &estimate.predicted {
-                let column = &columns[estimate.model[p]];
-                let values = (0..n)
-                    .map(|c| {
-                        let value = match column.missing(c) {
-                            true => estimate.filled[c][p],
-                            false => column.values[c],
-                        };
-                        Some(value).filter(|v| v.is_finite())
-                    })
-                    .collect();
-                out.set_numeric_values(&column.name, values)?;
+            for (name, values) in filled {
+                out.set_numeric_values(&name, values)?;
                 // every missing value is filled, and a filled value must not read as missing
-                out.set_missing_values(&column.name, MissingValues::None)?;
+                out.set_missing_values(&name, MissingValues::None)?;
             }
             files.push((file, out));
         }
+        self.mva_filled.extend(kept);
         self.finish_mva(tables, warnings, files)
+    }
+
+    /// After MVA ran in every split group: one file per OUTFILE, the active data with the
+    /// estimates of each group in its cases. A case of a group where MVA did not run keeps its
+    /// values, and a value missing there becomes system-missing, as the file has no missing
+    /// values defined for the variables it fills.
+    pub(crate) fn write_mva_files(&mut self) -> Result<(), Error> {
+        let filled = std::mem::take(&mut self.mva_filled);
+        let mut files: Vec<(String, Dataset, Vec<String>)> = Vec::new();
+        for (file, cases, columns) in filled {
+            let at = match files.iter().position(|(f, ..)| *f == file) {
+                Some(at) => at,
+                None => {
+                    files.push((file, self.active()?.clone(), Vec::new()));
+                    files.len() - 1
+                }
+            };
+            let (_, out, names) = &mut files[at];
+            for (name, values) in columns {
+                let mut all: Vec<Option<f64>> = if names.contains(&name) {
+                    out.variable(&name)?.numeric()?.iter().collect()
+                } else {
+                    names.push(name.clone());
+                    let variable = out.variable(&name)?;
+                    let column = variable.numeric()?;
+                    column
+                        .iter()
+                        .map(|v| v.filter(|&v| !variable.is_user_missing(v)))
+                        .collect()
+                };
+                for (&case, value) in cases.iter().zip(values) {
+                    all[case] = value;
+                }
+                out.set_numeric_values(&name, all)?;
+                out.set_missing_values(&name, MissingValues::None)?;
+            }
+        }
+        for (file, out, _) in files {
+            self.write_data_file(&file, out)?;
+        }
+        Ok(())
     }
 
     /// Gives the warnings and writes the OUTFILE data once the active data are no longer read.
