@@ -36,13 +36,14 @@ use crate::regression::{plain, table};
 use crate::wls::numeric_column;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure};
-use statscraft_syntax::{Command, ModelParameter, Nlr};
+use statscraft_syntax::{Command, ModelParameter, Nlr, NlrSave};
 
 /// Which part of the program the transformations after MODEL PROGRAM go to.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Section {
     Model,
     Derivatives,
+    Constraints,
     Closed,
 }
 
@@ -52,6 +53,8 @@ pub(crate) struct ModelProgram {
     pub parameters: Vec<ModelParameter>,
     pub model: Vec<Command>,
     pub derivatives: Vec<Command>,
+    /// The constrained functions program (CNLR).
+    pub constraints: Vec<Command>,
     pub section: Section,
 }
 
@@ -61,6 +64,7 @@ impl ModelProgram {
             parameters,
             model: Vec::new(),
             derivatives: Vec::new(),
+            constraints: Vec::new(),
             section: Section::Model,
         }
     }
@@ -68,26 +72,36 @@ impl ModelProgram {
 
 /// What the programs gave for one trial value of the parameters, case by case (NaN where
 /// missing).
-struct Eval {
-    pred: Vec<f64>,
-    weight: Vec<f64>,
+pub(super) struct Eval {
+    pub(super) pred: Vec<f64>,
+    pub(super) weight: Vec<f64>,
     /// The derivative of every parameter the derivatives program computed.
-    derivatives: Vec<Option<Vec<f64>>>,
+    pub(super) derivatives: Vec<Option<Vec<f64>>>,
     /// The format and the label the program gave the predicted values.
-    format: String,
-    label: Option<String>,
+    pub(super) format: String,
+    pub(super) label: Option<String>,
+    /// The loss of every case (CNLR with LOSS).
+    pub(super) loss: Option<Vec<f64>>,
+    /// The value of every constrained function (CNLR): per case.
+    pub(super) constraints: Vec<Vec<f64>>,
 }
 
 /// Runs the programs on a copy of the data.
-struct Runner {
-    engine: Engine,
-    base: Dataset,
-    parameters: Vec<String>,
-    model: Vec<Command>,
-    derivatives: Vec<Command>,
-    pred: String,
-    runs: usize,
-    derivative_runs: usize,
+pub(super) struct Runner {
+    pub(super) engine: Engine,
+    pub(super) base: Dataset,
+    pub(super) parameters: Vec<String>,
+    pub(super) model: Vec<Command>,
+    pub(super) derivatives: Vec<Command>,
+    pub(super) pred: String,
+    /// The variable of the model program that holds the loss of a case (CNLR).
+    pub(super) loss: Option<String>,
+    /// The commands that compute the constrained functions and the variables they leave
+    /// (CNLR).
+    pub(super) constraint_program: Vec<Command>,
+    pub(super) constraint_names: Vec<String>,
+    pub(super) runs: usize,
+    pub(super) derivative_runs: usize,
 }
 
 fn derivative_name(parameter: &str) -> String {
@@ -95,7 +109,7 @@ fn derivative_name(parameter: &str) -> String {
 }
 
 impl Runner {
-    fn run(&mut self, theta: &[f64], derivatives: bool) -> Result<Eval, Error> {
+    pub(super) fn run(&mut self, theta: &[f64], derivatives: bool) -> Result<Eval, Error> {
         self.runs += 1;
         let mut data = self.base.clone();
         let cases = data.case_count();
@@ -106,11 +120,15 @@ impl Runner {
         sub.dataset = Some(data);
         sub.pending = None;
         let fault = |e: Error| Error(format!("NLR, in the model program: {}", e.0));
-        let commands = self.model.iter().chain(if derivatives {
-            self.derivatives.iter()
-        } else {
-            [].iter()
-        });
+        let commands = self
+            .model
+            .iter()
+            .chain(if derivatives {
+                self.derivatives.iter()
+            } else {
+                [].iter()
+            })
+            .chain(self.constraint_program.iter());
         for c in commands {
             sub.execute(c).map_err(fault)?;
         }
@@ -152,6 +170,26 @@ impl Runner {
                 None
             });
         }
+        let loss = match &self.loss {
+            Some(name) => {
+                if data.variable_index(name).is_none() {
+                    return Err(Error(format!(
+                        "CNLR: the model program does not compute {name}, the loss variable"
+                    )));
+                }
+                Some(numeric_column(&data, name, true, "CNLR")?)
+            }
+            None => None,
+        };
+        let mut constraints = Vec::new();
+        for name in &self.constraint_names {
+            if data.variable_index(name).is_none() {
+                return Err(Error(format!(
+                    "CNLR: the constrained functions program does not compute {name}"
+                )));
+            }
+            constraints.push(numeric_column(&data, name, true, "CNLR")?);
+        }
         let variable = data.variable(&self.pred)?;
         Ok(Eval {
             pred,
@@ -159,6 +197,8 @@ impl Runner {
             derivatives: found,
             format: variable.format().to_string(),
             label: variable.label().map(str::to_string),
+            loss,
+            constraints,
         })
     }
 }
@@ -179,9 +219,9 @@ fn sum_of_squares(y: &[f64], e: &Eval, used: &[usize]) -> Option<f64> {
 
 /// The Jacobian of the weighted residuals sqrt(W) R over the used cases (rows) by the
 /// parameters (columns), with the weighted residuals.
-struct Jacobian {
-    j: Matrix,
-    r: Vec<f64>,
+pub(super) struct Jacobian {
+    pub(super) j: Matrix,
+    pub(super) r: Vec<f64>,
 }
 
 const CENTRAL_STEP: f64 = 6.055e-6;
@@ -308,6 +348,48 @@ fn derivative_score(f: f64, forward: f64, derivative: f64, x_scale: f64) -> f64 
     }
 }
 
+/// What NLR and CNLR give `prepare`.
+pub(super) struct Setup<'a> {
+    pub dependent: &'a str,
+    pub pred: &'a Option<String>,
+    pub file: &'a Option<String>,
+    pub outfile: bool,
+    pub ckder: Option<f64>,
+    pub loss: Option<&'a str>,
+    pub constraint_names: &'a [String],
+}
+
+/// The programs run once at the starting values.
+pub(super) struct Prepared {
+    pub runner: Runner,
+    pub y: Vec<f64>,
+    pub used: Vec<usize>,
+    pub names: Vec<String>,
+    pub theta: Vec<f64>,
+    pub start: Eval,
+    pub pred_name: String,
+    pub weights_vary: bool,
+    pub n: usize,
+}
+
+/// What `statistics_tables` reports.
+pub(super) struct Fit<'a> {
+    pub who: &'a str,
+    pub dependent: &'a str,
+    pub names: &'a [String],
+    pub theta: &'a [f64],
+    /// The residual sum of squares.
+    pub value: f64,
+    pub y: &'a [f64],
+    pub used: &'a [usize],
+    pub current: &'a Eval,
+    pub jac: &'a Jacobian,
+    pub history: &'a [(usize, f64, Vec<f64>)],
+    pub iterations: usize,
+    pub runs: usize,
+    pub stop: &'a str,
+}
+
 /// How the iterations ended.
 #[derive(Clone, Copy, PartialEq)]
 enum Stop {
@@ -352,10 +434,10 @@ impl Engine {
     /// The starting values: MODEL PROGRAM's, else the case of the FILE for the split group.
     fn starting_values(
         &self,
-        command: &Nlr,
+        file: &Option<String>,
         parameters: &[ModelParameter],
     ) -> Result<Vec<f64>, Error> {
-        let file = match &command.file {
+        let file = match file {
             Some(f) if parameters.iter().any(|q| q.value.is_none()) => Some(self.data_file(f)?),
             _ => None,
         };
@@ -394,15 +476,16 @@ impl Engine {
             .collect()
     }
 
-    pub(crate) fn nlr(&mut self, command: &Nlr) -> Result<Vec<Table>, Error> {
+    /// The work both NLR and CNLR start with: the programs, the data they run on, the
+    /// starting values, the cases used and the check of the derivatives.
+    pub(super) fn prepare(&mut self, who: &str, setup: &Setup) -> Result<Prepared, Error> {
         let Some(program) = self.model_program.clone() else {
-            return Err(Error("NLR needs a MODEL PROGRAM before it".into()));
+            return Err(Error(format!("{who} needs a MODEL PROGRAM before it")));
         };
         if program.model.is_empty() {
-            return Err(Error(
-                "NLR: the model program is empty: compute the predicted value after MODEL PROGRAM"
-                    .into(),
-            ));
+            return Err(Error(format!(
+                "{who}: the model program is empty: compute the predicted value after MODEL PROGRAM"
+            )));
         }
         if program.model.iter().chain(&program.derivatives).any(|c| {
             matches!(
@@ -410,39 +493,39 @@ impl Engine {
                 Command::Print(_) | Command::PrintSpace(_) | Command::Xsave(_)
             )
         }) {
-            return Err(Error(
-                "NLR: PRINT, WRITE, PRINT SPACE and XSAVE would act on every case at every trial; they cannot be in the model program"
-                    .into(),
-            ));
+            return Err(Error(format!(
+                "{who}: PRINT, WRITE, PRINT SPACE and XSAVE would act on every case at every trial; they cannot be in the model program"
+            )));
         }
         let names: Vec<String> = program.parameters.iter().map(|q| q.name.clone()).collect();
-        if command.outfile.is_some() {
+        if setup.outfile {
             for reserved in ["SSE", "NCASES"] {
                 if names.iter().any(|n| n.eq_ignore_ascii_case(reserved)) {
                     return Err(Error(format!(
-                        "NLR /OUTFILE: a parameter cannot be named {reserved}"
+                        "{who} /OUTFILE: a parameter cannot be named {reserved}"
                     )));
                 }
             }
         }
-        let mut theta = self.starting_values(command, &program.parameters)?;
+        let theta = self.starting_values(setup.file, &program.parameters)?;
         let p = theta.len();
         let data = self.active()?;
         for n in &names {
             if data.variable_index(n).is_some() {
                 return Err(Error(format!(
-                    "NLR: the parameter {n} has the name of a variable of the data"
+                    "{who}: the parameter {n} has the name of a variable of the data"
                 )));
             }
         }
-        let y = numeric_column(data, &command.dependent, false, "NLR")?;
-        let pred_name = command.pred.clone().unwrap_or_else(|| "PRED".to_string());
+        let y = numeric_column(data, setup.dependent, false, who)?;
+        let pred_name = setup.pred.clone().unwrap_or_else(|| "PRED".to_string());
         // only the variables the programs read, the dependent variable and the weight go along
         let mut base = data.clone();
         let all: Vec<Command> = program
             .model
             .iter()
             .chain(&program.derivatives)
+            .chain(&program.constraints)
             .cloned()
             .collect();
         let refs = crate::rows::Refs::of(&all);
@@ -452,7 +535,7 @@ impl Engine {
                 .map(|i| base.variable_at(i).name().to_string())
                 .filter(|n| {
                     refs.names.iter().any(|w| w.eq_ignore_ascii_case(n))
-                        || n.eq_ignore_ascii_case(&command.dependent)
+                        || n.eq_ignore_ascii_case(setup.dependent)
                         || weight.as_deref().is_some_and(|w| w.eq_ignore_ascii_case(n))
                 })
                 .collect();
@@ -482,6 +565,9 @@ impl Engine {
             model: program.model.clone(),
             derivatives: program.derivatives.clone(),
             pred: pred_name.clone(),
+            loss: setup.loss.map(str::to_string),
+            constraint_program: program.constraints.clone(),
+            constraint_names: setup.constraint_names.to_vec(),
             runs: 0,
             derivative_runs: 0,
         };
@@ -497,21 +583,22 @@ impl Engine {
                 ok_y && start.weight[i].is_finite()
                     && start.weight[i] > 0.0
                     && start.pred[i].is_finite()
+                    && start.loss.as_ref().is_none_or(|l| l[i].is_finite())
             })
             .collect();
         if skipped_weights > 0 {
             self.warn(format!(
-                "NLR leaves out {skipped_weights} case(s) with a zero or negative weight"
+                "{who} leaves out {skipped_weights} case(s) with a zero or negative weight"
             ));
         }
         let n = used.len();
         if n <= p {
             return Err(Error(format!(
-                "NLR needs more valid cases than parameters: {n} cases for {p} parameters"
+                "{who} needs more valid cases than parameters: {n} cases for {p} parameters"
             )));
         }
         // the check of the derivatives the program gives
-        let critical = command.criteria.ckder.unwrap_or(0.5);
+        let critical = setup.ckder.unwrap_or(0.5);
         for (k, given) in start.derivatives.iter().enumerate() {
             let Some(d) = given else { continue };
             let x = theta[k];
@@ -520,25 +607,76 @@ impl Engine {
             let mut up = theta.clone();
             up[k] += h;
             let forward = runner.run(&up, false)?;
+            // the derivatives are of the loss when there is one, else of the predicted value
+            let (f0, f1) = match (&start.loss, &forward.loss) {
+                (Some(a), Some(b)) => (a, b),
+                _ => (&start.pred, &forward.pred),
+            };
             let worst = used
                 .iter()
-                .map(|&i| derivative_score(start.pred[i], forward.pred[i], d[i], scale))
+                .map(|&i| derivative_score(f0[i], f1[i], d[i], scale))
                 .fold(1.0, f64::min);
             if worst < 1.0 {
                 self.warn(format!(
-                    "NLR derivative check: the worst agreement score of {} is {:.3}",
+                    "{who} derivative check: the worst agreement score of {} is {:.3}",
                     derivative_name(&names[k]),
                     worst
                 ));
             }
             if critical > 0.0 && worst < critical {
                 return Err(Error(format!(
-                    "NLR: the derivative {} disagrees with the numerical derivative (agreement score {:.3}, below CKDER {critical})",
+                    "{who}: the derivative {} disagrees with the numerical derivative (agreement score {:.3}, below CKDER {critical})",
                     derivative_name(&names[k]),
                     worst
                 )));
             }
         }
+        Ok(Prepared {
+            runner,
+            y,
+            used,
+            names,
+            theta,
+            start,
+            pred_name,
+            weights_vary,
+            n,
+        })
+    }
+
+    pub(crate) fn nlr(&mut self, command: &Nlr) -> Result<Vec<Table>, Error> {
+        if self
+            .model_program
+            .as_ref()
+            .is_some_and(|p| !p.constraints.is_empty())
+        {
+            return Err(Error(
+                "NLR: CONSTRAINED FUNCTIONS belongs to CNLR; give CLEAR MODEL PROGRAMS or use CNLR"
+                    .into(),
+            ));
+        }
+        let setup = Setup {
+            dependent: &command.dependent,
+            pred: &command.pred,
+            file: &command.file,
+            outfile: command.outfile.is_some(),
+            ckder: command.criteria.ckder,
+            loss: None,
+            constraint_names: &[],
+        };
+        let Prepared {
+            mut runner,
+            y,
+            used,
+            names,
+            mut theta,
+            start,
+            pred_name,
+            weights_vary,
+            n,
+        } = self.prepare("NLR", &setup)?;
+        let p = theta.len();
+        let cases = y.len();
         let criteria = &command.criteria;
         let max_iterations = criteria.iterations.map_or(100 * p, |i| i as usize);
         let sscon = criteria.sscon.unwrap_or(1e-8);
@@ -622,6 +760,57 @@ impl Engine {
             ));
         }
 
+        let tables = self.statistics_tables(&Fit {
+            who: "NLR",
+            dependent: &command.dependent,
+            names: &names,
+            theta: &theta,
+            value: ss,
+            y: &y,
+            used: &used,
+            current: &current,
+            jac: &jac,
+            history: &history,
+            iterations: iteration,
+            runs: runner.runs,
+            stop: stop_text(stop),
+        });
+        if command.outfile.is_some() {
+            self.outfile_cases(&names, &[(theta.clone(), ss, n as f64)])?;
+        }
+        self.save_variables(
+            "NLR",
+            &command.save,
+            &mut runner,
+            &pred_name,
+            &theta,
+            &y,
+            &current,
+        )?;
+        Ok(tables)
+    }
+
+    /// The tables of a least-squares fit: the iteration history, the analysis of variance, the
+    /// estimates with asymptotic standard errors and the correlations.
+    pub(super) fn statistics_tables(&mut self, f: &Fit) -> Vec<Table> {
+        let Fit {
+            who,
+            dependent,
+            names,
+            theta,
+            value: ss,
+            y,
+            used,
+            current,
+            jac,
+            history,
+            iterations: iteration,
+            runs,
+            stop,
+        } = f;
+        let (ss, iteration, runs) = (*ss, *iteration, *runs);
+        let n = used.len();
+        let p = theta.len();
         // the statistics at the estimates
         let df_res = (n - p) as f64;
         let sum_w: f64 = used.iter().map(|&i| current.weight[i]).sum();
@@ -636,7 +825,7 @@ impl Engine {
                 .collect()
         });
         if covariance.is_none() {
-            self.warn("NLR: the parameters cannot be told apart at the estimates (singular matrix), so no standard errors are shown");
+            self.warn(format!("{who}: the parameters cannot be told apart at the estimates (singular matrix), so no standard errors are shown"));
         }
         let se: Vec<Option<f64>> = (0..p)
             .map(|k| {
@@ -668,10 +857,10 @@ impl Engine {
             rows,
             Some(format!(
                 "Dependent variable: {}. Run stopped after {} iterations ({} model evaluations): {}.",
-                command.dependent,
+                dependent,
                 iteration,
-                runner.runs,
-                stop_text(stop)
+                runs,
+                stop
             )),
         ));
 
@@ -719,10 +908,10 @@ impl Engine {
             Some(if r_square.is_finite() {
                 format!(
                     "Dependent variable: {}. R squared = 1 - Residual SS / Corrected SS = {:.3}.",
-                    command.dependent, r_square
+                    dependent, r_square
                 )
             } else {
-                format!("Dependent variable: {}.", command.dependent)
+                format!("Dependent variable: {}.", dependent)
             }),
         ));
 
@@ -774,31 +963,54 @@ impl Engine {
             ));
         }
 
-        // OUTFILE: one case of the parameters, SSE and NCASES (with the split values)
-        if command.outfile.is_some() {
-            let mut part = Dataset::new(1);
-            for (name, value) in names.iter().zip(&theta) {
-                part.set_numeric_values(name, vec![Some(*value)])?;
-            }
-            part.set_numeric_values("SSE", vec![Some(ss)])?;
-            part.set_format("SSE", "F10.8")?;
-            part.set_numeric_values("NCASES", vec![Some(n as f64)])?;
-            part.set_format("NCASES", "F8.0")?;
-            let part = self.with_split_values(part)?;
-            self.matrix_parts.1.push(part);
-        }
+        tables
+    }
 
+    /// The case of the parameters, SSE and NCASES that goes to OUTFILE (with the split values).
+    pub(super) fn outfile_cases(
+        &mut self,
+        names: &[String],
+        rows: &[(Vec<f64>, f64, f64)],
+    ) -> Result<(), Error> {
+        let mut part = Dataset::new(rows.len());
+        for (k, name) in names.iter().enumerate() {
+            part.set_numeric_values(name, rows.iter().map(|r| Some(r.0[k])).collect())?;
+        }
+        part.set_numeric_values("SSE", rows.iter().map(|r| Some(r.1)).collect())?;
+        part.set_format("SSE", "F10.8")?;
+        part.set_numeric_values("NCASES", rows.iter().map(|r| Some(r.2)).collect())?;
+        part.set_format("NCASES", "F8.0")?;
+        let part = self.with_split_values(part)?;
+        self.matrix_parts.1.push(part);
+        Ok(())
+    }
+
+    /// SAVE: the predicted values, the residuals and the derivatives (and the loss) appended to
+    /// the active data.
+    pub(super) fn save_variables(
+        &mut self,
+        who: &str,
+        save: &NlrSave,
+        runner: &mut Runner,
+        pred_name: &str,
+        theta: &[f64],
+        y: &[f64],
+        current: &Eval,
+    ) -> Result<(), Error> {
+        let p = theta.len();
+        let cases = y.len();
+        let names = runner.parameters.clone();
         // SAVE
         let mut saved: Vec<(String, Vec<Option<f64>>, bool)> = Vec::new();
         let opt = |v: f64| Some(v).filter(|v| v.is_finite());
-        if command.save.pred {
+        if save.pred {
             saved.push((
-                pred_name.clone(),
+                pred_name.to_string(),
                 current.pred.iter().map(|v| opt(*v)).collect(),
                 true,
             ));
         }
-        if let Some(name) = &command.save.resid {
+        if let Some(name) = &save.resid {
             let values = (0..cases)
                 .map(|i| {
                     if y[i].is_finite() && current.pred[i].is_finite() {
@@ -810,14 +1022,14 @@ impl Engine {
                 .collect();
             saved.push((name.clone(), values, false));
         }
-        if command.save.derivatives {
+        if save.derivatives {
             // the derivative of every parameter, those the program did not give numerically
             for k in 0..p {
                 let column: Vec<Option<f64>> = match &current.derivatives[k] {
                     Some(d) => d.iter().map(|v| opt(*v)).collect(),
                     None => {
                         let h = step_of(theta[k]);
-                        let (mut up, mut down) = (theta.clone(), theta.clone());
+                        let (mut up, mut down) = (theta.to_vec(), theta.to_vec());
                         up[k] += h;
                         down[k] -= h;
                         let (u, d) = (runner.run(&up, false)?, runner.run(&down, false)?);
@@ -834,7 +1046,7 @@ impl Engine {
             let data = self.active_mut()?;
             if data.variable_index(&name).is_some() {
                 self.warn(format!(
-                    "NLR /SAVE: the variable {name} exists already, so it is not saved"
+                    "{who} /SAVE: the variable {name} exists already, so it is not saved"
                 ));
                 continue;
             }
@@ -846,7 +1058,7 @@ impl Engine {
                 data.set_variable_label(&name, current.label.as_deref())?;
             }
         }
-        Ok(tables)
+        Ok(())
     }
 
     /// `part` with the split variables of the group that runs in front of it.

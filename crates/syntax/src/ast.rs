@@ -305,6 +305,8 @@ pub enum Command {
     Derivatives,
     ClearModelPrograms,
     Nlr(Box<crate::nlr::Nlr>),
+    ConstrainedFunctions,
+    Cnlr(Box<crate::nlr::Cnlr>),
     /// `ERASE FILE='path'`
     Erase(String),
     /// `SYSFILE INFO FILE='path'`

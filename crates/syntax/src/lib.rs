@@ -357,7 +357,10 @@ pub use neural::{
     Activation, NEURAL_PLOT, NEURAL_PRINT, Neural, NeuralArchitecture, NeuralCriteria, Partition,
     Rescale, StoppingRules, Training,
 };
-pub use nlr::{ModelParameter, Nlr, NlrCriteria, NlrSave};
+pub use nlr::{
+    BoundRelation, Cnlr, CnlrCriteria, LinearForm, ModelParameter, Nlr, NlrCriteria, NlrSave,
+    ParameterBound,
+};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,
     NomregStepwise, StepMethod, StepRule,
