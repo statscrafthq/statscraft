@@ -44,6 +44,7 @@ use crate::loops;
 use crate::manova;
 use crate::matrix;
 use crate::matrix_data;
+use crate::mconvert;
 use crate::mixed;
 use crate::mrsets;
 use crate::mult_response;
@@ -7189,6 +7190,24 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  it. User-missing values are carried over as they are. A filter is ignored: every case counts.",
         example: "SHIFT VALUES VARIABLE=price RESULT=price_next LEAD=1 /VARIABLE=price RESULT=price_prev LAG=1.",
         parse: shift_values::shift_values,
+    },
+    CommandSpec {
+        name: "MCONVERT",
+        summary: "Matrix data between covariances and correlations with standard deviations.",
+        syntax: "MCONVERT [[/MATRIX=] [IN({* | file})] [OUT({* | file})]] [/REPLACE | /APPEND].\n\
+                 Reads matrix materials (the layout MATRIX DATA makes: split variables, ROWTYPE_, grouping\n\
+                 variables, VARNAME_, then the variables) from the active dataset or a file and writes the\n\
+                 other form to the active dataset (replacing it) or a file. COV records become CORR records\n\
+                 and a STDDEV record, the square roots of the variances (not added when the set has one).\n\
+                 CORR records become COV records and need the set's STDDEV record. Each run of records with\n\
+                 the same split and grouping values is a set, converted on its own. Records of other types\n\
+                 (MEAN, N, STDDEV ...) are copied. REPLACE, the default, writes the converted matrix in place\n\
+                 of the original; APPEND writes each original set followed by its converted matrix. The\n\
+                 matrix of a set must have one record per variable, in the order of the variables. The\n\
+                 original stays as it was in the file or dataset it came from, unless that is also the output.\n\
+                 IN and OUT cannot name the same file.",
+        example: "MCONVERT MATRIX=IN(*) OUT(correlations) /APPEND.",
+        parse: mconvert::mconvert,
     },
     CommandSpec {
         name: "PRINT",

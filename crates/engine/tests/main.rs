@@ -77,6 +77,7 @@ mod manova;
 mod matrix;
 mod matrix_data;
 mod matrix_files;
+mod mconvert;
 mod means_r;
 mod missing_split_r;
 mod mixed;

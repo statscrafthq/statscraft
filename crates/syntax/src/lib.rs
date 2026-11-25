@@ -64,6 +64,7 @@ mod manova;
 mod matrix;
 mod matrix_data;
 mod matrix_io;
+mod mconvert;
 mod mixed;
 mod mrsets;
 mod mult_response;
@@ -341,6 +342,7 @@ pub use matrix::{
 };
 pub use matrix_data::{MatrixData, MatrixShape, RowType};
 pub use matrix_io::MatrixIo;
+pub use mconvert::Mconvert;
 pub use mixed::{
     Convergence, CovType, DfMethod, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated,
 };

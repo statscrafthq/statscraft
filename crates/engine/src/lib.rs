@@ -72,6 +72,7 @@ mod matrix_data;
 mod matrix_file;
 mod matrix_functions;
 mod matrix_lang;
+mod mconvert;
 mod mds;
 mod mds_variables;
 mod means;
@@ -1336,6 +1337,7 @@ impl Engine {
             Command::Create(equations) => return self.create(equations),
             Command::Rmv(equations) => return self.rmv(equations),
             Command::ShiftValues(specs) => return self.shift_values(specs),
+            Command::Mconvert(command) => return self.mconvert(command),
             Command::Correlogram(spec) => {
                 let spec = self.correlogram_spec(spec)?;
                 return self.procedure(&Command::Correlogram(Box::new(spec)));

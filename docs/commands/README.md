@@ -56,6 +56,7 @@ One page per supported command, generated from the same table that the parser an
 | [DATA LIST](data-list.md) | Define text data, inline or in a file, and read it as the new active dataset. |
 | [BEGIN DATA](begin-data.md) | Inline data for the DATA LIST before it, up to a line that holds END DATA. |
 | [MATRIX DATA](matrix-data.md) | Read matrix materials (correlations, means, counts) as a matrix data file. |
+| [MCONVERT](mconvert.md) | Matrix data between covariances and correlations with standard deviations. |
 | [INPUT PROGRAM](input-program.md) | Start an input program: commands that build the cases of a new active dataset. |
 | [END INPUT PROGRAM](end-input-program.md) | End an input program and run it. |
 | [END CASE](end-case.md) | In an input program: add the case built so far to the dataset and go on. |

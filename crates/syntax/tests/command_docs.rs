@@ -57,6 +57,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "DATA LIST",
             "BEGIN DATA",
             "MATRIX DATA",
+            "MCONVERT",
             "INPUT PROGRAM",
             "END INPUT PROGRAM",
             "END CASE",

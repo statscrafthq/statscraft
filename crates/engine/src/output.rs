@@ -114,6 +114,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Create(_)
         | Command::Rmv(_)
         | Command::ShiftValues(_)
+        | Command::Mconvert(_)
         | Command::MultipleImputation(_)
         | Command::Km(_)
         | Command::Survival(_)
