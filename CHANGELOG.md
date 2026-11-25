@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [RMV](docs/commands/rmv.md) copies series with their missing values filled in: `LINT` interpolates, `MEAN` and `MEDIAN` use the nearest valid values on each side, `SMEAN` the series mean and `TREND` a fitted line.
+
 ## 0.49.0 (2026-11-25)
 
 GRAPH draws grouped high-low charts, MVA writes its filled data under SPLIT FILE, CURVEFIT can apply an earlier fit as it is, and INCLUDE keeps inline data intact.

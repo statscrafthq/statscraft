@@ -134,6 +134,7 @@ mod reliability;
 mod report;
 mod response_rate;
 mod restructure;
+mod rmv;
 mod roc;
 mod roc_analysis;
 mod rows;
@@ -1299,6 +1300,7 @@ impl Engine {
             Command::Tset(items) => self.tset_command(items),
             Command::Tshow => return Ok(self.tshow()),
             Command::Create(equations) => return self.create(equations),
+            Command::Rmv(equations) => return self.rmv(equations),
             Command::Correlogram(spec) => {
                 let spec = self.correlogram_spec(spec)?;
                 return self.procedure(&Command::Correlogram(Box::new(spec)));

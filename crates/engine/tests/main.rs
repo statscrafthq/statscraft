@@ -126,6 +126,7 @@ mod reliability_r;
 mod report;
 mod response_rate;
 mod restructure;
+mod rmv;
 mod robustness;
 mod roc_analysis;
 mod roc_r;

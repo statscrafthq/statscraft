@@ -243,11 +243,11 @@ fn runs(x: &[Option<f64>]) -> Vec<(usize, Vec<f64>)> {
     out
 }
 
-fn mean(v: &[f64]) -> f64 {
+pub(crate) fn mean(v: &[f64]) -> f64 {
     v.iter().sum::<f64>() / v.len() as f64
 }
 
-fn median(v: &[f64]) -> f64 {
+pub(crate) fn median(v: &[f64]) -> f64 {
     let mut s = v.to_vec();
     s.sort_by(f64::total_cmp);
     let n = s.len();
@@ -475,7 +475,7 @@ fn without_gaps(x: &[Option<f64>], what: &str) -> Result<(usize, Vec<f64>), Erro
 }
 
 /// The decimals of a format such as "F8.2".
-fn decimals(format: &str) -> usize {
+pub(crate) fn decimals(format: &str) -> usize {
     format
         .split_once('.')
         .and_then(|(_, d)| d.parse().ok())

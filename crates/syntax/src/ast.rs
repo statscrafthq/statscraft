@@ -314,6 +314,7 @@ pub enum Command {
     Tset(Vec<crate::timeseries::TsetItem>),
     Tshow,
     Create(Vec<crate::timeseries::CreateEquation>),
+    Rmv(Vec<crate::timeseries::RmvEquation>),
     /// ACF, PACF and CCF.
     Correlogram(Box<crate::timeseries::Correlogram>),
     Season(Box<crate::timeseries::Season>),

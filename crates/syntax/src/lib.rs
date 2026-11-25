@@ -431,8 +431,8 @@ pub use table::{
     CommandSpec, command_name, command_names, command_specs, help, unsupported_commands,
 };
 pub use timeseries::{
-    Correlogram, CorrelogramKind, CreateEquation, NewVar, Season, SeriesFunction, TimeSettings,
-    TsetItem, TsetPrint,
+    Correlogram, CorrelogramKind, CreateEquation, NewVar, RmvEquation, RmvFunction, RmvSpan,
+    Season, SeriesFunction, TimeSettings, TsetItem, TsetPrint,
 };
 pub use ts_models::{
     Arima, ArimaApply, ArimaForecast, ArimaLog, Exsmooth, PlotJoin, PlotMark, PlotReference,

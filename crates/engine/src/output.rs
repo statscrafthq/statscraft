@@ -112,6 +112,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Tsapply(_)
         | Command::SeriesPlot(_)
         | Command::Create(_)
+        | Command::Rmv(_)
         | Command::MultipleImputation(_)
         | Command::Km(_)
         | Command::Survival(_)

@@ -7085,6 +7085,26 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: timeseries::create,
     },
     CommandSpec {
+        name: "RMV",
+        summary: "Copies of series with the missing values filled in by interpolation, a mean, a median or a trend.",
+        syntax: "RMV new names = function(series) [/new names = function(...) ...].\n\
+                 function: LINT(series); MEAN(series [, span]); MEDIAN(series [, span]); SMEAN(series);\n\
+                 TREND(series). span is a whole number of 1 or more, or ALL.\n\
+                 One new variable per series, in order, so the names on the left must match the count of\n\
+                 series; v1 TO v4 names numbered variables. A new name that exists is replaced, also when\n\
+                 it is the series itself. Valid values are copied. LINT draws a line between the nearest\n\
+                 valid values before and after a gap, and leaves a gap at either end alone. MEAN and\n\
+                 MEDIAN use the span nearest valid values on each side (2 without a span) and leave the\n\
+                 gap alone when a side has fewer; ALL uses every valid value, as SMEAN does with the mean.\n\
+                 TREND fits a line to the valid values against the case position and uses it. An estimate\n\
+                 never rests on another estimate. A user-missing value is missing unless TSET MISSING=INCLUDE.\n\
+                 With SPLIT FILE each group is a series of its own; USE is not used. A table lists each new\n\
+                 variable with the number of values replaced, its first and last valid case, its number of\n\
+                 valid values and its function.",
+        example: "RMV tidy_load = LINT(hourly_load) /tidy_temp = MEDIAN(temp, 3).",
+        parse: timeseries::rmv,
+    },
+    CommandSpec {
         name: "PRINT",
         summary: "Show the values of variables for every case, as lines of text.",
         syntax: "PRINT [OUTFILE='path'] [ENCODING='name'] [RECORDS=n] [TABLE | NOTABLE]\n\

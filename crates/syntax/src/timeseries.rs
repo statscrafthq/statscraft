@@ -186,6 +186,45 @@ pub struct CreateEquation {
     pub numbers: Vec<u32>,
 }
 
+/// The functions of RMV.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RmvFunction {
+    Lint,
+    Mean,
+    Median,
+    Smean,
+    Trend,
+}
+
+impl RmvFunction {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Lint => "LINT",
+            Self::Mean => "MEAN",
+            Self::Median => "MEDIAN",
+            Self::Smean => "SMEAN",
+            Self::Trend => "TREND",
+        }
+    }
+}
+
+/// How many valid cases MEAN and MEDIAN of RMV take on each side of a missing value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RmvSpan {
+    Cases(u32),
+    All,
+}
+
+/// One equation of RMV.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RmvEquation {
+    pub targets: Vec<String>,
+    pub function: RmvFunction,
+    pub sources: Vec<VarItem>,
+    /// MEAN and MEDIAN: the span, 2 when none is written. SMEAN is MEAN with All.
+    pub span: RmvSpan,
+}
+
 /// ACF, PACF or CCF.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CorrelogramKind {
@@ -486,6 +525,75 @@ pub(crate) fn create(p: &mut Parser) -> PResult<Command> {
     }
     p.finish(&["'/'"])?;
     Ok(Command::Create(equations))
+}
+
+const RMV_FUNCTIONS: [(&str, RmvFunction); 5] = [
+    ("LINT", RmvFunction::Lint),
+    ("MEAN", RmvFunction::Mean),
+    ("MEDIAN", RmvFunction::Median),
+    ("SMEAN", RmvFunction::Smean),
+    ("TREND", RmvFunction::Trend),
+];
+
+pub(crate) fn rmv(p: &mut Parser) -> PResult<Command> {
+    let mut equations = Vec::new();
+    loop {
+        let mut targets = Vec::new();
+        while matches!(p.peek(), Some(TokenKind::Word(_))) {
+            let start = p.pos;
+            let first = p.name("a new variable name")?;
+            if p.eat_word("TO") {
+                let last = p.name("a new variable name")?;
+                targets.extend(
+                    crate::data_list::numbered_names(&first, &last)
+                        .map_err(|e| error(p, start, e))?,
+                );
+            } else {
+                targets.push(first);
+            }
+            p.eat(Punct::Comma);
+        }
+        if targets.is_empty() {
+            return Err(p.unexpected(&["a new variable name"]));
+        }
+        p.expect(Punct::Eq)?;
+        let function = pick(p, &RMV_FUNCTIONS)?;
+        p.expect(Punct::LParen)?;
+        // ALL after the list is the span, not a list of all variables
+        let sources = list_until(p, &["ALL"])?;
+        let mut span = match function {
+            RmvFunction::Smean => RmvSpan::All,
+            _ => RmvSpan::Cases(2),
+        };
+        let has_span = matches!(function, RmvFunction::Mean | RmvFunction::Median);
+        let start = p.pos;
+        if p.at_keyword("ALL") || matches!(p.peek(), Some(TokenKind::Number(_))) {
+            if !has_span {
+                return Err(error(
+                    p,
+                    start,
+                    format!("{} takes only a list of variables", function.name()),
+                ));
+            }
+            span = if p.eat_word("ALL") {
+                RmvSpan::All
+            } else {
+                RmvSpan::Cases(whole(p, 1, "the span")?)
+            };
+        }
+        p.expect(Punct::RParen)?;
+        equations.push(RmvEquation {
+            targets,
+            function,
+            sources,
+            span,
+        });
+        if !p.eat(Punct::Slash) {
+            break;
+        }
+    }
+    p.finish(&["'/'"])?;
+    Ok(Command::Rmv(equations))
 }
 
 /// `[=] n`, or `default` when no number follows.
