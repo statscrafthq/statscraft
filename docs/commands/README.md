@@ -197,6 +197,8 @@ One page per supported command, generated from the same table that the parser an
 | [DERIVATIVES](derivatives.md) | Start the derivatives program of the model program. |
 | [CLEAR MODEL PROGRAMS](clear-model-programs.md) | Drop the model program and the derivatives program of the last MODEL PROGRAM. |
 | [NLR](nlr.md) | Nonlinear regression by least squares (Levenberg-Marquardt) for the model of the last MODEL PROGRAM. |
+| [CONSTRAINED FUNCTIONS](constrained-functions.md) | Start the program that computes the constrained functions of the next CNLR. |
+| [CNLR](cnlr.md) | Constrained nonlinear regression: least squares or a loss function of your own, under bounds, linear constraints and constrained functions. |
 | [MULTIPLE IMPUTATION](multiple-imputation.md) | Multiple imputation: several completed copies of the data with plausible values in place of the missing ones. |
 | [PLUM](plum.md) | Ordinal regression: a cumulative link model of an ordered dependent variable. |
 | [QUANTILE REGRESSION](quantile-regression.md) | Linear regression of a chosen quantile of the dependent variable, fitted by linear programming. |

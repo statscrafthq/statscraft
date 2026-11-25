@@ -71,7 +71,8 @@ fn nlr_subcommands() {
         NlrSave {
             pred: true,
             resid: Some("res1".into()),
-            derivatives: true
+            derivatives: true,
+            loss: false
         }
     );
     assert_eq!(

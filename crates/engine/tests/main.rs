@@ -20,6 +20,7 @@ mod chart_input;
 mod charts;
 mod cluster;
 mod cluster_r;
+mod cnlr;
 mod complex_samples;
 mod conjoint;
 mod correlations_r;

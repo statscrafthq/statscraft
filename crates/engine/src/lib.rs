@@ -38,6 +38,7 @@ mod discriminant;
 mod naivebayes;
 // its own crate so that dev builds can optimize it (see the workspace Cargo.toml)
 use statscraft_dist as dist;
+mod cnlr;
 mod distributions;
 mod examine;
 pub mod excel;
@@ -1094,25 +1095,31 @@ impl Engine {
             .filter(|p| p.section != nlr::Section::Closed)
         {
             // a label and the formats of the predicted values belong to the program too
-            if !matches!(command, Command::Derivatives)
-                && (is_transformation(command)
-                    || matches!(
-                        command,
-                        Command::Loop(_)
-                            | Command::EndLoop(_)
-                            | Command::Formats(_)
-                            | Command::PrintFormats(_)
-                            | Command::WriteFormats(_)
-                            | Command::VariableLabels(_)
-                    ))
+            if !matches!(
+                command,
+                Command::Derivatives | Command::ConstrainedFunctions
+            ) && (is_transformation(command)
+                || matches!(
+                    command,
+                    Command::Loop(_)
+                        | Command::EndLoop(_)
+                        | Command::Formats(_)
+                        | Command::PrintFormats(_)
+                        | Command::WriteFormats(_)
+                        | Command::VariableLabels(_)
+                ))
             {
                 match program.section {
                     nlr::Section::Derivatives => program.derivatives.push(command.clone()),
+                    nlr::Section::Constraints => program.constraints.push(command.clone()),
                     _ => program.model.push(command.clone()),
                 }
                 return Ok(Vec::new());
             }
-            if !matches!(command, Command::Derivatives) {
+            if !matches!(
+                command,
+                Command::Derivatives | Command::ConstrainedFunctions
+            ) {
                 program.section = nlr::Section::Closed;
             }
         }
@@ -1427,6 +1434,19 @@ impl Engine {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);
             }
+            Command::Cnlr(c) => {
+                let tables = match &c.outfile {
+                    Some(file) => {
+                        let target = Some(file.clone());
+                        self.procedure_with_matrix_out(command, &target)
+                    }
+                    None => self.procedure(command),
+                };
+                if tables.is_ok() {
+                    self.model_program = None;
+                }
+                return tables;
+            }
             Command::Nlr(c) => {
                 // the programs are used up by an NLR that succeeds
                 let tables = match &c.outfile {
@@ -1610,6 +1630,7 @@ impl Engine {
             Command::ClearTimeProgram => self.time_program = None,
             Command::ModelProgram(parameters) => self.begin_model_program(parameters),
             Command::Derivatives => self.begin_derivatives()?,
+            Command::ConstrainedFunctions => self.begin_constraints()?,
             Command::ClearModelPrograms => self.model_program = None,
             Command::MultipleImputation(imputation) => {
                 self.imputed.clear();
@@ -1891,6 +1912,7 @@ impl Engine {
             Command::Curvefit(command) => self.curvefit(command),
             Command::Wls(command) => self.wls(command),
             Command::Nlr(command) => self.nlr(command),
+            Command::Cnlr(command) => self.cnlr(command),
             Command::Correlogram(command) => self.correlogram(command),
             Command::Season(command) => self.season(command),
             Command::Exsmooth(command) => self.exsmooth(command),

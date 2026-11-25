@@ -191,6 +191,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::ClearTimeProgram
         | Command::ModelProgram(_)
         | Command::Derivatives
+        | Command::ConstrainedFunctions
         | Command::ClearModelPrograms
         | Command::Tset(_)
         | Command::Predict(_)
@@ -285,6 +286,7 @@ impl Engine {
                     | Command::ClearTimeProgram
                     | Command::ModelProgram(_)
                     | Command::Derivatives
+                    | Command::ConstrainedFunctions
                     | Command::ClearModelPrograms
             )
         {

@@ -226,11 +226,11 @@ pub(super) struct Jacobian {
 
 const CENTRAL_STEP: f64 = 6.055e-6;
 
-fn step_of(x: f64) -> f64 {
+pub(super) fn step_of(x: f64) -> f64 {
     CENTRAL_STEP * if x == 0.0 { 1.0 } else { x.abs() }
 }
 
-fn jacobian(
+pub(super) fn jacobian(
     runner: &mut Runner,
     theta: &[f64],
     at: &Eval,
@@ -418,6 +418,19 @@ impl Engine {
     /// The start of MODEL PROGRAM: the parameters, and the transformations after it collect.
     pub(crate) fn begin_model_program(&mut self, parameters: &[ModelParameter]) {
         self.model_program = Some(ModelProgram::new(parameters.to_vec()));
+    }
+
+    /// CONSTRAINED FUNCTIONS: the transformations after it are the constrained functions program.
+    pub(crate) fn begin_constraints(&mut self) -> Result<(), Error> {
+        match self.model_program.as_mut() {
+            Some(program) => {
+                program.section = Section::Constraints;
+                Ok(())
+            }
+            None => Err(Error(
+                "CONSTRAINED FUNCTIONS needs a MODEL PROGRAM before it".into(),
+            )),
+        }
     }
 
     /// DERIVATIVES: the transformations after it are the derivatives program.
@@ -676,7 +689,6 @@ impl Engine {
             n,
         } = self.prepare("NLR", &setup)?;
         let p = theta.len();
-        let cases = y.len();
         let criteria = &command.criteria;
         let max_iterations = criteria.iterations.map_or(100 * p, |i| i as usize);
         let sscon = criteria.sscon.unwrap_or(1e-8);

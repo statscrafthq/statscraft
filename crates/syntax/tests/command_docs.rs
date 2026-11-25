@@ -198,6 +198,8 @@ const AREAS: &[(&str, &[&str])] = &[
             "DERIVATIVES",
             "CLEAR MODEL PROGRAMS",
             "NLR",
+            "CONSTRAINED FUNCTIONS",
+            "CNLR",
             "MULTIPLE IMPUTATION",
             "PLUM",
             "QUANTILE REGRESSION",
