@@ -1,5 +1,6 @@
 //! What the Data View and Variable View show, and the syntax an edit in them becomes.
 
+use crate::i18n::{t, t_args};
 use crate::syntax_text::{number, quote, value};
 use statscraft_data::{Measure, MissingValues, Value, Values, Variable};
 use statscraft_engine::{Currencies, format_value};
@@ -85,7 +86,7 @@ pub fn edit_text(variable: &Variable, case: usize) -> String {
 
 /// yyyy-mm-dd, optionally followed by hh:mm or hh:mm:ss, as an expression.
 fn date_expression(text: &str) -> Result<String, String> {
-    let bad = || format!("{text:?} is not a date; type it as yyyy-mm-dd");
+    let bad = || t_args("core-not-a-date", &[("text", format!("{text:?}").into())]);
     let (date, time) = text.split_once(' ').unwrap_or((text, ""));
     let parts: Vec<i64> = date
         .split('-')
@@ -184,18 +185,18 @@ impl Field {
 
     pub fn title(self) -> &'static str {
         match self {
-            Field::Name => "Name",
-            Field::Type => "Type",
-            Field::Format => "Format",
-            Field::Width => "Width",
-            Field::Decimals => "Decimals",
-            Field::Label => "Label",
-            Field::Values => "Value labels",
-            Field::Missing => "Missing values",
-            Field::Columns => "Columns",
-            Field::Align => "Align",
-            Field::Measure => "Measure",
-            Field::Role => "Role",
+            Field::Name => t("data-field-name"),
+            Field::Type => t("data-field-type"),
+            Field::Format => t("data-format"),
+            Field::Width => t("data-width"),
+            Field::Decimals => t("data-decimals"),
+            Field::Label => t("data-label"),
+            Field::Values => t("data-field-values"),
+            Field::Missing => t("data-field-missing"),
+            Field::Columns => t("data-field-columns"),
+            Field::Align => t("data-field-align"),
+            Field::Measure => t("data-field-measure"),
+            Field::Role => t("data-field-role"),
         }
     }
 
@@ -252,6 +253,30 @@ fn capitalized(word: &str) -> String {
     chars.next().map_or_else(String::new, |first| {
         first.to_uppercase().chain(chars).collect()
     })
+}
+
+/// A Variable View value as the window shows it: the words of Type, Align, Measure and Role in
+/// the window's language. The cell editor and the syntax keep the English words.
+pub fn shown(field: Field, text: String) -> String {
+    let shown = match (field, text.as_str()) {
+        (Field::Type, "String") => t("core-type-string"),
+        (Field::Type, "Date") => t("core-type-date"),
+        (Field::Type, "Numeric") => t("core-type-numeric"),
+        (Field::Align, "Left") => t("core-align-left"),
+        (Field::Align, "Right") => t("core-align-right"),
+        (Field::Align, "Center") => t("core-align-center"),
+        (Field::Measure, "Nominal") => t("core-measure-nominal"),
+        (Field::Measure, "Ordinal") => t("core-measure-ordinal"),
+        (Field::Measure, "Scale") => t("core-measure-scale"),
+        (Field::Role, "Input") => t("core-role-input"),
+        (Field::Role, "Target") => t("core-role-target"),
+        (Field::Role, "Both") => t("core-role-both"),
+        (Field::Role, "None") => t("core-role-none"),
+        (Field::Role, "Partition") => t("core-role-partition"),
+        (Field::Role, "Split") => t("core-role-split"),
+        _ => return text,
+    };
+    shown.to_string()
 }
 
 fn measure_name(measure: Measure) -> &'static str {
@@ -363,31 +388,31 @@ const fn kind(
 /// The formats of the dialog: numbers, dates and times, and strings (last). The narrowest
 /// widths are those a format needs to show its values.
 pub const FORMAT_KINDS: [FormatKind; 23] = [
-    kind("F", "Numeric", 1, true),
-    kind("COMMA", "Comma (1,234.5)", 1, true),
-    kind("DOT", "Dot (1.234,5)", 1, true),
-    kind("DOLLAR", "Dollar ($1,234.50)", 2, true),
-    kind("PCT", "Percent (12.5%)", 1, true),
-    kind("E", "Scientific (1.2E+03)", 6, true),
-    kind("N", "Leading zeros (00123)", 1, false),
-    kind("DATE", "Date dd-mmm-yyyy", 9, false),
-    kind("ADATE", "Date mm/dd/yyyy", 8, false),
-    kind("EDATE", "Date dd.mm.yyyy", 8, false),
-    kind("SDATE", "Date yyyy/mm/dd", 8, false),
-    kind("JDATE", "Day of the year yyyyddd", 5, false),
-    kind("QYR", "Quarter and year", 6, false),
-    kind("MOYR", "Month and year", 6, false),
-    kind("WKYR", "Week and year", 8, false),
-    kind("WKDAY", "Day of the week", 2, false),
-    kind("MONTH", "Month", 3, false),
-    kind("DATETIME", "Date and time", 17, true),
-    kind("YMDHMS", "Date and time yyyy-mm-dd", 16, false),
-    kind("TIME", "Time hh:mm:ss", 5, true),
-    kind("MTIME", "Minutes mm:ss", 5, true),
-    kind("DTIME", "Days and time", 8, false),
+    kind("F", "core-format-numeric", 1, true),
+    kind("COMMA", "core-format-comma", 1, true),
+    kind("DOT", "core-format-dot", 1, true),
+    kind("DOLLAR", "core-format-dollar", 2, true),
+    kind("PCT", "core-format-percent", 1, true),
+    kind("E", "core-format-scientific", 6, true),
+    kind("N", "core-format-leading-zeros", 1, false),
+    kind("DATE", "core-format-date", 9, false),
+    kind("ADATE", "core-format-adate", 8, false),
+    kind("EDATE", "core-format-edate", 8, false),
+    kind("SDATE", "core-format-sdate", 8, false),
+    kind("JDATE", "core-format-jdate", 5, false),
+    kind("QYR", "core-format-qyr", 6, false),
+    kind("MOYR", "core-format-moyr", 6, false),
+    kind("WKYR", "core-format-wkyr", 8, false),
+    kind("WKDAY", "core-format-wkday", 2, false),
+    kind("MONTH", "core-format-month", 3, false),
+    kind("DATETIME", "core-format-datetime", 17, true),
+    kind("YMDHMS", "core-format-ymdhms", 16, false),
+    kind("TIME", "core-format-time", 5, true),
+    kind("MTIME", "core-format-mtime", 5, true),
+    kind("DTIME", "core-format-dtime", 8, false),
     FormatKind {
         keyword: "A",
-        label: "String",
+        label: "core-format-string",
         min: 1,
         max: 32_767,
         decimals: false,
@@ -468,24 +493,31 @@ impl FormatChoice {
             .width
             .trim()
             .parse()
-            .map_err(|_| "the width must be a whole number".to_string())?;
+            .map_err(|_| t("core-width-whole").to_string())?;
         if width < kind.min || width > kind.max {
-            return Err(format!(
-                "{} takes a width from {} to {}",
-                kind.label, kind.min, kind.max
+            return Err(t_args(
+                "core-width-range",
+                &[
+                    ("format", t(kind.label).into()),
+                    ("min", kind.min.into()),
+                    ("max", kind.max.into()),
+                ],
             ));
         }
         let decimals: usize = match self.decimals.trim() {
             "" => 0,
             text => text
                 .parse()
-                .map_err(|_| "the decimals must be a whole number".to_string())?,
+                .map_err(|_| t("core-decimals-whole").to_string())?,
         };
         if decimals > 0 && !kind.decimals {
-            return Err(format!("{} takes no decimals", kind.label));
+            return Err(t_args(
+                "core-no-decimals",
+                &[("format", t(kind.label).into())],
+            ));
         }
         if decimals > 16 || (decimals > 0 && decimals >= width) {
-            return Err("the decimals must be fewer than the width, at most 16".into());
+            return Err(t("core-decimals-range").into());
         }
         let format = match decimals {
             0 => format!("{}{width}", kind.keyword),
@@ -494,14 +526,11 @@ impl FormatChoice {
         let name = &self.name;
         // F8 and F8.0 are the same format
         if split_format(&format) == split_format(&self.current) {
-            return Err("choose another format, width or decimals".into());
+            return Err(t("core-format-unchanged").into());
         }
         if self.string && self.kind != STRING_KIND && !["F", "COMMA", "DOT"].contains(&kind.keyword)
         {
-            return Err(
-                "a string becomes a number as Numeric, Comma or Dot; choose another format after"
-                    .into(),
-            );
+            return Err(t("core-string-to-number").into());
         }
         Ok(if self.string || self.kind == STRING_KIND {
             format!("ALTER TYPE {name} ({format}).")
@@ -518,24 +547,32 @@ pub fn parse_labels(text: &str) -> Result<Vec<(String, String)>, String> {
     let separator = ['\t', ';', '=', ',']
         .into_iter()
         .find(|s| text.contains(*s))
-        .ok_or("put a tab, semicolon, equals sign or comma between each code and its label")?;
+        .ok_or(t("core-no-separator"))?;
     text.lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .map(|line| {
             line.split_once(separator)
                 .map(|(code, label)| (code.trim().to_string(), label.trim().to_string()))
-                .ok_or_else(|| format!("{line:?} has no {}", separator_name(separator)))
+                .ok_or_else(|| {
+                    t_args(
+                        "core-line-no-separator",
+                        &[
+                            ("line", format!("{line:?}").into()),
+                            ("separator", separator_name(separator).into()),
+                        ],
+                    )
+                })
         })
         .collect()
 }
 
 fn separator_name(separator: char) -> &'static str {
     match separator {
-        '\t' => "tab",
-        ';' => "semicolon",
-        '=' => "equals sign",
-        _ => "comma",
+        '\t' => t("core-tab-lower"),
+        ';' => t("core-semicolon-lower"),
+        '=' => t("core-equals-sign"),
+        _ => t("core-comma-lower"),
     }
 }
 
@@ -607,17 +644,20 @@ impl LabelsEditor {
                 .cloned()
                 .collect();
             if pairs == self.original && !self.apply_to_others {
-                return Err("change, add or remove a label".into());
+                return Err(t("core-labels-unchanged").into());
             }
             (pairs, "VALUE LABELS")
         };
         if pairs.is_empty() && command == "ADD VALUE LABELS" {
-            return Err("paste at least one code and label".into());
+            return Err(t("core-paste-one").into());
         }
         let mut items = Vec::new();
         for (code, label) in &pairs {
             if code.trim().is_empty() {
-                return Err(format!("give the code of the label {label:?}"));
+                return Err(t_args(
+                    "core-give-code",
+                    &[("label", format!("{label:?}").into())],
+                ));
             }
             let code = match self.string {
                 true => quote(code.trim_end()),
@@ -689,11 +729,11 @@ impl MissingEditor {
         let mut items = Vec::new();
         if self.range {
             if self.string {
-                return Err("a range works only with numeric variables".into());
+                return Err(t("core-range-numeric").into());
             }
             match (self.low.trim(), self.high.trim()) {
                 ("", "") => {}
-                ("", _) | (_, "") => return Err("give both ends of the range".into()),
+                ("", _) | (_, "") => return Err(t("core-both-ends").into()),
                 (low, high) => items.push(missing_item(&format!("{low} THRU {high}"))?),
             }
             if !self.extra.trim().is_empty() {
@@ -713,7 +753,7 @@ impl MissingEditor {
     pub fn syntax(&self) -> Result<String, String> {
         let items = self.items()?;
         if items == self.original && !self.apply_to_others {
-            return Err("change, add or remove a missing value".into());
+            return Err(t("core-missing-unchanged").into());
         }
         let mut names = vec![self.name.as_str()];
         if self.apply_to_others {
@@ -727,10 +767,22 @@ impl MissingEditor {
 /// and the first few.
 pub fn listed(names: &[String]) -> String {
     match names {
-        [] => "nothing".into(),
+        [] => t("core-nothing").into(),
         [one] => one.clone(),
-        [first @ .., last] if names.len() <= 6 => format!("{} and {last}", first.join(", ")),
-        _ => format!("{} variables ({}, ...)", names.len(), names[..4].join(", ")),
+        [first @ .., last] if names.len() <= 6 => t_args(
+            "core-listed-and",
+            &[
+                ("first", first.join(", ").into()),
+                ("last", last.as_str().into()),
+            ],
+        ),
+        _ => t_args(
+            "core-listed-many",
+            &[
+                ("count", names.len().into()),
+                ("first", names[..4].join(", ").into()),
+            ],
+        ),
     }
 }
 
@@ -742,10 +794,10 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
     let name = variable.name();
     let string = variable.is_string();
     let (kind, width, decimals) = split_format(variable.format());
-    let whole = |what: &str| {
+    let whole = |message: &str| {
         text.trim()
             .parse::<usize>()
-            .map_err(|_| format!("the {what} must be a whole number"))
+            .map_err(|_| message.to_string())
     };
     let format = |width: usize, decimals: usize| {
         if decimals > 0 {
@@ -755,11 +807,11 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
         }
     };
     let syntax = match field {
-        Field::Type => return Err("the type cannot be changed yet".into()),
+        Field::Type => return Err(t("core-type-fixed").into()),
         Field::Name => {
             let new = text.trim();
             if new.is_empty() {
-                return Err("a variable needs a name".into());
+                return Err(t("core-needs-name").into());
             }
             format!("RENAME VARIABLES ({name} = {new}).")
         }
@@ -772,21 +824,24 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
                     .chars()
                     .all(|c| c.is_ascii_digit() || c == '.');
             if !valid {
-                return Err(format!("{text:?} is not a format such as F8.2 or A20"));
+                return Err(t_args(
+                    "core-not-a-format",
+                    &[("text", format!("{text:?}").into())],
+                ));
             }
             format!("FORMATS {name} ({format}).")
         }
-        Field::Width => format(whole("width")?, decimals),
-        Field::Decimals => format(width, whole("number of decimals")?),
+        Field::Width => format(whole(t("core-width-whole"))?, decimals),
+        Field::Decimals => format(width, whole(t("core-decimal-count-whole"))?),
         Field::Label => format!("VARIABLE LABELS {name} {}.", quote(text.trim())),
         Field::Values => {
             // shortcut: a label cannot hold ";", which separates the pairs here; add a value
             // label dialog when someone needs one
             let mut pairs = Vec::new();
             for pair in text.split(';').map(str::trim).filter(|p| !p.is_empty()) {
-                let (v, label) = pair
-                    .split_once('=')
-                    .ok_or_else(|| format!("{pair:?} needs the form value = label"))?;
+                let (v, label) = pair.split_once('=').ok_or_else(|| {
+                    t_args("core-pair-form", &[("pair", format!("{pair:?}").into())])
+                })?;
                 pairs.push(format!(
                     "{} {}",
                     value(v.trim(), string)?,
@@ -810,21 +865,21 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
                 .collect::<Result<Vec<_>, _>>()?;
             format!("MISSING VALUES {name} ({}).", items.join(", "))
         }
-        Field::Columns => match whole("number of columns")? {
-            0 => return Err("the number of columns must be at least 1".into()),
+        Field::Columns => match whole(t("core-columns-whole"))? {
+            0 => return Err(t("core-columns-at-least-one").into()),
             n => format!("VARIABLE WIDTH {name} ({n})."),
         },
         Field::Align => {
             let align = text.trim().to_ascii_uppercase();
             if !ALIGNMENTS.iter().any(|a| a.eq_ignore_ascii_case(&align)) {
-                return Err("choose left, right or center".into());
+                return Err(t("core-choose-align").into());
             }
             format!("VARIABLE ALIGNMENT {name} ({align}).")
         }
         Field::Role => {
             let role = text.trim().to_ascii_uppercase();
             if !ROLES.iter().any(|r| r.eq_ignore_ascii_case(&role)) {
-                return Err("choose input, target, both, none, partition or split".into());
+                return Err(t("core-choose-role").into());
             }
             format!("VARIABLE ROLE /{role} {name}.")
         }
@@ -833,7 +888,7 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
                 "nominal" => "NOMINAL",
                 "ordinal" => "ORDINAL",
                 "scale" => "SCALE",
-                _ => return Err("choose nominal, ordinal or scale".into()),
+                _ => return Err(t("core-choose-measure").into()),
             };
             format!("VARIABLE LEVEL {name} ({level}).")
         }

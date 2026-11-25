@@ -1,6 +1,7 @@
 //! The output: result tables grouped by run and command, and their text forms: tab-separated
 //! text and HTML.
 
+use crate::i18n::t;
 use statscraft_engine::{Cell, Chart, Table};
 pub use statscraft_engine::{cell_text, header_rows};
 use std::collections::HashSet;
@@ -62,11 +63,11 @@ impl Part {
     /// Its name in Edit > Settings.
     pub fn label(self) -> &'static str {
         match self {
-            Part::Heading => "Command headings",
-            Part::Title => "Titles",
-            Part::Table => "Tables",
-            Part::Notes => "Notes under tables",
-            Part::Chart => "Charts",
+            Part::Heading => t("settings-part-headings"),
+            Part::Title => t("settings-part-titles"),
+            Part::Table => t("settings-part-tables"),
+            Part::Notes => t("settings-part-notes"),
+            Part::Chart => t("settings-part-charts"),
         }
     }
 }

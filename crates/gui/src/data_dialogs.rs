@@ -1,6 +1,7 @@
 //! The Data menu dialogs: multiple response sets, sorting cases and variables, splitting,
 //! selecting and weighting cases, aggregating, merging files and restructuring.
 
+use crate::i18n::{t, t_args};
 use crate::syntax_text::{names, quote, value};
 use std::path::Path;
 
@@ -44,13 +45,13 @@ impl Mrsets {
     pub fn syntax(&self, string: bool) -> Result<String, String> {
         if self.delete {
             if self.sets.is_empty() {
-                return Err("choose the sets to delete".into());
+                return Err(t("core-choose-sets").into());
             }
             return Ok(format!("MRSETS /DELETE NAME=[{}].", self.sets.join(" ")));
         }
         let name = self.name.trim();
         if name.is_empty() {
-            return Err("give the set a name".into());
+            return Err(t("core-give-set-name").into());
         }
         let name = if name.starts_with('$') {
             name.to_string()
@@ -58,7 +59,7 @@ impl Mrsets {
             format!("${name}")
         };
         if self.variables.len() < 2 {
-            return Err("a set needs at least two variables".into());
+            return Err(t("core-set-two-variables").into());
         }
         let label = self.label.trim();
         let mut text = format!(
@@ -82,7 +83,7 @@ impl Mrsets {
             } else {
                 let counted = value(&self.value, false)?;
                 if counted.contains(['.', 'e']) {
-                    return Err("the counted value must be a whole number".into());
+                    return Err(t("core-counted-whole").into());
                 }
                 counted
             };
@@ -103,7 +104,7 @@ pub struct SortCases {
 impl SortCases {
     pub fn syntax(&self) -> Result<String, String> {
         if self.keys.is_empty() {
-            return Err("add at least one variable to Sort by".into());
+            return Err(t("core-sort-empty").into());
         }
         // a direction covers the variables written before it, back to the previous direction,
         // so it goes after each run of keys that share one; the last run needs it only when
@@ -152,7 +153,7 @@ impl SelectCases {
             return Ok("FILTER OFF.\nUSE ALL.".into());
         }
         let condition = match crate::dialogs::clause(&self.condition) {
-            "" => return Err("give the condition the kept cases meet".into()),
+            "" => return Err(t("core-give-condition").into()),
             condition => condition,
         };
         Ok(match self.mode {
@@ -219,9 +220,9 @@ impl SplitFile {
             SplitMode::Layered => "",
             SplitMode::Separate => " SEPARATE",
         };
-        let variables = names(&self.variables, "Groups based on")?;
+        let variables = names(&self.variables, t("core-groups-based-on"))?;
         if self.variables.len() > 8 {
-            return Err("split by at most eight variables".into());
+            return Err(t("core-split-max-eight").into());
         }
         let sort = match self.sort {
             true => format!("SORT CASES BY {variables}.\n"),
@@ -252,7 +253,7 @@ impl WeightCases {
             return Ok("WEIGHT OFF.".into());
         }
         match self.variable.trim() {
-            "" => Err("choose the weight variable".into()),
+            "" => Err(t("core-choose-weight").into()),
             name => Ok(format!("WEIGHT BY {name}.")),
         }
     }
@@ -260,16 +261,16 @@ impl WeightCases {
 
 /// Keyword and label of every AGGREGATE function the dialog offers, in the order shown.
 pub const AGGREGATE_FUNCTIONS: [(&str, &str); 10] = [
-    ("MEAN", "Mean"),
-    ("SUM", "Sum"),
-    ("SD", "Standard deviation"),
-    ("MEDIAN", "Median"),
-    ("MIN", "Minimum"),
-    ("MAX", "Maximum"),
-    ("FIRST", "First value"),
-    ("LAST", "Last value"),
-    ("N", "Number of valid values"),
-    ("NMISS", "Number of missing values"),
+    ("MEAN", "core-mean"),
+    ("SUM", "core-sum"),
+    ("SD", "core-std-deviation"),
+    ("MEDIAN", "core-median"),
+    ("MIN", "core-minimum"),
+    ("MAX", "core-maximum"),
+    ("FIRST", "core-first-value"),
+    ("LAST", "core-last-value"),
+    ("N", "core-n-valid"),
+    ("NMISS", "core-n-missing"),
 ];
 
 /// One aggregated variable: target = FUNCTION(source).
@@ -336,7 +337,7 @@ impl Aggregate {
             AggregateTo::AddVariables => "AGGREGATE /OUTFILE=* MODE=ADDVARIABLES".to_string(),
             AggregateTo::Replace => "AGGREGATE /OUTFILE=*".to_string(),
             AggregateTo::File => match self.path.trim() {
-                "" => return Err("choose the file to write".into()),
+                "" => return Err(t("core-choose-file-write").into()),
                 path => format!("AGGREGATE /OUTFILE={}", quote(path)),
             },
         };
@@ -347,10 +348,15 @@ impl Aggregate {
         for v in &self.variables {
             let target = v.target.trim();
             if target.is_empty() {
-                return Err(format!(
-                    "give a name to the {} of {}",
-                    AGGREGATE_FUNCTIONS[v.function].1.to_lowercase(),
-                    v.source
+                return Err(t_args(
+                    "core-name-aggregated",
+                    &[
+                        (
+                            "function",
+                            t(AGGREGATE_FUNCTIONS[v.function].1).to_lowercase().into(),
+                        ),
+                        ("variable", v.source.as_str().into()),
+                    ],
                 ));
             }
             text.push_str(&format!(
@@ -362,13 +368,13 @@ impl Aggregate {
         if self.count {
             let name = self.count_name.trim();
             if name.is_empty() {
-                return Err("give a name to the number of cases".into());
+                return Err(t("core-name-case-count").into());
             }
             text.push_str(&format!("\n  /{name} = N"));
             targets.push(name);
         }
         if targets.is_empty() {
-            return Err("add at least one aggregated variable".into());
+            return Err(t("core-add-aggregated").into());
         }
         if let Some(twice) = targets.iter().enumerate().find_map(|(i, t)| {
             targets[..i]
@@ -376,7 +382,10 @@ impl Aggregate {
                 .any(|u| u.eq_ignore_ascii_case(t))
                 .then_some(t)
         }) {
-            return Err(format!("the name {twice} is used twice"));
+            return Err(t_args(
+                "core-name-twice",
+                &[("name", twice.to_string().into())],
+            ));
         }
         text.push('.');
         Ok(text)
@@ -397,15 +406,15 @@ pub struct MergeFiles {
 impl MergeFiles {
     pub fn title(&self) -> &'static str {
         if self.add_variables {
-            "Add Variables"
+            t("core-title-add-variables")
         } else {
-            "Add Cases"
+            t("core-title-add-cases")
         }
     }
 
     pub fn syntax(&self) -> Result<String, String> {
         let path = match self.path.trim() {
-            "" => return Err("choose the data file to add".into()),
+            "" => return Err(t("core-choose-file-add").into()),
             path => quote(path),
         };
         if !self.add_variables {
@@ -414,7 +423,10 @@ impl MergeFiles {
         let file = if self.table { "TABLE" } else { "FILE" };
         let mut text = format!("MATCH FILES /FILE=* /{file}={path}");
         if self.table || !self.by.is_empty() {
-            text.push_str(&format!("\n  /BY {}", names(&self.by, "Key variables")?));
+            text.push_str(&format!(
+                "\n  /BY {}",
+                names(&self.by, t("core-key-variables"))?
+            ));
         }
         text.push('.');
         Ok(text)
@@ -484,7 +496,10 @@ impl ImportData {
 
     pub fn syntax(&self) -> Result<String, String> {
         if let Some(problem) = &self.problem {
-            return Err(format!("cannot read the file: {problem}"));
+            return Err(t_args(
+                "core-cannot-read",
+                &[("problem", problem.as_str().into())],
+            ));
         }
         let path = Path::new(&self.path);
         let file = quote(&self.path);
@@ -513,7 +528,7 @@ impl ImportData {
         let records =
             statscraft_engine::delimited(&self.first_line, &[self.delimiter], Some('"'), false);
         let Some((_, fields)) = records.first() else {
-            return Err("the file is empty".into());
+            return Err(t("core-file-empty").into());
         };
         let mut used = std::collections::HashSet::new();
         let variables: Vec<String> = fields
@@ -540,7 +555,11 @@ impl ImportData {
 }
 
 /// What the first row of an exported file holds.
-pub const EXPORT_NAMES: [&str; 3] = ["No names", "Variable names", "Variable labels"];
+pub const EXPORT_NAMES: [&str; 3] = [
+    "core-no-names",
+    "core-variable-names",
+    "core-variable-labels",
+];
 
 /// File > Export data: SAVE TRANSLATE to a workbook, CSV, tab-delimited text or a Stata file,
 /// by the extension of the file.
@@ -586,7 +605,7 @@ impl ExportData {
     pub fn syntax(&self) -> Result<String, String> {
         let path = self.path.trim();
         if path.is_empty() {
-            return Err("choose the file to write".into());
+            return Err(t("core-choose-file-write").into());
         }
         let extension = Path::new(path)
             .extension()
@@ -599,7 +618,7 @@ impl ExportData {
             Some("dta") => {
                 let version = match self.stata_version.trim().parse::<u8>() {
                     Ok(v @ 8..=14) => v,
-                    _ => return Err("the Stata release must be a whole number from 8 to 14".into()),
+                    _ => return Err(t("core-stata-release-range").into()),
                 };
                 let mut kind = "/TYPE=STATA".to_string();
                 if version != 14 {
@@ -610,7 +629,7 @@ impl ExportData {
                 }
                 kind
             }
-            _ => return Err("the file name must end in .xlsx, .csv, .txt or .dta".into()),
+            _ => return Err(t("core-export-extension").into()),
         };
         let mut text = format!("SAVE TRANSLATE OUTFILE={} {kind}", quote(path));
         // a Stata file has no header row and keeps value labels as labels
@@ -642,16 +661,16 @@ impl ExportData {
 
 /// Keyword and label of every property Sort Variables orders by, in the order shown.
 pub const SORT_VARIABLES_KEYS: [(&str, &str); 10] = [
-    ("NAME", "Name"),
-    ("TYPE", "Type"),
-    ("FORMAT", "Format"),
-    ("LABEL", "Label"),
-    ("VALUES", "Value labels"),
-    ("MISSING", "Missing values"),
-    ("MEASURE", "Measure"),
-    ("ROLE", "Role"),
-    ("COLUMNS", "Columns"),
-    ("ALIGNMENT", "Alignment"),
+    ("NAME", "data-field-name"),
+    ("TYPE", "data-field-type"),
+    ("FORMAT", "data-format"),
+    ("LABEL", "data-label"),
+    ("VALUES", "data-field-values"),
+    ("MISSING", "data-field-missing"),
+    ("MEASURE", "data-field-measure"),
+    ("ROLE", "data-field-role"),
+    ("COLUMNS", "data-field-columns"),
+    ("ALIGNMENT", "data-field-align"),
 ];
 
 /// SORT VARIABLES by a property of the dictionary.
@@ -739,13 +758,11 @@ impl Restructure {
                 for make in &self.makes {
                     let name = make.name.trim();
                     if name.is_empty() {
-                        return Err("give every new variable a name".into());
+                        return Err(t("core-name-every-new").into());
                     }
                     let from = names(&make.from, name)?;
                     if make.from.len() != self.makes[0].from.len() {
-                        return Err(
-                            "every new variable needs as many variables as the first".into()
-                        );
+                        return Err(t("core-same-count-as-first").into());
                     }
                     text.push_str(&format!(" /MAKE {name} FROM {from}"));
                 }
@@ -761,7 +778,7 @@ impl Restructure {
                 Ok(text)
             }
             RestructureKind::CasesToVariables => {
-                let ids = names(&self.ids, "Identifier variables")?;
+                let ids = names(&self.ids, t("core-identifier-variables"))?;
                 let mut text = String::new();
                 if self.sort {
                     let keys: Vec<&str> = self

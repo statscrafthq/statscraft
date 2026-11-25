@@ -2,6 +2,7 @@
 //! small bar under the menu when there is something to say.
 
 use crate::app::file_name;
+use crate::i18n::{t, t_args};
 use crate::settings::Settings;
 use eframe::egui::{self, Ui};
 use statscraft_update::{Client, Done, Install, Release, current};
@@ -119,12 +120,16 @@ impl Updates {
                     Bar::Available(release)
                 }
                 Event::Checked(Ok(latest), true) => Bar::Message(Ok(match latest {
-                    Some(_) => format!("Statscraft {} is up to date.", current()),
-                    None => "No Statscraft release has been published yet.".into(),
+                    Some(_) => t_args(
+                        "update-up-to-date",
+                        &[("version", current().to_string().into())],
+                    ),
+                    None => t("update-no-release").into(),
                 })),
-                Event::Checked(Err(e), true) => {
-                    Bar::Message(Err(format!("The update check failed: {e}")))
-                }
+                Event::Checked(Err(e), true) => Bar::Message(Err(t_args(
+                    "update-check-failed",
+                    &[("error", e.to_string().into())],
+                ))),
                 // an automatic check says nothing unless there is an update
                 Event::Checked(_, false) => continue,
                 Event::Updated(Ok((Done::Installer(file), _))) => {
@@ -138,7 +143,10 @@ impl Updates {
                 Event::Updated(Ok((Done::Saved { file, command }, _))) => {
                     Bar::Saved { file, command }
                 }
-                Event::Updated(Err(e)) => Bar::Message(Err(format!("The update failed: {e}"))),
+                Event::Updated(Err(e)) => Bar::Message(Err(t_args(
+                    "update-failed",
+                    &[("error", e.to_string().into())],
+                ))),
             };
         }
     }
@@ -154,73 +162,73 @@ impl Updates {
             Bar::Hidden => {}
             Bar::Checking => {
                 ui.spinner();
-                ui.label("Checking for updates");
+                ui.label(t("update-checking"));
             }
             Bar::Available(release) => {
-                ui.label(format!(
-                    "Statscraft {} is available (you have {}).",
-                    release.version,
-                    current()
-                ));
-                ui.hyperlink_to("Release notes", &release.notes);
+                let args = [
+                    ("version", release.version.to_string().into()),
+                    ("current", current().to_string().into()),
+                ];
+                ui.label(t_args("update-available", &args));
+                ui.hyperlink_to(t("update-release-notes"), &release.notes);
                 match &self.install {
                     Install::Unmanaged(dir) => {
-                        ui.weak(format!(
-                            "This copy runs from {}, which Update cannot replace: install the new \
-                             version the way you installed this one, or use the .deb or tarball \
-                             from the release notes.",
-                            dir.display()
-                        ));
+                        let folder = [("folder", dir.display().to_string().into())];
+                        ui.weak(t_args("update-unmanaged", &folder));
                     }
                     // no replacing inside the bundle (see Client::update): a link to the package
                     Install::Mac(_) => {
                         let name = self.install.asset(&release.version).unwrap_or_default();
-                        ui.hyperlink_to("Download", release.url(&name).unwrap_or(&release.notes));
-                        ui.weak("Then replace Statscraft.app with the one in the download.");
+                        ui.hyperlink_to(
+                            t("update-download"),
+                            release.url(&name).unwrap_or(&release.notes),
+                        );
+                        ui.weak(t("update-mac-replace"));
                     }
                     install => {
                         if ui
-                            .button("Update now")
+                            .button(t("update-now"))
                             .on_hover_text(update_hint(install))
                             .clicked()
                         {
                             click = Some(Click::Update(release.clone()));
                         }
                         if *install == Install::Windows {
-                            ui.weak("The window closes and opens again: save your work first.");
+                            ui.weak(t("update-windows-restart"));
                         }
                     }
                 }
-                if ui.button("Later").clicked() {
+                if ui.button(t("update-later")).clicked() {
                     click = Some(Click::Hide);
                 }
             }
             Bar::Downloading(version) => {
                 ui.spinner();
-                ui.label(format!("Downloading and checking Statscraft {version}"));
+                ui.label(t_args(
+                    "update-downloading",
+                    &[("version", version.as_str().into())],
+                ));
             }
             Bar::Restart(bin, version) => {
-                ui.label(format!(
-                    "Statscraft {version} is installed. Restart the window to use it; save your \
-                     work first."
+                ui.label(t_args(
+                    "update-installed",
+                    &[("version", version.as_str().into())],
                 ));
-                if ui.button("Restart now").clicked() {
+                if ui.button(t("update-restart-now")).clicked() {
                     click = Some(Click::Restart(bin.clone()));
                 }
-                if ui.button("Later").clicked() {
+                if ui.button(t("update-later")).clicked() {
                     click = Some(Click::Hide);
                 }
             }
             Bar::Saved { file, command } => {
-                ui.label(format!(
-                    "The new package is checked and saved as {}. Install it in a terminal with",
-                    file.display()
-                ));
+                let file = [("file", file.display().to_string().into())];
+                ui.label(t_args("update-saved", &file));
                 ui.code(command);
-                if ui.button("Copy command").clicked() {
+                if ui.button(t("update-copy-command")).clicked() {
                     ui.ctx().copy_text(command.clone());
                 }
-                if ui.button("OK").clicked() {
+                if ui.button(t("button-ok")).clicked() {
                     click = Some(Click::Hide);
                 }
             }
@@ -229,7 +237,7 @@ impl Updates {
                     Ok(text) => ui.label(text),
                     Err(text) => ui.colored_label(ui.visuals().error_fg_color, text),
                 };
-                if ui.button("OK").clicked() {
+                if ui.button(t("button-ok")).clicked() {
                     click = Some(Click::Hide);
                 }
             }
@@ -246,7 +254,10 @@ impl Updates {
                     self.quit = true;
                     ui.ctx().request_repaint();
                 } else {
-                    let missing = format!("cannot restart: {} is missing", file_name(&program));
+                    let missing = t_args(
+                        "core-cannot-restart",
+                        &[("file", file_name(&program).into())],
+                    );
                     self.bar = Bar::Message(Err(missing));
                 }
             }
@@ -277,7 +288,10 @@ impl Updates {
     pub fn menu_items(&mut self, ui: &mut Ui) {
         let busy = matches!(self.bar, Bar::Checking | Bar::Downloading(_));
         if ui
-            .add_enabled(!busy, egui::Button::new("Check for updates"))
+            .add_enabled(
+                !busy,
+                egui::Button::new(crate::i18n::t("menu-check-for-updates")),
+            )
             .clicked()
         {
             self.check(true);
@@ -305,18 +319,12 @@ fn install_package(done: Done) -> Done {
 
 fn update_hint(install: &Install) -> String {
     match install {
-        Install::Windows => "Downloads the installer and checks it against the release's \
-                             checksums. The window then closes, the installer updates Statscraft \
-                             and opens the window again."
-            .into(),
-        Install::Portable(bin) | Install::Tarball(bin) => format!(
-            "Downloads the new programs, checks them against the release's checksums and \
-             replaces the ones in {}.",
-            bin.display()
+        Install::Windows => t("update-hint-windows").into(),
+        Install::Portable(bin) | Install::Tarball(bin) => t_args(
+            "update-hint-programs",
+            &[("folder", bin.display().to_string().into())],
         ),
-        Install::Deb => "Downloads the package to your Downloads folder, checks it against the \
-                         release's checksums and installs it; the system asks for your password."
-            .into(),
+        Install::Deb => t("update-hint-deb").into(),
         Install::Mac(_) | Install::Unmanaged(_) => String::new(),
     }
 }

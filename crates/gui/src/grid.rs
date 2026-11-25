@@ -1,6 +1,7 @@
 //! Which part of a large grid is visible, so only those cells are drawn, where a click lands,
 //! where the keyboard moves the selected cell, what is selected, and the text a selection copies.
 
+use crate::i18n::t_args;
 use eframe::egui::{Key, Vec2};
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -209,8 +210,9 @@ pub fn copy(
     let span = selection.span(size);
     let cells = span.0.len() * span.1.len();
     if cells > COPY_CAP {
-        return Err(format!(
-            "{cells} cells is too much to copy at once; copy at most {COPY_CAP}"
+        return Err(t_args(
+            "core-copy-too-much",
+            &[("cells", cells.into()), ("most", COPY_CAP.into())],
         ));
     }
     if !selection.is_wide() && cells == 1 {

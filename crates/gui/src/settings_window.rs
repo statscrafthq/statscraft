@@ -3,9 +3,11 @@
 //! choice there runs SET TVARS or SET TNUMBERS like any other command, the session keeps it, and
 //! the window saves it to run the same SET when it starts again. AI agents connects Statscraft
 //! to the AI apps on this computer (connect_window.rs). Plugins lists the programs that colour
-//! and comment tables (docs/plugins.md) and opens each one's own settings.
+//! and comment tables (docs/plugins.md) and opens each one's own settings. Language sets the
+//! language of the window (i18n.rs); it applies at once.
 
 use crate::connect_window::Connect;
+use crate::i18n::{self, LANGUAGES, t, t_args};
 use crate::output::Part;
 use crate::plugins::Row;
 use crate::settings::{MIOUTPUT, Plugin, Settings};
@@ -15,6 +17,7 @@ use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum Section {
+    Language,
     #[default]
     Editor,
     GridsAndOutput,
@@ -24,7 +27,8 @@ pub enum Section {
 }
 
 impl Section {
-    const ALL: [Section; 5] = [
+    const ALL: [Section; 6] = [
+        Section::Language,
         Section::Editor,
         Section::GridsAndOutput,
         Section::Updates,
@@ -34,11 +38,12 @@ impl Section {
 
     fn title(self) -> &'static str {
         match self {
-            Section::Editor => "Editor",
-            Section::GridsAndOutput => "Grids and output",
-            Section::Updates => "Updates",
-            Section::AiAgents => "AI agents",
-            Section::Plugins => "Plugins",
+            Section::Language => t("settings-language"),
+            Section::Editor => t("settings-editor"),
+            Section::GridsAndOutput => t("settings-grids-and-output"),
+            Section::Updates => t("settings-updates"),
+            Section::AiAgents => t("settings-ai-agents"),
+            Section::Plugins => t("settings-plugins"),
         }
     }
 }
@@ -51,22 +56,29 @@ pub struct TableLabels {
 }
 
 /// Each choice: the SET subcommand, its keywords and their names in the dialog.
-const VARIABLE_CHOICES: (&str, [(&str, &str); 3]) = (
-    "TVARS",
-    [
-        ("LABELS", "Labels"),
-        ("NAMES", "Names"),
-        ("BOTH", "Names and labels"),
-    ],
-);
-const VALUE_CHOICES: (&str, [(&str, &str); 3]) = (
-    "TNUMBERS",
-    [
-        ("LABELS", "Labels"),
-        ("VALUES", "Values"),
-        ("BOTH", "Values and labels"),
-    ],
-);
+type Choices = (&'static str, [(&'static str, &'static str); 3]);
+
+fn variable_choices() -> Choices {
+    (
+        "TVARS",
+        [
+            ("LABELS", t("settings-labels")),
+            ("NAMES", t("settings-names")),
+            ("BOTH", t("settings-names-and-labels")),
+        ],
+    )
+}
+
+fn value_choices() -> Choices {
+    (
+        "TNUMBERS",
+        [
+            ("LABELS", t("settings-labels")),
+            ("VALUES", t("settings-values")),
+            ("BOTH", t("settings-values-and-labels")),
+        ],
+    )
+}
 
 /// What a button of a plugin's row asks for.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -97,7 +109,7 @@ pub fn show(
     let mut close = false;
     let mut changed = false;
     let mut run = None;
-    egui::Window::new("Settings")
+    egui::Window::new(t("settings-title"))
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
@@ -121,6 +133,7 @@ pub fn show(
                     ui.set_width(if wide { 560.0 } else { 320.0 });
                     ui.set_min_height(140.0);
                     if agents {
+                        connect.language.clone_from(&settings.language);
                         connect.ui(ui);
                     }
                     changed = body(ui, *current, settings);
@@ -144,7 +157,8 @@ pub fn show(
                 });
             });
             ui.separator();
-            close = ui.button("Close").clicked() || ui.input(|i| i.key_pressed(Key::Escape));
+            close =
+                ui.button(t("button-close")).clicked() || ui.input(|i| i.key_pressed(Key::Escape));
         });
     if changed {
         // the window works on without them
@@ -178,7 +192,7 @@ fn plugin_list(
     let mut step = None;
     let count = settings.plugins.len();
     if count == 0 {
-        ui.label("No plugins yet.");
+        ui.label(t("settings-no-plugins"));
     }
     for (i, plugin) in settings.plugins.iter_mut().enumerate() {
         let row = rows.get(i);
@@ -193,19 +207,22 @@ fn plugin_list(
             });
             ui.horizontal(|ui| {
                 ui.add_space(24.0);
-                if ui.add_enabled(i > 0, egui::Button::new("Up")).clicked() {
+                if ui
+                    .add_enabled(i > 0, egui::Button::new(t("settings-up")))
+                    .clicked()
+                {
                     step = Some(Step::Up(i));
                 }
                 if ui
-                    .add_enabled(i + 1 < count, egui::Button::new("Down"))
+                    .add_enabled(i + 1 < count, egui::Button::new(t("settings-down")))
                     .clicked()
                 {
                     step = Some(Step::Down(i));
                 }
-                if ui.button("Remove").clicked() {
+                if ui.button(t("settings-remove")).clicked() {
                     step = Some(Step::Remove(i));
                 }
-                if ui.button("Settings...").clicked() {
+                if ui.button(t("settings-plugin-settings")).clicked() {
                     *action = Some((plugin.path.clone(), PluginAction::Settings));
                 }
                 let Some(row) = row.filter(|r| r.updates) else {
@@ -213,16 +230,22 @@ fn plugin_list(
                 };
                 if row.busy {
                     ui.spinner();
-                } else if ui.button("Check now").clicked() {
+                } else if ui.button(t("settings-check-now")).clicked() {
                     *action = Some((plugin.path.clone(), PluginAction::Check));
                 }
             });
             if let Some((version, notes)) = row.and_then(|r| r.available.as_ref()) {
                 ui.horizontal(|ui| {
                     ui.add_space(24.0);
-                    ui.label(format!("Version {version} is available."));
+                    ui.label(t_args(
+                        "settings-version-available",
+                        &[("version", version.into())],
+                    ));
                     let busy = row.is_some_and(|r| r.busy);
-                    if ui.add_enabled(!busy, egui::Button::new("Update")).clicked() {
+                    if ui
+                        .add_enabled(!busy, egui::Button::new(t("settings-update")))
+                        .clicked()
+                    {
                         *action = Some((plugin.path.clone(), PluginAction::Update));
                     }
                 });
@@ -251,7 +274,7 @@ fn plugin_list(
         None => {}
     }
     changed |= step.is_some();
-    if ui.button("Add plugin...").clicked()
+    if ui.button(t("settings-add-plugin")).clicked()
         && let Some(path) = crate::app::file_dialog(&None).pick_file()
         // the same program twice would only run twice with the same settings
         && !settings.plugins.iter().any(|p| p.path == path)
@@ -260,10 +283,7 @@ fn plugin_list(
         changed = true;
     }
     ui.add_space(8.0);
-    ui.weak(
-        "The plugins colour and comment tables in this order; where two style the same thing, \
-         the lower one wins. Settings... sets a plugin's values for the active data.",
-    );
+    ui.weak(t("settings-plugins-note"));
     changed
 }
 
@@ -271,8 +291,16 @@ fn plugin_list(
 fn table_labels(ui: &mut Ui, labels: &TableLabels) -> Option<(&'static str, &'static str)> {
     let mut run = None;
     for (title, current, (subcommand, choices)) in [
-        ("Variables in tables", &labels.variables, VARIABLE_CHOICES),
-        ("Values in tables", &labels.values, VALUE_CHOICES),
+        (
+            t("settings-variables-in-tables"),
+            &labels.variables,
+            variable_choices(),
+        ),
+        (
+            t("settings-values-in-tables"),
+            &labels.values,
+            value_choices(),
+        ),
     ] {
         ui.label(title);
         let shown = choices
@@ -305,14 +333,14 @@ fn imputation_output(ui: &mut Ui, current: &str) -> Option<String> {
             .any(|w| w == k)
     });
     let before = on;
-    ui.label("Output for multiply imputed data");
+    ui.label(t("settings-imputed-output"));
     ui.horizontal_wrapped(|ui| {
         let checked = on.iter().filter(|o| **o).count();
-        for ((keyword, name), part) in MIOUTPUT.iter().zip(MI_NAMES).zip(on.iter_mut()) {
+        for ((keyword, name), part) in MIOUTPUT.iter().zip(mi_names()).zip(on.iter_mut()) {
             let last = *part && checked == 1;
             ui.add_enabled(!last, egui::Checkbox::new(part, name))
                 .on_hover_text(format!("SET MIOUTPUT {keyword}"))
-                .on_disabled_hover_text("At least one part is shown");
+                .on_disabled_hover_text(t("settings-one-part-shown"));
         }
     });
     (on != before).then(|| {
@@ -326,7 +354,14 @@ fn imputation_output(ui: &mut Ui, current: &str) -> Option<String> {
     })
 }
 
-const MI_NAMES: [&str; 4] = ["Original data", "Each imputation", "Pooled", "Diagnostics"];
+fn mi_names() -> [&'static str; 4] {
+    [
+        t("settings-mi-original"),
+        t("settings-mi-each"),
+        t("settings-mi-pooled"),
+        t("settings-mi-diagnostics"),
+    ]
+}
 
 fn set_syntax(subcommand: &str, keyword: &str) -> String {
     format!("SET {subcommand}={keyword}.")
@@ -336,8 +371,33 @@ fn set_syntax(subcommand: &str, keyword: &str) -> String {
 fn body(ui: &mut Ui, section: Section, settings: &mut Settings) -> bool {
     let mut changed = false;
     match section {
+        Section::Language => {
+            ui.label(t("settings-window-language"));
+            let current = &mut settings.language;
+            let name = |code: &str| match LANGUAGES.iter().find(|l| l.code == code) {
+                Some(l) => l.name,
+                None => t("settings-language-system"),
+            };
+            ComboBox::from_id_salt("language")
+                .selected_text(name(current))
+                .width(220.0)
+                .show_ui(ui, |ui| {
+                    let codes = std::iter::once("").chain(LANGUAGES.iter().map(|l| l.code));
+                    for code in codes {
+                        if ui.selectable_label(*current == code, name(code)).clicked()
+                            && *current != code
+                        {
+                            *current = code.to_string();
+                            i18n::set_language(code);
+                            changed = true;
+                        }
+                    }
+                });
+            ui.add_space(8.0);
+            ui.weak(t("settings-language-note"));
+        }
         Section::Editor => {
-            ui.label("Syntax colors");
+            ui.label(t("settings-syntax-colors"));
             let current = themes::by_name(&settings.theme).name;
             ComboBox::from_id_salt("syntax colours")
                 .selected_text(current)
@@ -355,29 +415,28 @@ fn body(ui: &mut Ui, section: Section, settings: &mut Settings) -> bool {
                 });
             ui.add_space(8.0);
             let mut wrap = !settings.wrap_off;
-            if ui.checkbox(&mut wrap, "Wrap long lines").changed() {
+            if ui.checkbox(&mut wrap, t("settings-wrap")).changed() {
                 settings.wrap_off = !wrap;
                 changed = true;
             }
         }
         Section::GridsAndOutput => {
-            ui.label("Paper of the grids and the output");
+            ui.label(t("settings-paper"));
             let follow = &mut settings.paper_follows_system;
-            changed |= ui.radio_value(follow, false, "Always light").changed();
             changed |= ui
-                .radio_value(follow, true, "Follow the system theme")
+                .radio_value(follow, false, t("settings-always-light"))
+                .changed();
+            changed |= ui
+                .radio_value(follow, true, t("settings-follow-system"))
                 .changed();
             ui.add_space(8.0);
             let mut log = !settings.log_hidden;
-            if ui
-                .checkbox(&mut log, "Log under Syntax and Output")
-                .changed()
-            {
+            if ui.checkbox(&mut log, t("settings-log")).changed() {
                 settings.log_hidden = !log;
                 changed = true;
             }
             ui.add_space(8.0);
-            ui.label("Show in the output");
+            ui.label(t("settings-show-in-output"));
             let output = &mut settings.output;
             for (part, on) in Part::ALL.into_iter().zip(&mut output.kinds) {
                 changed |= ui.checkbox(on, part.label()).changed();
@@ -385,10 +444,7 @@ fn body(ui: &mut Ui, section: Section, settings: &mut Settings) -> bool {
         }
         Section::Updates => {
             let mut on = settings.updates != Some(false);
-            if ui
-                .checkbox(&mut on, "Check for updates automatically")
-                .changed()
-            {
+            if ui.checkbox(&mut on, t("settings-check-updates")).changed() {
                 settings.updates = Some(on);
                 changed = true;
             }
@@ -404,17 +460,17 @@ mod tests {
 
     #[test]
     fn a_choice_runs_its_set_command() {
-        assert_eq!(set_syntax(VARIABLE_CHOICES.0, "BOTH"), "SET TVARS=BOTH.");
+        assert_eq!(set_syntax(variable_choices().0, "BOTH"), "SET TVARS=BOTH.");
         assert_eq!(
-            set_syntax(VALUE_CHOICES.0, "VALUES"),
+            set_syntax(value_choices().0, "VALUES"),
             "SET TNUMBERS=VALUES."
         );
         assert_eq!(
-            VARIABLE_CHOICES.1.map(|(k, _)| k),
+            variable_choices().1.map(|(k, _)| k),
             ["LABELS", "NAMES", "BOTH"]
         );
         assert_eq!(
-            VALUE_CHOICES.1.map(|(k, _)| k),
+            value_choices().1.map(|(k, _)| k),
             ["LABELS", "VALUES", "BOTH"]
         );
     }

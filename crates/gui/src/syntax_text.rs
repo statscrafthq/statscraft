@@ -1,5 +1,7 @@
 //! Small pieces of syntax text shared by the dialogs and the editors.
 
+use crate::i18n::{t, t_args};
+
 /// A string literal: single quotes, a quote inside doubled.
 pub fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "''"))
@@ -20,13 +22,13 @@ pub fn value(text: &str, string: bool) -> Result<String, String> {
         .ok()
         .filter(|n| n.is_finite())
         .map(number)
-        .ok_or_else(|| format!("{text:?} is not a number"))
+        .ok_or_else(|| t_args("core-not-number", &[("text", format!("{text:?}").into())]))
 }
 
 /// A list of variable names, or an error naming what is missing.
 pub fn names(names: &[String], what: &str) -> Result<String, String> {
     if names.is_empty() {
-        return Err(format!("add at least one variable to {what}"));
+        return Err(t_args("core-add-variable-to", &[("what", what.into())]));
     }
     Ok(names.join(" "))
 }
@@ -38,7 +40,7 @@ pub fn probability(text: &str) -> Result<String, String> {
         .ok()
         .filter(|p| *p > 0.0 && *p < 1.0)
         .map(number)
-        .ok_or_else(|| "the significance level must be a number between 0 and 1".into())
+        .ok_or_else(|| t("core-significance-range").into())
 }
 
 /// A confidence level the user typed in percent, as the fraction the syntax takes: 95 is 0.95.
@@ -49,7 +51,7 @@ pub fn confidence(text: &str) -> Result<Option<String>, String> {
         .parse::<f64>()
         .ok()
         .filter(|p| *p > 0.0 && *p < 100.0)
-        .ok_or("the confidence level must be a percentage between 0 and 100")?;
+        .ok_or(t("core-confidence-percent"))?;
     // rounded, so 99.9 gives 0.999 and not 0.9990000000000001
     let fraction = (percent * 1e6).round() / 1e8;
     Ok((fraction != 0.95).then(|| number(fraction)))

@@ -7,6 +7,7 @@
 
 use crate::dialogs::whole;
 use crate::forecast_more_dialog::{Areg, Spectra, TwoSls};
+use crate::i18n::t;
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::syntax_text::number;
 use crate::tsmodel_dialog::{Tsapply, Tsmodel};
@@ -36,44 +37,47 @@ pub enum TimeSeries {
 pub fn forecasting_menu() -> [(&'static str, TimeSeries); 12] {
     [
         (
-            "Exponential Smoothing...",
+            t("menu-exponential-smoothing"),
             TimeSeries::Smoothing(Default::default()),
         ),
-        ("ARIMA...", TimeSeries::Arima(Default::default())),
+        (t("menu-arima"), TimeSeries::Arima(Default::default())),
         (
-            "Autocorrelations...",
+            t("menu-autocorrelations"),
             TimeSeries::Correlogram(Default::default()),
         ),
         (
-            "Cross-Correlations...",
+            t("menu-cross-correlations"),
             TimeSeries::Correlogram(Correlogram::new(true)),
         ),
         (
-            "Seasonal Decomposition...",
+            t("menu-seasonal-decomposition"),
             TimeSeries::Season(Default::default()),
         ),
         (
-            "Sequence Charts...",
+            t("menu-sequence-charts"),
             TimeSeries::Chart(SeriesChart::new(false)),
         ),
         (
-            "Forecast Period...",
+            t("menu-forecast-period"),
             TimeSeries::Range(TimeRange::new(true)),
         ),
         (
-            "Spectral Analysis...",
+            t("menu-spectral-analysis"),
             TimeSeries::Spectra(Default::default()),
         ),
-        ("Autoregression...", TimeSeries::Areg(Default::default())),
         (
-            "Create Models (TSMODEL)...",
+            t("menu-autoregression"),
+            TimeSeries::Areg(Default::default()),
+        ),
+        (
+            t("menu-create-models-tsmodel"),
             TimeSeries::Tsmodel(Default::default()),
         ),
         (
-            "Apply Models (TSAPPLY)...",
+            t("menu-apply-models-tsapply"),
             TimeSeries::Tsapply(Default::default()),
         ),
-        ("Options...", TimeSeries::Options(Default::default())),
+        (t("menu-options"), TimeSeries::Options(Default::default())),
     ]
 }
 

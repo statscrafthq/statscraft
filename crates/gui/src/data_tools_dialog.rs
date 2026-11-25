@@ -3,6 +3,7 @@
 //! syntax, so the command runs with its own defaults.
 
 use crate::dialogs::whole;
+use crate::i18n::{t, t_args};
 use crate::proximities_dialog::output_target;
 use crate::stats_dialogs::parse;
 use crate::syntax_text::{names, number, quote};
@@ -13,7 +14,10 @@ fn new_name(text: &str, what: &str) -> Result<Option<String>, String> {
     match text.trim() {
         "" => Ok(None),
         name if is_valid_name(name) => Ok(Some(name.to_string())),
-        name => Err(format!("{name} cannot name {what}")),
+        name => Err(t_args(
+            "core-cannot-name",
+            &[("name", name.into()), ("what", what.into())],
+        )),
     }
 }
 
@@ -28,10 +32,10 @@ fn threshold(
 ) -> Result<Option<String>, String> {
     let n = parse(text, what)?;
     if percent && !(n > 0.0 && n <= 100.0) {
-        return Err(format!("{what} must be above 0 and at most 100"));
+        return Err(t_args("core-percent-range", &[("what", what.into())]));
     }
     if n < 0.0 {
-        return Err(format!("{what} must be 0 or more"));
+        return Err(t_args("core-zero-or-more", &[("what", what.into())]));
     }
     Ok((n != default).then(|| format!("{keyword}={}", number(n))))
 }
@@ -68,10 +72,10 @@ pub struct DataValidation {
 
 /// Keyword and label of each indicator variable VALIDATEDATA can save.
 pub const VALIDATE_SAVE: [(&str, &str); 4] = [
-    ("EMPTYCASE", "Empty case"),
-    ("INCOMPLETEID", "Incomplete ID"),
-    ("DUPLICATEID", "Duplicate ID group"),
-    ("RULEVIOLATIONS", "Number of rule violations"),
+    ("EMPTYCASE", "core-empty-case"),
+    ("INCOMPLETEID", "core-incomplete-id"),
+    ("DUPLICATEID", "core-duplicate-id"),
+    ("RULEVIOLATIONS", "core-rule-violations"),
 ];
 
 impl Default for DataValidation {
@@ -105,7 +109,7 @@ impl DataValidation {
     pub fn syntax(&self) -> Result<String, String> {
         let rules: Vec<&str> = self.rules.split_whitespace().collect();
         if self.variables.is_empty() && self.ids.is_empty() && rules.is_empty() {
-            return Err("add analysis variables, ID variables or rules".into());
+            return Err(t("core-validate-empty").into());
         }
         let mut text = String::from("VALIDATEDATA");
         if !self.variables.is_empty() {
@@ -119,7 +123,7 @@ impl DataValidation {
                 .iter()
                 .find(|r| !r.eq_ignore_ascii_case("ALL") && r.parse::<u32>().is_err())
             {
-                return Err(format!("{rule} is no rule number; use numbers or ALL"));
+                return Err(t_args("core-bad-rule", &[("rule", (*rule).into())]));
             }
             text.push_str(&format!(" CROSSVARRULES={}", rules.join(" ")));
         }
@@ -130,27 +134,27 @@ impl DataValidation {
             let options: Vec<String> = [
                 threshold(
                     &self.pct_missing,
-                    "Percent missing",
+                    t("core-pct-missing"),
                     "PCTMISSING",
                     true,
                     70.0,
                 )?,
                 threshold(
                     &self.pct_equal,
-                    "Percent in the largest category",
+                    t("core-pct-largest"),
                     "PCTEQUAL",
                     true,
                     95.0,
                 )?,
                 threshold(
                     &self.pct_unequal,
-                    "Percent of single-case categories",
+                    t("core-pct-single"),
                     "PCTUNEQUAL",
                     true,
                     90.0,
                 )?,
-                threshold(&self.cv, "Coefficient of variation", "CV", false, 0.001)?,
-                threshold(&self.std_dev, "Standard deviation", "STDDEV", false, 0.0)?,
+                threshold(&self.cv, t("core-cv"), "CV", false, 0.001)?,
+                threshold(&self.std_dev, t("core-std-deviation"), "STDDEV", false, 0.0)?,
             ]
             .into_iter()
             .flatten()
@@ -185,12 +189,12 @@ impl DataValidation {
         if !self.case_report {
             report.push("DISPLAY=NO".to_string());
         }
-        if let Some(n) = whole(&self.min_violations, 1, "Least violations")?
+        if let Some(n) = whole(&self.min_violations, 1, t("core-least-violations"))?
             && n != 1
         {
             report.push(format!("MINVIOLATIONS={n}"));
         }
-        match whole(&self.case_limit, 1, "Cases listed")? {
+        match whole(&self.case_limit, 1, t("core-cases-listed"))? {
             None => report.push("CASELIMIT=NONE".into()),
             Some(500) => {}
             Some(n) => report.push(format!("CASELIMIT=FIRSTN({n})")),
@@ -204,7 +208,7 @@ impl DataValidation {
             .enumerate()
             .filter(|(i, _)| self.save[*i])
         {
-            match new_name(&self.save_names[i], "a variable")? {
+            match new_name(&self.save_names[i], t("core-a-variable"))? {
                 Some(name) => save.push(format!("{keyword}({name})")),
                 None => save.push((*keyword).to_string()),
             }
@@ -223,15 +227,15 @@ impl DataValidation {
 
 /// Keyword and label of each dictionary property COMPARE DATASETS can compare.
 pub const COMPARE_PROPERTIES: [(&str, &str); 9] = [
-    ("MEASURE", "Measurement level"),
-    ("LABEL", "Variable label"),
-    ("VALUELABELS", "Value labels"),
-    ("COLUMNS", "Column width"),
-    ("MISSING", "Missing values"),
-    ("ALIGN", "Alignment"),
-    ("ROLE", "Role"),
-    ("ATTRIBUTES", "Attributes"),
-    ("WIDTH", "Format width"),
+    ("MEASURE", "core-measurement-level"),
+    ("LABEL", "core-variable-label"),
+    ("VALUELABELS", "data-field-values"),
+    ("COLUMNS", "core-column-width"),
+    ("MISSING", "data-field-missing"),
+    ("ALIGN", "data-field-align"),
+    ("ROLE", "data-field-role"),
+    ("ATTRIBUTES", "core-attributes"),
+    ("WIDTH", "core-format-width"),
 ];
 
 /// COMPARE DATASETS: the other file or dataset, how cases pair, what to compare, and what to
@@ -287,18 +291,18 @@ impl Default for DatasetComparison {
 impl DatasetComparison {
     pub fn syntax(&self) -> Result<String, String> {
         let other = match self.open_dataset {
-            true => match new_name(&self.dataset, "a dataset")? {
+            true => match new_name(&self.dataset, t("core-a-dataset"))? {
                 Some(name) => name,
-                None => return Err("name the open dataset to compare with".into()),
+                None => return Err(t("core-name-compare-dataset").into()),
             },
             false => match self.file.trim() {
-                "" => return Err("choose the data file to compare with".into()),
+                "" => return Err(t("core-choose-compare-file").into()),
                 path => quote(path),
             },
         };
         let variables = match self.variables.is_empty() {
             true => "ALL".to_string(),
-            false => names(&self.variables, "the variables to compare")?,
+            false => names(&self.variables, t("core-variables-to-compare"))?,
         };
         let mut declare = Vec::new();
         let mut targets = Vec::new();
@@ -308,14 +312,14 @@ impl DatasetComparison {
                 self.matches,
                 &self.match_file,
                 &self.match_dataset,
-                "the matching cases",
+                t("core-matching-cases"),
             ),
             (
                 "MISMATCH",
                 self.mismatches,
                 &self.mismatch_file,
                 &self.mismatch_dataset,
-                "the cases that differ",
+                t("core-differing-cases"),
             ),
         ] {
             if let Some(target) = output_target(choice, file, dataset, what)? {
@@ -326,7 +330,7 @@ impl DatasetComparison {
             }
         }
         if declare.len() == 2 && declare[0] == declare[1] {
-            return Err("the two new datasets need different names".into());
+            return Err(t("core-two-names").into());
         }
         let mut text: String = declare
             .iter()
@@ -340,7 +344,7 @@ impl DatasetComparison {
         let mut save = Vec::new();
         if !self.flag {
             save.push("FLAGMISMATCHES=NO".to_string());
-        } else if let Some(name) = new_name(&self.flag_name, "a variable")? {
+        } else if let Some(name) = new_name(&self.flag_name, t("core-a-variable"))? {
             save.push(format!("VARNAME={name}"));
         }
         save.extend(targets);
@@ -360,7 +364,7 @@ impl DatasetComparison {
         if !self.case_table {
             output.push("CASETABLE=NO".into());
         } else {
-            match whole(&self.table_limit, 1, "Cases shown")? {
+            match whole(&self.table_limit, 1, t("core-cases-shown"))? {
                 None => output.push("TABLELIMIT=NONE".into()),
                 Some(100) => {}
                 Some(n) => output.push(format!("TABLELIMIT={n}")),
@@ -377,25 +381,25 @@ impl DatasetComparison {
 /// Keyword and label of each property of a variable APPLY DICTIONARY can copy, with whether
 /// the command copies it when /VARINFO is left out.
 pub const COPY_VARINFO: [(&str, &str, bool); 9] = [
-    ("VARLABEL", "Variable labels", true),
-    ("VALLABELS", "Value labels", true),
-    ("MISSING", "Missing values", true),
-    ("FORMATS", "Formats", true),
-    ("WIDTH", "Column widths", true),
-    ("ALIGNMENT", "Alignment", true),
-    ("LEVEL", "Measurement levels", true),
-    ("ROLE", "Roles", true),
-    ("ATTRIBUTES", "Attributes", false),
+    ("VARLABEL", "core-variable-labels", true),
+    ("VALLABELS", "data-field-values", true),
+    ("MISSING", "data-field-missing", true),
+    ("FORMATS", "core-formats", true),
+    ("WIDTH", "core-column-widths", true),
+    ("ALIGNMENT", "data-field-align", true),
+    ("LEVEL", "core-measurement-levels", true),
+    ("ROLE", "core-roles", true),
+    ("ATTRIBUTES", "core-attributes", false),
 ];
 
 /// The same for the properties of the file, as `/FILEINFO` leaves them out.
 pub const COPY_FILEINFO: [(&str, &str, bool); 6] = [
-    ("WEIGHT", "Weight", true),
-    ("FILELABEL", "File label", false),
-    ("DOCUMENTS", "Documents", false),
-    ("ATTRIBUTES", "File attributes", false),
-    ("MRSETS", "Multiple response sets", false),
-    ("VARSETS", "Variable sets", false),
+    ("WEIGHT", "core-weight", true),
+    ("FILELABEL", "core-file-label", false),
+    ("DOCUMENTS", "core-documents", false),
+    ("ATTRIBUTES", "core-file-attributes", false),
+    ("MRSETS", "core-mr-sets", false),
+    ("VARSETS", "core-variable-sets", false),
 ];
 
 /// Whether a property can be merged into what the active data has, instead of replacing it.
@@ -453,12 +457,12 @@ fn keywords(list: &[(&str, &str, bool)], on: &[bool], merge: &[bool]) -> String 
 impl DictionaryCopy {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         let from = match self.open_dataset {
-            true => match new_name(&self.dataset, "a dataset")? {
+            true => match new_name(&self.dataset, t("core-a-dataset"))? {
                 Some(name) => name,
-                None => return Err("name the open dataset to copy from".into()),
+                None => return Err(t("core-name-copy-dataset").into()),
             },
             false => match self.file.trim() {
-                "" => return Err("choose the data file to copy from".into()),
+                "" => return Err(t("core-choose-copy-file").into()),
                 path => quote(path),
             },
         };
@@ -466,18 +470,16 @@ impl DictionaryCopy {
         let source = self.source_variable.trim();
         if !source.is_empty() {
             if self.targets.is_empty() {
-                return Err(format!(
-                    "add the variables that take the dictionary of {source}"
-                ));
+                return Err(t_args("core-add-targets", &[("source", source.into())]));
             }
             if !is_valid_name(source) {
-                return Err(format!("{source} is not a variable name"));
+                return Err(t_args("core-not-a-name", &[("name", source.into())]));
             }
             text.push_str(&format!("\n  /SOURCE VARIABLES={source}"));
         }
         if !self.targets.is_empty() {
             if let Some(gone) = self.targets.iter().find(|n| data.variable(n).is_err()) {
-                return Err(format!("{gone} is no longer a variable"));
+                return Err(t_args("core-gone", &[("name", gone.as_str().into())]));
             }
             text.push_str(&format!("\n  /TARGET VARIABLES={}", self.targets.join(" ")));
         }
@@ -489,10 +491,7 @@ impl DictionaryCopy {
             let list = keywords(&COPY_FILEINFO, &self.file_info, &self.file_merge);
             if list.is_empty() {
                 // an empty /FILEINFO is the same as none, which copies the weight
-                return Err(
-                    "check a property of the file; Weight is copied unless another is checked"
-                        .into(),
-                );
+                return Err(t("core-check-file-property").into());
             }
             text.push_str(&format!("\n  /FILEINFO{list}"));
         }

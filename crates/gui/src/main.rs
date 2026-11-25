@@ -47,6 +47,7 @@ mod graph_dialogs_view;
 mod grid;
 mod grid_menu;
 mod highlight;
+mod i18n;
 mod imputation_dialog;
 mod imputation_dialog_view;
 mod legacy_scaling_dialog;
@@ -139,6 +140,7 @@ fn main() -> ExitCode {
     }
     let fonts = fonts::definitions();
     let settings = settings::Settings::load();
+    i18n::set_language(&settings.language);
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Statscraft")
         .with_inner_size(settings.size.unwrap_or([1280.0, 820.0]))

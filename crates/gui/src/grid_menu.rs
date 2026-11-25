@@ -5,6 +5,7 @@ use crate::app::Dialog;
 use crate::data_dialogs::{FILTER_VARIABLE, SelectCases, SelectMode, SortCases};
 use crate::dialogs::{Descriptives, Frequencies};
 use crate::edits::{self, Field, listed};
+use crate::i18n::{t, t_args};
 use crate::syntax_text::{number, quote};
 use statscraft_data::{Dataset, Values};
 use statscraft_engine::Currencies;
@@ -163,14 +164,18 @@ fn short(text: &str, most: usize) -> String {
 pub fn heading(data: &Dataset, target: &Target) -> String {
     if let Target::Cases(rows) = target {
         return match rows[..] {
-            [one] => format!("Case {}", one + 1),
-            _ => format!("{} cases", rows.len()),
+            [one] => t_args("data-case-n", &[("case", (one + 1).into())]),
+            _ => t_args("data-n-cases", &[("count", rows.len().into())]),
         };
     }
     if let Target::Cell { case, column } = *target
         && column < data.variable_count()
     {
-        return format!("{}, case {}", name(data, column), case + 1);
+        let args = [
+            ("variable", name(data, column).into()),
+            ("case", (case + 1).into()),
+        ];
+        return t_args("data-variable-case", &args);
     }
     match columns(data, target)[..] {
         [one] => {
@@ -180,7 +185,7 @@ pub fn heading(data: &Dataset, target: &Target) -> String {
                 None => variable.name().to_string(),
             }
         }
-        ref several => format!("{} variables", several.len()),
+        ref several => t_args("data-n-variables", &[("count", several.len().into())]),
     }
 }
 
@@ -188,21 +193,21 @@ pub fn heading(data: &Dataset, target: &Target) -> String {
 /// is going on.
 pub fn entries(data: &Dataset, target: &Target, busy: bool) -> Vec<Option<Entry>> {
     let runs: Result<(), String> = match busy {
-        true => Err("wait for the running command to finish".into()),
+        true => Err(t("data-wait-for-run").into()),
         false => Ok(()),
     };
     let cases = match data.case_count() {
-        0 => Err("no cases".into()),
+        0 => Err(t("data-no-cases").into()),
         _ => runs.clone(),
     };
     if let Target::Cases(rows) = target {
         let one = match rows[..] {
             [_] => runs.clone(),
-            _ => Err("one case at a time".into()),
+            _ => Err(t("data-one-case-at-a-time").into()),
         };
         return vec![
-            Some(entry(Item::Copy, "Copy").key("Ctrl+C")),
-            Some(entry(Item::DeleteCase, "Delete case").ready(&one)),
+            Some(entry(Item::Copy, t("data-copy")).key("Ctrl+C")),
+            Some(entry(Item::DeleteCase, t("data-delete-case")).ready(&one)),
         ];
     }
     if let Target::Cell { case, column } = *target {
@@ -216,7 +221,7 @@ pub fn entries(data: &Dataset, target: &Target, busy: bool) -> Vec<Option<Entry>
         return Vec::new();
     }
     if let Target::Field { variable, .. } = *target {
-        let mut list = vec![Some(entry(Item::Edit, "Edit").key("Enter")), None];
+        let mut list = vec![Some(entry(Item::Edit, t("data-edit")).key("Enter")), None];
         list.extend(entries(data, &Target::Variables(vec![variable]), busy));
         return list;
     }
@@ -228,39 +233,43 @@ pub fn entries(data: &Dataset, target: &Target, busy: bool) -> Vec<Option<Entry>
         .map(|&c| name(data, c))
         .collect();
     let (ascending, descending) = match one {
-        true => ("Sort ascending", "Sort descending"),
-        false => ("Sort ascending by these", "Sort descending by these"),
+        true => (t("data-sort-ascending"), t("data-sort-descending")),
+        false => (
+            t("data-sort-ascending-these"),
+            t("data-sort-descending-these"),
+        ),
     };
-    let mut descriptives = entry(Item::Descriptives, "Descriptives").ready(&cases);
+    let mut descriptives = entry(Item::Descriptives, t("data-descriptives")).ready(&cases);
     let no_mean = match (numeric.is_empty(), one) {
         (false, _) => Ok(()),
-        (true, true) => Err("a string variable has no mean".to_string()),
-        (true, false) => Err("string variables have no mean".to_string()),
+        (true, true) => Err(t("data-string-no-mean").to_string()),
+        (true, false) => Err(t("data-strings-no-mean").to_string()),
     };
     descriptives = descriptives.ready(&no_mean);
     if descriptives.enabled && !strings.is_empty() {
-        descriptives.hover = Some(format!("leaves out {}", listed(&strings)));
+        let left_out = [("variables", listed(&strings).into())];
+        descriptives.hover = Some(t_args("data-leaves-out", &left_out));
     }
     let mut list = vec![
         Some(entry(Item::SortAscending, ascending).ready(&cases)),
         Some(entry(Item::SortDescending, descending).ready(&cases)),
         None,
-        Some(entry(Item::Frequencies, "Frequencies").ready(&cases)),
+        Some(entry(Item::Frequencies, t("data-frequencies")).ready(&cases)),
         Some(descriptives),
         None,
     ];
     if one {
-        list.push(Some(entry(Item::Rename, "Rename")));
+        list.push(Some(entry(Item::Rename, t("data-rename"))));
         list.push(Some(
-            entry(Item::InsertBefore, "Insert variable before").ready(&runs),
+            entry(Item::InsertBefore, t("data-insert-variable-before")).ready(&runs),
         ));
         list.push(None);
     }
-    list.push(Some(entry(Item::Copy, "Copy").key("Ctrl+C")));
+    list.push(Some(entry(Item::Copy, t("data-copy")).key("Ctrl+C")));
     let delete = if one {
-        "Delete variable"
+        t("data-delete-variable")
     } else {
-        "Delete variables"
+        t("data-delete-variables")
     };
     list.push(Some(entry(Item::Delete, delete).key("Del").ready(&runs)));
     list
@@ -282,27 +291,39 @@ fn cell_entries(
     if label != edits::cell_text(&variable, case, false, &plain) {
         condition.push_str(&format!(" ({})", short(&label, 30)));
     }
-    let mut filter = entry(Item::Filter, &format!("Only cases where {condition}")).ready(runs);
+    let only = t_args(
+        "data-only-cases-where",
+        &[("condition", condition.as_str().into())],
+    );
+    let mut filter = entry(Item::Filter, &only).ready(runs);
     let current = data.filter_variable();
     if let (true, Some(current)) = (filter.enabled, current) {
-        filter.hover = Some(format!("replaces the filter {current}"));
+        filter.hover = Some(t_args(
+            "data-replaces-filter",
+            &[("filter", current.into())],
+        ));
     }
     let mut list = vec![
-        Some(entry(Item::Copy, "Copy").key("Ctrl+C")),
-        Some(entry(Item::Edit, "Edit").key("Enter")),
-        Some(entry(Item::ClearValue, "Clear value").ready(runs)),
+        Some(entry(Item::Copy, t("data-copy")).key("Ctrl+C")),
+        Some(entry(Item::Edit, t("data-edit")).key("Enter")),
+        Some(entry(Item::ClearValue, t("data-clear-value")).ready(runs)),
         None,
         Some(filter),
     ];
     if current.is_some() {
-        list.push(Some(entry(Item::FilterOff, "Stop filtering").ready(runs)));
+        list.push(Some(
+            entry(Item::FilterOff, t("data-stop-filtering")).ready(runs),
+        ));
     }
-    let keep = format!("Keep only cases where {condition}...");
+    let keep = t_args(
+        "data-keep-only-cases-where",
+        &[("condition", condition.as_str().into())],
+    );
     list.push(Some(entry(Item::KeepOnlyDialog, &keep)));
     list.push(None);
     let name = variable.name();
-    let ascending = format!("Sort ascending by {name}");
-    let descending = format!("Sort descending by {name}");
+    let ascending = t_args("data-sort-ascending-by", &[("variable", name.into())]);
+    let descending = t_args("data-sort-descending-by", &[("variable", name.into())]);
     list.push(Some(entry(Item::SortAscending, &ascending).ready(runs)));
     list.push(Some(entry(Item::SortDescending, &descending).ready(runs)));
     list
@@ -358,7 +379,7 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
     }
     if let Target::Cell { case, column } = *target {
         if case >= data.case_count() || column >= data.variable_count() {
-            return Err("the case is gone".into());
+            return Err(t("core-case-gone").into());
         }
         let variable = data.variable_at(column);
         match item {
@@ -381,7 +402,7 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
         return Ok(Action::EditField(*variable, *field));
     }
     let columns = columns(data, target);
-    let first = *columns.first().ok_or("the variable is gone")?;
+    let first = *columns.first().ok_or(t("core-variable-gone"))?;
     let all = varlist(data, &columns);
     let names: Vec<String> = columns.iter().map(|&c| name(data, c)).collect();
     let numeric = numeric(data, &columns);
@@ -394,12 +415,12 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
             .syntax()?;
             match data.split_file() {
                 Some(split) => Action::Ask(Confirm {
-                    question: format!(
-                        "Sorting the cases ends the split by {}.",
-                        split.variables.join(" ")
+                    question: t_args(
+                        "data-sorting-ends-split",
+                        &[("variables", split.variables.join(" ").into())],
                     ),
                     syntax,
-                    button: "Sort",
+                    button: t("data-sort"),
                 }),
                 None => Action::Run(syntax),
             }
@@ -412,9 +433,9 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
             .syntax()?;
             match columns.len() {
                 n if n > 100 => Action::Ask(Confirm {
-                    question: format!("Frequencies makes a table for each of the {n} variables."),
+                    question: t_args("data-frequencies-many", &[("count", n.into())]),
                     syntax,
-                    button: "Run",
+                    button: t("data-run"),
                 }),
                 _ => Action::Run(syntax),
             }
@@ -431,22 +452,22 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
         Item::Copy => Action::Copy,
         Item::Delete => {
             let mut question = match names.len() {
-                1 => format!("Delete {}? Ctrl+Z brings it back.", names[0]),
-                _ => format!("Delete {}? Ctrl+Z brings them back.", listed(&names)),
+                1 => t_args("data-delete-one", &[("variable", names[0].as_str().into())]),
+                _ => t_args("data-delete-many", &[("variables", listed(&names).into())]),
             };
             let among = |name: Option<&str>| {
                 name.is_some_and(|name| names.iter().any(|n| n.eq_ignore_ascii_case(name)))
             };
             if among(data.weight_variable()) {
-                question.push_str(" This also ends weighting.");
+                question.push_str(&format!(" {}", t("data-also-ends-weighting")));
             }
             if among(data.filter_variable()) {
-                question.push_str(" This also ends the filter.");
+                question.push_str(&format!(" {}", t("data-also-ends-filter")));
             }
             Action::Ask(Confirm {
                 question,
                 syntax: format!("DELETE VARIABLES {all}."),
-                button: "Delete",
+                button: t("data-delete"),
             })
         }
         Item::DeleteCase
@@ -483,9 +504,9 @@ pub fn insert_before(data: &Dataset, before: usize) -> String {
 fn delete_case(case: usize) -> Confirm {
     let n = case + 1;
     Confirm {
-        question: format!("Delete case {n}? Ctrl+Z brings it back."),
+        question: t_args("data-delete-case-n", &[("case", n.into())]),
         syntax: format!("COMPUTE #row = #row + 1.\nSELECT IF #row <> {n}."),
-        button: "Delete",
+        button: t("data-delete"),
     }
 }
 

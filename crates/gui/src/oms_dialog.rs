@@ -1,22 +1,23 @@
 //! The Output Management dialogs: OMS starts a request that sends chosen output to a file, and
 //! OMSEND ends requests. Options left as they are add nothing to the syntax.
 
+use crate::i18n::t;
 use crate::syntax_text::quote;
 
 /// Keyword and label of the kinds of output a request can choose.
 pub const OMS_KINDS: [(&str, &str); 4] = [
-    ("TABLES", "Tables"),
-    ("CHARTS", "Charts"),
-    ("WARNINGS", "Warnings"),
-    ("TEXTS", "Texts (ECHO, TITLE, SUBTITLE)"),
+    ("TABLES", "settings-part-tables"),
+    ("CHARTS", "settings-part-charts"),
+    ("WARNINGS", "core-warnings"),
+    ("TEXTS", "core-oms-texts"),
 ];
 
 /// Keyword, label and file extensions of each destination format.
 pub const OMS_FORMATS: [(&str, &str, &[&str]); 7] = [
-    ("SAV", "Data file (.sav)", &["sav"]),
+    ("SAV", "core-oms-sav", &["sav"]),
     ("HTML", "HTML", &["html", "htm"]),
-    ("TEXT", "Text", &["txt"]),
-    ("TABTEXT", "Tab-separated text", &["txt", "tsv"]),
+    ("TEXT", "core-oms-text", &["txt"]),
+    ("TABTEXT", "core-oms-tab-text", &["txt", "tsv"]),
     ("XLSX", "Excel", &["xlsx"]),
     ("DOC", "Word", &["docx", "doc"]),
     ("PDF", "PDF", &["pdf"]),
@@ -72,11 +73,11 @@ impl Oms {
             .filter_map(|((k, _), on)| on.then_some(*k))
             .collect();
         if kinds.is_empty() {
-            return Err("choose at least one kind of output".into());
+            return Err(t("core-oms-no-kind").into());
         }
         let file = self.file.trim();
         if file.is_empty() && self.viewer {
-            return Err("choose a file, or hide the output from the results".into());
+            return Err(t("core-oms-no-file-error").into());
         }
         let mut text = format!("OMS /SELECT {}", kinds.join(" "));
         let mut conditions = Vec::new();
@@ -103,7 +104,7 @@ impl Oms {
         let tag = self.tag.trim();
         if !tag.is_empty() {
             if tag.starts_with('$') {
-                return Err("a tag cannot start with a dollar sign".into());
+                return Err(t("core-oms-tag-dollar").into());
             }
             text.push_str(&format!("\n  /TAG={}", quote(tag)));
         }

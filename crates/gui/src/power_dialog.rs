@@ -7,52 +7,61 @@
 //! defaults.
 
 use crate::dialogs::whole;
+use crate::i18n::t;
 use crate::loglinear_dialog::optional;
 use crate::survival_dialog::numbers;
 use crate::syntax_text::number;
 pub use statscraft_syntax::PowerKind;
 
 /// The submenus of Analyze > Power Analysis and their items.
-pub const POWER_MENU: [(&str, &[(&str, PowerKind)]); 4] = [
-    (
-        "Means",
-        &[
-            ("One-Sample T Test...", PowerKind::MeansOneSample),
-            ("Independent-Samples T Test...", PowerKind::MeansIndependent),
-            ("Paired-Samples T Test...", PowerKind::MeansRelated),
-            ("One-Way ANOVA...", PowerKind::OnewayAnova),
-        ],
-    ),
-    (
-        "Proportions",
-        &[
-            (
-                "One-Sample Binomial Test...",
-                PowerKind::ProportionsOneSample,
-            ),
-            (
-                "Independent-Samples Binomial Test...",
-                PowerKind::ProportionsIndependent,
-            ),
-            (
-                "Related-Samples Binomial Test...",
-                PowerKind::ProportionsRelated,
-            ),
-        ],
-    ),
-    (
-        "Correlations",
-        &[
-            ("Pearson Product-Moment...", PowerKind::PearsonOneSample),
-            ("Spearman Rank-Order...", PowerKind::SpearmanOneSample),
-            ("Partial Correlation...", PowerKind::PartialCorr),
-        ],
-    ),
-    (
-        "Regression",
-        &[("Univariate Linear...", PowerKind::UnivariateLinear)],
-    ),
-];
+pub fn power_menu() -> [(&'static str, Vec<(&'static str, PowerKind)>); 4] {
+    [
+        (
+            t("menu-power-means"),
+            vec![
+                (t("menu-one-sample-t-test"), PowerKind::MeansOneSample),
+                (
+                    t("menu-independent-samples-t-test"),
+                    PowerKind::MeansIndependent,
+                ),
+                (t("menu-paired-samples-t-test"), PowerKind::MeansRelated),
+                (t("menu-one-way-anova"), PowerKind::OnewayAnova),
+            ],
+        ),
+        (
+            t("menu-power-proportions"),
+            vec![
+                (
+                    t("menu-one-sample-binomial-test"),
+                    PowerKind::ProportionsOneSample,
+                ),
+                (
+                    t("menu-independent-samples-binomial-test"),
+                    PowerKind::ProportionsIndependent,
+                ),
+                (
+                    t("menu-related-samples-binomial-test"),
+                    PowerKind::ProportionsRelated,
+                ),
+            ],
+        ),
+        (
+            t("menu-power-correlations"),
+            vec![
+                (
+                    t("menu-pearson-product-moment"),
+                    PowerKind::PearsonOneSample,
+                ),
+                (t("menu-spearman-rank-order"), PowerKind::SpearmanOneSample),
+                (t("menu-partial-correlation"), PowerKind::PartialCorr),
+            ],
+        ),
+        (
+            t("menu-power-regression"),
+            vec![(t("menu-univariate-linear"), PowerKind::UnivariateLinear)],
+        ),
+    ]
+}
 
 /// The tests of two independent proportions (METHOD), the default first.
 pub const POWER_METHODS: [(&str, &str); 4] = [
