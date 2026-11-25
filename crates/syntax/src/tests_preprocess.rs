@@ -440,6 +440,39 @@ fn insert_and_include_read_files_relative_to_the_including_file() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// An included file is read by the batch rules, but the lines of its inline data are data: a
+/// line that starts with `-` or `.` keeps that character, and no blank record comes between them.
+#[test]
+fn included_inline_data_keeps_every_line_as_it_is() {
+    let dir = temp_dir("include-data");
+    std::fs::write(
+        dir.join("lib/rows.sps"),
+        "DATA LIST FIXED /a 1-3 b 4-6.\nBEGIN DATA\n 12 34\n-56 78\n.5  90\nEND DATA.\n\
+         + LIST.\n-  DESCRIPTIVES a.\n",
+    )
+    .unwrap();
+    let raw = split_commands_in("INCLUDE 'lib/rows.sps'.", Some(&dir)).unwrap();
+    let data: Vec<&str> = raw
+        .iter()
+        .find(|c| c.name == "BEGIN DATA")
+        .expect("the data block")
+        .tokens
+        .iter()
+        .filter_map(|t| match &t.kind {
+            TokenKind::Str(s) => Some(s.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(data, [" 12 34", "-56 78", ".5  90"]);
+    // the indent markers of the commands after it are still taken away
+    let names: Vec<&str> = raw.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["INCLUDE", "DATA LIST", "BEGIN DATA", "LIST", "DESCRIPTIVES"]
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn an_error_after_a_string_over_lines_points_at_a_missing_quote() {
     let (_, errors) = parse("VALUE LABELS q1 1 'one\n2 'two 'x'.");
