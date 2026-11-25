@@ -77,7 +77,6 @@ fn change_attributes(attributes: &mut Vec<(String, Vec<String>)>, change: &Attri
     }
 }
 
-/// A number written in a string, for ALTER TYPE to a numeric format; None when it is none.
 /// The first `width` characters of `text` read as the number or date format `format` says;
 /// None for a blank field and for text that is not valid in the format.
 fn read_formatted(
@@ -98,6 +97,7 @@ fn read_formatted(
     read.ok().flatten()
 }
 
+/// A number written in a string, for ALTER TYPE to a numeric format; None when it is none.
 fn read_number(text: &str, comma_decimal: bool) -> Option<f64> {
     let text = text.trim();
     if text.is_empty() {
