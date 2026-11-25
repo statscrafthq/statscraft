@@ -278,9 +278,6 @@ impl Engine {
                 width,
             ));
         }
-        if let Some(file) = &command.save {
-            self.save_template(file, &schemes[0], strings)?;
-        }
         let data = self.active_mut()?;
         for (target, (values, labels, missing, label, width)) in targets.iter().zip(columns) {
             data.set_numeric_values(target, values)?;
@@ -289,6 +286,10 @@ impl Engine {
             data.set_missing_values(target, missing)?;
             data.set_variable_label(target, label.as_deref())?;
             data.set_measure(target, Measure::Nominal)?;
+        }
+        // the template is written once the recoding has worked
+        if let Some(file) = &command.save {
+            self.save_template(file, &schemes[0], strings)?;
         }
         Ok(tables)
     }
