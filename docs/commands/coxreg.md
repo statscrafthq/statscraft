@@ -22,6 +22,10 @@ tempvar: SURVIVAL SE HAZARD (or RESID) LML XBETA DFBETA PRESID. A case is used w
 
 PLOT gives chart data of the step curves of each stratum at the means and at each PATTERN: named covariates at the values given, the others at their means; BY draws one line per category of a categorical covariate. SAVE adds, at each case's own time and covariates, SUR\_1, SE\_1, HAZ\_1, LML\_1 and XBE\_1 (the linear predictor with centered covariates), DFB1\_1, DFB2\_1, ... (the change in each coefficient when the case is left out, from its score residual) and PRE1\_1, PRE2\_1, ... for the Schoenfeld residuals of events, one per coded covariate and missing for those out of the final model, or the names given (DFBETA(name) gives name1, name2, ...). Weighted when a weight variable is set. After a TIME PROGRAM, covariates it creates change with time; SAVE then gives DFBETA only and the survival table, PATTERN and plots are left out. EXTERNAL changes nothing.
 
+OUTFILE writes each keyword to a .sav file or a dataset made with DATASET DECLARE. COEFF holds the final model: VARNAME\_ (the coded column), B, SE, WALD, DF, SIG and EXPB, a record for each column, as in Variables in the Equation. TABLE holds the survival table of every stratum with a record for each event time: the strata variable (when there is one), TIME\_, then SURVIVAL\_, SE\_ and HAZARD\_ with the suffix 0 for the baseline (all covariates 0), M for the means and 1, 2, ...
+
+for each line of PATTERN (a BY line for each category); with a time program TABLE is not written.
+
 ## Example
 
 ```text

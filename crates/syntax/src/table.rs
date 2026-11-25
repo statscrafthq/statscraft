@@ -3188,7 +3188,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  model, or the names given (DFBETA(name) gives name1, name2, ...). Weighted when a\n\
                  weight variable is set. After a TIME PROGRAM, covariates it creates change with time; SAVE then\n\
                  gives DFBETA only and the survival table, PATTERN and plots are left out. EXTERNAL changes\n\
-                 nothing.",
+                 nothing.\n\
+                 OUTFILE writes each keyword to a .sav file or a dataset made with DATASET DECLARE. COEFF holds\n\
+                 the final model: VARNAME_ (the coded column), B, SE, WALD, DF, SIG and EXPB, a record for each\n\
+                 column, as in Variables in the Equation. TABLE holds the survival table of every stratum with a\n\
+                 record for each event time: the strata variable (when there is one), TIME_, then SURVIVAL_,\n\
+                 SE_ and HAZARD_ with the suffix 0 for the baseline (all covariates 0), M for the means and 1, 2, ...\n\
+                 for each line of PATTERN (a BY line for each category); with a time program TABLE is not written.",
         example: "COXREG months WITH plan spend /STATUS=ended(1) /STRATA=site /CATEGORICAL=plan /PRINT=CI(95) BASELINE /PLOT=SURVIVAL.",
         parse: coxreg::coxreg,
     },
