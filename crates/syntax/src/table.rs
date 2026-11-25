@@ -132,8 +132,8 @@ const PPLOT_SYNTAX: &str = "PPLOT [VARIABLES=] varlist\n\
                  against the distribution function at the value, both with the line y = x; the detrended\n\
                  plot shows observed minus expected, with the line y = 0. BOTH draws both plots. Values the\n\
                  distribution cannot take leave the variable out with a warning. Weights are not used.\n\
-                 APPLY repeats the previous PPLOT (its distribution without the parameters, and its\n\
-                 variables unless new ones are given); the subcommands given with it override. TEMPLATE is\n\
+                 APPLY repeats the previous PPLOT, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them) (its distribution without the parameters,\n\
+                 and its variables unless new ones are given); the subcommands given with it override. TEMPLATE is\n\
                  ignored; charts come as data.";
 
 const MVA_SYNTAX: &str = "MVA [VARIABLES=] varlist | ALL\n\
@@ -3692,7 +3692,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  subcommand given twice keeps the last. TEMPLATE is ignored. APPLY runs the previous CURVEFIT's\n\
                  specifications again: the dependents and the independent of the new command when it names\n\
                  some, else the old ones, and any subcommand it gives replaces the old one (SAVE is not\n\
-                 carried over); a model named in quotes is not supported, and neither is APPLY FIT.",
+                 carried over); APPLY can also name the model named in quotes (MOD_1, MOD_2, ... in the order the session made them); APPLY FIT is not supported.",
         example: "CURVEFIT VARIABLES=visitors WITH week /MODEL=LINEAR QUADRATIC GROWTH /PRINT=ANOVA /SAVE=PRED CIN.",
         parse: regression_more::curvefit,
     },
@@ -3722,7 +3722,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  nothing. CONSTANT or NOCONSTANT defaults to TSET. APPLY runs the previous WLS's specifications\n\
                  again: the variables of the new command when it names some, else the old ones, and any\n\
                  subcommand it gives replaces the old one (a WEIGHT replaces SOURCE and DELTA and the other way\n\
-                 round; SAVE is not carried over); a model named in quotes is not supported.",
+                 round; SAVE is not carried over); APPLY can also name the model named in quotes (MOD_1, MOD_2, ... in the order the session made them).",
         example: "WLS rent WITH floor_area rooms /SOURCE=floor_area /POWER=-1 TO 3 BY 0.25 /PRINT=ALL.",
         parse: regression_more::wls,
     },
@@ -3743,8 +3743,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  TSET ACFSE) takes the standard error of white noise, sqrt((n - k) / (n (n + 2))); MA takes\n\
                  Bartlett's sqrt((1 + 2 (r_1^2 + ... + r_(k-1)^2)) / n). PACF adds the partial\n\
                  autocorrelations, with standard error 1 / sqrt(n). A chart per series shows the\n\
-                 coefficients with limits at two standard errors. APPLY without a name repeats the previous\n\
-                 ACF, with the subcommands given now replacing its own.\n\
+                 coefficients with limits at two standard errors. APPLY repeats the previous\n\
+                 ACF, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them), with the subcommands given now replacing its own.\n\
                  DIFFERENCE is another name for DIFF. Case weights are not used.",
         example: "ACF VARIABLES=daily_orders /DIFF /MXAUTO=21 /PACF.",
         parse: timeseries::acf,
@@ -3757,7 +3757,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  The series are prepared and the lags chosen as for ACF. The partial autocorrelations come\n\
                  from the autocorrelations by the Durbin-Levinson recursion; each has the standard error\n\
                  1 / sqrt(n), n the number of valid values. A table and a chart (limits at two standard\n\
-                 errors) per series. APPLY without a name repeats the previous PACF.",
+                 errors) per series. APPLY repeats the previous PACF, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them).",
         example: "PACF river_level /SDIFF /PERIOD=7 /MXAUTO=28.",
         parse: timeseries::pacf,
     },
@@ -3773,7 +3773,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  two sums of squares about their means. Lags run from -MXCROSS to MXCROSS (else TSET\n\
                  MXCROSS, else 7), at most the series length less one. The standard error is\n\
                  1 / sqrt(m), m the number of valid pairs at that lag. A table and a chart (limits at two\n\
-                 standard errors) per pair. APPLY without a name repeats the previous CCF.",
+                 standard errors) per pair. APPLY repeats the previous CCF, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them).",
         example: "CCF ad_spend WITH weekly_sales /DIFF /MXCROSS=10.",
         parse: timeseries::ccf,
     },
@@ -3795,7 +3795,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  SAS over (or less) STC. Tables: the model, the cases with every component (left out under\n\
                  TSET PRINT=BRIEF) and the seasonal factors. TSET NEWVAR saves ERR_n, SAS_n, SAF_n and STC_n\n\
                  per series; saved multiplicative factors are ratios, so SAS = series / SAF.\n\
-                 APPLY without a name repeats the previous SEASON.",
+                 APPLY repeats the previous SEASON, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them).",
         example: "SEASON VARIABLES=heating_kwh /MODEL=ADDITIVE /PERIOD=12.",
         parse: timeseries::season,
     },
@@ -3838,7 +3838,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  DATE) and four full periods; the multiplicative and exponential models need values\n\
                  above 0. The series may not have missing values inside the USE range. TSET NEWVAR saves\n\
                  FIT_n (the one-step forecast) and ERR_n per series; with PREDICT, FIT_n holds the\n\
-                 forecasts. APPLY without a name repeats the previous EXSMOOTH with the subcommands\n\
+                 forecasts. APPLY repeats the previous EXSMOOTH, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them) with the subcommands\n\
                  given now replacing its own; SEASFACT is not carried over.",
         example: "EXSMOOTH VARIABLES=room_nights /MODEL=DA /PERIOD=7 /PHI=GRID /DELTA=0.25.",
         parse: ts_models::exsmooth,
@@ -3873,7 +3873,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  residuals on the log scale, the prediction limits and standard errors. Fits, limits\n\
                  and standard errors are taken back from logs. With PREDICT the fit continues as\n\
                  forecasts; with regressors only where they are valid, and the file is not extended.\n\
-                 APPLY without a name repeats the previous ARIMA with the subcommands given now replacing\n\
+                 APPLY repeats the previous ARIMA, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them) with the subcommands given now replacing\n\
                  its own; INITIAL starts from its estimates, FIT uses them without estimation.",
         example: "ARIMA daily_calls WITH promo /MODEL=(1,0,1)(0,1,1) 7 NOCONSTANT /FORECAST=EXACT.",
         parse: ts_models::arima,
@@ -3897,7 +3897,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  R square of the transformed regression at the start and the end, an ANOVA table, and\n\
                  the estimates with t tests; ML shows what ARIMA shows. TSET NEWVAR saves FIT_n, ERR_n,\n\
                  LCL_n, UCL_n and SEP_n; after the series, PREDICT gives forecasts where the regressors\n\
-                 have values. APPLY without a name repeats the previous AREG with the subcommands given\n\
+                 have values. APPLY repeats the previous AREG, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them) with the subcommands given\n\
                  now replacing its own; INITIAL starts from its estimates, FIT uses them as they are.",
         example: "AREG heating_cost WITH degree_days /METHOD=CO /RHO=0.3.",
         parse: ts_more::areg,
@@ -3925,7 +3925,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  BY picks one; P (the default) and S are drawn on natural logs. SAVE writes one\n\
                  variable per series (root_1, root_2 by their place on VARIABLES) or pair (root_1_2),\n\
                  FREQ and PER under the root itself, from the first case used; a name that exists is\n\
-                 skipped. APPLY repeats the previous SPECTRA, SAVE excepted.",
+                 skipped. APPLY repeats the previous SPECTRA, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them); SAVE is excepted.",
         example: "SPECTRA VARIABLES=river_flow rainfall /CENTER /CROSS /WINDOW=PARZEN(7) /PLOT=S K BY FREQ.",
         parse: ts_more::spectra,
     },
@@ -3946,7 +3946,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the correlations of the estimates (PRINT=COV or TSET PRINT=DETAILED adds their\n\
                  covariances). Residuals use the observed predictors. TSET NEWVAR saves FIT_n and ERR_n\n\
                  per equation; SAVE picks them itself, always under free numbers. CONSTANT defaults to\n\
-                 TSET. APPLY repeats the previous 2SLS with the subcommands given now replacing its own.",
+                 TSET. APPLY repeats the previous 2SLS, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them), with the subcommands given now replacing its own.",
         example: "2SLS crop_yield WITH fertilizer_kg /INSTRUMENTS=subsidy_rate soil_ph /SAVE=RESID.",
         parse: ts_more::two_stage,
     },
@@ -3967,8 +3967,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  HILO shows only the highest and lowest of each case (up to three series). MARK names\n\
                  the cases where a variable changes, or a date given with DATE keywords, in the footnote,\n\
                  which also lists the transformations. Under SPLIT FILE each group gets a chart; the\n\
-                 reference mean is the group's. USE limits the cases. APPLY without a name repeats the\n\
-                 previous TSPLOT with the subcommands given now replacing its own.",
+                 reference mean is the group's. USE limits the cases. APPLY repeats the previous\n\
+                 TSPLOT, or the model named in quotes (MOD_1, MOD_2, ... in the order the session made them), with the subcommands given now replacing its own.",
         example: "TSPLOT VARIABLES=river_level rainfall /FORMAT=JOIN /MARK=dam_open.",
         parse: ts_models::tsplot,
     },

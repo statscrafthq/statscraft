@@ -335,6 +335,28 @@ fn acf_after_log_and_differences_and_apply() {
     assert!(error("ACF APPLY.").contains("no earlier ACF"));
 }
 
+/// `APPLY 'MOD_1'` repeats the first ACF, not the previous one, and is itself a new model.
+#[test]
+fn acf_apply_a_named_model() {
+    let first = "ACF visitors /DIFF=1 /MXAUTO=4.\nACF tours /MXAUTO=2.\n";
+    let applied = run(&format!("{first}ACF APPLY 'MOD_1' /MXAUTO=3."));
+    let direct = run("ACF visitors /DIFF=1 /MXAUTO=3.");
+    assert_eq!(
+        find(&applied.tables, "Autocorrelations").rows,
+        find(&direct.tables, "Autocorrelations").rows
+    );
+    // MOD_3 is that one; a PACF has numbers of its own among them
+    let again = run(&format!(
+        "{first}ACF APPLY 'MOD_1' /MXAUTO=3.\nPACF visitors.\nACF APPLY 'mod_3'."
+    ));
+    assert_eq!(
+        find(&again.tables, "Autocorrelations").rows,
+        find(&direct.tables, "Autocorrelations").rows
+    );
+    assert!(error(&format!("{first}ACF APPLY 'MOD_9'.")).contains("no model named 'MOD_9'"));
+    assert!(error(&format!("{first}PACF APPLY 'MOD_1'.")).contains("was made by ACF, not by PACF"));
+}
+
 fn some(v: &[f64]) -> Vec<Option<f64>> {
     v.iter().map(|x| Some(*x)).collect()
 }

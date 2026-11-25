@@ -77,6 +77,7 @@ mod mds_variables;
 mod means;
 mod merge;
 mod mixed;
+mod model_names;
 mod model_terms;
 mod mrsets;
 mod mult_response;
@@ -880,6 +881,8 @@ pub struct Engine {
     tset: statscraft_syntax::TimeSettings,
     /// The last ACF, PACF, CCF, SEASON, EXSMOOTH and ARIMA, for APPLY.
     ts_models: timeseries::Models,
+    /// The MOD_n names of those models, for APPLY 'name'.
+    model_names: model_names::ModelNames,
     /// USE: the historical period of the time series procedures.
     ts_use: Option<statscraft_syntax::UseRange>,
     /// PREDICT: the forecast period.
@@ -1149,7 +1152,12 @@ impl Engine {
             });
         }
         self.program_fault.set(false);
+        let renamed = self.named_apply(command)?;
+        let command = renamed.as_ref().unwrap_or(command);
         let tables = self.execute_command(command);
+        if tables.is_ok() {
+            self.name_model(command);
+        }
         if runs_program {
             let program = self.running_program.take();
             // a COXREG that fails leaves its time program for the corrected one, unless the fault

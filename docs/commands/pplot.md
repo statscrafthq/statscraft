@@ -20,7 +20,7 @@ Parameters: NORMAL, LOGISTIC, LAPLACE location and scale; EXPONENTIAL rate; WEIB
 
 Q-Q (the default) plots each value against the distribution's quantile at p, P-P plots p against the distribution function at the value, both with the line y = x; the detrended plot shows observed minus expected, with the line y = 0. BOTH draws both plots. Values the distribution cannot take leave the variable out with a warning. Weights are not used.
 
-APPLY repeats the previous PPLOT (its distribution without the parameters, and its variables unless new ones are given); the subcommands given with it override. TEMPLATE is ignored; charts come as data.
+APPLY repeats the previous PPLOT, or the model named in quotes (MOD\_1, MOD\_2, ... in the order the session made them) (its distribution without the parameters, and its variables unless new ones are given); the subcommands given with it override. TEMPLATE is ignored; charts come as data.
 
 ## Example
 

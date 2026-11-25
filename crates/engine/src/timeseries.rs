@@ -47,8 +47,8 @@ use statscraft_syntax::{
 /// The specifications of the last ACF, PACF, CCF and SEASON, for APPLY.
 #[derive(Default, Clone)]
 pub(crate) struct Models {
-    correlograms: [Option<Box<Correlogram>>; 3],
-    season: Option<Box<Season>>,
+    pub(crate) correlograms: [Option<Box<Correlogram>>; 3],
+    pub(crate) season: Option<Box<Season>>,
     pub(crate) exsmooth: Option<Box<statscraft_syntax::Exsmooth>>,
     pub(crate) arima: Option<crate::arima::Previous>,
     pub(crate) spectra: Option<Box<statscraft_syntax::Spectra>>,

@@ -19,7 +19,7 @@ The model is phi(B) PHI(B^s) (w\_t - mu) = theta(B) THETA(B^s) a\_t, w\_t the se
 
 MXITER=0 takes the initial values as final. AR, MA, SAR, SMA, REG and CON give initial values in the order of the lags. Output: the iteration history (TSET PRINT=BRIEF leaves it out, DETAILED adds the estimates of each step), the estimates with standard errors, t and approximate significance, the residual variance and standard error, the log-likelihood, AIC and SBC, and the covariance and correlation of the estimates. TSET NEWVAR saves FIT\_n, ERR\_n, LCL\_n, UCL\_n and SEP\_n: one-step fitted values (EXACT: from the Kalman filter; CLS: past errors 0 and missing past values at the mean of the differenced series; AUTOINIT: the first values of the series as their own fits), the residuals on the log scale, the prediction limits and standard errors. Fits, limits and standard errors are taken back from logs. With PREDICT the fit continues as forecasts; with regressors only where they are valid, and the file is not extended.
 
-APPLY without a name repeats the previous ARIMA with the subcommands given now replacing its own; INITIAL starts from its estimates, FIT uses them without estimation.
+APPLY repeats the previous ARIMA, or the model named in quotes (MOD\_1, MOD\_2, ... in the order the session made them) with the subcommands given now replacing its own; INITIAL starts from its estimates, FIT uses them without estimation.
 
 ## Example
 

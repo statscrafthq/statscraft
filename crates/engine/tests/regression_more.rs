@@ -900,11 +900,52 @@ fn curvefit_apply_reuses_the_previous_specifications() {
     same_tables(&applied.tables, &direct.tables);
 }
 
+/// A model named in quotes is any earlier one, MOD_1, MOD_2, ... in the order the session made
+/// them, and the command that applies it makes a new one.
+#[test]
+fn curvefit_apply_a_named_model() {
+    let source = "CURVEFIT y /MODEL=LINEAR /PLOT=NONE.\n\
+                  CURVEFIT y /MODEL=CUBIC /PLOT=NONE.\n";
+    // MOD_1 is the linear one, though the cubic one is the previous
+    let applied = run(SERIES, &format!("{source}CURVEFIT x /APPLY 'MOD_1'."));
+    let direct = run(SERIES, "CURVEFIT x /MODEL=LINEAR /PLOT=NONE.");
+    same_tables(&applied.tables, &direct.tables);
+    // the name is not case sensitive, and what the command gives replaces the model's own
+    let applied = run(
+        SERIES,
+        &format!("{source}CURVEFIT APPLY='mod_2' /MODEL=QUADRATIC."),
+    );
+    let direct = run(SERIES, "CURVEFIT y /MODEL=QUADRATIC /PLOT=NONE.");
+    same_tables(&applied.tables, &direct.tables);
+    // the applied model is MOD_3 and can be applied itself
+    let applied = run(
+        SERIES,
+        &format!("{source}CURVEFIT x /APPLY 'MOD_1'.\nCURVEFIT y /APPLY 'MOD_3'."),
+    );
+    let direct = run(SERIES, "CURVEFIT y /MODEL=LINEAR /PLOT=NONE.");
+    same_tables(&applied.tables, &direct.tables);
+}
+
+#[test]
+fn a_named_model_must_exist_and_be_of_the_command() {
+    let message = error(SERIES, "CURVEFIT y /MODEL=LINEAR.\nCURVEFIT APPLY 'MOD_7'.");
+    assert!(message.contains("no model named 'MOD_7'"), "{message}");
+    let message = error(
+        SERIES,
+        "ACF y.\nCURVEFIT y /MODEL=LINEAR.\nCURVEFIT x /APPLY 'MOD_1'.",
+    );
+    assert!(
+        message.contains("was made by ACF, not by CURVEFIT"),
+        "{message}"
+    );
+}
+
 #[test]
 fn curvefit_apply_is_checked() {
     assert!(error(SERIES, "CURVEFIT APPLY.").contains("no earlier CURVEFIT"));
     assert!(
-        error(SERIES, "CURVEFIT y /MODEL=LINEAR.\nCURVEFIT APPLY 'quad'.").contains("named model")
+        error(SERIES, "CURVEFIT y /MODEL=LINEAR.\nCURVEFIT APPLY 'quad'.")
+            .contains("no model named")
     );
     let (_, errors) = parse(&format!("{SERIES}CURVEFIT y /APPLY FIT."));
     assert!(

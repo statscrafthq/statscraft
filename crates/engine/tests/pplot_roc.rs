@@ -285,6 +285,17 @@ fn apply_repeats_the_previous_specifications() {
 }
 
 #[test]
+fn apply_a_named_model() {
+    // MOD_1 is the P-P plot, the previous one is the Q-Q plot
+    let source = "PPLOT hours /DISTRIBUTION=EXPONENTIAL(0.5) /TYPE=P-P /PLOT=NORMAL.\n\
+                  PPLOT hours /TYPE=Q-Q /PLOT=NORMAL.\n\
+                  PPLOT hours /APPLY 'MOD_1'.";
+    let (_, charts, _) = run(PUMPS, source);
+    assert_eq!(charts.len(), 1);
+    assert_eq!(charts[0].kind, ChartKind::Pp);
+}
+
+#[test]
 fn values_the_distribution_cannot_take_leave_the_variable_out() {
     let data = "DATA LIST LIST /v.\nBEGIN DATA\n-1\n2\n3\nEND DATA.\n";
     let (_, charts, warnings) = run(data, "PPLOT v /DISTRIBUTION=GAMMA.");

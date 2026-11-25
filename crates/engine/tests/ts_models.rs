@@ -267,6 +267,29 @@ fn arima_apply_fit_reuses_the_estimates() {
     assert_eq!(find(&r.tables, "Iteration History").rows.len(), 1);
 }
 
+/// A named model brings its own estimates along: FIT of MOD_1 reproduces the first ARIMA, not the
+/// one before it.
+#[test]
+fn arima_apply_fit_of_a_named_model() {
+    let r = run(&format!(
+        "{}ARIMA level /MODEL=(1,0,1) /MXITER=50 /SSQPCT=1E-9 /PAREPS=1E-7.\n\
+         TSET NEWVAR=ALL.\nARIMA level /MODEL=(0,0,1).\nARIMA APPLY 'MOD_1' FIT.\n",
+        data("level", TANK)
+    ));
+    let first = column(&r.engine, "FIT_1");
+    let named = column(&r.engine, "FIT_3");
+    for (a, b) in first.iter().zip(&named) {
+        assert!(close(a.unwrap(), b.unwrap(), 1e-9));
+    }
+    let other = column(&r.engine, "FIT_2");
+    assert!(
+        first
+            .iter()
+            .zip(&other)
+            .any(|(a, b)| !close(a.unwrap(), b.unwrap(), 1e-6))
+    );
+}
+
 #[test]
 fn arima_errors() {
     let tank = data("level", TANK);
