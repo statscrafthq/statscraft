@@ -3047,11 +3047,13 @@ fn outfile_hccovb_writes_the_robust_standard_errors() {
     // blank off the diagonal: the rows are the intercept, a=1, a=2 and x, and the column of the
     // redundant parameter is empty
     let estimated = [0, 1, 2, 4];
-    for r in 0..estimated.len() {
-        assert_eq!(columns[3][r], None, "redundant column");
-        for (c, &column) in estimated.iter().enumerate() {
-            if c != r {
-                assert_eq!(columns[column][r], None, "off the diagonal {r},{c}");
+    for cell in columns[3].iter().take(4) {
+        assert_eq!(*cell, None, "redundant column");
+    }
+    for (diagonal, &column) in estimated.iter().enumerate() {
+        for (r, cell) in columns[column].iter().take(4).enumerate() {
+            if r != diagonal {
+                assert_eq!(*cell, None, "off the diagonal {r},{diagonal}");
             }
         }
     }
