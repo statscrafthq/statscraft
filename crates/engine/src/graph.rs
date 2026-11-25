@@ -301,7 +301,7 @@ pub(crate) fn compute(function: F, pairs: &[(f64, f64)]) -> f64 {
 }
 
 /// What an error bar spans, in words.
-fn interval_label(interval: GraphInterval) -> String {
+pub(crate) fn interval_label(interval: GraphInterval) -> String {
     match interval {
         GraphInterval::Ci(level) => format!("{}% CI", plain(level)),
         GraphInterval::Se(n) => format!("{} SE", plain(n)),
@@ -377,7 +377,7 @@ fn median_interval(level: f64, pairs: &[(f64, f64)]) -> Result<Option<[f64; 2]>,
 
 /// How far the error bar of `function` reaches below and above its value over the pairs: a
 /// mean's by `margin`, a median's to the ends of its interval. NaN where there is no bar.
-fn bar_lengths(
+pub(crate) fn bar_lengths(
     interval: GraphInterval,
     function: F,
     pairs: &[(f64, f64)],
@@ -400,7 +400,7 @@ fn bar_lengths(
 /// How far the error bar of a count `w` of the `whole` reaches below and above it, as a count
 /// or as a percentage (PCT): a confidence interval is Jeffreys' interval of the proportion
 /// with the weights rounded, SE and STDDEV are n times the binomial spread of the count.
-fn count_bar(interval: GraphInterval, function: F, w: f64, whole: f64) -> [f64; 2] {
+pub(crate) fn count_bar(interval: GraphInterval, function: F, w: f64, whole: f64) -> [f64; 2] {
     if whole <= 0.0 {
         return [f64::NAN; 2];
     }

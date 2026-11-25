@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [GGRAPH](docs/commands/ggraph.md) reads the interval functions `MEANCI`, `MEDIANCI`, `MEANSD`, `MEANSE` and `COUNTCI`: each gives a value and its high and low end, `VARSTOCASES` takes them in `HIGH` and `LOW` columns, and an `interval(position(region.spread.range(x*(low+high))))` element draws them as error bars around the other element.
+
 ## 0.47.0 (2026-11-25)
 
 The syntax editor finds and replaces text.

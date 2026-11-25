@@ -298,8 +298,8 @@ pub use genlin::{
 };
 pub use genlinmixed::{GenLinMixed, GlmmContrast, GlmmEmmeans, GlmmRandom, GlmmSave};
 pub use ggraph::{
-    Ggraph, GplExpr, GplProgram, GplStatement, GraphDataset, GraphItem, GraphSpec, GraphStat,
-    read_gpl,
+    Bounds, ErrorFn, Ggraph, GplExpr, GplProgram, GplStatement, GraphDataset, GraphItem, GraphSpec,
+    GraphStat, ToCases, read_gpl,
 };
 pub use glm::{
     Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmOutfile, GlmPlot, GlmPrint,

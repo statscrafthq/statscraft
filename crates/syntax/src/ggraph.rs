@@ -8,6 +8,10 @@
 //! - VARIABLES: variables (ALL and TO allowed) and functions in any order. A variable may carry
 //!   [NAME="new" LEVEL=SCALE|NOMINAL|ORDINAL]; a function [NAME="new"]. A function's default
 //!   name is its name in capitals followed by its arguments, joined by underscores.
+//! - The error interval functions MEANCI, MEDIANCI (level), MEANSD, MEANSE (multiplier) and
+//!   COUNTCI (level) have three values: the summary and its high and low end, named after the
+//!   function's default name with _HIGH and _LOW unless [HIGH= LOW=] say otherwise (NAME renames
+//!   the summary only). A level runs from 50 to below 100; a multiplier is a whole number above 0.
 //! - A function among the variables makes the data a summary by the other variables;
 //!   CASEVALUE keeps one row per case and does not mix with the summary functions.
 //! - GRAPHSPEC SOURCE=INLINE takes its chart program from the BEGIN GPL block that follows.
@@ -38,11 +42,21 @@ pub struct Ggraph {
 pub struct GraphDataset {
     pub name: String,
     pub items: Vec<GraphItem>,
-    /// TRANSFORM=VARSTOCASES: the names of the summary and the index columns.
-    pub to_cases: Option<(String, String)>,
+    /// TRANSFORM=VARSTOCASES: the names of its columns.
+    pub to_cases: Option<ToCases>,
     pub listwise: bool,
     pub report_missing: bool,
     pub case_limit: usize,
+}
+
+/// The columns TRANSFORM=VARSTOCASES makes; the bounds hold the ends of an error interval
+/// function and stay empty for the other functions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToCases {
+    pub summary: String,
+    pub index: String,
+    pub high: String,
+    pub low: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,7 +73,31 @@ pub enum GraphItem {
         variable: Option<String>,
         /// The name the chart program uses for its column.
         name: String,
+        /// The names of the high and the low end for an error interval function.
+        bounds: Option<Bounds>,
     },
+}
+
+/// The names of the two ends an error interval function adds to the summary.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Bounds {
+    pub high: String,
+    pub low: String,
+}
+
+/// The error interval functions: the value and its interval, by the rules of GRAPH's INTERVAL.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ErrorFn {
+    /// A count with a confidence interval at this level.
+    CountCi(f64),
+    /// A median with a confidence interval at this level.
+    MedianCi(f64),
+    /// A mean with a confidence interval at this level.
+    MeanCi(f64),
+    /// A mean with this many standard deviations on each side.
+    MeanSd(f64),
+    /// A mean with this many standard errors on each side.
+    MeanSe(f64),
 }
 
 /// A function of VARIABLES.
@@ -75,6 +113,7 @@ pub enum GraphStat {
     Peq(f64),
     Nge(f64),
     Pge(f64),
+    Error(ErrorFn),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,7 +163,7 @@ impl GplExpr {
 }
 
 /// (name, takes a variable, how many numbers follow)
-const FUNCTIONS: [(&str, bool, usize); 26] = [
+const FUNCTIONS: [(&str, bool, usize); 31] = [
     ("COUNT", false, 0),
     ("CASEVALUE", true, 0),
     ("MINIMUM", true, 0),
@@ -151,17 +190,15 @@ const FUNCTIONS: [(&str, bool, usize); 26] = [
     ("PGE", true, 1),
     ("PIN", true, 2),
     ("NIN", true, 2),
+    ("COUNTCI", false, 1),
+    ("MEDIANCI", true, 1),
+    ("MEANCI", true, 1),
+    ("MEANSD", true, 1),
+    ("MEANSE", true, 1),
 ];
 
 /// Functions of the manual this version does not compute.
-const NOT_YET: [&str; 6] = [
-    "RESPONSES",
-    "COUNTCI",
-    "MEDIANCI",
-    "MEANCI",
-    "MEANSD",
-    "MEANSE",
-];
+const NOT_YET: [&str; 1] = ["RESPONSES"];
 
 fn word<'a>(p: &Parser<'a>) -> Option<&'a str> {
     match p.peek() {
@@ -216,29 +253,45 @@ fn plain(x: f64) -> String {
 }
 
 /// `[NAME="x" LEVEL=SCALE]` after a variable, or `[NAME="x"]` after a function.
-fn qualifier(p: &mut Parser, level: bool) -> PResult<(Option<String>, Option<bool>)> {
-    let (mut name, mut scale) = (None, None);
+fn qualifier(p: &mut Parser, level: bool, ends: bool) -> PResult<Qualifier> {
+    let mut q = Qualifier::default();
     if !p.eat(Punct::LBracket) {
-        return Ok((name, scale));
+        return Ok(q);
     }
     while !p.eat(Punct::RBracket) {
         if keyword(p, "NAME")? {
-            name = Some(p.string("a name in quotes")?);
+            q.name = Some(p.string("a name in quotes")?);
+        } else if ends && keyword(p, "HIGH")? {
+            q.high = Some(p.string("a name in quotes")?);
+        } else if ends && keyword(p, "LOW")? {
+            q.low = Some(p.string("a name in quotes")?);
         } else if level && keyword(p, "LEVEL")? {
             let levels = ["SCALE", "NOMINAL", "ORDINAL"];
             let Some(k) = levels.iter().position(|l| p.eat_word(l)) else {
                 return Err(p.unexpected(&levels));
             };
-            scale = Some(k == 0);
+            q.scale = Some(k == 0);
         } else {
             let mut expected = vec!["NAME", "']'"];
             if level {
                 expected.insert(1, "LEVEL");
             }
+            if ends {
+                expected.splice(1..1, ["HIGH", "LOW"]);
+            }
             return Err(p.unexpected(&expected));
         }
     }
-    Ok((name, scale))
+    Ok(q)
+}
+
+/// What the brackets after a variable or a function set.
+#[derive(Default)]
+struct Qualifier {
+    name: Option<String>,
+    scale: Option<bool>,
+    high: Option<String>,
+    low: Option<String>,
 }
 
 /// The items of VARIABLES, up to the next keyword of GRAPHDATASET or the next subcommand.
@@ -275,7 +328,7 @@ fn items(p: &mut Parser) -> PResult<Vec<GraphItem>> {
                     }
                 }
             };
-            let (name, scale) = qualifier(p, true)?;
+            let Qualifier { name, scale, .. } = qualifier(p, true, false)?;
             if name.is_some() && !matches!(item, VarItem::Name(_)) {
                 let message = "NAME renames a single variable, not a list";
                 return Err(SyntaxError::new(start, message));
@@ -342,6 +395,20 @@ fn items(p: &mut Parser) -> PResult<Vec<GraphItem>> {
             "PEQ" => GraphStat::Peq(x),
             "NGE" => GraphStat::Nge(x),
             "PGE" => GraphStat::Pge(x),
+            "COUNTCI" | "MEDIANCI" | "MEANCI" if !(50.0..100.0).contains(&x) => {
+                let message =
+                    format!("the confidence level of {function} lies from 50 to below 100");
+                return Err(SyntaxError::new(span, message));
+            }
+            "MEANSD" | "MEANSE" if x < 1.0 || x.fract() != 0.0 => {
+                let message = format!("the multiplier of {function} is a whole number above 0");
+                return Err(SyntaxError::new(span, message));
+            }
+            "COUNTCI" => GraphStat::Error(ErrorFn::CountCi(x)),
+            "MEDIANCI" => GraphStat::Error(ErrorFn::MedianCi(x)),
+            "MEANCI" => GraphStat::Error(ErrorFn::MeanCi(x)),
+            "MEANSD" => GraphStat::Error(ErrorFn::MeanSd(x)),
+            "MEANSE" => GraphStat::Error(ErrorFn::MeanSe(x)),
             _ if args[0] > args[1] => {
                 let message = format!("the low end of {function} cannot exceed its high end");
                 return Err(SyntaxError::new(span, message));
@@ -354,11 +421,18 @@ fn items(p: &mut Parser) -> PResult<Vec<GraphItem>> {
             .chain(args.iter().map(|&a| plain(a)))
             .collect::<Vec<_>>()
             .join("_");
-        let (name, _) = qualifier(p, false)?;
+        let interval = matches!(stat, GraphStat::Error(_));
+        let q = qualifier(p, false, interval)?;
+        // the ends are named after the default name, whatever NAME gives the value
+        let bounds = interval.then(|| Bounds {
+            high: q.high.unwrap_or_else(|| format!("{default}_HIGH")),
+            low: q.low.unwrap_or_else(|| format!("{default}_LOW")),
+        });
         items.push(GraphItem::Function {
             stat,
             variable,
-            name: name.unwrap_or(default),
+            name: q.name.unwrap_or(default),
+            bounds,
         });
     }
     if items.is_empty() {
@@ -412,21 +486,27 @@ fn graph_dataset(p: &mut Parser) -> PResult<GraphDataset> {
             if !p.eat_word("VARSTOCASES") {
                 return Err(p.unexpected(&["NO", "VARSTOCASES"]));
             }
-            let (mut summary, mut index) = ("#SUMMARY".to_string(), "#INDEX".to_string());
+            let mut to = ToCases {
+                summary: "#SUMMARY".into(),
+                index: "#INDEX".into(),
+                high: "#HIGH".into(),
+                low: "#LOW".into(),
+            };
             p.expect(Punct::LParen)?;
             while !p.eat(Punct::RParen) {
                 if keyword(p, "SUMMARY")? {
-                    summary = p.string("a name in quotes")?;
+                    to.summary = p.string("a name in quotes")?;
                 } else if keyword(p, "INDEX")? {
-                    index = p.string("a name in quotes")?;
-                } else if p.eat_word("HIGH") || p.eat_word("LOW") {
-                    p.expect(Punct::Eq)?;
-                    p.string("a name in quotes")?;
+                    to.index = p.string("a name in quotes")?;
+                } else if keyword(p, "HIGH")? {
+                    to.high = p.string("a name in quotes")?;
+                } else if keyword(p, "LOW")? {
+                    to.low = p.string("a name in quotes")?;
                 } else {
-                    return Err(p.unexpected(&["SUMMARY", "INDEX", "')'"]));
+                    return Err(p.unexpected(&["SUMMARY", "INDEX", "HIGH", "LOW", "')'"]));
                 }
             }
-            set.to_cases = Some((summary, index));
+            set.to_cases = Some(to);
         } else if keyword(p, "MISSING")? {
             let options = ["LISTWISE", "VARIABLEWISE"];
             let Some(k) = options.iter().position(|o| p.eat_word(o)) else {

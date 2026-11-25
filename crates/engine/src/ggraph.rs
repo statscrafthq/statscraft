@@ -9,6 +9,10 @@
 //!   leaves it out only of the functions of the variable it misses. REPORTMISSING=YES makes
 //!   each user-missing value of a variable a category of its own, except for variables at the
 //!   scale level (the LEVEL qualifier, else the dictionary); NO treats them as system-missing.
+//! - The error interval functions (MEANCI and the like) add the high and the low end of the
+//!   interval as columns, computed as the error bars of GRAPH are; VARSTOCASES keeps them in its
+//!   HIGH and LOW columns, missing for a function without an interval. An element of
+//!   region.spread.range(x*(a+b)) draws them as the error bars of the value elements.
 //! - TRANSFORM=VARSTOCASES turns the functions into rows: an index column numbers them and a
 //!   summary column holds their values; the other variables stay as they are.
 //! - CASELIMIT keeps the first rows of the graph dataset only.
@@ -19,6 +23,8 @@
 //!   variables of the dimensions and color splitting them into series.
 //!
 //! Where the manual is silent:
+//! - The ends of an interval function keep the default name's _HIGH and _LOW when NAME renames the
+//!   summary.
 //! - Weights count in every function and in the summaries of the chart program; cases with a
 //!   weight of zero or less are left out, as in GRAPH.
 //! - Categories ascend by value, valid ones first, then user-missing ones (REPORTMISSING=YES).
@@ -30,21 +36,24 @@
 //!   error.
 
 use crate::chart::{
-    self, Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic, Tier,
+    self, Axis, Category, Chart, ChartKind, ErrorBars, Grouping, Orientation, Series, Statistic,
+    Tier,
 };
 use crate::crosstabs::Key;
 use crate::descriptives::case_weights;
 use crate::format::{Stat, procedure_format};
 use crate::frequencies::Histogram;
 use crate::graph::{
-    Class, Item, MOST_CATEGORIES, category, class_of, compute, function_name, order, statistic_of,
+    Class, Item, MOST_CATEGORIES, bar_lengths, category, class_of, compute, count_bar,
+    function_name, interval_label, order, statistic_of,
 };
 use crate::plot::{Plot, Point, PointGroup};
 use crate::shown::Shown;
 use crate::{Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Variable};
 use statscraft_syntax::{
-    Command, Ggraph, GplExpr, GplProgram, GraphDataset, GraphFunction as F, GraphItem, GraphStat,
+    Bounds, Command, ErrorFn, Ggraph, GplExpr, GplProgram, GraphDataset, GraphFunction as F,
+    GraphInterval, GraphItem, GraphStat,
 };
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -255,7 +264,32 @@ fn proxy(stat: GraphStat) -> F {
         GraphStat::Nle(_) | GraphStat::Neq(_) | GraphStat::Nge(_) => F::N,
         GraphStat::Ple(_) | GraphStat::Peq(_) | GraphStat::Pge(_) => F::Pct,
         GraphStat::CaseValue => F::Mean,
+        GraphStat::Error(e) => interval_of(e).0,
     }
+}
+
+/// The function an error interval function summarizes with, and the interval it adds.
+fn interval_of(e: ErrorFn) -> (F, GraphInterval) {
+    match e {
+        ErrorFn::CountCi(a) => (F::Count, GraphInterval::Ci(a)),
+        ErrorFn::MedianCi(a) => (F::Median, GraphInterval::Ci(a)),
+        ErrorFn::MeanCi(a) => (F::Mean, GraphInterval::Ci(a)),
+        ErrorFn::MeanSd(k) => (F::Mean, GraphInterval::StdDev(k)),
+        ErrorFn::MeanSe(k) => (F::Mean, GraphInterval::Se(k)),
+    }
+}
+
+/// The value of an error interval function and the high and low end of its interval, as the
+/// error bars of GRAPH are drawn. `whole` is the weight of all the cases a count is a share of.
+fn interval_values(e: ErrorFn, pairs: &[(f64, f64)], whole: f64) -> Result<[f64; 3], Error> {
+    let (function, interval) = interval_of(e);
+    let value = compute(function, pairs);
+    let [below, above] = match function {
+        F::Count => count_bar(interval, function, value, whole),
+        _ => bar_lengths(interval, function, pairs)
+            .map_err(|e| Error(e.0.replacen("GRAPH:", "GGRAPH:", 1)))?,
+    };
+    Ok([value, value - below, value + above])
 }
 
 fn stat_value(stat: GraphStat, pairs: &[(f64, f64)]) -> f64 {
@@ -275,7 +309,7 @@ fn stat_value(stat: GraphStat, pairs: &[(f64, f64)]) -> f64 {
         GraphStat::Peq(x) => share(count(&|v| v == x)),
         GraphStat::Nge(x) => count(&|v| v >= x),
         GraphStat::Pge(x) => share(count(&|v| v >= x)),
-        GraphStat::CaseValue => f64::NAN,
+        GraphStat::CaseValue | GraphStat::Error(_) => f64::NAN,
     }
 }
 
@@ -289,9 +323,17 @@ fn stat_title(stat: GraphStat, variable: Option<&str>) -> String {
         GraphStat::Peq(v) => format!("%{of} = {}", x(v)),
         GraphStat::Nge(v) => format!("N{of} >= {}", x(v)),
         GraphStat::Pge(v) => format!("%{of} >= {}", x(v)),
+        GraphStat::Error(e) => format!(
+            "{} with {}",
+            function_name(proxy(stat), variable),
+            interval_label(interval_of(e).1)
+        ),
         _ => function_name(proxy(stat), variable),
     }
 }
+
+/// The (value, weight) pairs of one function in one group of cases.
+type Pairs = Vec<(f64, f64)>;
 
 fn build<'a>(
     data: &'a Dataset,
@@ -306,7 +348,7 @@ fn build<'a>(
         .collect();
     // the variables with their names and whether their user-missing values are categories
     let mut vars: Vec<(Variable, String, bool)> = Vec::new();
-    let mut functions: Vec<(GraphStat, Option<Variable>, String)> = Vec::new();
+    let mut functions: Vec<(GraphStat, Option<Variable>, String, Option<Bounds>)> = Vec::new();
     for item in &set.items {
         match item {
             GraphItem::Variables { item, name, scale } => {
@@ -321,6 +363,7 @@ fn build<'a>(
                 stat,
                 variable,
                 name,
+                bounds,
             } => {
                 let v = variable.as_deref().map(|n| data.variable(n)).transpose()?;
                 if let Some(v) = v.as_ref().filter(|v| v.is_string())
@@ -331,7 +374,7 @@ fn build<'a>(
                         v.name()
                     )));
                 }
-                functions.push((*stat, v, name.clone()));
+                functions.push((*stat, v, name.clone(), bounds.clone()));
             }
         }
     }
@@ -342,7 +385,7 @@ fn build<'a>(
             let cells = cases.iter().map(|&c| datum(&v, c, report)).collect();
             columns.push(variable_column(v, name, cells, shown));
         }
-        for (_, v, name) in functions {
+        for (_, v, name, _) in functions {
             let v = v.expect("CASEVALUE takes a variable");
             let cells = cases.iter().map(|&c| datum(&v, c, false)).collect();
             columns.push(variable_column(v, name, cells, shown));
@@ -384,7 +427,7 @@ fn build<'a>(
         }
         let values: Vec<Option<f64>> = functions
             .iter()
-            .map(|(_, v, _)| match v {
+            .map(|(_, v, ..)| match v {
                 None => Some(0.0),
                 Some(v) => v
                     .numeric()
@@ -406,24 +449,37 @@ fn build<'a>(
             .unwrap_or(Ordering::Equal)
     };
     records.sort_by(|a, b| compare(&a.0, &b.0));
-    let mut groups: Vec<(Vec<Class>, Vec<f64>)> = Vec::new();
+    // per group of cases: its classes and, for each function, the (value, weight) pairs
+    let mut parts: Vec<(Vec<Class>, Vec<Pairs>)> = Vec::new();
     let mut start = 0;
     while start < records.len() {
         let end = (start..records.len())
             .find(|&i| compare(&records[i].0, &records[start].0).is_ne())
             .unwrap_or(records.len());
         let part = &records[start..end];
+        let pairs = (0..functions.len())
+            .map(|f| part.iter().filter_map(|r| Some((r.1[f]?, r.2))).collect())
+            .collect();
+        parts.push((part[0].0.clone(), pairs));
+        start = end;
+    }
+    // a count's interval is that of its share of all the cases it counts
+    let whole: Vec<f64> = (0..functions.len())
+        .map(|f| parts.iter().flat_map(|g| &g.1[f]).map(|p| p.1).sum())
+        .collect();
+    // per group, for each function: the value, then the low and the high end (NaN for a
+    // function without an interval)
+    let mut groups: Vec<(Vec<Class>, Vec<[f64; 3]>)> = Vec::new();
+    for (classes, pairs) in parts {
         let values = functions
             .iter()
             .enumerate()
-            .map(|(f, (stat, ..))| {
-                let pairs: Vec<(f64, f64)> =
-                    part.iter().filter_map(|r| Some((r.1[f]?, r.2))).collect();
-                stat_value(*stat, &pairs)
+            .map(|(f, (stat, ..))| match stat {
+                GraphStat::Error(e) => interval_values(*e, &pairs[f], whole[f]),
+                _ => Ok([stat_value(*stat, &pairs[f]), f64::NAN, f64::NAN]),
             })
-            .collect();
-        groups.push((part[0].0.clone(), values));
-        start = end;
+            .collect::<Result<_, Error>>()?;
+        groups.push((classes, values));
     }
     groups.truncate(set.case_limit);
     for (i, (v, name, _)) in vars.into_iter().enumerate() {
@@ -433,28 +489,41 @@ fn build<'a>(
             .collect();
         columns.push(variable_column(v, name, cells, shown));
     }
-    let stats: Vec<Column> = functions
+    // each function with its columns: the value, and for an error interval its high and low end
+    let stats: Vec<(Column, Option<[Column; 2]>)> = functions
         .iter()
         .enumerate()
-        .map(|(f, (stat, v, name))| {
-            let values: Vec<f64> = groups.iter().map(|g| g.1[f]).collect();
+        .map(|(f, (stat, v, name, bounds))| {
+            let at = |k: usize| -> Vec<f64> { groups.iter().map(|g| g.1[f][k]).collect() };
+            let values = at(0);
             let item = Item {
                 function: proxy(*stat),
                 variable: *v,
             };
-            Column {
-                name: name.clone(),
-                title: stat_title(*stat, v.as_ref().map(|v| shown.variable(v)).as_deref()),
+            let title = stat_title(*stat, v.as_ref().map(|v| shown.variable(v)).as_deref());
+            let column = |name: &str, title: String, values: Vec<f64>| Column {
+                name: name.to_string(),
+                title,
                 format: item.format(&values),
                 statistic: statistic_of(item.function),
                 kind: Kind::Number,
                 cells: values.into_iter().map(Datum::Number).collect(),
-            }
+            };
+            let ends = bounds.as_ref().map(|b| {
+                [
+                    column(&b.high, format!("{title}, high end"), at(2)),
+                    column(&b.low, format!("{title}, low end"), at(1)),
+                ]
+            });
+            (column(name, title, values), ends)
         })
         .collect();
     let mut weights = vec![1.0; groups.len()];
-    let Some((summary_name, index_name)) = &set.to_cases else {
-        columns.extend(stats);
+    let Some(to) = &set.to_cases else {
+        for (value, ends) in stats {
+            columns.push(value);
+            columns.extend(ends.into_iter().flatten());
+        }
         return Ok(Set {
             name: set.name.clone(),
             columns,
@@ -472,38 +541,53 @@ fn build<'a>(
     }
     let rows = groups.len() * k;
     weights = vec![1.0; rows];
-    let same = stats.iter().all(|s| s.statistic == stats[0].statistic);
+    let first = &stats[0].0;
+    let same = stats.iter().all(|s| s.0.statistic == first.statistic);
     columns.push(Column {
-        name: index_name.clone(),
+        name: to.index.clone(),
         title: "Variables".into(),
         format: String::new(),
         statistic: Statistic::Value,
-        kind: Kind::Labels(stats.iter().map(|s| s.title.clone()).collect()),
+        kind: Kind::Labels(stats.iter().map(|s| s.0.title.clone()).collect()),
         cells: (0..rows)
             .map(|r| Datum::Number((r % k + 1) as f64))
             .collect(),
     });
-    columns.push(Column {
-        name: summary_name.clone(),
-        title: match same {
-            true => stats[0]
-                .title
-                .split(" of ")
-                .next()
-                .unwrap_or("Value")
-                .to_string(),
-            false => "Value".into(),
-        },
-        format: stats[0].format.clone(),
+    let number = |name: &str, title: String, cells: Vec<Datum>| Column {
+        name: name.to_string(),
+        title,
+        format: first.format.clone(),
         statistic: match same {
-            true => stats[0].statistic,
+            true => first.statistic,
             false => Statistic::Value,
         },
         kind: Kind::Number,
-        cells: (0..rows)
-            .map(|r| stats[r % k].cells[r / k].clone())
+        cells,
+    };
+    let summary_title = match same {
+        true => first.title.split(" of ").next().unwrap_or("Value"),
+        false => "Value",
+    };
+    columns.push(number(
+        &to.summary,
+        summary_title.to_string(),
+        (0..rows)
+            .map(|r| stats[r % k].0.cells[r / k].clone())
             .collect(),
-    });
+    ));
+    // the ends of the error intervals; a function without one leaves them missing
+    if stats.iter().any(|s| s.1.is_some()) {
+        for (name, end) in [(&to.high, 0), (&to.low, 1)] {
+            let cells = (0..rows)
+                .map(|r| match &stats[r % k].1 {
+                    Some(ends) => ends[end].cells[r / k].clone(),
+                    None => Datum::Missing,
+                })
+                .collect();
+            let title = format!("{summary_title}, {} end", ["high", "low"][end]);
+            columns.push(number(name, title, cells));
+        }
+    }
     Ok(Set {
         name: set.name.clone(),
         columns,
@@ -594,6 +678,8 @@ enum Position {
     Histogram(String, String, bool),
     /// density.normal(x): the normal curve over a histogram.
     Normal(String),
+    /// region.spread.range(x*(a+b)): the two ends of an interval at each x.
+    Spread(String, String, String),
 }
 
 /// The names crossed by `*`.
@@ -616,6 +702,16 @@ fn position(expr: &GplExpr) -> Option<Position> {
     let GplExpr::Call(name, args) = expr else {
         return None;
     };
+    if let ("region.spread.range", [GplExpr::Op('*', x, ends)]) = (name.as_str(), &args[..])
+        && let (GplExpr::Name(x), GplExpr::Op('+', a, b)) = (&**x, &**ends)
+        && let (GplExpr::Name(a), GplExpr::Name(b)) = (&**a, &**b)
+    {
+        return Some(Position::Spread(
+            x.to_lowercase(),
+            a.to_lowercase(),
+            b.to_lowercase(),
+        ));
+    }
     let function = name.strip_prefix("summary.");
     match (function, name.as_str(), &args[..]) {
         (Some(f), _, [GplExpr::Call(bin, inner)]) if bin == "bin.rect" => match &inner[..] {
@@ -861,6 +957,9 @@ fn settings(
                         // bars are drawn square, and a line passes over empty categories
                         ("shape.interior" | "shape", Some(GplExpr::Name(n)))
                             if n.eq_ignore_ascii_case("shape.square") => {}
+                        // the whisker ends of an interval are drawn as error bars
+                        ("shape", Some(GplExpr::Name(n)))
+                            if n.eq_ignore_ascii_case("shape.ibeam") && f == "interval" => {}
                         ("missing.wings", _) => {}
                         _ => warn(line, skip(&format!("{f}: {a}"))),
                     }
@@ -971,6 +1070,10 @@ fn draw(
         }
         return Ok(chart);
     }
+    // the ends of an interval are drawn around the values of the other elements
+    let (spreads, mut elements): (Vec<Element>, Vec<Element>) = elements
+        .into_iter()
+        .partition(|e| matches!(e.position, Position::Spread(..)));
     elements.retain(|e| match e.position {
         Position::Normal(_) => {
             warn(
@@ -982,9 +1085,14 @@ fn draw(
         _ => true,
     });
     let Some(first) = elements.first() else {
-        return Err(Error(
-            "GGRAPH: the chart program has no ELEMENT that can be drawn; see the warnings".into(),
-        ));
+        let message = match spreads.is_empty() {
+            true => "GGRAPH: the chart program has no ELEMENT that can be drawn; see the warnings",
+            false => {
+                "GGRAPH: region.spread.range draws the ends of an interval around a value; add a \
+                 point, bar or line ELEMENT for the value"
+            }
+        };
+        return Err(Error(message.into()));
     };
     let (mark, stacked) = (first.mark, first.stacked);
     elements.retain(|e| {
@@ -999,9 +1107,17 @@ fn draw(
         same
     });
     let mut chart = match mark {
-        Mark::Point if is_scatter(&elements[0], &s) => scatter(sets, &s, &elements, shown)?,
+        Mark::Point if is_scatter(&elements[0], &s) => {
+            for e in &spreads {
+                warn(
+                    e.line,
+                    "ELEMENT is skipped: error bars go with values over categories".into(),
+                );
+            }
+            scatter(sets, &s, &elements, shown)?
+        }
         _ => {
-            let mut chart = categorical(sets, &s, &elements, shown, &mut warn)?;
+            let mut chart = categorical(sets, &s, &elements, &spreads, shown, &mut warn)?;
             chart.kind = match mark {
                 Mark::Bar => ChartKind::Bar,
                 Mark::Line => ChartKind::Line,
@@ -1179,6 +1295,7 @@ fn categorical(
     sets: &[Set],
     s: &Settings,
     elements: &[Element],
+    spreads: &[Element],
     shown: &Shown,
     warn: &mut dyn FnMut(u32, String),
 ) -> Result<Chart, Error> {
@@ -1497,6 +1614,15 @@ fn categorical(
             }
         })
         .collect();
+    let error_bars = spread_bars(
+        sets,
+        s,
+        spreads,
+        (&classes, &parts, &series),
+        cat_var,
+        group,
+        warn,
+    )?;
     let title_of = |d: usize, made: String| match s.axes.get(&d) {
         Some(Some(text)) => text.clone(),
         Some(None) => String::new(),
@@ -1532,12 +1658,96 @@ fn categorical(
         categories,
         series,
         normal: None,
-        error_bars: None,
+        error_bars,
         second_axis: None,
         plot: None,
         outline: None,
         hidden: false,
     })
+}
+
+/// The error bars an interval element adds: at each category and series, the bar runs from the
+/// lower to the higher of the two columns on the row that the value comes from. Only the first
+/// such element counts, and only over the categories of the value elements.
+fn spread_bars(
+    sets: &[Set],
+    s: &Settings,
+    spreads: &[Element],
+    (classes, parts, series): (&[Option<Class>], &[Part], &[Series]),
+    cat_var: Option<Var>,
+    group: Option<Var>,
+    warn: &mut dyn FnMut(u32, String),
+) -> Result<Option<ErrorBars>, Error> {
+    for e in spreads.iter().skip(1) {
+        warn(
+            e.line,
+            "ELEMENT is skipped: the chart shows the error bars of one interval element".into(),
+        );
+    }
+    let Some(e) = spreads.first() else {
+        return Ok(None);
+    };
+    let Position::Spread(x, a, b) = &e.position else {
+        return Ok(None);
+    };
+    let var = |name: &String| {
+        s.vars.get(name).copied().ok_or_else(|| {
+            Error(format!(
+                "GGRAPH: line {}: {name} is not a variable of the chart program; DATA defines \
+                 them",
+                e.line
+            ))
+        })
+    };
+    let (x, a, b) = (var(x)?, var(a)?, var(b)?);
+    let same = |u: Var, v: Var| (u.set, u.column) == (v.set, v.column);
+    if !cat_var.is_some_and(|c| same(c, x)) || a.set != x.set || b.set != x.set {
+        warn(
+            e.line,
+            "ELEMENT is skipped: its categories or its dataset differ from the value elements'"
+                .into(),
+        );
+        return Ok(None);
+    }
+    let set = &sets[x.set];
+    let col = |v: Var| &set.columns[v.column];
+    let mut margins = vec![vec![f64::NAN; classes.len()]; parts.len()];
+    let mut lower = margins.clone();
+    for (r, _) in set.weights.iter().enumerate() {
+        let Some(class) = col(x).class(r) else {
+            continue;
+        };
+        let (Some(ci), Some(ends)) = (
+            classes.iter().position(|c| c.as_ref() == Some(&class)),
+            col(a).number(r).zip(col(b).number(r)),
+        ) else {
+            continue;
+        };
+        for (pi, part) in parts.iter().enumerate() {
+            let own = match (group, &part.name) {
+                (Some(g), Ok(name)) => col(g).class(r).as_ref() == Some(name),
+                _ => true,
+            };
+            let value = series[pi].values[ci];
+            if own && value.is_finite() {
+                margins[pi][ci] = ends.0.max(ends.1) - value;
+                lower[pi][ci] = value - ends.0.min(ends.1);
+            }
+        }
+    }
+    // "Mean of x with 95% CI, high end" spans a "95% CI"
+    let label = col(a)
+        .title
+        .split(" with ")
+        .nth(1)
+        .and_then(|t| t.split(',').next())
+        .unwrap_or("interval")
+        .to_string();
+    Ok(Some(ErrorBars {
+        label,
+        margins,
+        lower,
+    }))
 }
 
 /// The category of a value that SCALE cat includes, as the column holds it; None when the

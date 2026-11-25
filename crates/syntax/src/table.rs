@@ -5167,7 +5167,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "GGRAPH",
         summary: "A chart from a graph dataset and a chart program in BEGIN GPL: bars (clustered, stacked), lines, areas, points, a pie or a histogram.",
-        syntax: "GGRAPH /GRAPHDATASET NAME=\"name\" VARIABLES=item ... [TRANSFORM=NO | VARSTOCASES(SUMMARY=\"n\" INDEX=\"n\")]\n\
+        syntax: "GGRAPH /GRAPHDATASET NAME=\"name\" VARIABLES=item ... [TRANSFORM=NO | VARSTOCASES(SUMMARY=\"n\" INDEX=\"n\" [HIGH=\"n\" LOW=\"n\"])]\n\
                  \x20             [MISSING=LISTWISE | VARIABLEWISE] [REPORTMISSING=NO | YES] [CASELIMIT=n]\n\
                  \x20      /GRAPHSPEC SOURCE=INLINE [LABEL=\"text\"].\n\
                  BEGIN GPL\n\
@@ -5176,7 +5176,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  item: a variable (ALL and TO allowed) with an optional [NAME=\"new\" LEVEL=SCALE | NOMINAL | ORDINAL],\n\
                  or a function with an optional [NAME=\"new\"]: COUNT(), MINIMUM MAXIMUM VALIDN SUM MEAN STDDEV\n\
                  VARIANCE MEDIAN GMEDIAN MODE (var), PTILE GPTILE PLT PGT NLT NGT NLE PLE NEQ PEQ NGE PGE (var, x), PIN NIN\n\
-                 (var, low, high), CASEVALUE(var). Keywords are written in full. A function makes one row per\n\
+                 (var, low, high), CASEVALUE(var). The interval functions MEANCI MEDIANCI (var, level), MEANSD MEANSE\n\
+                 (var, k) and COUNTCI(level) give a value and the two ends of its interval, as the error bars of\n\
+                 GRAPH compute them: a level runs from 50 up to but below 100, k is a whole number above 0, and the\n\
+                 ends are columns named like the function with _HIGH and _LOW added; [NAME=\"v\" HIGH=\"h\" LOW=\"l\"]\n\
+                 renames them. Keywords are written in full. A function makes one row per\n\
                  combination of the other variables' values; its column is called by its name and arguments joined\n\
                  with underscores (MEAN_price, PTILE_price_90) unless NAME renames it. Without a function every\n\
                  case with a positive weight is a row, and $CASENUM numbers them. Weights count in every function.\n\
@@ -5185,7 +5189,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  LISTWISE drops a case missing on any listed variable; VARIABLEWISE drops it only from the functions\n\
                  of the variable it misses. REPORTMISSING=YES turns user-missing values of variables that are not at\n\
                  the scale level into categories of their own. VARSTOCASES makes a row of each function, numbered in\n\
-                 the INDEX column with the value in the SUMMARY column. CASELIMIT keeps the first n rows.\n\
+                 the INDEX column with the value in the SUMMARY column, and the ends of an interval function in the\n\
+                 HIGH and LOW columns (#HIGH and #LOW unless named; missing for a function without an interval).\n\
+                 CASELIMIT keeps the first n rows.\n\
                  Each GRAPHSPEC takes the next BEGIN GPL block; both stand right after the command. In the chart\n\
                  program: SOURCE: s=userSource(id(\"name\")); DATA: x=col(source(s), name(\"column\")\n\
                  [, unit.category()]); GUIDE: axis(dim(1 | 2), label(\"text\") | null()), legend(aesthetic(...),\n\
@@ -5197,7 +5203,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  name the series. Several rows on one point need summary.count, mean, sum, median, mode, min, max or\n\
                  percent around the position; position(summary.count(bin.rect(x))) is a histogram and\n\
                  line(position(density.normal(x))) adds its normal curve. point over two scale variables is a\n\
-                 scatterplot. Other statements and settings give a warning and are skipped.",
+                 scatterplot. interval(position(region.spread.range(x*(low+high)))), with shape(shape.ibeam)\n\
+                 allowed, adds error bars around the values of the other element over the same categories. Other statements and settings give a warning and are skipped.",
         example: "GGRAPH /GRAPHDATASET NAME=\"sales\" VARIABLES=store daypart MEAN(basket)\n\
                  \x20 /GRAPHSPEC SOURCE=INLINE.\n\
                  BEGIN GPL\n\

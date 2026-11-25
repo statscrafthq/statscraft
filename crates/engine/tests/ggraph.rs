@@ -369,3 +369,140 @@ fn charts_that_cannot_be_drawn_are_errors() {
         "BEGIN GPL belongs right after a GGRAPH command with GRAPHSPEC SOURCE=INLINE"
     );
 }
+
+/// The values of the series of a dataset's column drawn as points by field.
+fn column(variables: &str, name: &str) -> Vec<f64> {
+    one(&program(
+        variables,
+        &format!(
+            "{FIELD}\nDATA: v=col(source(s), name(\"{name}\"))\n\
+             ELEMENT: point(position(field*v))"
+        ),
+    ))
+    .series[0]
+        .values
+        .clone()
+}
+
+#[test]
+fn mean_interval_has_a_value_and_two_ends() {
+    // North counts 10, 14 and 12 twice (n = 4), South 20 and 8, East only 6; t quantiles of 3 and
+    // 1 degrees of freedom, checked in R
+    let vars = "field MEANCI(yield, 95)[NAME=\"m\" HIGH=\"hi\" LOW=\"lo\"]";
+    close(&column(vars, "m"), &[12.0, 14.0, 6.0]);
+    // East has no interval, so it has no point at its ends
+    close(&column(vars, "hi"), &[14.598456527250, 90.237228417048]);
+    close(&column(vars, "lo"), &[9.401543472750, -62.237228417048]);
+    // without qualifiers the names are the function's, with _HIGH and _LOW after them
+    let hi = column("field MEANCI(yield, 90)", "MEANCI_yield_90_HIGH");
+    close(&hi[..1], &[13.921513198196]);
+    // k standard deviations and k standard errors: sd 1.632993161855, se 0.816496580928
+    let sd = 1.632993161855;
+    let hi = column("field MEANSD(yield, 2)", "MEANSD_yield_2_HIGH");
+    close(&hi[..1], &[12.0 + 2.0 * sd]);
+    let lo = column("field MEANSE(yield, 3)", "MEANSE_yield_3_LOW");
+    close(&lo[..1], &[12.0 - 3.0 * sd / 2.0]);
+}
+
+#[test]
+fn interval_element_draws_the_error_bars_of_the_points() {
+    let chart = one(&program(
+        "field MEANCI(yield, 95)[NAME=\"m\" HIGH=\"hi\" LOW=\"lo\"]",
+        &format!(
+            "{FIELD}\nDATA: m=col(source(s), name(\"m\"))\n\
+             DATA: hi=col(source(s), name(\"hi\"))\nDATA: lo=col(source(s), name(\"lo\"))\n\
+             ELEMENT: point(position(field*m))\n\
+             ELEMENT: interval(position(region.spread.range(field*(lo+hi))), shape(shape.ibeam))"
+        ),
+    ));
+    assert_eq!(chart.kind_text(), "Simple error bar chart");
+    let bars = chart.error_bars.as_ref().expect("error bars");
+    assert_eq!(bars.label, "95% CI");
+    close(
+        &bars.margins[0],
+        &[2.598456527250, 76.237228417048, f64::NAN],
+    );
+    close(&bars.lower[0], &[2.598456527250, 76.237228417048, f64::NAN]);
+    // the order of the two ends does not matter, and a bar can sit on bars
+    let chart = one(&program(
+        "field MEANCI(yield, 95)[NAME=\"m\" HIGH=\"hi\" LOW=\"lo\"]",
+        &format!(
+            "{FIELD}\nDATA: m=col(source(s), name(\"m\"))\n\
+             DATA: hi=col(source(s), name(\"hi\"))\nDATA: lo=col(source(s), name(\"lo\"))\n\
+             ELEMENT: interval(position(field*m))\n\
+             ELEMENT: interval(position(region.spread.range(field*(hi+lo))))"
+        ),
+    ));
+    assert_eq!(chart.kind_text(), "Simple bar chart");
+    close(
+        &chart.error_bars.as_ref().expect("error bars").margins[0],
+        &[2.598456527250, 76.237228417048, f64::NAN],
+    );
+    // an interval element alone has no value to surround
+    let message = error(&program(
+        "field MEANCI(yield, 95)[NAME=\"m\" HIGH=\"hi\" LOW=\"lo\"]",
+        &format!(
+            "{FIELD}\nDATA: m=col(source(s), name(\"m\"))\n\
+             DATA: hi=col(source(s), name(\"hi\"))\nDATA: lo=col(source(s), name(\"lo\"))\n\
+             ELEMENT: interval(position(region.spread.range(field*(lo+hi))))"
+        ),
+    ));
+    assert!(
+        message.contains("add a point, bar or line ELEMENT"),
+        "{message}"
+    );
+}
+
+#[test]
+fn separate_functions_with_intervals_become_rows_with_low_and_high_columns() {
+    // 9 valid cases of yield (weights counted): mean 14.2222, t(8) interval checked in R; the
+    // mean of rain has no interval, so its ends are missing
+    let vars = "MEANCI(yield, 95) MEAN(rain) \
+                TRANSFORM=VARSTOCASES(SUMMARY=\"m\" INDEX=\"k\" HIGH=\"up\" LOW=\"down\")";
+    let rows = |name: &str| {
+        one(&program(
+            vars,
+            &format!(
+                "DATA: k=col(source(s), name(\"k\"), unit.category())\n\
+                 DATA: v=col(source(s), name(\"{name}\"))\nELEMENT: point(position(k*v))"
+            ),
+        ))
+        .series[0]
+            .values
+            .clone()
+    };
+    close(&rows("m"), &[14.222222222222, 3.777777777778]);
+    close(&rows("up"), &[19.788803718338]);
+    close(&rows("down"), &[8.655640726106]);
+}
+
+#[test]
+fn median_and_count_intervals_agree_with_the_error_bars_of_graph() {
+    // GRAPH's bars give how far each end lies below and above the value
+    let graph = one("GRAPH /BAR(SIMPLE)=MEDIAN(yield) BY field /INTERVAL CI(90).");
+    let bars = graph.error_bars.as_ref().expect("bars");
+    let value = &graph.series[0].values;
+    let up: Vec<f64> = (0..3).map(|k| value[k] + bars.margins[0][k]).collect();
+    let down: Vec<f64> = (0..3).map(|k| value[k] - bars.lower[0][k]).collect();
+    close(
+        &column("field MEDIANCI(yield, 90)", "MEDIANCI_yield_90"),
+        value,
+    );
+    close(
+        &column("field MEDIANCI(yield, 90)", "MEDIANCI_yield_90_HIGH"),
+        &up,
+    );
+    close(
+        &column("field MEDIANCI(yield, 90)", "MEDIANCI_yield_90_LOW"),
+        &down,
+    );
+    // COUNT of the cases of each field, a share of all the cases counted
+    let graph = one("GRAPH /BAR(SIMPLE)=COUNT BY field /INTERVAL CI(95).");
+    let bars = graph.error_bars.as_ref().expect("bars");
+    let value = &graph.series[0].values;
+    close(&column("field COUNTCI(95)", "COUNTCI_95"), value);
+    let up: Vec<f64> = (0..3).map(|k| value[k] + bars.margins[0][k]).collect();
+    let down: Vec<f64> = (0..3).map(|k| value[k] - bars.lower[0][k]).collect();
+    close(&column("field COUNTCI(95)", "COUNTCI_95_HIGH"), &up);
+    close(&column("field COUNTCI(95)", "COUNTCI_95_LOW"), &down);
+}

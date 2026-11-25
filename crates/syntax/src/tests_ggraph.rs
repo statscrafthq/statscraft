@@ -61,16 +61,19 @@ fn reads_the_graph_dataset_and_the_block_after_it() {
                 stat: GraphStat::Graph(GraphFunction::Mean),
                 variable: Some("glaze".into()),
                 name: "MEAN_glaze".into(),
+                bounds: None,
             },
             GraphItem::Function {
                 stat: GraphStat::Graph(GraphFunction::Ptile(90.0)),
                 variable: Some("glaze".into()),
                 name: "top".into(),
+                bounds: None,
             },
             GraphItem::Function {
                 stat: GraphStat::Graph(GraphFunction::Count),
                 variable: None,
                 name: "COUNT".into(),
+                bounds: None,
             },
         ]
     );
@@ -141,7 +144,15 @@ fn transform_and_function_names() {
          TRANSFORM=VARSTOCASES(SUMMARY=\"m\" INDEX=\"i\")\n/GRAPHSPEC SOURCE=INLINE /FRAME INNER=YES.",
     );
     let set = &g.datasets[0];
-    assert_eq!(set.to_cases, Some(("m".into(), "i".into())));
+    assert_eq!(
+        set.to_cases,
+        Some(ToCases {
+            summary: "m".into(),
+            index: "i".into(),
+            high: "#HIGH".into(),
+            low: "#LOW".into(),
+        })
+    );
     let GraphItem::Function { name, .. } = &set.items[1] else {
         panic!("{:?}", set.items);
     };
@@ -162,8 +173,24 @@ fn errors_name_what_is_not_supported() {
     let base =
         |rest: &str| format!("GGRAPH /GRAPHDATASET NAME=\"g\" {rest} /GRAPHSPEC SOURCE=INLINE.");
     assert_eq!(
-        err(&base("VARIABLES=a MEANCI(b, 95)")),
-        "the function MEANCI of GGRAPH is not supported yet"
+        err(&base("VARIABLES=a RESPONSES(b)")),
+        "the function RESPONSES of GGRAPH is not supported yet"
+    );
+    assert_eq!(
+        err(&base("VARIABLES=a MEANCI(b, 49)")),
+        "the confidence level of MEANCI lies from 50 to below 100"
+    );
+    assert_eq!(
+        err(&base("VARIABLES=a COUNTCI(100)")),
+        "the confidence level of COUNTCI lies from 50 to below 100"
+    );
+    assert_eq!(
+        err(&base("VARIABLES=a MEANSD(b, 1.5)")),
+        "the multiplier of MEANSD is a whole number above 0"
+    );
+    assert_eq!(
+        err(&base("VARIABLES=a MEANSE(b, 0)")),
+        "the multiplier of MEANSE is a whole number above 0"
     );
     assert_eq!(
         err(&base("VARIABLES=a CASEVALUE(b) COUNT()")),
@@ -194,4 +221,58 @@ fn errors_name_what_is_not_supported() {
         "GRAPHDATASET needs NAME=\"name\""
     );
     assert_eq!(err("END GPL."), "END GPL without BEGIN GPL");
+}
+
+#[test]
+fn error_interval_functions_name_their_ends() {
+    let g = ggraph(
+        "GGRAPH /GRAPHDATASET NAME=\"g\" VARIABLES=kiln MEANCI(glaze, 90) MEANSD(glaze, 2)[NAME=\"m\" \
+         HIGH=\"up\" LOW=\"down\"] COUNTCI(99.5) MEDIANCI(clay, 50) MEANSE(clay, 3)[NAME=\"se\"] \
+         TRANSFORM=VARSTOCASES(SUMMARY=\"v\" INDEX=\"i\" HIGH=\"hi\" LOW=\"lo\")\n\
+         /GRAPHSPEC SOURCE=INLINE.",
+    );
+    let set = &g.datasets[0];
+    let ends = |k: usize| match &set.items[k] {
+        GraphItem::Function {
+            stat,
+            name,
+            bounds: Some(b),
+            ..
+        } => (*stat, name.clone(), b.high.clone(), b.low.clone()),
+        other => panic!("{other:?}"),
+    };
+    let text = |a: &str, b: &str, c: &str| (a.to_string(), b.to_string(), c.to_string());
+    let (stat, name, high, low) = ends(1);
+    assert_eq!(stat, GraphStat::Error(ErrorFn::MeanCi(90.0)));
+    assert_eq!(
+        (name, high, low),
+        text(
+            "MEANCI_glaze_90",
+            "MEANCI_glaze_90_HIGH",
+            "MEANCI_glaze_90_LOW"
+        )
+    );
+    let (stat, name, high, low) = ends(2);
+    assert_eq!(stat, GraphStat::Error(ErrorFn::MeanSd(2.0)));
+    assert_eq!((name, high, low), text("m", "up", "down"));
+    let (stat, name, high, low) = ends(3);
+    assert_eq!(stat, GraphStat::Error(ErrorFn::CountCi(99.5)));
+    assert_eq!(
+        (name, high, low),
+        text("COUNTCI_99.5", "COUNTCI_99.5_HIGH", "COUNTCI_99.5_LOW")
+    );
+    assert_eq!(ends(4).0, GraphStat::Error(ErrorFn::MedianCi(50.0)));
+    // NAME renames the value only; the ends keep the names of the function
+    let (_, name, high, low) = ends(5);
+    assert_eq!(
+        (name, high, low),
+        text("se", "MEANSE_clay_3_HIGH", "MEANSE_clay_3_LOW")
+    );
+    let to = set.to_cases.as_ref().expect("VARSTOCASES");
+    assert_eq!((to.high.as_str(), to.low.as_str()), ("hi", "lo"));
+    // HIGH and LOW belong to the error functions
+    let message = err(
+        "GGRAPH /GRAPHDATASET NAME=\"g\" VARIABLES=kiln MEAN(glaze)[HIGH=\"x\"] /GRAPHSPEC SOURCE=INLINE.",
+    );
+    assert_eq!(message, "unexpected word HIGH");
 }
