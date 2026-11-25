@@ -1300,6 +1300,7 @@ impl Engine {
             part.set_string_values("SOURCE_", width, sources)?;
             for (c, column) in table.columns.iter().enumerate().skip(1) {
                 let (variable, label) = match column.as_str() {
+                    _ if c == 1 => ("SS", "Sum of squares"),
                     "df" => ("DF", "Degrees of freedom"),
                     "Mean Square" => ("MS", "Mean square"),
                     "F" => ("F", "F statistic"),
@@ -1307,7 +1308,7 @@ impl Engine {
                     "Partial Eta Squared" => ("ETASQ", "Partial eta squared"),
                     "Noncent. Parameter" => ("NONCENT", "Noncentrality parameter"),
                     "Observed Power" => ("POWER", "Observed power"),
-                    _ => ("SS", "Sum of squares"),
+                    _ => continue,
                 };
                 let values = table
                     .rows
