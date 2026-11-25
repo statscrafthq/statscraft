@@ -1204,19 +1204,19 @@ impl App {
                     view.cell_edit = None;
                     view.field_edit = None;
                 }
-                self.show(result, t("core-origin-command-line"), None);
+                self.show(result, "command line", None);
             }
             After::Show => {
-                self.show(result, t("core-origin-window"), None);
+                self.show(result, "window", None);
             }
             After::Activate(name) => {
                 if same(self.activating.as_deref(), Some(&name)) {
                     self.activating = None;
                 }
-                self.show(result, t("core-origin-window"), None);
+                self.show(result, "window", None);
             }
             After::CloseWindow(id) => {
-                if self.show(result, t("core-origin-window"), None) {
+                if self.show(result, "window", None) {
                     self.drop_window(id);
                 } else if let Some(w) = self.windows.get_mut(id) {
                     // the close failed: the window stays, and can be closed again
@@ -1224,7 +1224,7 @@ impl App {
                 }
             }
             After::Editor(id) => {
-                self.show(result, t("core-origin-syntax-editor"), Some(id));
+                self.show(result, "syntax editor", Some(id));
             }
             After::Window((request, reply), id) => {
                 if let Ok(r) = &mut result {
@@ -1240,17 +1240,17 @@ impl App {
                     view.cell_edit = None;
                     view.field_edit = None;
                 }
-                self.show(result, t("core-origin-syntax-editor"), Some(id));
+                self.show(result, "syntax editor", Some(id));
             }
             After::OpenData(path) => {
-                if self.show(result, t("core-origin-open-file"), None) {
+                if self.show(result, "open file", None) {
                     self.add_recent(&path);
                     self.data_file = Some(path);
                     self.front_active_data();
                 }
             }
             After::SaveData(path) => {
-                if self.show(result, t("core-origin-save-file"), None) {
+                if self.show(result, "save file", None) {
                     self.add_recent(&path);
                     self.data_file = Some(path);
                 }
@@ -4933,21 +4933,10 @@ fn output_groups(outputs: Vec<CommandResult>, source: &str, from_editor: bool) -
         }
         let heading = match (from_editor, out.first_line == out.last_line) {
             (false, _) => out.name,
-            (true, true) => t_args(
-                "core-command-line-n",
-                &[
-                    ("command", out.name.as_str().into()),
-                    ("line", out.first_line.into()),
-                ],
-            ),
-            (true, false) => t_args(
-                "core-command-lines",
-                &[
-                    ("command", out.name.as_str().into()),
-                    ("first", out.first_line.into()),
-                    ("last", out.last_line.into()),
-                ],
-            ),
+            (true, true) => format!("{}, line {}", out.name, out.first_line),
+            (true, false) => {
+                format!("{}, lines {}-{}", out.name, out.first_line, out.last_line)
+            }
         };
         let syntax = output::source_lines(source, out.first_line, out.last_line);
         // a chart keeps its data table: for Show data, Copy and a kind not drawn yet

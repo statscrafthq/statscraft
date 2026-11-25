@@ -296,18 +296,10 @@ core-title-roc-analysis = ROC Analysis
 core-title-response-rate = Response Rate
 core-title-control-charts = Control Charts
 core-title-catreg = Categorical Regression
-# Where a run comes from, shown in the output outline.
-core-origin-command-line = command line
-core-origin-window = window
-core-origin-syntax-editor = syntax editor
-core-origin-open-file = open file
-core-origin-save-file = save file
 core-command-line-unreachable = the command line cannot reach this window: { $error }
 core-plugin-error = plugin: { $error }
 core-checked-commands = checked { $count } command(s) from the command line
 core-dataset-open = a dataset named { $name } is open; rename or close it first
-core-command-line-n = { $command }, line { $line }
-core-command-lines = { $command }, lines { $first }-{ $last }
 core-no-counted-label = { $name } has no value label for the counted value
 core-same-counted-label = { $name } has the same label for the counted value as another variable
 # Option tables of Frequencies, Descriptives, Crosstabs, Recode and Rank Cases.
@@ -724,7 +716,6 @@ core-all-data-files = { $setting } (all data files)
 core-define-style = Define Style: { $setting }
 core-preset-changed = { $name } (changed)
 # Output, charts opened in office programs, updates.
-core-run-label = Run { $number }: { $origin }
 core-cannot-open = cannot open { $file }: { $error }
 core-chart-opened = chart opened from { $file }
 core-clipboard-format = the clipboard format could not be registered

@@ -296,18 +296,10 @@ core-title-roc-analysis = Análisis ROC
 core-title-response-rate = Tasa de respuesta
 core-title-control-charts = Gráficos de control
 core-title-catreg = Regresión categórica
-# Where a run comes from, shown in the output outline.
-core-origin-command-line = línea de comandos
-core-origin-window = ventana
-core-origin-syntax-editor = editor de sintaxis
-core-origin-open-file = abrir archivo
-core-origin-save-file = guardar archivo
 core-command-line-unreachable = la línea de comandos no puede llegar a esta ventana: { $error }
 core-plugin-error = complemento: { $error }
 core-checked-commands = { $count } comando(s) de la línea de comandos comprobado(s)
 core-dataset-open = hay abierto un conjunto de datos llamado { $name }; cámbielo de nombre o ciérrelo antes
-core-command-line-n = { $command }, línea { $line }
-core-command-lines = { $command }, líneas { $first }-{ $last }
 core-no-counted-label = { $name } no tiene etiqueta de valor para el valor contado
 core-same-counted-label = { $name } tiene la misma etiqueta para el valor contado que otra variable
 # Option tables of Frequencies, Descriptives, Crosstabs, Recode and Rank Cases.
@@ -724,7 +716,6 @@ core-all-data-files = { $setting } (todos los archivos de datos)
 core-define-style = Definir estilo: { $setting }
 core-preset-changed = { $name } (modificado)
 # Output, charts opened in office programs, updates.
-core-run-label = Ejecución { $number }: { $origin }
 core-cannot-open = no se puede abrir { $file }: { $error }
 core-chart-opened = gráfico abierto desde { $file }
 core-clipboard-format = no se pudo registrar el formato del portapapeles
