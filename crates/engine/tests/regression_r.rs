@@ -683,3 +683,143 @@ fn mean_substitution_pairwise_deletion_and_the_origin_agree_with_r() {
         ],
     );
 }
+
+#[test]
+fn residual_statistics_casewise_and_outlier_tables_agree_with_r() {
+    // the cases of WEIGHTED fitted without the weight, g labelling the cases
+    let (_, tables) = run_on(
+        WEIGHTED,
+        "REGRESSION /DEPENDENT=y /METHOD=ENTER x1 x2 x3\n\
+         /RESIDUALS=OUTLIERS(ZRESID COOK) ID(g) /CASEWISE=PLOT(ZRESID) OUTLIERS(1.5) DEPENDENT PRED RESID COOK.",
+    );
+    // minimum, maximum, mean and deviation of fitted, scale(fitted), resid, resid / sigma and
+    // cooks.distance; the means are zero up to rounding
+    let rows = [
+        (
+            "Predicted Value",
+            [6.63007834051, 17.3722982726, 13.11525, 2.06207651387],
+        ),
+        (
+            "Std. Predicted Value",
+            [-3.1449713994, 2.06444729085, 0.0, 1.0],
+        ),
+        (
+            "Residual",
+            [-3.89608334648, 7.3896840524, 0.0, 1.94930214394],
+        ),
+        (
+            "Std. Residual",
+            [-1.92029532809, 3.64221565607, 0.0, 0.960768922831],
+        ),
+        (
+            "Cook's Distance",
+            [
+                7.68777286669e-07,
+                0.243524415402,
+                0.0260732391651,
+                0.0495032009625,
+            ],
+        ),
+    ];
+    let t = tables
+        .iter()
+        .find(|t| t.title == "Residuals Statistics")
+        .expect("table");
+    for (label, want) in rows {
+        let row = t
+            .rows
+            .iter()
+            .find(|r| matches!(&r[0], Cell::Text(s) if s == label))
+            .unwrap_or_else(|| panic!("no row {label}"));
+        for (c, want) in want.iter().enumerate() {
+            let Cell::Number(got) = row[c + 1] else {
+                panic!("{label} {c}")
+            };
+            if *want == 0.0 {
+                assert!(got.abs() < 1e-12, "{label} column {c}: {got}");
+            } else {
+                near(got, *want, &format!("{label} column {c}"));
+            }
+        }
+        let Cell::Number(n) = row[5] else {
+            panic!("N of {label}")
+        };
+        near(n, 40.0, "N");
+    }
+    // the cases with |standardized residual| >= 1.5, by case number
+    let casewise = tables
+        .iter()
+        .find(|t| t.title == "Casewise Diagnostics")
+        .expect("casewise");
+    assert_eq!(casewise.rows.len(), 2);
+    near(
+        at(&tables, "Casewise Diagnostics", 0, "Case Number"),
+        7.0,
+        "case",
+    );
+    near(
+        at(&tables, "Casewise Diagnostics", 0, "Std. Residual"),
+        3.64221565607,
+        "zresid 7",
+    );
+    near(
+        at(&tables, "Casewise Diagnostics", 0, "Cook's Distance"),
+        0.243524415402,
+        "cook 7",
+    );
+    near(
+        at(&tables, "Casewise Diagnostics", 1, "Case Number"),
+        38.0,
+        "case",
+    );
+    near(
+        at(&tables, "Casewise Diagnostics", 1, "Std. Residual"),
+        -1.92029532809,
+        "zresid 38",
+    );
+    // the ten largest |standardized residual| and the largest Cook's distances
+    let cases = [7.0, 38.0, 5.0, 28.0, 11.0, 22.0, 20.0, 4.0, 36.0, 2.0];
+    let z = [
+        3.64221565607,
+        -1.92029532809,
+        -1.45577782042,
+        -1.4284958676,
+        -1.23782565169,
+        -1.19850957343,
+        -1.1242918219,
+        1.12274957778,
+        1.09330687417,
+        1.06585162394,
+    ];
+    for (row, (case, z)) in cases.iter().zip(z).enumerate() {
+        near(
+            at(&tables, "Outlier Statistics", row, "Case Number"),
+            *case,
+            "outlier case",
+        );
+        near(
+            at(&tables, "Outlier Statistics", row, "Statistic"),
+            z,
+            "outlier z",
+        );
+    }
+    for (offset, (case, cook)) in [
+        (7.0, 0.243524415402),
+        (11.0, 0.176751898353),
+        (38.0, 0.0847714111061),
+    ]
+    .iter()
+    .enumerate()
+    {
+        near(
+            at(&tables, "Outlier Statistics", 10 + offset, "Case Number"),
+            *case,
+            "cook case",
+        );
+        near(
+            at(&tables, "Outlier Statistics", 10 + offset, "Statistic"),
+            *cook,
+            "cook",
+        );
+    }
+}
