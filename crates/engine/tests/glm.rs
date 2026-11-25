@@ -1060,6 +1060,19 @@ fn constant_dependent_has_no_r_squared() {
 
 #[test]
 fn errors_name_the_problem() {
+    // TEST is for univariate analyses and WSDESIGN takes no nested effects, as the manual says
+    assert_eq!(
+        run_error(&format!(
+            "{RM_DATA}\nGLM t1 t2 t3 BY g /WSFACTOR=time 3 /TEST=g VS time /DESIGN=g."
+        )),
+        "TEST is valid only for univariate analyses, and WSFACTOR makes the analysis multivariate"
+    );
+    assert_eq!(
+        run_error(&format!(
+            "{RM_DATA}\nGLM t1 t2 t3 BY g /WSFACTOR=time 3 /WSDESIGN=time(g) /DESIGN=g."
+        )),
+        "nested effects are not allowed in WSDESIGN, so ( ) cannot be used there"
+    );
     assert_eq!(
         run_error(&format!("{DATA}\nGLM y x BY a /WSFACTOR=t 3.")),
         "WSFACTOR gives 3 level combinations for 2 dependent variables; their number must be a multiple of that (one group of dependents for each measure)"

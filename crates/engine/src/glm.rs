@@ -4696,7 +4696,7 @@ fn within_design(command: &Glm) -> Result<Vec<Vec<usize>>, Error> {
                         )));
                     };
                     if t.label.contains('(') {
-                        return Err(Error("nesting in WSDESIGN is not supported yet".into()));
+                        return Err(Error("nested effects are not allowed in WSDESIGN, so ( ) cannot be used there".into()));
                     }
                     set.push(k);
                 }
@@ -5256,7 +5256,7 @@ impl Engine {
                 .doubly_multivariate(command, d, effects, dependents, m, warnings, label_of);
         }
         if !command.tests.is_empty() {
-            return Err(Error("TEST with WSFACTOR is not supported yet".into()));
+            return Err(Error("TEST is valid only for univariate analyses, and WSFACTOR makes the analysis multivariate".into()));
         }
         for w in ws {
             let clash = d
