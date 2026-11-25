@@ -86,6 +86,7 @@ mod multiple_imputation;
 mod mva;
 mod naivebayes;
 mod neural;
+mod nlr;
 mod nomreg;
 mod npar;
 mod npar_r;

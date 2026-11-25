@@ -191,6 +191,10 @@ One page per supported command, generated from the same table that the parser an
 | [PROBIT](probit.md) | Probit and logit models of response counts out of subject counts, with effective levels. |
 | [CURVEFIT](curvefit.md) | Fit up to eleven curves of one independent variable, or of time, by least squares. |
 | [WLS](wls.md) | Weighted least squares: weights from a power of a source variable, or a given weight. |
+| [MODEL PROGRAM](model-program.md) | Name the parameters of a nonlinear model and give their starting values; the transformations after it define the model. |
+| [DERIVATIVES](derivatives.md) | Start the derivatives program of the model program. |
+| [CLEAR MODEL PROGRAMS](clear-model-programs.md) | Drop the model program and the derivatives program of the last MODEL PROGRAM. |
+| [NLR](nlr.md) | Nonlinear regression by least squares (Levenberg-Marquardt) for the model of the last MODEL PROGRAM. |
 | [MULTIPLE IMPUTATION](multiple-imputation.md) | Multiple imputation: several completed copies of the data with plausible values in place of the missing ones. |
 | [PLUM](plum.md) | Ordinal regression: a cumulative link model of an ordered dependent variable. |
 | [QUANTILE REGRESSION](quantile-regression.md) | Linear regression of a chosen quantile of the dependent variable, fitted by linear programming. |

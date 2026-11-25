@@ -52,6 +52,7 @@ use crate::multiple_imputation;
 use crate::mva;
 use crate::naivebayes;
 use crate::neural;
+use crate::nlr;
 use crate::nomreg;
 use crate::npar;
 use crate::nptests;
@@ -3227,6 +3228,73 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  command that reads the data.",
         example: "CLEAR TIME PROGRAM.",
         parse: coxreg::clear_time_program,
+    },
+    CommandSpec {
+        name: "MODEL PROGRAM",
+        summary: "Name the parameters of a nonlinear model and give their starting values; the transformations after it define the model.",
+        syntax: "MODEL PROGRAM parameter[=value] [[,] parameter[=value] ...].\n\
+                 The transformations that follow (COMPUTE, IF, RECODE, DO IF, LOOP and the like), up to the next\n\
+                 command of another kind, are kept for the next NLR instead of changing the data. They compute\n\
+                 the predicted value of the dependent variable from the parameters and the variables of the\n\
+                 data, into the variable PRED unless the PRED subcommand of NLR names another. Every parameter is\n\
+                 named once and needs a starting value, here or from the FILE of NLR; a value of zero says\n\
+                 nothing about the scale of the parameter, so avoid it. The model program changes neither the\n\
+                 data nor the variables: its parameters and the variables it creates exist only while NLR runs.\n\
+                 DERIVATIVES. inside the program starts the derivatives program, whose COMPUTE commands give the\n\
+                 derivative of the predicted value for a parameter in the variable D.parameter; a derivative it\n\
+                 leaves out is estimated numerically. A model program stays until an NLR uses it, CLEAR MODEL\n\
+                 PROGRAMS, NEW FILE, CLEAR TRANSFORMATIONS or the next MODEL PROGRAM.",
+        example: "MODEL PROGRAM b0=2 b1=0.3.\nCOMPUTE pred = b0 * EXP(b1 * dose).",
+        parse: nlr::model_program,
+    },
+    CommandSpec {
+        name: "DERIVATIVES",
+        summary: "Start the derivatives program of the model program.",
+        syntax: "DERIVATIVES.\n\
+                 The transformations that follow, up to the next command of another kind, compute derivatives of\n\
+                 the predicted value of the model for NLR. Name the derivative of a parameter D.parameter, for\n\
+                 example D.b1 for b1. The commands may use the parameters, the variables of the data, the\n\
+                 variables of the model program and the derivatives computed before. Give the derivatives of\n\
+                 some of the parameters or of all; NLR estimates the others numerically and, at the start,\n\
+                 compares the derivatives given with numerical ones (CKDER of CRITERIA).",
+        example: "DERIVATIVES.\nCOMPUTE D.b0 = EXP(b1 * dose).\nCOMPUTE D.b1 = b0 * dose * D.b0.",
+        parse: nlr::derivatives,
+    },
+    CommandSpec {
+        name: "CLEAR MODEL PROGRAMS",
+        summary: "Drop the model program and the derivatives program of the last MODEL PROGRAM.",
+        syntax: "CLEAR MODEL PROGRAMS.\n\
+                 The model program and the derivatives program are dropped, so a new MODEL PROGRAM can start\n\
+                 afresh. NLR uses its programs up when it runs.",
+        example: "CLEAR MODEL PROGRAMS.",
+        parse: nlr::clear_model_programs,
+    },
+    CommandSpec {
+        name: "NLR",
+        summary: "Nonlinear regression by least squares (Levenberg-Marquardt) for the model of the last MODEL PROGRAM.",
+        syntax: "NLR dependent\n\
+                 \x20  [/FILE=file] [/OUTFILE=file] [/PRED=variable]\n\
+                 \x20  [/SAVE=[PRED] [RESID[(variable)]] [DERIVATIVES]]\n\
+                 \x20  [/CRITERIA=[ITER(100 per parameter)] [CKDER(0.5)] [SSCON(1E-8)] [PCON(1E-8)] [RCON(1E-8)]]\n\
+                 Fits the model defined by MODEL PROGRAM (and DERIVATIVES) to the dependent variable by minimizing\n\
+                 the sum of squared residuals, weighted by the case weights (which are not case replicates here:\n\
+                 the degrees of freedom count the cases). The tables are the iteration history (the residual sum\n\
+                 of squares and the parameters at each iteration), the analysis of variance (regression, residual,\n\
+                 uncorrected total, corrected total) with R squared, the parameter estimates with asymptotic\n\
+                 standard errors and 95% confidence intervals, and the asymptotic correlations of the estimates.\n\
+                 The iterations stop when a step lowers the sum of squares by a proportion of at most SSCON, when\n\
+                 no parameter changes by more than the proportion PCON, when the correlation of every derivative\n\
+                 with the residuals is at most RCON, or after ITER iterations (a warning); 0 switches a criterion\n\
+                 off. FILE reads starting values from a data file that an earlier OUTFILE wrote, for the parameters\n\
+                 the MODEL PROGRAM names without a value (a value given there wins); with SPLIT FILE its cases\n\
+                 go to the groups in order, the last one to every group after it. OUTFILE writes the split\n\
+                 variables, the parameters, SSE (the residual sum of squares) and NCASES, one case per group. SAVE\n\
+                 appends the predicted values, the residuals (named in parentheses, else RESID or what the\n\
+                 keyword was written as) and the derivatives D.parameter (the first six letters of the parameter\n\
+                 name) to the data; a variable whose name is taken is not saved. A case whose dependent variable,\n\
+                 weight or predicted value is missing, or whose weight is zero or negative, is left out.",
+        example: "MODEL PROGRAM b0=2 b1=0.3.\nCOMPUTE pred = b0 * EXP(b1 * dose).\nNLR response.",
+        parse: nlr::nlr,
     },
     CommandSpec {
         name: "LOGISTIC REGRESSION",

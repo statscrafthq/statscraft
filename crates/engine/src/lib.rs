@@ -86,6 +86,7 @@ mod multiple_imputation;
 mod mva;
 mod neural;
 mod neural_net;
+mod nlr;
 mod nomreg;
 mod nonpar_corr;
 mod npar_exact;
@@ -834,6 +835,8 @@ pub struct Engine {
     loop_depth: usize,
     /// TIME PROGRAM: the transformations that define time-dependent covariates for COXREG.
     time_program: Option<coxreg::TimeProgram>,
+    /// MODEL PROGRAM: the parameters, the model program and the derivatives program for NLR.
+    model_program: Option<nlr::ModelProgram>,
     /// The time program the running COXREG took up.
     running_program: Option<coxreg::TimeProgram>,
     /// The running COXREG failed for a fault in its time program.
@@ -1079,6 +1082,26 @@ impl Engine {
             self.queued.push(command.clone());
             return Ok(Vec::new());
         }
+        // the transformations after MODEL PROGRAM and DERIVATIVES wait for NLR
+        if let Some(program) = self
+            .model_program
+            .as_mut()
+            .filter(|p| p.section != nlr::Section::Closed)
+        {
+            if !matches!(command, Command::Derivatives)
+                && (is_transformation(command)
+                    || matches!(command, Command::Loop(_) | Command::EndLoop(_)))
+            {
+                match program.section {
+                    nlr::Section::Derivatives => program.derivatives.push(command.clone()),
+                    _ => program.model.push(command.clone()),
+                }
+                return Ok(Vec::new());
+            }
+            if !matches!(command, Command::Derivatives) {
+                program.section = nlr::Section::Closed;
+            }
+        }
         // the transformations after TIME PROGRAM, loops among them, wait for COXREG
         if let Some(program) = self.time_program.as_mut().filter(|p| p.collecting) {
             if is_transformation(command)
@@ -1107,6 +1130,7 @@ impl Engine {
         if matches!(command, Command::ClearTransformations | Command::NewFile) {
             self.drop_pending();
             self.time_program = None;
+            self.model_program = None;
         }
         // LEAVE runs the waiting transformations again itself
         if let Command::Leave(items) = command
@@ -1387,6 +1411,20 @@ impl Engine {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);
             }
+            Command::Nlr(c) => {
+                // the programs are used up by an NLR that succeeds
+                let tables = match &c.outfile {
+                    Some(file) => {
+                        let target = Some(file.clone());
+                        self.procedure_with_matrix_out(command, &target)
+                    }
+                    None => self.procedure(command),
+                };
+                if tables.is_ok() {
+                    self.model_program = None;
+                }
+                return tables;
+            }
             Command::Genlin(c) if c.outfile.is_some() => {
                 let target = Some(c.outfile.clone().expect("checked").target);
                 return self.procedure_with_matrix_out(command, &target);
@@ -1553,6 +1591,9 @@ impl Engine {
                 });
             }
             Command::ClearTimeProgram => self.time_program = None,
+            Command::ModelProgram(parameters) => self.begin_model_program(parameters),
+            Command::Derivatives => self.begin_derivatives()?,
+            Command::ClearModelPrograms => self.model_program = None,
             Command::MultipleImputation(imputation) => {
                 self.imputed.clear();
                 let split = self.active()?.split_file().cloned();
@@ -1832,6 +1873,7 @@ impl Engine {
             Command::Probit(command) => self.probit(command),
             Command::Curvefit(command) => self.curvefit(command),
             Command::Wls(command) => self.wls(command),
+            Command::Nlr(command) => self.nlr(command),
             Command::Correlogram(command) => self.correlogram(command),
             Command::Season(command) => self.season(command),
             Command::Exsmooth(command) => self.exsmooth(command),

@@ -72,6 +72,7 @@ mod multiple_imputation;
 mod mva;
 mod naivebayes;
 mod neural;
+mod nlr;
 mod nomreg;
 mod npar;
 mod nptests;
@@ -172,6 +173,8 @@ mod tests_multivariate;
 mod tests_mva;
 #[cfg(test)]
 mod tests_neural;
+#[cfg(test)]
+mod tests_nlr;
 #[cfg(test)]
 mod tests_nomreg;
 #[cfg(test)]
@@ -349,6 +352,7 @@ pub use neural::{
     Activation, NEURAL_PLOT, NEURAL_PRINT, Neural, NeuralArchitecture, NeuralCriteria, Partition,
     Rescale, StoppingRules, Training,
 };
+pub use nlr::{ModelParameter, Nlr, NlrCriteria, NlrSave};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,
     NomregStepwise, StepMethod, StepRule,

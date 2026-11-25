@@ -300,6 +300,11 @@ pub enum Command {
     /// TIME PROGRAM: the transformations after it define time-dependent covariates.
     TimeProgram,
     ClearTimeProgram,
+    /// MODEL PROGRAM: the parameters of a nonlinear model; the transformations after it are its program.
+    ModelProgram(Vec<crate::nlr::ModelParameter>),
+    Derivatives,
+    ClearModelPrograms,
+    Nlr(Box<crate::nlr::Nlr>),
     /// `ERASE FILE='path'`
     Erase(String),
     /// `SYSFILE INFO FILE='path'`

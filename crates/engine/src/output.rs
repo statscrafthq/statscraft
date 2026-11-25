@@ -186,6 +186,9 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::ClearTransformations
         | Command::TimeProgram
         | Command::ClearTimeProgram
+        | Command::ModelProgram(_)
+        | Command::Derivatives
+        | Command::ClearModelPrograms
         | Command::Tset(_)
         | Command::Predict(_)
         | Command::Tshow => Stage::Neutral,
@@ -274,7 +277,12 @@ impl Engine {
             // LEAVE runs the list again, where a time program would start afresh and empty
             && !matches!(
                 command,
-                Command::Leave(_) | Command::TimeProgram | Command::ClearTimeProgram
+                Command::Leave(_)
+                    | Command::TimeProgram
+                    | Command::ClearTimeProgram
+                    | Command::ModelProgram(_)
+                    | Command::Derivatives
+                    | Command::ClearModelPrograms
             )
         {
             clean.commands.push(command.clone());
