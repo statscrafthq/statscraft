@@ -766,6 +766,18 @@ fn oneway() {
 }
 
 #[test]
+fn oneway_template_is_accepted_and_ignored() {
+    let Command::Oneway(o) = one("ONEWAY a BY g /TEMPLATE='t.sgt' /PLOT=MEANS.") else {
+        panic!()
+    };
+    assert!(o.template && o.plot_means);
+    let Command::Oneway(o) = one("ONEWAY a BY g.") else {
+        panic!()
+    };
+    assert!(!o.template);
+}
+
+#[test]
 fn correlations() {
     let Command::Correlations(c) = one(
         "CORRELATIONS /VARIABLES=a b WITH c /d e /PRINT=ONETAIL NOSIG LOWER /STATISTICS=XPROD /MISSING=LISTWISE.",

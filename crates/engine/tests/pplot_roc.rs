@@ -380,3 +380,45 @@ END DATA.
     }
     assert!(last.unwrap_err().0.contains("both states"));
 }
+
+/// TEMPLATE styles charts, which come as data here: the command runs and says it is ignored.
+#[test]
+fn a_chart_template_is_ignored_with_a_warning() {
+    let run = |source: &str| {
+        let (commands, errors) = statscraft_syntax::parse(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut engine = statscraft_engine::Engine::default();
+        for command in &commands {
+            engine.execute(&command.command).expect("runs");
+        }
+        engine.warnings().to_vec()
+    };
+    let data =
+        "DATA LIST FREE / x g.\nBEGIN DATA\n1 1 2 1 3 1 4 2 5 2 7 2 8 3 9 3 11 3\nEND DATA.\n";
+    let warnings = run(&format!("{data}PPLOT x /TEMPLATE='t.sgt'."));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w == "PPLOT: TEMPLATE is ignored; charts come as data"),
+        "{warnings:?}"
+    );
+    let warnings = run(&format!("{data}ONEWAY x BY g /TEMPLATE='t.sgt'."));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w == "ONEWAY: TEMPLATE is ignored; charts come as data"),
+        "{warnings:?}"
+    );
+    let warnings = run(&format!("{data}SPCHART /XR=x BY g /TEMPLATE='t.sgt'."));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w == "SPCHART: TEMPLATE is ignored; charts come as data"),
+        "{warnings:?}"
+    );
+    assert!(
+        run(&format!("{data}PPLOT x."))
+            .iter()
+            .all(|w| !w.contains("TEMPLATE"))
+    );
+}

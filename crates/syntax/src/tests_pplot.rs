@@ -83,7 +83,8 @@ fn pplot_errors() {
     assert!(err("PPLOT a /DISTRIBUTION=NORMAL(0, -1).").contains("scale"));
     assert!(err("PPLOT a /DISTRIBUTION=UNIFORM(5, 2).").contains("minimum"));
     assert!(err("PPLOT a /DISTRIBUTION=GAMMA(2).").contains("2 parameters"));
-    assert!(err("PPLOT a /TEMPLATE='x.sgt'.").contains("not supported yet"));
+    assert!(!pplot("PPLOT a.").template);
+    assert!(pplot("PPLOT a /TEMPLATE='x.sgt'.").template);
     assert!(err("PPLOT a /DIFF=0.").contains("positive whole number"));
     assert!(err("PPLOT /FRACTION=VW.").contains("VARIABLES"));
 }

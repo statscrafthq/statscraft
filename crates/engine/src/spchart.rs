@@ -517,6 +517,9 @@ impl Reader<'_> {
 
 impl Engine {
     pub(crate) fn spchart(&mut self, c: &Spchart) -> Result<Vec<Table>, Error> {
+        if c.template {
+            self.warn("SPCHART: TEMPLATE is ignored; charts come as data");
+        }
         let mut warnings = Vec::new();
         // datasets share their columns, so the clone is cheap and leaves self free for charts
         let dataset = self.active()?.clone();

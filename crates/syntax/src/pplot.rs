@@ -102,6 +102,8 @@ pub struct Pplot {
     pub sdiff: Option<u32>,
     pub period: Option<u32>,
     pub ln: Option<bool>,
+    /// `/TEMPLATE='file'` was given; it styles charts and is ignored.
+    pub template: bool,
 }
 
 /// `[=] n` with n a positive whole number, or `default` when no number follows.
@@ -273,8 +275,12 @@ pub(crate) fn pplot(p: &mut Parser) -> PResult<Command> {
             command.ln = Some(true);
         } else if p.eat_keyword("NOLOG") {
             command.ln = Some(false);
+        } else if p.eat_keyword("TEMPLATE") {
+            p.eat(Punct::Eq);
+            p.file("a template file")?;
+            command.template = true;
         } else {
-            return Err(p.subcommand_error("PPLOT", &["TEMPLATE"]));
+            return Err(p.subcommand_error("PPLOT", &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

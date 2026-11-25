@@ -124,7 +124,8 @@ fn rule_breaking_specifications_are_errors() {
     assert!(err("SPCHART /XR=a BY b /SIGMAS=0.5.").contains("SIGMAS"));
     assert!(err("SPCHART /XR=a BY b /LSL=5 /USL=4.").contains("below"));
     assert!(err("SPCHART /CPCHART=a /LSL=1 /USL=2 /REFERENCE=NONE SL.").contains("NONE"));
-    assert!(err("SPCHART /TEMPLATE='c.sgt' /XR=a BY b.").contains("not supported yet"));
+    assert!(!spchart("SPCHART /XR=a BY b.").template);
+    assert!(spchart("SPCHART /TEMPLATE='c.sgt' /XR=a BY b.").template);
     assert!(err("SPCHART /TITLE='x'.").contains("chart subcommand"));
     // a CAPSIGMA that does not fit an IR chart without capability statistics is allowed
     spchart("SPCHART /IR=a /CAPSIGMA=RBAR.");

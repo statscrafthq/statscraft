@@ -313,6 +313,9 @@ impl Engine {
     }
 
     pub(crate) fn pplot(&mut self, command: &Pplot) -> Result<Vec<Table>, Error> {
+        if command.template {
+            self.warn("PPLOT: TEMPLATE is ignored; charts come as data");
+        }
         let mut spec = self.pplot_spec(command)?;
         // without PERIOD: TSET PERIOD, then the period of the DATE variables
         spec.period = self.ts_period(spec.period).map(|p| p as u32);

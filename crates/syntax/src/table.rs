@@ -116,7 +116,7 @@ const PPLOT_SYNTAX: &str = "PPLOT [VARIABLES=] varlist\n\
                  \x20   UNIFORM[(a,b)] | HNORMAL[(a)] | CHI(df) | STUDENT(df)]\n\
                  \x20  [/FRACTION=BLOM | RANKIT | TUKEY | VW] [/TIES=MEAN | LOW | HIGH | BREAK]\n\
                  \x20  [/TYPE=Q-Q | P-P] [/PLOT=BOTH | NORMAL | DETRENDED] [/STANDARDIZE | /NOSTANDARDIZE]\n\
-                 \x20  [/LN | /NOLOG] [/DIFF[=n]] [/SDIFF[=n]] [/PERIOD=n] [/APPLY].\n\
+                 \x20  [/LN | /NOLOG] [/DIFF[=n]] [/SDIFF[=n]] [/PERIOD=n] [/TEMPLATE='file'] [/APPLY].\n\
                  Parameters: NORMAL, LOGISTIC, LAPLACE location and scale; EXPONENTIAL rate; WEIBULL,\n\
                  LNORMAL scale and shape; PARETO threshold and shape; BETA two shapes; GAMMA shape and rate;\n\
                  UNIFORM minimum and maximum; HNORMAL scale (location 0). Without them they are estimated\n\
@@ -133,7 +133,8 @@ const PPLOT_SYNTAX: &str = "PPLOT [VARIABLES=] varlist\n\
                  plot shows observed minus expected, with the line y = 0. BOTH draws both plots. Values the\n\
                  distribution cannot take leave the variable out with a warning. Weights are not used.\n\
                  APPLY repeats the previous PPLOT (its distribution without the parameters, and its\n\
-                 variables unless new ones are given); the subcommands given with it override.";
+                 variables unless new ones are given); the subcommands given with it override. TEMPLATE is\n\
+                 ignored; charts come as data.";
 
 const MVA_SYNTAX: &str = "MVA [VARIABLES=] varlist | ALL\n\
                  \x20  [/CATEGORICAL=varlist] [/MAXCAT=25] [/ID=var]\n\
@@ -1449,6 +1450,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20      [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]\n\
                  \x20      [/RANGES=LSD | DUNCAN | SNK | TUKEYB | TUKEY | MODLSD | SCHEFFE [(alpha)]] ...\n\
                  \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS]\n\
+                 \x20      [/TEMPLATE='file']\n\
                  \x20      [/MATRIX=IN(file | dataset | *) | OUT(file | dataset | *) | NONE].\n\
                  test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GT2 GABRIEL GH T2 T3 C (pairwise comparisons),\n\
                  DUNNETT DUNNETTL DUNNETTR [(refcat)] (each group against the reference group, by default the last;\n\
@@ -1474,7 +1476,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  MATRIX=OUT writes, per split group and value of the factor, the records MEAN, STDDEV and N of every\n\
                  dependent; IN reads such records (and the pooled MSE and DFE records, which then give the within\n\
                  variance) and runs everything that needs no cases: HOMOGENEITY is an error, and the minimum and\n\
-                 maximum of the descriptives are empty.",
+                 maximum of the descriptives are empty. TEMPLATE is ignored; charts come as data.",
         example: "GET FILE='survey.sav'.\n\
                  ONEWAY satisfaction BY region.\n\
                  ONEWAY spend BY age_group /STATISTICS=DESCRIPTIVES HOMOGENEITY.\n\

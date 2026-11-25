@@ -414,7 +414,7 @@ pub(crate) fn t_test(p: &mut Parser) -> PResult<Command> {
     Ok(Command::TTest(command))
 }
 
-const ONEWAY_UNSUPPORTED: [&str; 2] = ["TEMPLATE", "ES"];
+const ONEWAY_UNSUPPORTED: [&str; 1] = ["ES"];
 
 const POSTHOCS: [(&str, &[Posthoc]); 19] = [
     ("LSD", &[Posthoc::Lsd]),
@@ -518,6 +518,7 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
         include: false,
         ci: 0.95,
         plot_means: false,
+        template: false,
         polynomial: None,
         matrix: crate::MatrixIo::default(),
     };
@@ -664,6 +665,10 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
                 return Err(p.unexpected(&["MEANS"]));
             }
             command.plot_means = true;
+        } else if p.eat_keyword("TEMPLATE") {
+            p.eat(Punct::Eq);
+            p.file("a template file")?;
+            command.template = true;
         } else if p.at_keyword("MATRIX") {
             let start = p.pos;
             p.pos += 1;

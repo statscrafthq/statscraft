@@ -114,6 +114,8 @@ pub struct Spchart {
     /// SIGMAS capability sigmas around it.
     pub reference_limits: bool,
     pub reference_sigmas: bool,
+    /// `/TEMPLATE='file'` was given; it styles charts and is ignored.
+    pub template: bool,
 }
 
 /// The STATISTICS keywords in the order of the manual's four groups.
@@ -352,6 +354,7 @@ pub(crate) fn spchart(p: &mut Parser) -> PResult<Command> {
         normal: SpchartNormal::Capability,
         reference_limits: true,
         reference_sigmas: false,
+        template: false,
     };
     let (mut statistics_given, mut rules_given, mut capsigma_given) = (false, false, false);
     let (mut normal_given, mut reference_given) = (false, false);
@@ -386,10 +389,9 @@ pub(crate) fn spchart(p: &mut Parser) -> PResult<Command> {
         };
         match name {
             "TEMPLATE" => {
-                return Err(SyntaxError::new(
-                    p.span_from(start),
-                    "subcommand TEMPLATE of SPCHART is not supported yet",
-                ));
+                p.eat(Punct::Eq);
+                p.file("a template file")?;
+                c.template = true;
             }
             "TITLE" => c.title = lines(p, "TITLE", 2)?,
             "SUBTITLE" => c.subtitle = lines(p, "SUBTITLE", 1)?.pop(),
@@ -624,7 +626,8 @@ pub(crate) const SPCHART_SYNTAX: &str = "SPCHART [/TITLE='line' ['line']] [/SUBT
                  \x20  [/CAPSIGMA=RBAR | SBAR | MRBAR | WITHIN] [/SPAN=2] [/CONFORM | /NONCONFORM=value]\n\
                  \x20  [/SIGMAS=3] [/MINSAMPLE=2] [/LSL=value] [/USL=value] [/TARGET=value]\n\
                  \x20  [/MISSING=[NOREPORT | REPORT] [EXCLUDE | INCLUDE]]\n\
-                 \x20  [/NORMAL=CAPABILITY | PERFORMANCE | BOTH | NONE] [/REFERENCE=[SL] [SIGMAS] | NONE].\n\
+                 \x20  [/NORMAL=CAPABILITY | PERFORMANCE | BOTH | NONE] [/REFERENCE=[SL] [SIGMAS] | NONE]\n\
+                 \x20  [/TEMPLATE='file'].\n\
                  One chart subcommand; XR may be left out. Each control chart is a line chart of the process\n\
                  with its center line and the control limits at SIGMAS sigmas (lower limits of ranges, standard\n\
                  deviations and counts stop at 0, a p chart's upper one at 1, an np chart's at the subgroup\n\
@@ -654,4 +657,5 @@ pub(crate) const SPCHART_SYNTAX: &str = "SPCHART [/TITLE='line' ['line']] [/SUBT
                  (XR), SBAR (XS) or WITHIN for subgroups, MRBAR for single values. CPCHART without STATISTICS\n\
                  lists its indices in a table. MISSING: REPORT keeps subgroups for missing BY values, INCLUDE\n\
                  counts user-missing process values. Weights count only for units, whole positive ones; each\n\
-                 unit of an individuals chart is repeated by its weight. A chart has 2 to 3000 points.";
+                 unit of an individuals chart is repeated by its weight. A chart has 2 to 3000 points. TEMPLATE is\n\
+                 ignored; charts come as data.";

@@ -1273,6 +1273,8 @@ pub struct Oneway {
     pub ci: f64,
     /// `/PLOT MEANS`: a line chart of the group means of every dependent.
     pub plot_means: bool,
+    /// `/TEMPLATE='file'` was given; it styles charts and is ignored.
+    pub template: bool,
     /// `/POLYNOMIAL=n`: trend components up to this degree (1 to 5), the last one given.
     pub polynomial: Option<u8>,
     /// `/MATRIX`: IN reads the group means, standard deviations and counts from a matrix data

@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- ONEWAY, PPLOT and SPCHART accept /TEMPLATE and ignore it with a note, as the other commands with charts do, so scripts that name a chart template run.
 - [AUTORECODE](docs/commands/autorecode.md) saves its scheme to a template file (`/SAVE TEMPLATE`) and applies one (`/APPLY TEMPLATE`), so another file is recoded with the same codes and its new values get the next ones.
 
 ## 0.41.0 (2026-11-25)

@@ -11,6 +11,7 @@ ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES EFFECTS HOMOGENEITY WELCH BROWNF
        [/CONTRAST=coefficients] [/POLYNOMIAL=degree] [/POSTHOC=test ... [ALPHA(0.05)]]
        [/RANGES=LSD | DUNCAN | SNK | TUKEYB | TUKEY | MODLSD | SCHEFFE [(alpha)]] ...
        [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS]
+       [/TEMPLATE='file']
        [/MATRIX=IN(file | dataset | *) | OUT(file | dataset | *) | NONE].
 ```
 
@@ -24,7 +25,7 @@ RANGES names one of these post hoc tests (MODLSD, also LSDMOD, is Bonferroni), a
 
 EFFECTS adds the rows Fixed Effects (pooled standard deviation, and the error and interval of the overall mean from the within mean square) and Random Effects (error and interval from the between-groups component, which has its own column) to the Descriptives table; without DESCRIPTIVES it holds only those two rows. A negative component counts as 0 in the error, with a warning.
 
-MATRIX=OUT writes, per split group and value of the factor, the records MEAN, STDDEV and N of every dependent; IN reads such records (and the pooled MSE and DFE records, which then give the within variance) and runs everything that needs no cases: HOMOGENEITY is an error, and the minimum and maximum of the descriptives are empty.
+MATRIX=OUT writes, per split group and value of the factor, the records MEAN, STDDEV and N of every dependent; IN reads such records (and the pooled MSE and DFE records, which then give the within variance) and runs everything that needs no cases: HOMOGENEITY is an error, and the minimum and maximum of the descriptives are empty. TEMPLATE is ignored; charts come as data.
 
 ## Example
 

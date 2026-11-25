@@ -606,6 +606,9 @@ fn matrix_groups(m: &Materials, factor: &str, name: &str) -> Result<MatrixGroups
 
 impl Engine {
     pub(crate) fn oneway(&mut self, command: &Oneway) -> Result<Vec<Table>, Error> {
+        if command.template {
+            self.warn("ONEWAY: TEMPLATE is ignored; charts come as data");
+        }
         let mut part = None;
         let result = self.oneway_inner(command, &mut part);
         if let (Ok(_), Some(part)) = (&result, part) {
