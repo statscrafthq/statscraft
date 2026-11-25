@@ -4,6 +4,7 @@
 
 use crate::analyze_dialogs::keywords;
 use crate::bootstrap_dialog::Bootstrap;
+use crate::i18n::t;
 use crate::model_dialogs::SELECT_RELATIONS;
 use crate::syntax_text::{names, number, quote, value};
 use statscraft_data::Dataset;
@@ -459,14 +460,14 @@ impl NparKind {
 
     pub fn menu(self) -> &'static str {
         match self {
-            NparKind::ChiSquare => "Chi-square...",
-            NparKind::Binomial => "Binomial...",
-            NparKind::Runs => "Runs...",
-            NparKind::OneSampleKs => "1-Sample K-S...",
-            NparKind::TwoIndependent => "2 Independent Samples...",
-            NparKind::KIndependent => "K Independent Samples...",
-            NparKind::TwoRelated => "2 Related Samples...",
-            NparKind::KRelated => "K Related Samples...",
+            NparKind::ChiSquare => t("menu-chi-square"),
+            NparKind::Binomial => t("menu-binomial"),
+            NparKind::Runs => t("menu-runs"),
+            NparKind::OneSampleKs => t("menu-1-sample-k-s"),
+            NparKind::TwoIndependent => t("menu-2-independent-samples"),
+            NparKind::KIndependent => t("menu-k-independent-samples"),
+            NparKind::TwoRelated => t("menu-2-related-samples"),
+            NparKind::KRelated => t("menu-k-related-samples"),
         }
     }
 
