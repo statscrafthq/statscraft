@@ -6,6 +6,10 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.49.0 (2026-11-25)
+
+GRAPH draws grouped high-low charts, MVA writes its filled data under SPLIT FILE, CURVEFIT can apply an earlier fit as it is, and INCLUDE keeps inline data intact.
+
 - [MVA](docs/commands/mva.md) writes its OUTFILE under SPLIT FILE: each group is filled from its own estimates, all in one file.
 - [GRAPH](docs/commands/graph.md) `/HILO` draws grouped high-low and high-low-close charts: with more than three series, each group of two or three stands beside the next in a category.
 - `INCLUDE` reads the inline data of a file as it is: a data line that starts with a minus sign or a period keeps it, and fixed-format records no longer get a blank record between them.
