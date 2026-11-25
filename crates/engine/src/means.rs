@@ -125,8 +125,8 @@ pub(crate) fn grouped_percentile(cells: &[(f64, f64)], p: f64) -> Option<f64> {
         below += weight;
     }
     // the target is at or above the last midpoint: that value when it is exactly there, and
-    // undefined above it (the upper bound of the last interval is unknown)
-    previous.and_then(|(x, c)| (target == c).then_some(x))
+    // missing above it, where the last interval has no known end to interpolate towards
+    previous.and_then(|(x, c)| ((target - c).abs() <= 1e-12 * c.abs().max(1.0)).then_some(x))
 }
 
 /// True when the value of `variable` at `case` is valid; `include` makes user-missing valid.
@@ -864,5 +864,8 @@ mod tests {
         assert_eq!(grouped_percentile(&cells, 0.9), Some(4.0));
         assert_eq!(grouped_percentile(&cells, 0.95), None);
         assert_eq!(grouped_percentile(&cells, 0.05), None);
+        // weights whose sums are not exact in binary still land on the last midpoint
+        let fractions = [(1.0, 0.1), (2.0, 0.2), (3.0, 0.3)];
+        assert_eq!(grouped_percentile(&fractions, 0.75), Some(3.0));
     }
 }
