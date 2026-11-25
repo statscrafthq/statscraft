@@ -52,6 +52,8 @@ pub struct Settings {
     pub mioutput: Option<String>,
     /// The kinds of element the output shows, and whether exports take hidden items.
     pub output: Show,
+    /// The language of the window by its code (i18n.rs); empty for the system's language.
+    pub language: String,
     /// The plugin programs that decorate tables (docs/plugins.md), in the order they run.
     pub plugins: Vec<Plugin>,
     /// Saved values of plugin settings, for every data file.
@@ -215,7 +217,7 @@ impl Settings {
     /// `log hidden`, `variable_widths W ...`, `tvars names|labels|both` and
     /// `tnumbers values|labels|both`, `mioutput` with MIOUTPUT keywords, `output-shows` with
     /// the kinds of element the output shows (`headings titles tables notes charts`) and
-    /// `export hidden`, one line per plugin in order (`plugin PATH`, or `plugin-off PATH` for
+    /// `export hidden`, `language CODE`, one line per plugin in order (`plugin PATH`, or `plugin-off PATH` for
     /// one turned off), `excel-comments off`,
     /// `preset ATTRIBUTE<tab>NAME<tab>VALUE`, `plugin-value ATTRIBUTE<tab>VALUE<tab>FILE`,
     /// `plugin-global ATTRIBUTE<tab>VALUE`,
@@ -271,6 +273,7 @@ impl Settings {
                     settings.output.kinds = Part::ALL.map(|p| words.contains(&p.word()));
                 }
                 "export" => settings.output.export_hidden = rest == "hidden",
+                "language" => settings.language = rest.to_string(),
                 "plugin" | "plugin-off" if !rest.is_empty() => settings.plugins.push(Plugin {
                     path: PathBuf::from(rest),
                     on: key == "plugin",
@@ -418,6 +421,9 @@ impl Settings {
         }
         if self.output.export_hidden {
             text.push_str("export hidden\n");
+        }
+        if !self.language.is_empty() {
+            text.push_str(&format!("language {}\n", self.language));
         }
         for p in &self.plugins {
             let key = if p.on { "plugin" } else { "plugin-off" };
@@ -636,6 +642,7 @@ mod tests {
                 kinds: [true, false, true, false, true],
                 export_hidden: true,
             },
+            language: "es".into(),
             plugins: vec![
                 Plugin {
                     path: PathBuf::from("/opt/plugins/heat map"),
