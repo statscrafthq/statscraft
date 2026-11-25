@@ -1,5 +1,7 @@
 # Statscraft
 
+English · [Español](README.es.md) · [简体中文](README.zh-CN.md)
+
 Statscraft is a free, open-source statistics package for the social sciences, built AI-native from the first line. It is an alternative to SPSS, PSPP, Stata and SAS: it reads .sav files and runs your existing syntax, on Windows, macOS and Linux. Two programs written in Rust share one engine: the command line `statscraft` and the desktop window `statscraft-gui`.
 
 [Download](https://statscraft.org/download.html) · [Documentation](https://docs.statscraft.org) · [Website](https://statscraft.org)
