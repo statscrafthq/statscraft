@@ -143,6 +143,7 @@ mod save_translate;
 mod selectpred;
 pub mod session;
 mod session_commands;
+mod shift_values;
 mod shown;
 mod sim_dist;
 mod simulation;
@@ -1334,6 +1335,7 @@ impl Engine {
             Command::Tshow => return Ok(self.tshow()),
             Command::Create(equations) => return self.create(equations),
             Command::Rmv(equations) => return self.rmv(equations),
+            Command::ShiftValues(specs) => return self.shift_values(specs),
             Command::Correlogram(spec) => {
                 let spec = self.correlogram_spec(spec)?;
                 return self.procedure(&Command::Correlogram(Box::new(spec)));

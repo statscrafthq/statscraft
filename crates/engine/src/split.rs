@@ -182,6 +182,26 @@ impl Engine {
         })
     }
 
+    /// The cases of every split group in order, whatever the filter says: one group of all cases
+    /// when nothing splits.
+    pub(crate) fn split_runs(&self) -> Result<Vec<Vec<usize>>, Error> {
+        let data = self.active()?;
+        let Some(split) = data.split_file() else {
+            return Ok(vec![(0..data.case_count()).collect()]);
+        };
+        let mut runs: Vec<Vec<usize>> = Vec::new();
+        let mut previous = None;
+        for case in 0..data.case_count() {
+            let key = keys(data, &split.variables, case);
+            if previous.as_ref() != Some(&key) {
+                runs.push(Vec::new());
+                previous = Some(key);
+            }
+            runs.last_mut().expect("a run was started").push(case);
+        }
+        Ok(runs)
+    }
+
     /// The split groups of the cases the filter keeps; None when every case is used as it is.
     fn groups(&self, use_split: bool, use_range: bool) -> Result<Option<Vec<Group>>, Error> {
         let data = self.active()?;

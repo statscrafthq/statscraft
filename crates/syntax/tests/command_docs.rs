@@ -37,6 +37,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "DELETE VARIABLES",
             "SORT CASES",
             "SORT VARIABLES",
+            "SHIFT VALUES",
             "WEIGHT",
             "AGGREGATE",
             "VARSTOCASES",

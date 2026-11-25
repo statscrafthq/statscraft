@@ -86,6 +86,7 @@ use crate::roc_analysis;
 use crate::save_translate;
 use crate::selection;
 use crate::session_commands;
+use crate::shift_values;
 use crate::simulation;
 use crate::spchart;
 use crate::stats;
@@ -7173,6 +7174,21 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  valid values and its function.",
         example: "RMV tidy_load = LINT(hourly_load) /tidy_temp = MEDIAN(temp, 3).",
         parse: timeseries::rmv,
+    },
+    CommandSpec {
+        name: "SHIFT VALUES",
+        summary: "New variables that hold the value of the same variable in an earlier or later case.",
+        syntax: "SHIFT VALUES VARIABLE=var RESULT=newvar {LEAD=n | LAG=n | SHIFT=n}\n\
+                 \x20            [/VARIABLE=var RESULT=newvar {LEAD=n | LAG=n | SHIFT=n}] ...\n\
+                 LEAD=n takes the value from the case n after the current one, LAG=n from n before it, and\n\
+                 SHIFT=n from n after it, or from -n before it when n is negative. n is a whole number and 0\n\
+                 copies the value in place. The result must be a name no variable has yet. The first or last\n\
+                 n cases of the data (of each split group) get the system-missing value, or an empty string.\n\
+                 The result is of the same type as the variable and keeps its format, value labels, missing\n\
+                 values and measurement level, but not its custom attributes; its label tells what shifted\n\
+                 it. User-missing values are carried over as they are. A filter is ignored: every case counts.",
+        example: "SHIFT VALUES VARIABLE=price RESULT=price_next LEAD=1 /VARIABLE=price RESULT=price_prev LAG=1.",
+        parse: shift_values::shift_values,
     },
     CommandSpec {
         name: "PRINT",

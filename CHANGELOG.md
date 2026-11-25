@@ -8,6 +8,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 - [RMV](docs/commands/rmv.md) copies series with their missing values filled in: `LINT` interpolates, `MEAN` and `MEDIAN` use the nearest valid values on each side, `SMEAN` the series mean and `TREND` a fitted line.
 - [NLR](docs/commands/nlr.md) fits nonlinear models by least squares (Levenberg-Marquardt) to the model that [MODEL PROGRAM](docs/commands/model-program.md) and [DERIVATIVES](docs/commands/derivatives.md) define: iteration history, analysis of variance with R squared, estimates with asymptotic standard errors and 95% intervals, parameter correlations, FILE and OUTFILE for starting values, SAVE of predicted values, residuals and derivatives, and a check of the derivatives given against numerical ones. CLEAR MODEL PROGRAMS drops the programs.
+- [SHIFT VALUES](docs/commands/shift-values.md) adds a variable holding the value of another variable from an earlier or later case, within each split group, with the dictionary entry of the original.
 
 ## 0.49.0 (2026-11-25)
 

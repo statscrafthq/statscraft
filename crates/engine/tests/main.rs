@@ -134,6 +134,7 @@ mod roc_r;
 mod save_translate;
 mod scratch;
 mod settings;
+mod shift_values;
 mod simulation;
 mod spchart;
 mod split_filter;

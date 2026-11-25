@@ -36,6 +36,7 @@ One page per supported command, generated from the same table that the parser an
 | [DELETE VARIABLES](delete-variables.md) | Remove variables from the dataset. |
 | [SORT CASES](sort-cases.md) | Sort the cases by the values of variables. |
 | [SORT VARIABLES](sort-variables.md) | Put the variables in order by a property of their dictionary entries. |
+| [SHIFT VALUES](shift-values.md) | New variables that hold the value of the same variable in an earlier or later case. |
 | [WEIGHT](weight.md) | Weight the cases by a variable, or turn weighting off. |
 | [AGGREGATE](aggregate.md) | Aggregate groups of cases into new variables or a new dataset. |
 | [VARSTOCASES](varstocases.md) | Turn groups of variables into cases: one new case per variable of the group. |

@@ -108,6 +108,7 @@ mod roc_analysis;
 mod save_translate;
 mod selection;
 mod session_commands;
+mod shift_values;
 mod simulation;
 mod spchart;
 mod split;
@@ -417,6 +418,7 @@ pub use report::{
 pub use response_rate::{MaxCount, ResponseRate};
 pub use roc_analysis::{RocAnalysis, RocCriteria, RocDesign, RocPlot, RocPrint, RocSelect};
 pub use session_commands::{SETTINGS, SettingEffect};
+pub use shift_values::ShiftSpec;
 pub use simulation::{
     FixedInput, SimDistribution, SimField, SimInput, Simplan, Simrun, StopRule, TargetFilter,
     TargetOptions, is_iterated,
