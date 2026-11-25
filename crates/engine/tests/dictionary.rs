@@ -125,52 +125,52 @@ fn alter_type_changes_widths_and_types() {
     assert_eq!(data.variable("score").unwrap().format(), "F8.3");
 }
 
-// The manual's example of ALTER TYPE: a string variable becomes a date or number in the format
-// named, read as DATA LIST and NUMBER read it; a value that does not fit the format is missing.
+// A string becomes a date or a number in the format named, read the way DATA LIST reads that
+// format; a blank field, an impossible date and text that does not fit become system-missing.
 #[test]
 fn alter_type_reads_strings_as_dates_and_numbers() {
     let mut s = Session::default();
     run(
         &mut s,
-        "DATA LIST LIST /d1 (A11) d2 (A10) d3 (A10) d4 (A10) m (A12) e (A8) p (A8).\n\
+        "DATA LIST LIST /d1 (A13) d2 (A12) d3 (A12) d4 (A12) m (A12) e (A8) p (A8).\n\
          BEGIN DATA\n\
-         28-Oct-2007 10/28/2007 29.10.2008 2008/10/29 '$1,234.50' 1.5E2 12.5%\n\
-         '' 13/45/2007 'x' 2008/13/01 abc 1E 5\n\
+         17-Mar-1993 02/14/1996 21.09.2011 2004/06/30 '$7,845.25' 2.75E3 8.4%\n\
+         '' 19/45/1998 'x' 2005/13/01 abc 1E 5\n\
          END DATA.\n\
-         ALTER TYPE d1 (A11 = DATE11).\n\
-         ALTER TYPE d2 (A10 = ADATE10) d3 (A10 = EDATE10) d4 (SDATE10).\n\
+         ALTER TYPE d1 (A13 = DATE12).\n\
+         ALTER TYPE d2 (A12 = ADATE12) d3 (A12 = EDATE12) d4 (SDATE12).\n\
          ALTER TYPE m (DOLLAR12.2) e (E8) p (PCT8.1).\n\
-         COMPUTE ref1 = DATE.DMY(28, 10, 2007).\n\
-         COMPUTE ref2 = DATE.DMY(28, 10, 2007).\n\
-         COMPUTE ref3 = DATE.DMY(29, 10, 2008).\n\
-         COMPUTE ref4 = DATE.DMY(29, 10, 2008).",
+         COMPUTE ref1 = DATE.DMY(17, 3, 1993).\n\
+         COMPUTE ref2 = DATE.DMY(14, 2, 1996).\n\
+         COMPUTE ref3 = DATE.DMY(21, 9, 2011).\n\
+         COMPUTE ref4 = DATE.DMY(30, 6, 2004).",
     );
     let data = s.dataset().unwrap();
     let at = |name: &str| numbers(data, name);
     // the formats are the new ones
     for (name, format) in [
-        ("d1", "DATE11"),
-        ("d2", "ADATE10"),
-        ("d3", "EDATE10"),
-        ("d4", "SDATE10"),
+        ("d1", "DATE12"),
+        ("d2", "ADATE12"),
+        ("d3", "EDATE12"),
+        ("d4", "SDATE12"),
     ] {
         assert_eq!(data.variable(name).unwrap().format(), format, "{name}");
     }
-    assert_eq!(at("d1")[0], at("ref1")[0]);
-    assert_eq!(at("d2")[0], at("ref2")[0]);
-    assert_eq!(at("d3")[0], at("ref3")[0]);
-    assert_eq!(at("d4")[0], at("ref4")[0]);
-    // a blank field, an impossible date and text are system-missing
-    assert!(
-        at("d1")[1].is_none()
-            && at("d2")[1].is_none()
-            && at("d3")[1].is_none()
-            && at("d4")[1].is_none()
-    );
-    // $1,234.50, 1.5E2 and 12.5%
-    assert_eq!(at("m")[0], Some(1234.5));
-    assert_eq!(at("e")[0], Some(150.0));
-    assert_eq!(at("p")[0], Some(12.5));
+    for (name, reference) in [
+        ("d1", "ref1"),
+        ("d2", "ref2"),
+        ("d3", "ref3"),
+        ("d4", "ref4"),
+    ] {
+        assert_eq!(at(name)[0], at(reference)[0], "{name}");
+        assert!(at(name)[0].is_some(), "{name}");
+        // the second case holds a blank or a value that is no date
+        assert!(at(name)[1].is_none(), "{name} second case");
+    }
+    // $7,845.25, 2.75E3 and 8.4%
+    assert_eq!(at("m")[0], Some(7845.25));
+    assert_eq!(at("e")[0], Some(2750.0));
+    assert_eq!(at("p")[0], Some(8.4));
     assert_eq!(at("m")[1], None);
 }
 

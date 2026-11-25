@@ -6711,7 +6711,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  A string variable may get another width (A20); values longer than it are cut. A numeric\n\
                  variable may get another numeric format, or become a string holding its formatted\n\
                  values; a string may become numeric with an F, COMMA, DOT, E, DOLLAR, PCT or N format, or a\n\
-                 date with a DATE, ADATE, EDATE or SDATE format (ALTER TYPE d (A11 = DATE11)), read in the width\n\
+                 date with a DATE, ADATE, EDATE or SDATE format (ALTER TYPE visit (A12 = ADATE12)), read in the width\n\
                  of the format as DATA LIST reads it; a value that does not fit the format becomes\n\
                  system-missing. A type change drops value labels and missing values.\n\
                  input = (A=, F=, A10=) limits the change to variables of that type and width.\n\
