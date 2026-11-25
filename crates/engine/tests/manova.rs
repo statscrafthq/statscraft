@@ -561,12 +561,10 @@ fn design_decomposition_and_collinearity() {
     let at = |a: usize, b: usize| r[a][b].unwrap_or(0.0);
     for a in 0..3 {
         assert!(at(a, a) > 0.0);
-        for b in 0..a {
-            assert_eq!(r[a][b], None, "below the diagonal");
-        }
-        for b in 0..3 {
+        assert!(r[a][..a].iter().all(Option::is_none), "below the diagonal");
+        for (b, expected) in xtx[a].iter().enumerate() {
             let rtr: f64 = (0..3).map(|i| at(i, a) * at(i, b)).sum();
-            assert!((rtr - xtx[a][b]).abs() < 1e-12, "{a} {b}: {rtr}");
+            assert!((rtr - expected).abs() < 1e-12, "{a} {b}: {rtr}");
         }
     }
     // by hand: r11 = 3, r22 = sqrt(50) / 3, r23 = 34 / (3 sqrt(50)), r33 = sqrt(4.32)
