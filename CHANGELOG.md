@@ -6,7 +6,14 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.48.0 (2026-11-25)
+
+GGRAPH draws error bars, and plugin presets can be corrected in place.
+
 - [GGRAPH](docs/commands/ggraph.md) reads the interval functions `MEANCI`, `MEDIANCI`, `MEANSD`, `MEANSE` and `COUNTCI`: each gives a value and its high and low end, `VARSTOCASES` takes them in `HIGH` and `LOW` columns, and an `interval(position(region.spread.range(x*(low+high))))` element draws them as error bars around the other element.
+- Plugin Settings: choose a preset, change its value or name and click **Save** to keep the change in that preset.
+- Whole numbers in the plugin settings show without a decimal point, for example a population of 1300000.
+- Style samples are black on white as in Excel, whatever the window's theme.
 
 ## 0.47.0 (2026-11-25)
 
@@ -20,7 +27,6 @@ Expressions read today's date and the page size, GLM names its saved variables p
 
 - [MANOVA](docs/commands/manova.md) `/PRINT=DESIGN(DECOMP)` shows the triangular decomposition of the design and `DESIGN(COLLINEARITY)` its collinearity diagnostics.
 - [GLM](docs/commands/glm.md) `/SAVE` names the new variable of each dependent variable, for example `PRED(p1 p2)`, also in the multivariate and repeated measures models.
-- Plugin Settings: a preset can be changed and renamed with **Save**, whole numbers show without a decimal point, and style samples show black on white as in Excel.
 - Expressions read the system variables $JDATE, $DATE, $DATE11 and $TIME (today and now) and $LENGTH and $WIDTH (the SET page size).
 
 ## 0.45.0 (2026-11-25)
