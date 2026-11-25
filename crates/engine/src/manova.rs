@@ -3207,10 +3207,16 @@ fn design_tables(
             .collect();
         let pairs = crate::matrix::symmetric_eigen(&scaled);
         let largest = pairs.first().map_or(f64::NAN, |p| p.0);
+        // a dimension of a redundant column has a zero root; it is left out of the variances
+        let zero = |lambda: f64| lambda <= 1e-10 * largest;
         // a parameter's variance is the sum of v^2 / lambda over the dimensions
         let phi: Vec<Vec<f64>> = pairs
             .iter()
-            .map(|(lambda, v)| v.iter().map(|x| x * x / lambda).collect())
+            .map(|(lambda, v)| {
+                v.iter()
+                    .map(|x| if zero(*lambda) { 0.0 } else { x * x / lambda })
+                    .collect()
+            })
             .collect();
         let totals: Vec<f64> = (0..k).map(|t| phi.iter().map(|row| row[t]).sum()).collect();
         let mut columns = plain(&["Dimension", "Singular Value", "Condition Index"]);
@@ -3219,10 +3225,15 @@ fn design_tables(
             .iter()
             .enumerate()
             .map(|(d, (lambda, _))| {
+                if zero(*lambda) {
+                    let mut row = vec![text(format!("{}", d + 1)), number(Some(0.0))];
+                    row.extend((0..=k).map(|_| Cell::Empty));
+                    return row;
+                }
                 let mut row = vec![
                     text(format!("{}", d + 1)),
-                    number(Some(lambda.max(0.0).sqrt())),
-                    number(Some((largest / lambda).sqrt()).filter(|v| v.is_finite())),
+                    number(Some(lambda.sqrt())),
+                    number(Some((largest / lambda).sqrt())),
                 ];
                 row.extend(
                     (0..k).map(|t| number(Some(phi[d][t] / totals[t]).filter(|v| v.is_finite()))),

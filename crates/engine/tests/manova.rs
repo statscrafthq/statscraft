@@ -597,6 +597,26 @@ fn design_decomposition_and_collinearity() {
     }
 }
 
+// x2 is twice x1, so the second covariate column is redundant
+#[test]
+fn a_redundant_design_column_gets_a_zero_row_and_root() {
+    let tables = run(
+        "DATA LIST FREE /y x1 x2.\nBEGIN DATA\n1 1 2 3 2 4 2 4 8 6 5 10\nEND DATA.\n\
+         MANOVA y x1 x2 /ANALYSIS=y /PRINT=DESIGN(DECOMP COLLINEARITY) /DESIGN=x1 x2.",
+    );
+    let find = |title: &str| grid(tables.iter().find(|t| t.title == title).unwrap());
+    let r = find("Decomposition of the Design");
+    let last = r.len() - 1;
+    assert!(r[last].iter().flatten().all(|v| *v == 0.0), "{r:?}");
+    let c = find("Collinearity Diagnostics");
+    assert_eq!(c[last][0], Some(0.0));
+    assert!(c[last][1..].iter().all(Option::is_none));
+    for t in 0..c[0].len() - 2 {
+        let total: f64 = c.iter().filter_map(|row| row[2 + t]).sum();
+        assert!((total - 1.0).abs() < 1e-9, "parameter {t}: {total}");
+    }
+}
+
 #[test]
 fn unsupported_parts_say_so() {
     for (source, words) in [
