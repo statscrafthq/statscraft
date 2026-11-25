@@ -2,6 +2,7 @@
 //! they are add nothing to the syntax, so the command runs with its own defaults.
 
 use crate::analyze_dialogs::{MEANS_CELLS, Means, keywords};
+use crate::i18n::{t, t_args};
 use crate::mds_dialog::count;
 use crate::syntax_text::{names, quote};
 use statscraft_data::is_valid_name;
@@ -56,7 +57,10 @@ impl Summarize {
         let mut controls = Vec::new();
         for name in self.means.layers.iter().flatten() {
             if controls.contains(&name) {
-                return Err(format!("{name} is in two layers; keep it in one"));
+                return Err(t_args(
+                    "stats-reports-in-two-layers",
+                    &[("name", name.as_str().into())],
+                ));
             }
             controls.push(name);
         }
@@ -65,7 +69,7 @@ impl Summarize {
         if self.list {
             let mut list = String::from(if self.valid_only { "VALIDLIST" } else { "LIST" });
             if !self.limit.trim().is_empty() {
-                let limit = count(&self.limit, 1, "the number of cases used", 1)?;
+                let limit = count(&self.limit, 1, t("stats-reports-what-cases-used"), 1)?;
                 list.push_str(&format!(" LIMIT={limit}"));
             }
             format.push(list);
@@ -86,11 +90,14 @@ impl Summarize {
             text.push_str("\n  /MISSING=TABLE");
         }
         for (what, value, keyword) in [
-            ("the title", &self.title, "TITLE"),
-            ("the footnote", &self.footnote, "FOOTNOTE"),
+            (t("stats-reports-what-title"), &self.title, "TITLE"),
+            (t("stats-reports-what-footnote"), &self.footnote, "FOOTNOTE"),
         ] {
             if value.len() > 255 {
-                return Err(format!("{what} is longer than 255 bytes"));
+                return Err(t_args(
+                    "stats-reports-longer-than-255",
+                    &[("what", what.into())],
+                ));
             }
             if !value.is_empty() {
                 text.push_str(&format!("\n  /{keyword}={}", quote(value)));
@@ -167,10 +174,13 @@ impl Default for OlapCubes {
 
 impl OlapCubes {
     pub fn syntax(&self) -> Result<String, String> {
-        let mut text = format!("OLAP CUBES {}", names(&self.summary, "Summary variables")?);
+        let mut text = format!(
+            "OLAP CUBES {}",
+            names(&self.summary, t("stats-reports-summary-variables"))?
+        );
         let layers: Vec<&Vec<String>> = self.layers.iter().filter(|l| !l.is_empty()).collect();
         if layers.is_empty() {
-            return Err("add at least one variable to Group by".into());
+            return Err(t("stats-reports-add-group-by").into());
         }
         for layer in &layers {
             text.push_str(&format!(" BY {}", layer.join(" ")));
@@ -187,7 +197,7 @@ impl OlapCubes {
             let groups = self.difference == OlapDifference::Groups;
             let types = match (self.absolute, self.percent, groups) {
                 (false, false, _) => {
-                    return Err("choose the change, the percent change or both".into());
+                    return Err(t("stats-reports-choose-change").into());
                 }
                 (true, false, true) => "GAC",
                 (false, true, true) => "GPC",
@@ -203,26 +213,29 @@ impl OlapCubes {
                     continue;
                 }
                 if a.is_empty() || b.is_empty() {
-                    return Err("fill in both sides of each pair, or clear the pair".into());
+                    return Err(t("stats-reports-fill-both-sides").into());
                 }
                 if groups {
                     pairs.push(format!("({} {})", loose_value(a), loose_value(b)));
                 } else {
                     for name in [a, b] {
                         if !self.summary.iter().any(|s| s == name) {
-                            return Err(format!("{name} is not one of the summary variables"));
+                            return Err(t_args(
+                                "stats-reports-not-a-summary-variable",
+                                &[("name", name.into())],
+                            ));
                         }
                     }
                     pairs.push(format!("({a} {b})"));
                 }
             }
             if pairs.is_empty() {
-                return Err("name at least one pair to compare".into());
+                return Err(t("stats-reports-name-a-pair").into());
             }
             if groups {
                 let group = self.group.trim();
                 if !layers.iter().any(|l| l.iter().any(|v| v == group)) {
-                    return Err("choose the grouping variable whose categories are compared".into());
+                    return Err(t("stats-reports-choose-grouping").into());
                 }
                 text.push_str(&format!(
                     "\n  /CREATE {types} ({group} {})",
@@ -233,18 +246,21 @@ impl OlapCubes {
             }
         }
         for (what, value, keyword) in [
-            ("the title", &self.title, "TITLE"),
-            ("the footnote", &self.footnote, "FOOTNOTE"),
+            (t("stats-reports-what-title"), &self.title, "TITLE"),
+            (t("stats-reports-what-footnote"), &self.footnote, "FOOTNOTE"),
         ] {
             if value.len() > 255 {
-                return Err(format!("{what} is longer than 255 bytes"));
+                return Err(t_args(
+                    "stats-reports-longer-than-255",
+                    &[("what", what.into())],
+                ));
             }
             if !value.is_empty() {
                 text.push_str(&format!("\n  /{keyword}={}", quote(value)));
             }
         }
         if self.hide_small {
-            let below = count(&self.hide_below, 2, "the count shown as small", 5)?;
+            let below = count(&self.hide_below, 2, t("stats-reports-what-small-count"), 5)?;
             text.push_str(&format!("\n  /HIDESMALLCOUNTS COUNT={below}"));
         }
         text.push('.');
@@ -262,48 +278,48 @@ pub(crate) fn loose_value(text: &str) -> String {
 
 /// The parts of a variable's dictionary entry; all but the last show without VARINFO.
 pub const CODEBOOK_VARINFO: [(&str, &str); 10] = [
-    ("POSITION", "Position in the file"),
-    ("LABEL", "Variable label"),
-    ("TYPE", "Type"),
-    ("FORMAT", "Display format"),
-    ("MEASURE", "Measurement level"),
-    ("ROLE", "Role"),
-    ("ATTRIBUTES", "Custom attributes"),
-    ("VALUELABELS", "Value labels"),
-    ("MISSING", "Missing values"),
-    ("RESERVEDATTRIBUTES", "Reserved attributes"),
+    ("POSITION", "stats-reports-position"),
+    ("LABEL", "stats-reports-variable-label"),
+    ("TYPE", "stats-reports-type"),
+    ("FORMAT", "stats-reports-display-format"),
+    ("MEASURE", "stats-reports-measurement-level"),
+    ("ROLE", "stats-reports-role"),
+    ("ATTRIBUTES", "stats-reports-custom-attributes"),
+    ("VALUELABELS", "stats-reports-value-labels"),
+    ("MISSING", "stats-reports-missing-values"),
+    ("RESERVEDATTRIBUTES", "stats-reports-reserved-attributes"),
 ];
 
 const VARINFO_DEFAULT: [bool; 10] = [true, true, true, true, true, true, true, true, true, false];
 
 /// The rows of the table about the file; none show without FILEINFO.
 pub const CODEBOOK_FILEINFO: [(&str, &str); 8] = [
-    ("NAME", "File name"),
-    ("LOCATION", "Folder"),
-    ("CASECOUNT", "Number of cases"),
-    ("LABEL", "File label"),
-    ("ATTRIBUTES", "Custom attributes"),
-    ("DOCUMENTS", "Documents"),
-    ("WEIGHT", "Weight variable"),
-    ("RESERVEDATTRIBUTES", "Reserved attributes"),
+    ("NAME", "stats-reports-file-name"),
+    ("LOCATION", "stats-reports-folder"),
+    ("CASECOUNT", "stats-reports-number-of-cases"),
+    ("LABEL", "stats-reports-file-label"),
+    ("ATTRIBUTES", "stats-reports-custom-attributes"),
+    ("DOCUMENTS", "stats-reports-documents"),
+    ("WEIGHT", "stats-reports-weight-variable"),
+    ("RESERVEDATTRIBUTES", "stats-reports-reserved-attributes"),
 ];
 
 /// The summary statistics; all show without STATISTICS.
 pub const CODEBOOK_STATISTICS: [(&str, &str); 5] = [
-    ("COUNT", "Counts"),
-    ("PERCENT", "Percents"),
-    ("MEAN", "Mean"),
-    ("STDDEV", "Standard deviation"),
-    ("QUARTILES", "Quartiles"),
+    ("COUNT", "stats-reports-counts"),
+    ("PERCENT", "stats-reports-percents"),
+    ("MEAN", "stats-reports-mean"),
+    ("STDDEV", "stats-reports-standard-deviation"),
+    ("QUARTILES", "stats-reports-quartiles"),
 ];
 
 /// The order of the tables; the first writes nothing.
 pub const CODEBOOK_ORDERS: [(&str, &str); 5] = [
-    ("", "As listed (file order without a list)"),
-    ("FILE", "File order"),
-    ("ALPHA", "By name"),
-    ("MEASURE", "By measurement level"),
-    ("ATTRIBUTE", "By a custom attribute"),
+    ("", "stats-reports-as-listed"),
+    ("FILE", "stats-reports-file-order"),
+    ("ALPHA", "stats-reports-by-name"),
+    ("MEASURE", "stats-reports-by-measurement-level"),
+    ("ATTRIBUTE", "stats-reports-by-custom-attribute"),
 ];
 
 pub const CODEBOOK_ATTRIBUTE: usize = 4;
@@ -351,7 +367,7 @@ impl Codebook {
         if self.varinfo != VARINFO_DEFAULT {
             let words = keywords(&CODEBOOK_VARINFO, &self.varinfo);
             if words.is_empty() {
-                return Err("choose at least one part of the variable entries".into());
+                return Err(t("stats-reports-choose-a-part").into());
             }
             text.push_str(&format!("\n  /VARINFO={}", words.join(" ")));
         }
@@ -366,7 +382,7 @@ impl Codebook {
             _ => text.push_str(&format!("\n  /STATISTICS={}", words.join(" "))),
         }
         let mut options = Vec::new();
-        let maxcats = count(&self.maxcats, 0, "the most values", 200)?;
+        let maxcats = count(&self.maxcats, 0, t("stats-reports-what-most-values"), 200)?;
         if maxcats != 200 {
             options.push(format!("MAXCATS={maxcats}"));
         }
@@ -375,10 +391,13 @@ impl Codebook {
             CODEBOOK_ATTRIBUTE => {
                 let name = self.attribute.trim();
                 if name.is_empty() {
-                    return Err("name the custom attribute to sort by".into());
+                    return Err(t("stats-reports-name-attribute").into());
                 }
                 if !is_valid_name(name) || name.starts_with('#') {
-                    return Err(format!("{name} is not a valid attribute name"));
+                    return Err(t_args(
+                        "stats-reports-invalid-attribute",
+                        &[("name", name.into())],
+                    ));
                 }
                 options.push(format!("VARORDER=ATTRIBUTE({name})"));
             }

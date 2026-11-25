@@ -6,6 +6,7 @@
 use crate::advanced_dialogs::ci_level;
 use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
+use crate::i18n::{t, t_args};
 use crate::stats_dialogs::parse;
 use crate::survival_dialog::{items, numbers, values};
 use crate::syntax_text::{names, number, probability};
@@ -21,56 +22,61 @@ pub enum NpKind {
 
 /// How a k-sample test follows up a rejection; the first writes nothing.
 pub const NP_COMPARE: [(&str, &str); 3] = [
-    ("PAIRWISE", "All pairs"),
-    ("STEPWISE", "Stepwise step-down"),
-    ("NONE", "None"),
+    ("PAIRWISE", "stats-nptests-all-pairs"),
+    ("STEPWISE", "stats-nptests-stepwise-step-down"),
+    ("NONE", "stats-nptests-none"),
 ];
 
 /// The confidence intervals of the binomial test.
 pub const BINOMIAL_INTERVALS: [(&str, &str); 3] = [
-    ("CLOPPERPEARSON", "Clopper-Pearson (exact)"),
+    ("CLOPPERPEARSON", "stats-nptests-clopper-pearson-exact"),
     ("JEFFREYS", "Jeffreys"),
-    ("LIKELIHOOD", "Likelihood ratio"),
+    ("LIKELIHOOD", "stats-nptests-likelihood-ratio"),
 ];
 
 /// The distributions of the one-sample Kolmogorov-Smirnov test.
-pub const KS_DISTRIBUTIONS: [&str; 4] = ["Normal", "Uniform", "Exponential", "Poisson"];
+pub const KS_DISTRIBUTIONS: [&str; 4] = [
+    "stats-nptests-normal",
+    "stats-nptests-uniform",
+    "stats-nptests-exponential",
+    "Poisson",
+];
 
 /// Where the runs test cuts a continuous field; the first writes nothing.
 pub const RUNS_CUTS: [(&str, &str); 3] = [
-    ("SAMPLEMEDIAN", "Median"),
-    ("SAMPLEMEAN", "Mean"),
-    ("", "A value"),
+    ("SAMPLEMEDIAN", "stats-nptests-median"),
+    ("SAMPLEMEAN", "stats-nptests-mean"),
+    ("", "stats-nptests-a-value"),
 ];
 
 /// The tests of two groups that take no setting.
 pub const INDEPENDENT_TWO: [(&str, &str); 4] = [
     ("MANN_WHITNEY", "Mann-Whitney U"),
-    ("WALD_WOLFOWITZ", "Wald-Wolfowitz runs"),
+    ("WALD_WOLFOWITZ", "stats-nptests-wald-wolfowitz-runs"),
     ("KOLMOGOROV_SMIRNOV", "Kolmogorov-Smirnov"),
-    ("HODGES_LEHMAN", "Hodges-Lehmann estimate"),
+    ("HODGES_LEHMAN", "stats-nptests-hodges-lehmann-estimate"),
 ];
 
 /// The k-sample tests of independent groups, each with its comparisons.
 pub const INDEPENDENT_K: [(&str, &str); 3] = [
     ("KRUSKAL_WALLIS", "Kruskal-Wallis"),
-    ("MEDIAN", "Median test"),
+    ("MEDIAN", "stats-nptests-median-test"),
     ("JONCKHEERE_TERPSTRA", "Jonckheere-Terpstra"),
 ];
 
 /// The tests of two continuous or ordinal fields.
 pub const RELATED_TWO: [(&str, &str); 4] = [
-    ("WILCOXON", "Wilcoxon signed-rank"),
-    ("SIGN", "Sign"),
-    ("MARGINAL_HOMOGENEITY", "Marginal homogeneity"),
-    ("HODGES_LEHMAN", "Hodges-Lehmann estimate"),
+    ("WILCOXON", "stats-nptests-wilcoxon-signed-rank"),
+    ("SIGN", "stats-nptests-sign"),
+    ("MARGINAL_HOMOGENEITY", "stats-nptests-marginal-homogeneity"),
+    ("HODGES_LEHMAN", "stats-nptests-hodges-lehmann-estimate"),
 ];
 
 /// The k-sample tests of related fields, each with its comparisons.
 pub const RELATED_K: [(&str, &str); 3] = [
-    ("COCHRAN", "Cochran's Q"),
+    ("COCHRAN", "stats-nptests-cochrans-q"),
     ("FRIEDMAN", "Friedman"),
-    ("KENDALL", "Kendall's W"),
+    ("KENDALL", "stats-nptests-kendalls-w"),
 ];
 
 /// NPTESTS with one test subcommand.
@@ -212,20 +218,21 @@ impl Nptests {
 
     pub fn title(&self) -> &'static str {
         match self.kind {
-            NpKind::OneSample => "One-Sample Nonparametric Tests",
-            NpKind::Independent => "Independent-Samples Nonparametric Tests",
-            NpKind::Related => "Related-Samples Nonparametric Tests",
+            NpKind::OneSample => t("stats-nptests-title-one-sample"),
+            NpKind::Independent => t("stats-nptests-title-independent"),
+            NpKind::Related => t("stats-nptests-title-related"),
         }
     }
 
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
-        let fields = names(&self.fields, "Test fields")?;
+        let fields = names(&self.fields, t("stats-nptests-test-fields"))?;
         let group = self.group.trim();
         if let Some(w) = data.weight_variable()
             && let Some(name) = self.fields.iter().map(String::as_str).find(|n| *n == w)
         {
-            return Err(format!(
-                "{name} is the weight variable; it cannot be tested"
+            return Err(t_args(
+                "stats-nptests-weight-cannot-be-tested",
+                &[("name", name.into())],
             ));
         }
         // typed values are quoted only when every field holds text
@@ -237,24 +244,28 @@ impl Nptests {
             NpKind::OneSample => format!("NPTESTS /ONESAMPLE TEST({fields})"),
             NpKind::Independent => {
                 if group.is_empty() {
-                    return Err("set the grouping variable".into());
+                    return Err(t("stats-nptests-set-grouping-variable").into());
                 }
                 if data.weight_variable() == Some(group) {
-                    return Err(format!("{group} is the weight variable; it cannot group"));
+                    return Err(t_args(
+                        "stats-nptests-weight-cannot-group",
+                        &[("name", group.into())],
+                    ));
                 }
                 if data
                     .variable(group)
                     .is_ok_and(|v| v.measure() == Measure::Scale && !v.is_string())
                 {
-                    return Err(format!(
-                        "{group} is a scale variable; the groups need a nominal or ordinal one"
+                    return Err(t_args(
+                        "stats-nptests-scale-cannot-group",
+                        &[("name", group.into())],
                     ));
                 }
                 format!("NPTESTS /INDEPENDENT TEST({fields}) GROUP({group})")
             }
             NpKind::Related => {
                 if self.fields.len() < 2 {
-                    return Err("add at least two variables to Test fields".into());
+                    return Err(t("stats-nptests-two-test-fields").into());
                 }
                 format!("NPTESTS /RELATED TEST({fields})")
             }
@@ -266,7 +277,7 @@ impl Nptests {
                 NpKind::Related => self.related(string)?,
             };
             if tests.is_empty() {
-                return Err("choose a test, or let the data choose them".into());
+                return Err(t("stats-nptests-choose-a-test").into());
             }
             for test in tests {
                 text.push_str("\n    ");
@@ -305,7 +316,7 @@ impl Nptests {
     fn success_list(&self, string: bool) -> Result<String, String> {
         let list = values(&self.success, string)?;
         if list.is_empty() {
-            return Err("type the values that count as a success".into());
+            return Err(t("stats-nptests-type-success-values").into());
         }
         Ok(format!("LIST({list})"))
     }
@@ -315,9 +326,9 @@ impl Nptests {
         if self.binomial {
             let mut options = Vec::new();
             if !self.proportion.trim().is_empty() {
-                let p = parse(&self.proportion, "the test proportion")?;
+                let p = parse(&self.proportion, t("stats-nptests-what-test-proportion"))?;
                 if !(p > 0.0 && p < 1.0) {
-                    return Err("the test proportion must lie between 0 and 1".into());
+                    return Err(t("stats-nptests-proportion-between").into());
                 }
                 if p != 0.5 {
                     options.push(format!("TESTVALUE={}", number(p)));
@@ -327,7 +338,7 @@ impl Nptests {
                 options.push(format!("SUCCESSCATEGORICAL={}", self.success_list(string)?));
             }
             if self.cut_value {
-                let cut = parse(&self.cut, "the cut point of the binomial test")?;
+                let cut = parse(&self.cut, t("stats-nptests-what-binomial-cut"))?;
                 options.push(format!("SUCCESSCONTINUOUS=CUTPOINT({})", number(cut)));
             }
             options.extend(
@@ -342,17 +353,23 @@ impl Nptests {
             if self.expected_custom {
                 let categories = values(&self.categories, string)?;
                 let count = items(&self.categories, string).count();
-                let frequencies = numbers(&self.frequencies, "each expected frequency")?;
+                let frequencies = numbers(
+                    &self.frequencies,
+                    t("stats-nptests-what-expected-frequency"),
+                )?;
                 if count == 0 || frequencies.is_empty() {
-                    return Err("type the categories and their expected frequencies".into());
+                    return Err(t("stats-nptests-type-categories-frequencies").into());
                 }
                 if frequencies.iter().any(|f| *f <= 0.0) {
-                    return Err("expected frequencies must be above 0".into());
+                    return Err(t("stats-nptests-frequencies-above-zero").into());
                 }
                 if frequencies.len() != count {
-                    return Err(format!(
-                        "{} expected frequencies for {count} categories",
-                        frequencies.len()
+                    return Err(t_args(
+                        "stats-nptests-frequencies-for-categories",
+                        &[
+                            ("frequencies", frequencies.len().to_string().into()),
+                            ("categories", count.to_string().into()),
+                        ],
                     ));
                 }
                 let frequencies: Vec<String> = frequencies.into_iter().map(number).collect();
@@ -371,14 +388,14 @@ impl Nptests {
             if self.runs_list {
                 let list = values(&self.runs_values, string)?;
                 if list.is_empty() {
-                    return Err("type the values that make the first group of the runs".into());
+                    return Err(t("stats-nptests-type-runs-values").into());
                 }
                 options.push(format!("GROUPCATEGORICAL=LIST({list})"));
             }
             match self.runs_cut {
                 0 => {}
                 2 => {
-                    let cut = parse(&self.runs_cut_value, "the cut point of the runs test")?;
+                    let cut = parse(&self.runs_cut_value, t("stats-nptests-what-runs-cut"))?;
                     options.push(format!("GROUPCONTINUOUS=CUTPOINT({})", number(cut)));
                 }
                 i => options.push(format!("GROUPCONTINUOUS=CUTPOINT({})", RUNS_CUTS[i].0)),
@@ -386,7 +403,10 @@ impl Nptests {
             tests.push(with_options("RUNS", &options));
         }
         if self.wilcoxon {
-            let median = parse(&self.test_median, "the hypothesized median")?;
+            let median = parse(
+                &self.test_median,
+                t("stats-nptests-what-hypothesized-median"),
+            )?;
             tests.push(format!("WILCOXON(TESTVALUE={})", number(median)));
         }
         Ok(tests)
@@ -395,21 +415,21 @@ impl Nptests {
     fn kolmogorov_smirnov(&self) -> Result<String, String> {
         let [normal, uniform, exponential, poisson] = self.distributions;
         if !self.distributions.contains(&true) {
-            return Err("choose a distribution for the Kolmogorov-Smirnov test".into());
+            return Err(t("stats-nptests-choose-distribution").into());
         }
         let mut options = Vec::new();
-        if let Some(n) = whole(&self.samples, 1, "the number of Monte Carlo samples")? {
+        if let Some(n) = whole(&self.samples, 1, t("stats-nptests-what-mc-samples"))? {
             if n > 1_000_000_000 {
-                return Err("the number of Monte Carlo samples must be at most 1000000000".into());
+                return Err(t("stats-nptests-mc-samples-at-most").into());
             }
             if n != 1000 {
                 options.push(format!("NSAMPLES={n}"));
             }
         }
         if !self.mc_level.trim().is_empty() {
-            let level = parse(&self.mc_level, "the Monte Carlo confidence level")?;
+            let level = parse(&self.mc_level, t("stats-nptests-what-mc-level"))?;
             if !(level > 0.0 && level < 100.0) {
-                return Err("the Monte Carlo confidence level must lie between 0 and 100".into());
+                return Err(t("stats-nptests-mc-level-between").into());
             }
             if level != 99.0 {
                 options.push(format!("MC_CILEVEL={}", number(level)));
@@ -418,14 +438,17 @@ impl Nptests {
         let positive = |text: &str, what: &str| -> Result<String, String> {
             let n = parse(text, what)?;
             if n <= 0.0 {
-                return Err(format!("{what} must be above 0"));
+                return Err(t_args(
+                    "stats-nptests-must-be-above-zero",
+                    &[("what", what.into())],
+                ));
             }
             Ok(number(n))
         };
         if normal {
             if self.normal_custom {
-                let mean = parse(&self.normal_mean, "the mean of the normal distribution")?;
-                let sd = positive(&self.normal_sd, "the standard deviation")?;
+                let mean = parse(&self.normal_mean, t("stats-nptests-what-normal-mean"))?;
+                let sd = positive(&self.normal_sd, t("stats-nptests-what-standard-deviation"))?;
                 options.push(format!("NORMAL=CUSTOM(MEAN={} SD={sd})", number(mean)));
             } else if self.lilliefors {
                 options.push("NORMAL=SAMPLE(SIMULATION=FALSE)".into());
@@ -436,10 +459,10 @@ impl Nptests {
         }
         if uniform {
             if self.uniform_custom {
-                let min = parse(&self.uniform_min, "the minimum of the uniform distribution")?;
-                let max = parse(&self.uniform_max, "the maximum of the uniform distribution")?;
+                let min = parse(&self.uniform_min, t("stats-nptests-what-uniform-min"))?;
+                let max = parse(&self.uniform_max, t("stats-nptests-what-uniform-max"))?;
                 if min >= max {
-                    return Err("the uniform minimum must be below its maximum".into());
+                    return Err(t("stats-nptests-uniform-min-below-max").into());
                 }
                 options.push(format!(
                     "UNIFORM=CUSTOM(MIN={} MAX={})",
@@ -452,14 +475,17 @@ impl Nptests {
         }
         if exponential {
             if self.exponential_custom {
-                let mean = positive(&self.exponential_mean, "the exponential mean")?;
+                let mean = positive(
+                    &self.exponential_mean,
+                    t("stats-nptests-what-exponential-mean"),
+                )?;
                 options.push(format!("EXPONENTIAL=CUSTOM(MEAN={mean})"));
             } else {
                 options.push("EXPONENTIAL=SAMPLE".into());
             }
         }
         if poisson {
-            let mean = positive(&self.poisson_mean, "the Poisson mean")?;
+            let mean = positive(&self.poisson_mean, t("stats-nptests-what-poisson-mean"))?;
             options.push(format!("POISSON=CUSTOM(MEAN={mean})"));
         }
         Ok(with_options("KOLMOGOROV_SMIRNOV", &options))
@@ -477,7 +503,7 @@ impl Nptests {
             .collect();
         if self.moses {
             let mut options = Vec::new();
-            if let Some(n) = whole(&self.trim, 0, "the cases to trim")? {
+            if let Some(n) = whole(&self.trim, 0, t("stats-nptests-what-cases-to-trim"))? {
                 options.push(format!("TRIMOUTLIERS={n}"));
             }
             tests.push(with_options("MOSES", &options));
@@ -488,7 +514,10 @@ impl Nptests {
             }
             let mut options = Vec::new();
             if *keyword == "MEDIAN" && !self.median_value.trim().is_empty() {
-                let median = parse(&self.median_value, "the median to compare with")?;
+                let median = parse(
+                    &self.median_value,
+                    t("stats-nptests-what-median-to-compare"),
+                )?;
                 options.push(format!("TESTVALUE={}", number(median)));
             }
             if *keyword == "JONCKHEERE_TERPSTRA" && self.descending {
@@ -507,7 +536,7 @@ impl Nptests {
             None
         };
         if (self.mcnemar || self.two_tests.contains(&true)) && self.fields.len() != 2 {
-            return Err("McNemar and the tests of two fields need exactly two fields".into());
+            return Err(t("stats-nptests-exactly-two-fields").into());
         }
         let mut tests = Vec::new();
         if self.mcnemar {

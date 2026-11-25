@@ -3,31 +3,32 @@
 
 use crate::bootstrap_dialog::Bootstrap;
 use crate::dialogs::whole;
+use crate::i18n::{t, t_args};
 use crate::syntax_text::{confidence, names, number, probability, quote, value};
 
 /// Keyword and label of every cell statistic Means offers, in the order shown.
 pub const MEANS_CELLS: [(&str, &str); 21] = [
-    ("MEAN", "Mean"),
-    ("COUNT", "Number of cases"),
-    ("STDDEV", "Standard deviation"),
-    ("MEDIAN", "Median"),
-    ("GMEDIAN", "Grouped median"),
-    ("SEMEAN", "Standard error of the mean"),
-    ("SUM", "Sum"),
-    ("MIN", "Minimum"),
-    ("MAX", "Maximum"),
-    ("RANGE", "Range"),
-    ("VARIANCE", "Variance"),
-    ("SKEW", "Skewness"),
-    ("SESKEW", "Standard error of skewness"),
-    ("KURT", "Kurtosis"),
-    ("SEKURT", "Standard error of kurtosis"),
-    ("FIRST", "First value"),
-    ("LAST", "Last value"),
-    ("NPCT", "Percent of all cases"),
-    ("SPCT", "Percent of the total sum"),
-    ("HARMONIC", "Harmonic mean"),
-    ("GEOMETRIC", "Geometric mean"),
+    ("MEAN", "stats-analyze-mean"),
+    ("COUNT", "stats-analyze-number-of-cases"),
+    ("STDDEV", "stats-analyze-standard-deviation"),
+    ("MEDIAN", "stats-analyze-median"),
+    ("GMEDIAN", "stats-analyze-grouped-median"),
+    ("SEMEAN", "stats-analyze-se-mean"),
+    ("SUM", "stats-analyze-sum"),
+    ("MIN", "stats-analyze-minimum"),
+    ("MAX", "stats-analyze-maximum"),
+    ("RANGE", "stats-analyze-range"),
+    ("VARIANCE", "stats-analyze-variance"),
+    ("SKEW", "stats-analyze-skewness"),
+    ("SESKEW", "stats-analyze-se-skewness"),
+    ("KURT", "stats-analyze-kurtosis"),
+    ("SEKURT", "stats-analyze-se-kurtosis"),
+    ("FIRST", "stats-analyze-first-value"),
+    ("LAST", "stats-analyze-last-value"),
+    ("NPCT", "stats-analyze-percent-of-cases"),
+    ("SPCT", "stats-analyze-percent-of-sum"),
+    ("HARMONIC", "stats-analyze-harmonic-mean"),
+    ("GEOMETRIC", "stats-analyze-geometric-mean"),
 ];
 
 /// MEAN COUNT STDDEV, what MEANS shows without /CELLS.
@@ -79,7 +80,7 @@ impl Means {
     pub fn syntax(&self) -> Result<String, String> {
         let mut text = format!(
             "MEANS TABLES={}",
-            names(&self.dependents, "Dependent variables")?
+            names(&self.dependents, t("stats-analyze-dependent-variables"))?
         );
         let layers: Vec<&Vec<String>> = self.layers.iter().filter(|l| !l.is_empty()).collect();
         for layer in &layers {
@@ -97,7 +98,7 @@ impl Means {
                     .iter()
                     .any(|layer| layer.iter().any(|v| v == control))
                 {
-                    return Err("choose a control variable for the percentages within".into());
+                    return Err(t("stats-analyze-choose-control-within").into());
                 }
                 for (on, keyword) in [(self.npct_within, "NPCT"), (self.spct_within, "SPCT")] {
                     if on {
@@ -106,13 +107,13 @@ impl Means {
                 }
             }
             if cells.is_empty() {
-                return Err("choose at least one statistic".into());
+                return Err(t("stats-analyze-choose-statistic").into());
             }
             text.push_str(&format!("\n  /CELLS={}", cells.join(" ")));
         }
         if self.anova || self.linearity {
             if layers.is_empty() {
-                return Err("the analysis of variance needs a variable in Layer 1".into());
+                return Err(t("stats-analyze-anova-needs-layer").into());
             }
             let keyword = if self.linearity { "LINEARITY" } else { "ANOVA" };
             text.push_str(&format!("\n  /STATISTICS={keyword}"));
@@ -132,9 +133,9 @@ pub enum TTestKind {
 
 /// How a paired test scales Cohen's d.
 pub const STANDARDIZERS: [(&str, &str); 3] = [
-    ("SD", "Standard deviation of the differences"),
-    ("CORRECTED_SD", "Corrected standard deviation"),
-    ("AVERAGE", "Average of the variances"),
+    ("SD", "stats-analyze-sd-differences"),
+    ("CORRECTED_SD", "stats-analyze-corrected-sd"),
+    ("AVERAGE", "stats-analyze-average-variances"),
 ];
 
 /// One of the three t tests: its variables and the options they share.
@@ -181,9 +182,9 @@ impl TTest {
 
     pub fn title(&self) -> &'static str {
         match self.kind {
-            TTestKind::OneSample => "One-Sample T Test",
-            TTestKind::Independent => "Independent-Samples T Test",
-            TTestKind::Paired => "Paired-Samples T Test",
+            TTestKind::OneSample => t("stats-analyze-one-sample-t-test"),
+            TTestKind::Independent => t("stats-analyze-independent-samples-t-test"),
+            TTestKind::Paired => t("stats-analyze-paired-samples-t-test"),
         }
     }
 
@@ -193,24 +194,24 @@ impl TTest {
             TTestKind::OneSample => format!(
                 "T-TEST /TESTVAL={} /VARIABLES={}",
                 value(&self.test_value, false)?,
-                names(&self.variables, "Test variables")?
+                names(&self.variables, t("stats-analyze-test-variables"))?
             ),
             TTestKind::Independent => {
-                let variables = names(&self.variables, "Test variables")?;
+                let variables = names(&self.variables, t("stats-analyze-test-variables"))?;
                 let grouping = self.grouping.trim();
                 if grouping.is_empty() {
-                    return Err("choose a grouping variable".into());
+                    return Err(t("stats-analyze-choose-grouping").into());
                 }
                 let given = [&self.group1, &self.group2].map(|g| !g.trim().is_empty());
                 let groups = if self.cut_point {
                     if !given[0] {
-                        return Err("give the cut point".into());
+                        return Err(t("stats-analyze-give-cut-point").into());
                     }
                     format!("({})", value(&self.group1, string)?)
                 } else if given == [false, false] && !string {
                     String::new()
                 } else if given != [true, true] {
-                    return Err("give the values of both groups".into());
+                    return Err(t("stats-analyze-give-both-groups").into());
                 } else {
                     format!(
                         "({} {})",
@@ -222,7 +223,7 @@ impl TTest {
             }
             TTestKind::Paired => {
                 if self.pairs.is_empty() {
-                    return Err("add at least one pair".into());
+                    return Err(t("stats-analyze-add-pair").into());
                 }
                 let (left, right): (Vec<&str>, Vec<&str>) = self
                     .pairs
@@ -255,11 +256,11 @@ impl TTest {
 
 /// Keyword and label of every statistic of the One-Way ANOVA options.
 pub const ONEWAY_STATISTICS: [(&str, &str); 5] = [
-    ("DESCRIPTIVES", "Descriptives"),
-    ("EFFECTS", "Fixed and random effects"),
-    ("HOMOGENEITY", "Test of equal variances"),
-    ("WELCH", "Welch test"),
-    ("BROWNFORSYTHE", "Brown-Forsythe test"),
+    ("DESCRIPTIVES", "stats-analyze-descriptives"),
+    ("EFFECTS", "stats-analyze-fixed-random-effects"),
+    ("HOMOGENEITY", "stats-analyze-equal-variances-test"),
+    ("WELCH", "stats-analyze-welch-test"),
+    ("BROWNFORSYTHE", "stats-analyze-brown-forsythe-test"),
 ];
 
 /// Keyword and label of every post hoc test One-Way ANOVA offers besides Dunnett's: the
@@ -269,37 +270,37 @@ pub const POST_HOC_TESTS: [(&str, &str); 16] = [
     ("BONFERRONI", "Bonferroni"),
     ("SIDAK", "Sidak"),
     ("SCHEFFE", "Scheffe"),
-    ("FREGW", "Ryan-Einot-Gabriel-Welsch F"),
-    ("QREGW", "Ryan-Einot-Gabriel-Welsch range"),
+    ("FREGW", "stats-analyze-regw-f"),
+    ("QREGW", "stats-analyze-regw-range"),
     ("SNK", "Student-Newman-Keuls"),
     ("TUKEY", "Tukey"),
-    ("BTUKEY", "Tukey's b"),
+    ("BTUKEY", "stats-analyze-tukey-b"),
     ("DUNCAN", "Duncan"),
-    ("GT2", "Hochberg's GT2"),
+    ("GT2", "stats-analyze-hochberg-gt2"),
     ("GABRIEL", "Gabriel"),
-    ("T2", "Tamhane's T2"),
-    ("T3", "Dunnett's T3"),
+    ("T2", "stats-analyze-tamhane-t2"),
+    ("T3", "stats-analyze-dunnett-t3"),
     ("GH", "Games-Howell"),
-    ("C", "Dunnett's C"),
+    ("C", "stats-analyze-dunnett-c"),
 ];
 
 pub const EQUAL_VARIANCE_TESTS: usize = 12;
 
 /// Label of each degree of the polynomial trend; the index is the degree, 0 for none.
 pub const ONEWAY_POLYNOMIALS: [(&str, &str); 6] = [
-    ("", "None"),
-    ("1", "Linear"),
-    ("2", "Quadratic"),
-    ("3", "Cubic"),
-    ("4", "4th degree"),
-    ("5", "5th degree"),
+    ("", "stats-analyze-trend-none"),
+    ("1", "stats-analyze-trend-linear"),
+    ("2", "stats-analyze-trend-quadratic"),
+    ("3", "stats-analyze-trend-cubic"),
+    ("4", "stats-analyze-trend-4th"),
+    ("5", "stats-analyze-trend-5th"),
 ];
 
 /// Keyword and label of each side of Dunnett's test against a control group.
 pub const DUNNETT_SIDES: [(&str, &str); 3] = [
-    ("DUNNETT", "Two-sided"),
-    ("DUNNETTL", "Below the control"),
-    ("DUNNETTR", "Above the control"),
+    ("DUNNETT", "stats-analyze-two-sided"),
+    ("DUNNETTL", "stats-analyze-below-control"),
+    ("DUNNETTR", "stats-analyze-above-control"),
 ];
 
 #[derive(Clone, PartialEq, Debug)]
@@ -354,10 +355,10 @@ pub(crate) fn keywords<'a>(options: &[(&'a str, &str)], flags: &[bool]) -> Vec<&
 
 impl Oneway {
     pub fn syntax(&self) -> Result<String, String> {
-        let dependents = names(&self.dependents, "Dependent variables")?;
+        let dependents = names(&self.dependents, t("stats-analyze-dependent-variables"))?;
         let factor = self.factor.trim();
         if factor.is_empty() {
-            return Err("choose a factor".into());
+            return Err(t("stats-analyze-choose-factor").into());
         }
         let mut text = format!("ONEWAY {dependents} BY {factor}");
         if self.polynomial > 0 {
@@ -444,18 +445,18 @@ impl Default for Correlations {
 
 /// The standard errors of Spearman's rho for its confidence interval, keyword and label.
 pub const SPEARMAN_CI: [(&str, &str); 3] = [
-    ("FHP", "Fieller, Hartley and Pearson"),
-    ("CC", "Caruso and Cliff"),
-    ("BW", "Bonett and Wright"),
+    ("FHP", "stats-analyze-ci-fhp"),
+    ("CC", "stats-analyze-ci-cc"),
+    ("BW", "stats-analyze-ci-bw"),
 ];
 
 impl Correlations {
     pub fn syntax(&self) -> Result<String, String> {
         if self.variables.len() < 2 {
-            return Err("add at least two variables".into());
+            return Err(t("stats-analyze-add-two-variables").into());
         }
         if !(self.pearson || self.kendall || self.spearman) {
-            return Err("choose at least one correlation coefficient".into());
+            return Err(t("stats-analyze-choose-coefficient").into());
         }
         let list = self.variables.join(" ");
         let print = |first: Option<&str>| {
@@ -546,9 +547,9 @@ impl ExploreMissing {
 
     pub fn label(self) -> &'static str {
         match self {
-            ExploreMissing::Listwise => "Leave out a case missing on any listed variable",
-            ExploreMissing::Pairwise => "Leave out a case only where its value is missing",
-            ExploreMissing::Report => "Show missing factor values as groups of their own",
+            ExploreMissing::Listwise => t("stats-analyze-missing-listwise"),
+            ExploreMissing::Pairwise => t("stats-analyze-missing-pairwise"),
+            ExploreMissing::Report => t("stats-analyze-missing-report"),
         }
     }
 }
@@ -595,7 +596,7 @@ impl Explore {
     pub fn syntax(&self) -> Result<String, String> {
         let mut text = format!(
             "EXAMINE VARIABLES={}",
-            names(&self.dependents, "Dependent variables")?
+            names(&self.dependents, t("stats-analyze-dependent-variables"))?
         );
         if !self.factors.is_empty() {
             text.push_str(&format!(" BY {}", self.factors.join(" ")));
@@ -610,7 +611,7 @@ impl Explore {
             || self.mestimators
             || self.normality)
         {
-            return Err("choose at least one statistic or test".into());
+            return Err(t("stats-analyze-choose-statistic-or-test").into());
         }
         if self.percentiles {
             text.push_str("\n  /PERCENTILES");
@@ -628,7 +629,7 @@ impl Explore {
                 .parse::<f64>()
                 .ok()
                 .filter(|p| (50.0..=99.99).contains(p))
-                .ok_or("the confidence level must be a percentage from 50 to 99.99")?;
+                .ok_or(t("stats-analyze-confidence-50-99"))?;
             if percent != 95.0 {
                 text.push_str(&format!("\n  /CINTERVAL={}", number(percent)));
             }
@@ -676,9 +677,9 @@ impl Default for MrGroup {
 
 /// Keyword and label of every percentage of a multiple response crosstabulation.
 pub const MULT_RESPONSE_CELLS: [(&str, &str); 3] = [
-    ("ROW", "Row percentages"),
-    ("COLUMN", "Column percentages"),
-    ("TOTAL", "Total percentages"),
+    ("ROW", "stats-analyze-row-percentages"),
+    ("COLUMN", "stats-analyze-column-percentages"),
+    ("TOTAL", "stats-analyze-total-percentages"),
 ];
 
 /// MULT RESPONSE: frequency tables of the groups, or crosstabulations of groups and variables.
@@ -704,9 +705,9 @@ pub struct MultResponse {
 impl MultResponse {
     pub fn title(&self) -> &'static str {
         if self.crosstabs {
-            "Multiple Response Crosstabs"
+            t("stats-analyze-mr-crosstabs")
         } else {
-            "Multiple Response Frequencies"
+            t("stats-analyze-mr-frequencies")
         }
     }
 
@@ -732,9 +733,12 @@ impl MultResponse {
         for (i, g) in self.groups.iter().enumerate() {
             let name = g.name.trim();
             if name.is_empty() || name.contains(char::is_whitespace) {
-                return Err("give every group a name of one word".into());
+                return Err(t("stats-analyze-group-name-one-word").into());
             }
-            let variables = names(&g.variables, &format!("the group {name}"))?;
+            let variables = names(
+                &g.variables,
+                &t_args("stats-analyze-the-group", &[("name", name.into())]),
+            )?;
             text.push_str(if i == 0 { " GROUPS=" } else { "\n  " });
             text.push_str(name);
             if !g.label.trim().is_empty() {
@@ -750,7 +754,10 @@ impl MultResponse {
         if self.crosstabs {
             for (i, name) in self.table_variables().into_iter().enumerate() {
                 let Some((_, min, max)) = self.ranges.iter().find(|(n, ..)| n == name) else {
-                    return Err(format!("give the range of {name}"));
+                    return Err(t_args(
+                        "stats-analyze-give-range",
+                        &[("name", name.as_str().into())],
+                    ));
                 };
                 let (min, max) = (value(min, false)?, value(max, false)?);
                 text.push_str(if i == 0 { "\n  /VARIABLES=" } else { " " });
@@ -758,15 +765,15 @@ impl MultResponse {
             }
             text.push_str(&format!(
                 "\n  /TABLES={} BY {}",
-                names(&self.rows, "Rows")?,
-                names(&self.columns, "Columns")?
+                names(&self.rows, t("stats-analyze-rows"))?,
+                names(&self.columns, t("stats-analyze-columns"))?
             ));
             if !self.layers.is_empty() {
                 text.push_str(&format!(" BY {}", self.layers.join(" ")));
             }
         } else {
             if self.groups.is_empty() {
-                return Err("define at least one group".into());
+                return Err(t("stats-analyze-define-group").into());
             }
             let groups: Vec<&str> = self.groups.iter().map(|g| g.name.trim()).collect();
             text.push_str(&format!("\n  /FREQUENCIES={}", groups.join(" ")));
@@ -799,17 +806,17 @@ impl MultResponse {
 
 /// The level written after a variable of TREE, the measure of the dictionary first.
 pub const TREE_LEVELS: [(&str, &str); 4] = [
-    ("", "Its measure"),
+    ("", "stats-analyze-its-measure"),
     ("N", "Nominal"),
     ("O", "Ordinal"),
-    ("S", "Scale"),
+    ("S", "stats-analyze-scale"),
 ];
 
 /// Keyword and label of every variable TREE saves.
 pub const TREE_SAVE: [(&str, &str); 3] = [
-    ("NODEID", "Terminal node"),
-    ("PREDVAL", "Predicted category"),
-    ("PREDPROB", "Predicted probabilities"),
+    ("NODEID", "stats-analyze-terminal-node"),
+    ("PREDVAL", "stats-analyze-predicted-category"),
+    ("PREDPROB", "stats-analyze-predicted-probabilities"),
 ];
 
 /// TREE by CHAID or exhaustive CHAID.
@@ -855,10 +862,10 @@ impl Tree {
             level => format!(" [{level}]"),
         };
         if self.dependent.is_empty() {
-            return Err("choose the dependent variable".into());
+            return Err(t("stats-analyze-choose-dependent").into());
         }
         if self.predictors.is_empty() {
-            return Err("add at least one variable to Predictors".into());
+            return Err(t("stats-analyze-add-predictor").into());
         }
         let mut text = format!("TREE {}{} BY", self.dependent, level(self.dependent_level));
         for (name, l) in &self.predictors {
@@ -867,11 +874,12 @@ impl Tree {
         if self.exhaustive {
             text.push_str("\n  /METHOD TYPE=EXHAUSTIVECHAID");
         }
-        let depth = whole(&self.max_depth, 1, "the maximum depth")?;
-        let parent = whole(&self.min_parent, 1, "the parent node size")?.unwrap_or(100);
-        let child = whole(&self.min_child, 1, "the child node size")?.unwrap_or(50);
+        let depth = whole(&self.max_depth, 1, t("stats-analyze-maximum-depth"))?;
+        let parent =
+            whole(&self.min_parent, 1, t("stats-analyze-parent-node-size"))?.unwrap_or(100);
+        let child = whole(&self.min_child, 1, t("stats-analyze-child-node-size"))?.unwrap_or(50);
         if child >= parent {
-            return Err("the child node size must be smaller than the parent node size".into());
+            return Err(t("stats-analyze-child-below-parent").into());
         }
         let mut limits = String::new();
         if let Some(depth) = depth {

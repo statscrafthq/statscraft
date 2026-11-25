@@ -6885,8 +6885,8 @@ fn dialog_body(
                 for (i, (name, level)) in d.predictors.iter_mut().enumerate() {
                     ui.label(name.as_str());
                     ComboBox::from_id_salt(("predictor level", i))
-                        .selected_text(TREE_LEVELS[*level].1)
-                        .show_index(ui, level, TREE_LEVELS.len(), |i| TREE_LEVELS[i].1);
+                        .selected_text(t(TREE_LEVELS[*level].1))
+                        .show_index(ui, level, TREE_LEVELS.len(), |i| t(TREE_LEVELS[i].1));
                     if ui
                         .small_button("\u{d7}")
                         .on_hover_text(t("data-remove"))
@@ -7364,9 +7364,9 @@ fn t_test_options(ui: &mut Ui, d: &mut TTest) {
         ui.checkbox(&mut d.effect_sizes, "Effect sizes");
         if d.kind == TTestKind::Paired && d.effect_sizes {
             ComboBox::new("standardizer", "Scale of Cohen's d")
-                .selected_text(STANDARDIZERS[d.standardizer].1)
+                .selected_text(t(STANDARDIZERS[d.standardizer].1))
                 .show_index(ui, &mut d.standardizer, STANDARDIZERS.len(), |i| {
-                    STANDARDIZERS[i].1
+                    t(STANDARDIZERS[i].1)
                 });
         }
     });

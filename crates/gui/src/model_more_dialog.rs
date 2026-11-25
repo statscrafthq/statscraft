@@ -4,29 +4,30 @@
 
 use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
+use crate::i18n::{t, t_args};
 use crate::stats_dialogs::parse;
 use crate::syntax_text::{names, number, quote};
 use statscraft_data::is_valid_name;
 
 /// The tables QUANTILE REGRESSION prints; the estimates are the default.
 pub const QR_PRINT: [(&str, &str); 3] = [
-    ("PARAMETER", "Parameter estimates"),
-    ("COVB", "Covariances of the estimates"),
-    ("CORB", "Correlations of the estimates"),
+    ("PARAMETER", "stats-modelmore-parameter-estimates"),
+    ("COVB", "stats-modelmore-covariances-estimates"),
+    ("CORB", "stats-modelmore-correlations-estimates"),
 ];
 
 /// The variables QUANTILE REGRESSION saves.
 pub const QR_SAVES: [(&str, &str); 4] = [
-    ("PRED", "Predicted value"),
-    ("RESID", "Residual"),
-    ("CIPREDL", "Lower limit of the predicted value"),
-    ("CIPREDU", "Upper limit of the predicted value"),
+    ("PRED", "stats-modelmore-predicted-value"),
+    ("RESID", "stats-modelmore-residual"),
+    ("CIPREDL", "stats-modelmore-lower-limit"),
+    ("CIPREDU", "stats-modelmore-upper-limit"),
 ];
 
 pub const QR_METHODS: [(&str, &str); 3] = [
-    ("AUTO", "Automatic"),
+    ("AUTO", "stats-modelmore-automatic"),
     ("SIMPLEX", "Simplex"),
-    ("INTERIOR_POINT", "Interior point"),
+    ("INTERIOR_POINT", "stats-modelmore-interior-point"),
 ];
 
 pub const QR_BANDWIDTHS: [(&str, &str); 2] =
@@ -45,7 +46,13 @@ fn save_names(list: &[(bool, String)]) -> Result<Vec<String>, String> {
         } else if is_valid_name(name) {
             out.push(format!("{key}({name})"));
         } else {
-            return Err(format!("{name:?} is not a valid name for the {label}"));
+            return Err(t_args(
+                "stats-modelmore-invalid-save-name",
+                &[
+                    ("name", format!("{name:?}").into()),
+                    ("label", t(label).into()),
+                ],
+            ));
         }
     }
     Ok(out)
@@ -96,7 +103,7 @@ impl Default for QuantileRegression {
 impl QuantileRegression {
     pub fn syntax(&self) -> Result<String, String> {
         if self.dependent.is_empty() {
-            return Err("set the dependent variable".into());
+            return Err(t("stats-modelmore-set-dependent").into());
         }
         let mut text = format!("QUANTILE REGRESSION {}", self.dependent);
         if !self.factors.is_empty() {
@@ -111,14 +118,17 @@ impl QuantileRegression {
         let mut criteria = String::new();
         let mut quantiles = Vec::new();
         for word in self.quantiles.split_whitespace() {
-            let q = parse(word, "a quantile")?;
+            let q = parse(word, t("stats-modelmore-a-quantile"))?;
             if !(0.0..=1.0).contains(&q) {
-                return Err(format!("the quantile {word} must be from 0 to 1"));
+                return Err(t_args(
+                    "stats-modelmore-quantile-range",
+                    &[("value", word.into())],
+                ));
             }
             quantiles.push(number(q));
         }
         if quantiles.is_empty() {
-            return Err("give at least one quantile".into());
+            return Err(t("stats-modelmore-give-quantile").into());
         }
         if quantiles != ["0.5"] {
             criteria.push_str(&format!(" QUANTILE={}", quantiles.join(" ")));
@@ -129,9 +139,9 @@ impl QuantileRegression {
         if self.bandwidth != 0 {
             criteria.push_str(&format!(" BANDWIDTH={}", QR_BANDWIDTHS[self.bandwidth].0));
         }
-        let level = parse(&self.level, "the confidence level")?;
+        let level = parse(&self.level, t("stats-modelmore-confidence-level"))?;
         if level <= 0.0 || level >= 100.0 {
-            return Err("the confidence level must be above 0 and below 100".into());
+            return Err(t("stats-modelmore-confidence-range").into());
         }
         if level != 95.0 {
             criteria.push_str(&format!(" CILEVEL={}", number(level)));
@@ -148,7 +158,7 @@ impl QuantileRegression {
         if self.print != [true, false, false] {
             let print = keywords(&QR_PRINT, &self.print);
             if print.is_empty() {
-                return Err("tick at least one table to print".into());
+                return Err(t("stats-modelmore-tick-table").into());
             }
             text.push_str(&format!("\n  /PRINT {}", print.join(" ")));
         }
@@ -163,12 +173,12 @@ impl QuantileRegression {
 
 /// The estimators of VARCOMP: the keyword text and the label.
 pub const VARCOMP_METHODS: [(&str, &str); 6] = [
-    ("MINQUE(1)", "MINQUE, weight 1 on every random effect"),
-    ("MINQUE(0)", "MINQUE, weight 0 on the random effects"),
-    ("ML", "Maximum likelihood"),
-    ("REML", "Restricted maximum likelihood"),
-    ("SSTYPE(3)", "ANOVA, Type III sums of squares"),
-    ("SSTYPE(1)", "ANOVA, Type I sums of squares"),
+    ("MINQUE(1)", "stats-modelmore-minque-1"),
+    ("MINQUE(0)", "stats-modelmore-minque-0"),
+    ("ML", "stats-modelmore-ml"),
+    ("REML", "stats-modelmore-reml"),
+    ("SSTYPE(3)", "stats-modelmore-anova-type-3"),
+    ("SSTYPE(1)", "stats-modelmore-anova-type-1"),
 ];
 /// The estimators that iterate (ML and REML) and the ANOVA ones, as indexes of the list.
 pub const VARCOMP_ML: std::ops::Range<usize> = 2..4;
@@ -225,20 +235,23 @@ fn positive(text: &str, what: &str) -> Result<Option<f64>, String> {
     }
     match parse(text, what)? {
         n if n > 0.0 => Ok(Some(n)),
-        _ => Err(format!("{what} must be above 0")),
+        _ => Err(t_args("stats-modelmore-above-0", &[("what", what.into())])),
     }
 }
 
 impl VarianceComponents {
     pub fn syntax(&self) -> Result<String, String> {
         if self.dependent.is_empty() {
-            return Err("set the dependent variable".into());
+            return Err(t("stats-modelmore-set-dependent").into());
         }
         if self.random.is_empty() {
-            return Err("add at least one random factor".into());
+            return Err(t("stats-modelmore-add-random").into());
         }
         if let Some(name) = self.random.iter().find(|n| self.fixed.contains(n)) {
-            return Err(format!("{name} is both a fixed and a random factor"));
+            return Err(t_args(
+                "stats-modelmore-fixed-and-random",
+                &[("name", name.as_str().into())],
+            ));
         }
         let factors: Vec<&str> = self
             .fixed
@@ -266,14 +279,14 @@ impl VarianceComponents {
         let mut criteria = Vec::new();
         // the iteration settings only serve ML and REML
         if VARCOMP_ML.contains(&self.method) {
-            if let Some(n) = positive(&self.converge, "the convergence criterion")? {
+            if let Some(n) = positive(&self.converge, t("stats-modelmore-convergence-criterion"))? {
                 criteria.push(format!("CONVERGE({})", number(n)));
             }
-            if let Some(n) = whole(&self.iterate, 1, "the largest number of iterations")? {
+            if let Some(n) = whole(&self.iterate, 1, t("stats-modelmore-largest-iterations"))? {
                 criteria.push(format!("ITERATE({n})"));
             }
         }
-        if let Some(n) = positive(&self.eps, "the tolerance for redundant columns")? {
+        if let Some(n) = positive(&self.eps, t("stats-modelmore-eps"))? {
             criteria.push(format!("EPS({})", number(n)));
         }
         if !criteria.is_empty() {
@@ -288,7 +301,7 @@ impl VarianceComponents {
             print.push("EMS".into());
         }
         if self.history && VARCOMP_ML.contains(&self.method) {
-            let every = whole(&self.every, 1, "the history interval")?.unwrap_or(1);
+            let every = whole(&self.every, 1, t("stats-modelmore-history-interval"))?.unwrap_or(1);
             print.push(if every == 1 {
                 "HISTORY".into()
             } else {
@@ -305,9 +318,9 @@ impl VarianceComponents {
 
 /// The tables OPTIMAL BINNING prints; the end points are the default.
 pub const BINNING_PRINT: [(&str, &str); 3] = [
-    ("ENDPOINTS", "End points of the bins"),
-    ("DESCRIPTIVES", "Descriptive statistics"),
-    ("ENTROPY", "Model entropy (guided binning only)"),
+    ("ENDPOINTS", "stats-modelmore-end-points"),
+    ("DESCRIPTIVES", "stats-modelmore-descriptive-statistics"),
+    ("ENTROPY", "stats-modelmore-model-entropy"),
 ];
 
 /// OPTIMAL BINNING: cuts for scale variables, guided by a variable (MDLP) or equal frequency.
@@ -363,9 +376,12 @@ impl OptimalBinning {
     }
 
     pub fn syntax(&self) -> Result<String, String> {
-        let list = names(&self.variables, "Variables to bin")?;
+        let list = names(&self.variables, t("stats-modelmore-variables-to-bin"))?;
         if self.variables.contains(&self.guide) {
-            return Err(format!("{} is both guide and variable to bin", self.guide));
+            return Err(t_args(
+                "stats-modelmore-guide-and-bin",
+                &[("name", self.guide.as_str().into())],
+            ));
         }
         let equal = self.is_equal();
         let mut text = String::from("OPTIMAL BINNING\n  /VARIABLES");
@@ -378,22 +394,25 @@ impl OptimalBinning {
             if into.is_empty() {
                 text.push_str(" SAVE=YES");
             } else if into.len() != self.variables.len() {
-                return Err("give one new name for each variable to bin, or none".into());
+                return Err(t("stats-modelmore-one-name-each").into());
             } else if let Some(name) = into.iter().find(|n| !is_valid_name(n)) {
-                return Err(format!("{name:?} is not a valid variable name"));
+                return Err(t_args(
+                    "stats-modelmore-invalid-variable-name",
+                    &[("name", format!("{name:?}").into())],
+                ));
             } else {
                 text.push_str(&format!(" SAVE=YES (INTO={})", into.join(" ")));
             }
         }
         let mut criteria = String::new();
         if equal {
-            let bins = whole(&self.bins, 2, "the number of bins")?.unwrap_or(10);
+            let bins = whole(&self.bins, 2, t("stats-modelmore-number-of-bins"))?.unwrap_or(10);
             if bins != 10 || !self.guide.is_empty() {
                 criteria.push_str(&format!(" METHOD=EQUALFREQ(BINS={bins})"));
             }
         } else if !self.preprocess {
             criteria.push_str(" PREPROCESS=NONE");
-        } else if let Some(n) = whole(&self.classes, 2, "the number of classes")?
+        } else if let Some(n) = whole(&self.classes, 2, t("stats-modelmore-number-of-classes"))?
             && n != 1000
         {
             criteria.push_str(&format!(" PREPROCESS=EQUALFREQ(BINS={n})"));
@@ -408,9 +427,9 @@ impl OptimalBinning {
             criteria.push_str(" LOWERLIMIT=EXCLUSIVE");
         }
         if !self.merge.trim().is_empty() {
-            let r = parse(&self.merge, "the merge ratio")?;
+            let r = parse(&self.merge, t("stats-modelmore-merge-ratio"))?;
             if r < 0.0 {
-                return Err("the merge ratio must not be negative".into());
+                return Err(t("stats-modelmore-merge-negative").into());
             }
             if r != 0.0 {
                 criteria.push_str(&format!(" FORCEMERGE={}", number(r)));

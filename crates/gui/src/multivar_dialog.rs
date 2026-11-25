@@ -1,6 +1,7 @@
 //! The MANOVA (classic), Partial Least Squares (PLS) and Nearest Neighbor (KNN) dialogs. Options
 //! left as they are add nothing to the syntax, so the command runs with its own defaults.
 
+use crate::i18n::{FluentValue, t, t_args};
 use crate::stats_dialogs::numeric;
 use crate::syntax_text::names;
 use statscraft_data::Dataset;
@@ -13,7 +14,10 @@ fn one_role_each(names: &[&str]) -> Result<(), String> {
         .enumerate()
         .find(|(i, n)| names[..*i].iter().any(|m| m.eq_ignore_ascii_case(n)))
     {
-        Some((_, name)) => Err(format!("{name} has two roles; keep it in one")),
+        Some((_, name)) => Err(t_args(
+            "stats-multivar-two-roles",
+            &[("name", (*name).into())],
+        )),
         None => Ok(()),
     }
 }
@@ -24,7 +28,12 @@ fn whole(text: &str, what: &str, least: i64) -> Result<i64, String> {
         .parse::<i64>()
         .ok()
         .filter(|n| *n >= least && *n < 1_000_000_000)
-        .ok_or_else(|| format!("{what} must be a whole number of at least {least}"))
+        .ok_or_else(|| {
+            t_args(
+                "stats-multivar-whole-at-least",
+                &[("what", what.into()), ("least", least.to_string().into())],
+            )
+        })
 }
 
 /// A dataset or variable name the user typed for something the command creates.
@@ -35,43 +44,41 @@ fn new_name(text: &str, what: &str) -> Result<String, String> {
             .all(|c| c.is_alphanumeric() || "_.$#@".contains(c));
     match ok {
         true => Ok(t.to_string()),
-        false => Err(format!(
-            "{what} must start with a letter and use letters, digits and _ . $ # @"
-        )),
+        false => Err(t_args("stats-multivar-name-rule", &[("what", what.into())])),
     }
 }
 
 /// The error terms MANOVA /ERROR names; the first is the command's own default.
 pub const MANOVA_ERRORS: [(&str, &str); 4] = [
-    ("", "The command's default"),
-    ("WITHIN", "Within cells"),
-    ("RESIDUAL", "Residual"),
-    ("WR", "Within cells and residual"),
+    ("", "stats-multivar-error-default"),
+    ("WITHIN", "stats-multivar-error-within"),
+    ("RESIDUAL", "stats-multivar-error-residual"),
+    ("WR", "stats-multivar-error-within-residual"),
 ];
 
 /// The tables of MANOVA /PRINT: the text written, and the label. The last four are the extra
 /// tables of SIGNIF and need two or more dependents.
 pub const MANOVA_PRINT: [(&str, &str); 8] = [
-    ("CELLINFO(MEANS)", "Cell means"),
-    ("HOMOGENEITY(ALL)", "Homogeneity of variance tests"),
-    ("PARAMETERS(ESTIM)", "Parameter estimates"),
-    ("ERROR(SSCP)", "Error matrix"),
-    ("EIGEN", "Eigenvalues and canonical correlations"),
-    ("DIMENR", "Dimension reduction analysis"),
-    ("HYPOTH", "Hypothesis matrix"),
-    ("STEPDOWN", "Stepdown F tests"),
+    ("CELLINFO(MEANS)", "stats-multivar-cell-means"),
+    ("HOMOGENEITY(ALL)", "stats-multivar-homogeneity"),
+    ("PARAMETERS(ESTIM)", "stats-multivar-parameter-estimates"),
+    ("ERROR(SSCP)", "stats-multivar-error-matrix"),
+    ("EIGEN", "stats-multivar-eigenvalues"),
+    ("DIMENR", "stats-multivar-dimension-reduction"),
+    ("HYPOTH", "stats-multivar-hypothesis-matrix"),
+    ("STEPDOWN", "stats-multivar-stepdown"),
 ];
 
 /// The matrices MANOVA /TRANSFORM can build, as the keyword and the label; the first is no
 /// transformation. SPECIAL needs a typed matrix and is left out.
 pub const MANOVA_TRANSFORMS: [(&str, &str); 7] = [
-    ("", "None"),
-    ("DEVIATION", "Deviation"),
-    ("SIMPLE", "Simple"),
-    ("DIFFERENCE", "Difference"),
+    ("", "stats-multivar-transform-none"),
+    ("DEVIATION", "stats-multivar-deviation"),
+    ("SIMPLE", "stats-multivar-simple"),
+    ("DIFFERENCE", "stats-multivar-difference"),
     ("HELMERT", "Helmert"),
-    ("REPEATED", "Repeated"),
-    ("POLYNOMIAL", "Polynomial"),
+    ("REPEATED", "stats-multivar-repeated"),
+    ("POLYNOMIAL", "stats-multivar-polynomial"),
 ];
 
 /// MANOVA, the older command for analysis of variance of one or several dependents.
@@ -106,9 +113,9 @@ pub struct Manova {
 
 impl Manova {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
-        let dependents = names(&self.dependents, "the dependents")?;
+        let dependents = names(&self.dependents, t("stats-multivar-the-dependents"))?;
         if self.factors.is_empty() {
-            return Err("add at least one factor".into());
+            return Err(t("stats-multivar-add-factor").into());
         }
         let all: Vec<&str> = self
             .dependents
@@ -128,14 +135,21 @@ impl Manova {
         let mut factors = Vec::new();
         for f in &self.factors {
             let (lo, hi) = self.ranges.get(f).cloned().unwrap_or_default();
+            let factor = [("factor", FluentValue::from(f.as_str()))];
             let (lo, hi) = (
-                whole(&lo, &format!("the lowest value of {f}"), -999_999)?,
-                whole(&hi, &format!("the highest value of {f}"), -999_999)?,
+                whole(
+                    &lo,
+                    &t_args("stats-multivar-lowest-value-of", &factor),
+                    -999_999,
+                )?,
+                whole(
+                    &hi,
+                    &t_args("stats-multivar-highest-value-of", &factor),
+                    -999_999,
+                )?,
             );
             if lo >= hi {
-                return Err(format!(
-                    "the range of {f} needs a lowest value below the highest"
-                ));
+                return Err(t_args("stats-multivar-range-order", &factor));
             }
             factors.push(format!("{f}({lo},{hi})"));
         }
@@ -192,17 +206,27 @@ impl Manova {
             return Ok(String::new());
         }
         if self.transform != 0 {
-            return Err("within-subjects factors and Transform cannot be used together".into());
+            return Err(t("stats-multivar-ws-and-transform").into());
         }
         let mut groups = Vec::new();
         let mut names: Vec<String> = Vec::new();
         let mut cells = 1;
         for (name, levels) in &self.ws_factors {
-            let name = new_name(name, "a within-subjects factor name")?;
+            let name = new_name(name, t("stats-multivar-ws-factor-name"))?;
             if names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
-                return Err(format!("the within-subjects factor {name} is named twice"));
+                return Err(t_args(
+                    "stats-multivar-ws-named-twice",
+                    &[("name", name.as_str().into())],
+                ));
             }
-            let levels = whole(levels, &format!("the levels of {name}"), 2)?;
+            let levels = whole(
+                levels,
+                &t_args(
+                    "stats-multivar-levels-of",
+                    &[("name", name.as_str().into())],
+                ),
+                2,
+            )?;
             cells *= levels as usize;
             groups.push(format!("{name}({levels})"));
             names.push(name);
@@ -210,19 +234,18 @@ impl Manova {
         let measures: Vec<String> = self
             .measure
             .split_whitespace()
-            .map(|m| new_name(m, "a measure name"))
+            .map(|m| new_name(m, t("stats-multivar-measure-name")))
             .collect::<Result<_, _>>()?;
         let expected = cells * measures.len().max(1);
         if self.dependents.len() != expected {
-            return Err(format!(
-                "the within-subjects factors need {expected} dependents (levels multiplied{}), got {}",
-                if measures.len() > 1 {
-                    ", times the measures"
-                } else {
-                    ""
-                },
-                self.dependents.len()
-            ));
+            let args = [
+                ("expected", FluentValue::from(expected.to_string())),
+                ("got", FluentValue::from(self.dependents.len().to_string())),
+            ];
+            return Err(match measures.len() > 1 {
+                true => t_args("stats-multivar-ws-need-dependents-measures", &args),
+                false => t_args("stats-multivar-ws-need-dependents", &args),
+            });
         }
         let mut text = format!("\n  /WSFACTORS={}", groups.join(" "));
         if !measures.is_empty() {
@@ -281,10 +304,10 @@ impl Default for Pls {
 impl Pls {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         if self.scale.is_empty() && self.categorical.is_empty() {
-            return Err("add at least one dependent variable".into());
+            return Err(t("stats-multivar-add-dependent").into());
         }
         if self.factors.is_empty() && self.covariates.is_empty() {
-            return Err("add at least one factor or covariate to predict from".into());
+            return Err(t("stats-multivar-add-predictor").into());
         }
         let id = self.id.trim();
         let mut all: Vec<&str> = self
@@ -323,28 +346,34 @@ impl Pls {
         }
         let mut saved = Vec::new();
         for (on, key, name, what) in [
-            (self.cases, "CASES", &self.cases_name, "the cases dataset"),
+            (
+                self.cases,
+                "CASES",
+                &self.cases_name,
+                t("stats-multivar-name-cases-dataset"),
+            ),
             (
                 self.loadings,
                 "LATENTFACTORS",
                 &self.loadings_name,
-                "the factors dataset",
+                t("stats-multivar-name-factors-dataset"),
             ),
             (
                 self.predictors,
                 "PREDICTORS",
                 &self.predictors_name,
-                "the predictors dataset",
+                t("stats-multivar-name-predictors-dataset"),
             ),
         ] {
             if on {
-                saved.push((key, new_name(name, &format!("the name of {what}"))?));
+                saved.push((key, new_name(name, what)?));
             }
         }
         for (i, (_, a)) in saved.iter().enumerate() {
             if saved[..i].iter().any(|(_, b)| b.eq_ignore_ascii_case(a)) {
-                return Err(format!(
-                    "two saved datasets are named {a}; give each its own name"
+                return Err(t_args(
+                    "stats-multivar-datasets-same-name",
+                    &[("name", a.as_str().into())],
                 ));
             }
         }
@@ -352,7 +381,7 @@ impl Pls {
             let list: Vec<String> = saved.iter().map(|(k, n)| format!("{k}={n}")).collect();
             text.push_str(&format!("\n  /OUTDATASET {}", list.join(" ")));
         }
-        let latent = whole(&self.latent, "the number of latent factors", 1)?;
+        let latent = whole(&self.latent, t("stats-multivar-latent-factors"), 1)?;
         if latent != PLS_FACTORS {
             text.push_str(&format!("\n  /CRITERIA LATENTFACTORS={latent}"));
         }
@@ -363,20 +392,23 @@ impl Pls {
 
 /// The measurement levels of the KNN target; the first leaves it to the variable.
 pub const KNN_LEVELS: [(&str, &str); 4] = [
-    ("", "From the variable"),
-    ("S", "Scale"),
-    ("O", "Ordinal"),
-    ("N", "Nominal"),
+    ("", "stats-multivar-from-variable"),
+    ("S", "stats-multivar-scale"),
+    ("O", "stats-multivar-ordinal"),
+    ("N", "stats-multivar-nominal"),
 ];
 
-pub const KNN_METRICS: [(&str, &str); 2] = [("EUCLID", "Euclidean"), ("CITYBLOCK", "City block")];
+pub const KNN_METRICS: [(&str, &str); 2] = [
+    ("EUCLID", "stats-multivar-euclidean"),
+    ("CITYBLOCK", "stats-multivar-city-block"),
+];
 
 /// The new variables of KNN /SAVE: the keyword and the label.
 pub const KNN_SAVE: [(&str, &str); 4] = [
-    ("PREDVAL", "Predicted value"),
-    ("PREDPROB", "Predicted probabilities (name root)"),
-    ("PARTITION", "Partition (1 training, 0 holdout)"),
-    ("FOLD", "Fold of the cross-validation"),
+    ("PREDVAL", "stats-multivar-predicted-value"),
+    ("PREDPROB", "stats-multivar-predicted-probabilities"),
+    ("PARTITION", "stats-multivar-partition"),
+    ("FOLD", "stats-multivar-fold"),
 ];
 
 /// KNN: nearest neighbor classification or prediction.
@@ -445,10 +477,10 @@ impl Knn {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         let target = self.target.trim();
         if target.is_empty() {
-            return Err("choose the target variable".into());
+            return Err(t("stats-multivar-choose-target").into());
         }
         if self.factors.is_empty() && self.covariates.is_empty() {
-            return Err("add at least one factor or covariate to compare cases by".into());
+            return Err(t("stats-multivar-add-feature").into());
         }
         let partition = self.partition_variable.trim();
         let mut all: Vec<&str> = vec![target];
@@ -460,7 +492,7 @@ impl Knn {
         );
         if self.by_variable {
             if partition.is_empty() {
-                return Err("choose the partition variable".into());
+                return Err(t("stats-multivar-choose-partition").into());
             }
             all.push(partition);
         }
@@ -482,8 +514,8 @@ impl Knn {
         if self.by_variable {
             text.push_str(&format!("\n  /PARTITION VARIABLE={partition}"));
         } else {
-            let training = whole(&self.training, "the training share", 1)?;
-            let holdout = whole(&self.holdout, "the holdout share", 0)?;
+            let training = whole(&self.training, t("stats-multivar-training-share"), 1)?;
+            let holdout = whole(&self.holdout, t("stats-multivar-holdout-share"), 0)?;
             if (training, holdout) != (70, 30) {
                 text.push_str(&format!(
                     "\n  /PARTITION TRAINING={training} HOLDOUT={holdout}"
@@ -496,15 +528,15 @@ impl Knn {
         }
         if self.auto {
             let (lo, hi) = (
-                whole(&self.kmin, "the smallest k", 1)?,
-                whole(&self.kmax, "the largest k", 1)?,
+                whole(&self.kmin, t("stats-multivar-smallest-k"), 1)?,
+                whole(&self.kmax, t("stats-multivar-largest-k"), 1)?,
             );
             if lo >= hi {
-                return Err("the smallest k must be below the largest".into());
+                return Err(t("stats-multivar-k-order").into());
             }
             model.push(format!("NEIGHBORS=AUTO(KMIN={lo}, KMAX={hi})"));
         } else {
-            let k = whole(&self.k, "the number of neighbors", 1)?;
+            let k = whole(&self.k, t("stats-multivar-number-of-neighbors"), 1)?;
             if k != 3 {
                 model.push(format!("NEIGHBORS=FIXED(K={k})"));
             }
@@ -526,7 +558,7 @@ impl Knn {
             text.push_str(&format!("\n  /CRITERIA {}", criteria.join(" ")));
         }
         if self.auto && !self.select_features {
-            let folds = whole(&self.folds, "the number of folds", 2)?;
+            let folds = whole(&self.folds, t("stats-multivar-number-of-folds"), 2)?;
             if folds != 10 {
                 text.push_str(&format!("\n  /CROSSVALIDATION FOLDS={folds}"));
             }
@@ -547,7 +579,13 @@ impl Knn {
                 true => save.push((*key).to_string()),
                 false => save.push(format!(
                     "{key}({})",
-                    new_name(name, &format!("the name for {}", what.to_lowercase()))?
+                    new_name(
+                        name,
+                        &t_args(
+                            "stats-multivar-name-for",
+                            &[("what", t(what).to_lowercase().into())]
+                        )
+                    )?
                 )),
             }
         }

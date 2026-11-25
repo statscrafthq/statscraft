@@ -5,6 +5,7 @@
 use crate::advanced_dialogs::ci_level;
 use crate::analyze_dialogs::keywords;
 use crate::correspondence_dialog::TableVariable;
+use crate::i18n::{t, t_args};
 use crate::loglinear_dialog::{Criterion, ITERATIONS, POSITIVE, criteria, optional};
 use crate::stats_dialogs::{numeric, parse};
 use crate::survival_dialog::numbers;
@@ -14,26 +15,26 @@ use statscraft_data::Dataset;
 /// The eleven curves of /MODEL, in the command's order; the index of the logistic one is
 /// `CURVE_LOGISTIC`.
 pub const CURVE_MODELS: [(&str, &str); 11] = [
-    ("LINEAR", "Linear"),
-    ("LOGARITHMIC", "Logarithmic"),
-    ("INVERSE", "Inverse"),
-    ("QUADRATIC", "Quadratic"),
-    ("CUBIC", "Cubic"),
-    ("COMPOUND", "Compound"),
-    ("POWER", "Power"),
+    ("LINEAR", "stats-regmore-linear"),
+    ("LOGARITHMIC", "stats-regmore-logarithmic"),
+    ("INVERSE", "stats-regmore-inverse"),
+    ("QUADRATIC", "stats-regmore-quadratic"),
+    ("CUBIC", "stats-regmore-cubic"),
+    ("COMPOUND", "stats-regmore-compound"),
+    ("POWER", "stats-regmore-power"),
     ("S", "S"),
-    ("GROWTH", "Growth"),
-    ("EXPONENTIAL", "Exponential"),
-    ("LGSTIC", "Logistic"),
+    ("GROWTH", "stats-regmore-growth"),
+    ("EXPONENTIAL", "stats-regmore-exponential"),
+    ("LGSTIC", "stats-regmore-logistic"),
 ];
 
 pub const CURVE_LOGISTIC: usize = 10;
 
 /// The new variables of CURVEFIT /SAVE; the index of the intervals is `CURVE_CIN`.
 pub const CURVE_SAVE: [(&str, &str); 3] = [
-    ("PRED", "Predicted values"),
-    ("RESID", "Residuals"),
-    ("CIN", "Prediction intervals"),
+    ("PRED", "stats-regmore-predicted-values"),
+    ("RESID", "stats-regmore-residuals"),
+    ("CIN", "stats-regmore-prediction-intervals"),
 ];
 
 pub const CURVE_CIN: usize = 2;
@@ -87,7 +88,10 @@ fn one_role_each(names: &[&str]) -> Result<(), String> {
         .enumerate()
         .find(|(i, n)| names[..*i].iter().any(|m| m.eq_ignore_ascii_case(n)))
     {
-        Some((_, name)) => Err(format!("{name} has two roles; keep it in one")),
+        Some((_, name)) => Err(t_args(
+            "stats-regmore-two-roles",
+            &[("name", (*name).into())],
+        )),
         None => Ok(()),
     }
 }
@@ -103,14 +107,14 @@ fn sub(keyword: &str, value: &str) -> String {
 impl CurveEstimation {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         if self.dependents.is_empty() {
-            return Err("add at least one dependent variable".into());
+            return Err(t("stats-regmore-add-dependent").into());
         }
         let independent = match self.sequence {
             true => "",
             false => self.independent.trim(),
         };
         if !self.sequence && independent.is_empty() {
-            return Err("choose the independent variable, or use the case sequence".into());
+            return Err(t("stats-regmore-choose-independent").into());
         }
         let mut variables: Vec<String> = self.dependents.clone();
         if !independent.is_empty() {
@@ -119,7 +123,7 @@ impl CurveEstimation {
         one_role_each(&variables.iter().map(String::as_str).collect::<Vec<_>>())?;
         numeric(data, &variables)?;
         if !self.models.contains(&true) {
-            return Err("choose at least one model".into());
+            return Err(t("stats-regmore-choose-model").into());
         }
         let mut text = format!("CURVEFIT VARIABLES={}", self.dependents.join(" "));
         if !independent.is_empty() {
@@ -131,16 +135,16 @@ impl CurveEstimation {
         }
         // the bound counts only for the logistic curve
         if self.models[CURVE_LOGISTIC]
-            && let Some(bound) = optional(&self.upper_bound, "the upper bound")?
+            && let Some(bound) = optional(&self.upper_bound, t("stats-regmore-upper-bound"))?
         {
             let largest = self.largest(data);
             if bound <= 0.0 || largest.is_some_and(|m| bound <= m) {
                 return Err(match largest {
-                    Some(m) => format!(
-                        "the upper bound must be above {}, the largest value of the dependent variables",
-                        number(m.max(0.0))
+                    Some(m) => t_args(
+                        "stats-regmore-upper-bound-above-largest",
+                        &[("value", number(m.max(0.0)).into())],
                     ),
-                    None => "the upper bound must be above 0".into(),
+                    None => t("stats-regmore-upper-bound-above-0").into(),
                 });
             }
             text.push_str(&sub("UPPERBOUND", &number(bound)));
@@ -187,26 +191,26 @@ impl CurveEstimation {
 pub const PROBIT_MODELS: [(&str, &str); 3] = [
     ("PROBIT", "Probit"),
     ("LOGIT", "Logit"),
-    ("BOTH", "Both, logit first"),
+    ("BOTH", "stats-regmore-both-logit-first"),
 ];
 
 /// The transformations of the covariates on /LOG; the first is the default, the index of the
 /// typed base is `PROBIT_LOG_BASE`.
 pub const PROBIT_LOGS: [(&str, &str); 4] = [
-    ("10", "Base 10 logarithm"),
-    ("E", "Natural logarithm"),
-    ("BASE", "Logarithm of this base"),
-    ("NONE", "None"),
+    ("10", "stats-regmore-log-base-10"),
+    ("E", "stats-regmore-log-natural"),
+    ("BASE", "stats-regmore-log-this-base"),
+    ("NONE", "stats-regmore-none"),
 ];
 
 pub const PROBIT_LOG_BASE: usize = 2;
 
 /// The tables of /PRINT; the first three are the default.
 pub const PROBIT_PRINT: [(&str, &str); 4] = [
-    ("FREQ", "Observed and expected frequencies"),
-    ("CI", "Effective levels with fiducial limits"),
-    ("RMP", "Relative median potency"),
-    ("PARALL", "Parallelism test"),
+    ("FREQ", "stats-regmore-observed-expected"),
+    ("CI", "stats-regmore-effective-levels"),
+    ("RMP", "stats-regmore-relative-median-potency"),
+    ("PARALL", "stats-regmore-parallelism-test"),
 ];
 
 /// PROBIT: responses out of subjects, on covariates and an optional factor with its range.
@@ -264,13 +268,13 @@ impl Probit {
         let total = self.total.trim();
         let factor = self.factor.name.trim();
         if response.is_empty() {
-            return Err("choose the response frequency variable".into());
+            return Err(t("stats-regmore-choose-response").into());
         }
         if total.is_empty() {
-            return Err("choose the total observed variable".into());
+            return Err(t("stats-regmore-choose-total").into());
         }
         if self.covariates.is_empty() {
-            return Err("add at least one covariate".into());
+            return Err(t("stats-regmore-add-covariate").into());
         }
         let mut variables = vec![response.to_string(), total.to_string()];
         if !factor.is_empty() {
@@ -293,9 +297,9 @@ impl Probit {
         match self.log {
             1 => text.push_str("\n  /LOG"),
             PROBIT_LOG_BASE => {
-                let base = parse(&self.log_base, "the base of the logarithm")?;
+                let base = parse(&self.log_base, t("stats-regmore-log-base"))?;
                 if base <= 0.0 || base == 1.0 {
-                    return Err("the base of the logarithm must be above 0 and not 1".into());
+                    return Err(t("stats-regmore-log-base-invalid").into());
                 }
                 text.push_str(&sub("LOG", &number(base)));
             }
@@ -308,7 +312,7 @@ impl Probit {
                 "CONVERGE",
                 &self.converge,
                 f64::NAN,
-                "the convergence criterion",
+                t("stats-regmore-convergence-criterion"),
                 POSITIVE,
             ),
             // nor here: the default grows with the number of parameters
@@ -316,24 +320,24 @@ impl Probit {
                 "ITERATE",
                 &self.iterations,
                 f64::NAN,
-                "the maximum iterations",
+                t("stats-regmore-maximum-iterations"),
                 ITERATIONS,
             ),
             (
                 "P",
                 &self.heterogeneity,
                 0.15,
-                "the heterogeneity significance",
-                (|v| (0.0..=1.0).contains(&v), "must be from 0 to 1"),
+                t("stats-regmore-heterogeneity-significance"),
+                (|v| (0.0..=1.0).contains(&v), t("stats-regmore-from-0-to-1")),
             ),
         ];
         text.push_str(&criteria(&fields)?);
         match self.natres {
             1 => text.push_str("\n  /NATRES"),
             2 => {
-                let rate = parse(&self.natres_value, "the natural response rate")?;
+                let rate = parse(&self.natres_value, t("stats-regmore-natural-rate"))?;
                 if !(0.0..1.0).contains(&rate) {
-                    return Err("the natural response rate must be at least 0 and below 1".into());
+                    return Err(t("stats-regmore-natural-rate-invalid").into());
                 }
                 text.push_str(&sub("NATRES", &number(rate)));
             }
@@ -400,16 +404,19 @@ impl WeightEstimation {
         let dependent = self.dependent.trim();
         let source = self.source.trim();
         if dependent.is_empty() {
-            return Err("choose the dependent variable".into());
+            return Err(t("stats-regmore-choose-dependent").into());
         }
         if self.independents.is_empty() {
-            return Err("add at least one independent variable".into());
+            return Err(t("stats-regmore-add-independent").into());
         }
         let mut variables = vec![dependent.to_string()];
         variables.extend(self.independents.iter().cloned());
         one_role_each(&variables.iter().map(String::as_str).collect::<Vec<_>>())?;
         if source.eq_ignore_ascii_case(dependent) {
-            return Err(format!("{dependent} is the dependent variable"));
+            return Err(t_args(
+                "stats-regmore-is-dependent",
+                &[("name", dependent.into())],
+            ));
         }
         variables.push(source.to_string());
         numeric(data, &variables)?;
@@ -435,9 +442,12 @@ impl WeightEstimation {
     /// The powers as /POWER takes them; empty for the command's own power of 1.
     fn power_syntax(&self) -> Result<String, String> {
         if self.power_list {
-            let list = numbers(&self.powers, "each power")?;
+            let list = numbers(&self.powers, t("stats-regmore-each-power"))?;
             if list.len() > MOST_POWERS {
-                return Err(format!("the command takes at most {MOST_POWERS} powers"));
+                return Err(t_args(
+                    "stats-regmore-most-powers",
+                    &[("count", MOST_POWERS.to_string().into())],
+                ));
             }
             return Ok(list.into_iter().map(number).collect::<Vec<_>>().join(" "));
         }
@@ -445,18 +455,21 @@ impl WeightEstimation {
         if fields.iter().all(|f| f.trim().is_empty()) {
             return Ok(String::new());
         }
-        let from = parse(&self.from, "the first power")?;
-        let to = parse(&self.to, "the last power")?;
-        let by = parse(&self.by, "the step")?;
+        let from = parse(&self.from, t("stats-regmore-first-power"))?;
+        let to = parse(&self.to, t("stats-regmore-last-power"))?;
+        let by = parse(&self.by, t("stats-regmore-step"))?;
         if by <= 0.0 {
-            return Err("the step must be above 0".into());
+            return Err(t("stats-regmore-step-above-0").into());
         }
         if to < from {
-            return Err("the last power must not be below the first".into());
+            return Err(t("stats-regmore-last-below-first").into());
         }
         // counted as the parser counts them, allowing for rounding in the step
         if ((to - from) / by + 1e-9).floor() >= MOST_POWERS as f64 {
-            return Err(format!("the range gives more than {MOST_POWERS} powers"));
+            return Err(t_args(
+                "stats-regmore-range-too-many",
+                &[("count", MOST_POWERS.to_string().into())],
+            ));
         }
         Ok(format!(
             "{} TO {} BY {}",

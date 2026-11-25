@@ -1,25 +1,23 @@
 //! The Response Rate dialog (RESPONSE RATE): response rates of a numerator over a denominator
 //! in each group, with cumulative rates and limits. Limits left off add nothing to the syntax.
 
+use crate::i18n::t;
 use crate::stats_dialogs::{numeric, parse};
 use crate::syntax_text::{names, number};
 use statscraft_data::Dataset;
 
 /// What /MINRATE sets, the command's own choice first.
 pub const MIN_RATES: [(&str, &str); 3] = [
-    ("NONE", "No lowest rate"),
-    ("RATE", "A lowest cumulative rate in percent"),
-    ("FORMULA", "From the cost and the revenue of a response"),
+    ("NONE", "stats-resprate-minrate-none"),
+    ("RATE", "stats-resprate-minrate-rate"),
+    ("FORMULA", "stats-resprate-minrate-formula"),
 ];
 
 /// What /MAXCOUNT sets, the command's own choice first.
 pub const MAX_COUNTS: [(&str, &str); 3] = [
-    ("ALL", "No highest count"),
-    ("COUNT", "A highest cumulative count"),
-    (
-        "PERCENT",
-        "A highest cumulative count as a percentage of the total",
-    ),
+    ("ALL", "stats-resprate-maxcount-all"),
+    ("COUNT", "stats-resprate-maxcount-count"),
+    ("PERCENT", "stats-resprate-maxcount-percent"),
 ];
 
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -41,13 +39,13 @@ pub struct ResponseRate {
 impl ResponseRate {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         numeric(data, [&self.numerator, &self.denominator])?;
-        for (value, what) in [
-            (&self.numerator, "numerator"),
-            (&self.denominator, "denominator"),
-            (&self.group, "grouping variable"),
+        for (value, message) in [
+            (&self.numerator, t("stats-resprate-set-numerator")),
+            (&self.denominator, t("stats-resprate-set-denominator")),
+            (&self.group, t("stats-resprate-set-group")),
         ] {
             if value.trim().is_empty() {
-                return Err(format!("set the {what}"));
+                return Err(message.into());
             }
         }
         let list = [
@@ -55,7 +53,7 @@ impl ResponseRate {
             self.denominator.clone(),
             self.group.clone(),
         ];
-        names(&list, "Variables")?;
+        names(&list, t("stats-resprate-variables"))?;
         let mut text = format!(
             "RESPONSE RATE /VARIABLES NUMERATOR={} DENOMINATOR={} GROUP={}",
             self.numerator.trim(),
@@ -64,19 +62,17 @@ impl ResponseRate {
         );
         match self.min_rate {
             1 => {
-                let rate = parse(&self.rate, "the lowest rate")?;
+                let rate = parse(&self.rate, t("stats-resprate-what-lowest-rate"))?;
                 if rate <= 0.0 || rate >= 100.0 {
-                    return Err("the lowest rate must be above 0 and below 100".into());
+                    return Err(t("stats-resprate-rate-range").into());
                 }
                 text.push_str(&format!("\n  /MINRATE RATE={}", number(rate)));
             }
             2 => {
-                let cost = parse(&self.cost, "the cost")?;
-                let revenue = parse(&self.revenue, "the revenue")?;
+                let cost = parse(&self.cost, t("stats-resprate-what-cost"))?;
+                let revenue = parse(&self.revenue, t("stats-resprate-what-revenue"))?;
                 if cost <= 0.0 || revenue <= 0.0 || cost >= revenue {
-                    return Err(
-                        "cost and revenue must be above 0, with the cost below the revenue".into(),
-                    );
+                    return Err(t("stats-resprate-cost-revenue").into());
                 }
                 text.push_str(&format!(
                     "\n  /MINRATE FORMULA={}, {}",
@@ -88,16 +84,16 @@ impl ResponseRate {
         }
         match self.max_count {
             1 => {
-                let n = parse(&self.count, "the highest count")?;
+                let n = parse(&self.count, t("stats-resprate-what-highest-count"))?;
                 if n < 1.0 || n.fract() != 0.0 {
-                    return Err("the highest count must be a positive whole number".into());
+                    return Err(t("stats-resprate-count-whole").into());
                 }
                 text.push_str(&format!("\n  /MAXCOUNT COUNT={}", number(n)));
             }
             2 => {
-                let p = parse(&self.percent, "the percentage")?;
+                let p = parse(&self.percent, t("stats-resprate-what-percentage"))?;
                 if p <= 0.0 || p >= 100.0 {
-                    return Err("the percentage must be above 0 and below 100".into());
+                    return Err(t("stats-resprate-percent-range").into());
                 }
                 text.push_str(&format!("\n  /MAXCOUNT PERCENT={}", number(p)));
             }
