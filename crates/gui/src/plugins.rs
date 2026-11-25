@@ -150,16 +150,7 @@ impl StyleEdit {
             put("font", self.font.trim().into());
         }
         if let Ok(size) = self.size.trim().parse::<f64>() {
-            // 8 rather than 8.0; sizes are small, so the whole number fits
-            let whole = size.fract() == 0.0 && size.abs() < 1e9;
-            put(
-                "size",
-                if whole {
-                    (size as i64).into()
-                } else {
-                    size.into()
-                },
-            );
+            put("size", plugin::number(size));
         }
         if let Some(bold) = self.bold {
             put("bold", bold.into());
@@ -516,8 +507,8 @@ impl Plugins {
             Field {
                 setting: s.clone(),
                 text,
+                new_name: preset.as_ref().map(|p| p.0.clone()).unwrap_or_default(),
                 preset,
-                new_name: String::new(),
                 style: None,
             }
         });
@@ -766,6 +757,7 @@ fn load_template(description: &Description, fields: &mut [Field], template: &Tem
         f.preset = value(description.preset_attribute(&f.setting.key))
             .filter(|name| f.setting.presets && !name.is_empty())
             .map(|name| (name, text.trim().to_string()));
+        f.new_name = f.preset.as_ref().map(|p| p.0.clone()).unwrap_or_default();
         f.text = text;
     }
 }
@@ -922,16 +914,15 @@ fn preview(ui: &mut Ui, style: &StyleEdit) {
     if style.italic == Some(true) {
         text = text.italics();
     }
-    if let Some(c) = colour(style.text_on, &style.text) {
-        text = text.color(c);
-    }
+    // the cell as Excel shows it: black text on white, whatever the window's theme
+    text = text.color(colour(style.text_on, &style.text).unwrap_or(egui::Color32::BLACK));
     let align = match style.align.as_str() {
         "center" => egui::Align::Center,
         "right" => egui::Align::Max,
         _ => egui::Align::Min,
     };
     egui::Frame::new()
-        .fill(colour(style.fill_on, &style.fill).unwrap_or_default())
+        .fill(colour(style.fill_on, &style.fill).unwrap_or(egui::Color32::WHITE))
         .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
         .inner_margin(egui::Margin::symmetric(4, 1))
         .show(ui, |ui| {
@@ -1035,46 +1026,73 @@ fn style_window(
     }
 }
 
-/// The presets of a setting: a list to choose one from, which fills the field, Remove for the
-/// chosen one, and a name field with Save as preset for the value typed.
+/// The presets of a setting: a list to choose one from, which fills the field and the name,
+/// Remove for the preset being edited, and Save to keep the name and value typed in its place
+/// (a new name renames it) or Save as new to add them as another preset.
 fn preset_ui(ui: &mut Ui, field: &mut Field, presets: &mut Vec<Preset>, attribute: &str) {
-    let chosen = field.preset().map(str::to_string);
+    // the preset last chosen or saved, still edited after its value is changed
+    let editing = field.preset.as_ref().map(|p| p.0.clone());
+    let shown = match (field.preset(), &editing) {
+        (Some(name), _) => name.to_string(),
+        (None, Some(name)) => format!("{name} (changed)"),
+        (None, None) => "Presets".to_string(),
+    };
     egui::ComboBox::from_id_salt(("plugin preset", attribute))
-        .selected_text(chosen.as_deref().unwrap_or("Presets"))
+        .selected_text(shown)
         .show_ui(ui, |ui| {
             for p in presets.iter().filter(|p| p.attribute == attribute) {
                 let shown = format!("{}: {}", p.name, p.value);
                 if ui
-                    .selectable_label(chosen.as_ref() == Some(&p.name), shown)
+                    .selectable_label(editing.as_ref() == Some(&p.name), shown)
                     .clicked()
                 {
                     field.text = p.value.clone();
+                    field.new_name = p.name.clone();
                     field.preset = Some((p.name.clone(), p.value.clone()));
                 }
             }
         });
     if ui
-        .add_enabled(chosen.is_some(), egui::Button::new("Remove"))
+        .add_enabled(editing.is_some(), egui::Button::new("Remove"))
         .clicked()
     {
-        presets.retain(|p| !(p.attribute == attribute && Some(&p.name) == chosen.as_ref()));
+        presets.retain(|p| !(p.attribute == attribute && Some(&p.name) == editing.as_ref()));
         field.preset = None;
+        field.new_name.clear();
     }
     let name = egui::TextEdit::singleline(&mut field.new_name)
         .hint_text("Preset name")
         .desired_width(110.0);
     ui.add(name);
     let can = !field.new_name.trim().is_empty() && valid(field.setting.kind, &field.text);
-    if ui
-        .add_enabled(can, egui::Button::new("Save as preset"))
-        .clicked()
-    {
-        let preset = Preset::new(attribute, &field.new_name, &field.text);
-        presets.retain(|p| !(p.attribute == attribute && p.name == preset.name));
-        field.preset = Some((preset.name.clone(), preset.value.clone()));
-        presets.push(preset);
-        field.new_name.clear();
+    let save = ui.add_enabled(can && editing.is_some(), egui::Button::new("Save"));
+    let new = ui.add_enabled(can, egui::Button::new("Save as new"));
+    let replaced = match (save.clicked(), new.clicked()) {
+        (true, _) => editing.as_deref(),
+        (false, true) => None,
+        (false, false) => return,
+    };
+    let preset = Preset::new(attribute, &field.new_name, &field.text);
+    field.new_name = preset.name.clone();
+    field.preset = Some((preset.name.clone(), preset.value.clone()));
+    save_preset(presets, replaced, preset);
+}
+
+/// Keeps a preset: in the place of the one named `replaced` (of its setting) when given, else
+/// last; another preset of the setting with the new name goes, so names stay unique.
+fn save_preset(presets: &mut Vec<Preset>, replaced: Option<&str>, preset: Preset) {
+    let same = |p: &Preset, name: &str| p.attribute == preset.attribute && p.name == name;
+    let at = replaced.and_then(|old| presets.iter().position(|p| same(p, old)));
+    match at {
+        Some(at) => presets[at] = preset.clone(),
+        None => presets.push(preset.clone()),
     }
+    let kept = at.unwrap_or(presets.len() - 1);
+    let mut i = 0;
+    presets.retain(|p| {
+        i += 1;
+        i - 1 == kept || !same(p, &preset.name)
+    });
 }
 
 /// One value: a number or text in a text field, a colour with its picker, yes or no in a box.
@@ -1146,6 +1164,33 @@ fn attribute_values<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Save puts the preset edited in its own place, renamed and with its new value; Save as
+    /// new adds it last; either way the name is left on one preset of the setting only.
+    #[test]
+    fn a_preset_is_changed_in_its_place() {
+        let p = |a: &str, n: &str, v: &str| Preset::new(a, n, v);
+        let mut presets = vec![
+            p("pop", "Estonia", "1300000.5"),
+            p("pop", "Tallinn", "450000"),
+            p("other", "Riga", "600000"),
+        ];
+        save_preset(&mut presets, Some("Estonia"), p("pop", "Eesti", "1300000"));
+        assert_eq!(presets[0], p("pop", "Eesti", "1300000"));
+        save_preset(&mut presets, None, p("pop", "Riga", "600000"));
+        assert_eq!(presets.len(), 4);
+        // renamed onto another preset's name: that one goes
+        save_preset(&mut presets, Some("Riga"), p("pop", "Tallinn", "460000"));
+        let names: Vec<_> = presets
+            .iter()
+            .map(|p| (p.attribute.as_str(), p.name.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            [("pop", "Eesti"), ("other", "Riga"), ("pop", "Tallinn")]
+        );
+        assert_eq!(presets[2].value, "460000");
+    }
 
     #[test]
     fn an_update_check_is_due_once_a_day() {
@@ -1624,7 +1669,7 @@ mod tests {
         let values = description.values(|name| first_value(&all, name));
         assert_eq!(
             (&values["limit"], &values["high"]),
-            (&9.0.into(), &"#ffffff".into())
+            (&9.into(), &"#ffffff".into())
         );
     }
 

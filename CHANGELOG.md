@@ -20,6 +20,7 @@ Expressions read today's date and the page size, GLM names its saved variables p
 
 - [MANOVA](docs/commands/manova.md) `/PRINT=DESIGN(DECOMP)` shows the triangular decomposition of the design and `DESIGN(COLLINEARITY)` its collinearity diagnostics.
 - [GLM](docs/commands/glm.md) `/SAVE` names the new variable of each dependent variable, for example `PRED(p1 p2)`, also in the multivariate and repeated measures models.
+- Plugin Settings: a preset can be changed and renamed with **Save**, whole numbers show without a decimal point, and style samples show black on white as in Excel.
 - Expressions read the system variables $JDATE, $DATE, $DATE11 and $TIME (today and now) and $LENGTH and $WIDTH (the SET page size).
 
 ## 0.45.0 (2026-11-25)

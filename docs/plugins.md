@@ -26,8 +26,8 @@ A plugin that fails, or takes longer than two minutes, adds nothing, and the sta
 - Click **OK** to keep the settings with the data. Save the data file to take them to another computer.
 - A setting marked **(all data files)** is kept on this computer instead, the last value you chose, for every data file. You can set it with no data open. On the command line, give it with `DATAFILE ATTRIBUTE` in the syntax.
 - A setting you leave empty takes the plugin's default.
-- A style setting shows a sample. **Define...** sets its font, size, bold, italic, text color, fill and alignment.
-- Some settings have **presets**: saved values you can choose from a list. Type a name and click **Save as preset** to add one. Presets belong to the window, so they are there for every data file.
+- A style setting shows a sample, black on white as in Excel, whatever the window's theme. **Define...** sets its font, size, bold, italic, text color, fill and alignment.
+- Some settings have **presets**: saved values you can choose from a list. Type a name and click **Save as new** to add one. Choosing a preset fills in its value and its name; change either and click **Save** to keep the changes in that preset, or **Remove** to delete it. Presets belong to the window, so they are there for every data file.
 
 ## Design templates
 

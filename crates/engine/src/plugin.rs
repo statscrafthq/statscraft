@@ -113,7 +113,7 @@ impl Description {
         for setting in &self.settings {
             let text = stored(&self.attribute(&setting.key));
             let value = text.and_then(|text| match setting.kind {
-                Kind::Number => text.trim().parse::<f64>().ok().map(Value::from),
+                Kind::Number => text.trim().parse::<f64>().ok().map(number),
                 Kind::Bool => match text.trim().to_ascii_lowercase().as_str() {
                     "1" | "true" | "yes" => Some(Value::Bool(true)),
                     "0" | "false" | "no" => Some(Value::Bool(false)),
@@ -128,6 +128,15 @@ impl Description {
             );
         }
         values
+    }
+}
+
+/// A number as JSON: a whole one without a decimal point, so the window shows 1300000 and not
+/// 1300000.0.
+pub fn number(x: f64) -> Value {
+    match x.fract() == 0.0 && x.abs() < 1e15 {
+        true => Value::from(x as i64),
+        false => Value::from(x),
     }
 }
 
@@ -531,7 +540,8 @@ mod tests {
             "plugin_heat_map_notes" => Some("maybe".into()),
             _ => None,
         });
-        assert_eq!(values["level"], 99.0);
+        // a whole number comes without a decimal point
+        assert_eq!(values["level"].to_string(), "99");
         assert_eq!(values["up"], "#c6efce");
         // a value that is not yes or no takes the default
         assert_eq!(values["notes"], true);
