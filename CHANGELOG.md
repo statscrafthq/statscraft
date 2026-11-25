@@ -6,8 +6,12 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
-- [UNIANOVA](docs/commands/unianova.md) and GLM: the file of `/OUTFILE HCCOVB` holds the diagonal terms of the robust covariance matrix only, blank off the diagonal (0.43.0 wrote the whole matrix).
+## 0.44.0 (2026-11-25)
+
+COXREG writes its coefficients and survival tables to files, and the robust covariance file of GLM holds the diagonal only again.
+
 - [COXREG](docs/commands/coxreg.md) writes the coefficients of the final model and the survival table of every stratum (at the baseline, at the means and for each PATTERN line) with `/OUTFILE COEFF` and `TABLE`.
+- [UNIANOVA](docs/commands/unianova.md) and GLM: the file of `/OUTFILE HCCOVB` holds the diagonal terms of the robust covariance matrix only, blank off the diagonal (0.43.0 wrote the whole matrix).
 
 ## 0.43.0 (2026-11-25)
 
