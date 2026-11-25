@@ -3,6 +3,7 @@
 //! the same library as the command line. Claude Desktop gets the extension (.mcpb) of this
 //! release instead, which does not depend on its settings file.
 
+use crate::i18n::{t, t_args};
 use eframe::egui::{self, RichText, Ui};
 use statscraft_connect::{ClientStatus, Connector, DOCS, Outcome, entry_in, note, plain_path};
 use statscraft_update::{Client, DOWNLOADS, Release, bundle, current};
@@ -49,6 +50,8 @@ pub struct Connect {
     running: Option<mpsc::Receiver<Done>>,
     /// Listing the apps asks WSL too, which may first have to start.
     wsl: bool,
+    /// The window's language setting, so that the worker writes its messages in it.
+    pub language: String,
 }
 
 impl Connect {
@@ -79,10 +82,7 @@ impl Connect {
 
     fn body(&mut self, ui: &mut Ui) -> Option<Job> {
         let mut job = None;
-        ui.label(
-            "Statscraft can work as a set of tools inside your AI app. Your data stay on this \
-             computer, but whatever the app reads from them goes to its AI provider.",
-        );
+        ui.label(t("core-agents-intro"));
         ui.add_space(8.0);
         let server = match &self.server {
             Some(Ok(server)) => Some(server.clone()),
@@ -113,11 +113,8 @@ impl Connect {
                         let can_connect = idle && server_ok && c.detected;
                         if c.id == DESKTOP {
                             if ui
-                                .add_enabled(idle, egui::Button::new("Install extension"))
-                                .on_hover_text(
-                                    "Downloads the Statscraft extension of this version, checks \
-                                     it and opens it. Claude Desktop then asks to install it.",
-                                )
+                                .add_enabled(idle, egui::Button::new(t("core-install-extension")))
+                                .on_hover_text(t("core-install-extension-hint"))
                                 .clicked()
                             {
                                 job = Some(Job::Install);
@@ -126,36 +123,30 @@ impl Connect {
                                 && ui
                                     .add_enabled(
                                         can_connect,
-                                        egui::Button::new("Connect via config file"),
+                                        egui::Button::new(t("core-connect-config")),
                                     )
-                                    .on_hover_text(
-                                        "Writes the entry into Claude Desktop's settings file \
-                                         instead. Quit Claude Desktop completely first.",
-                                    )
+                                    .on_hover_text(t("core-connect-config-hint"))
                                     .clicked()
                             {
                                 job = Some(Job::Connect(vec![c.id.clone()]));
                             }
                         } else if !here
                             && ui
-                                .add_enabled(can_connect, egui::Button::new("Connect"))
+                                .add_enabled(can_connect, egui::Button::new(t("core-connect")))
                                 .clicked()
                         {
                             job = Some(Job::Connect(vec![c.id.clone()]));
                         }
                         if c.connected
                             && ui
-                                .add_enabled(idle && server_ok, egui::Button::new("Remove"))
+                                .add_enabled(idle && server_ok, egui::Button::new(t("data-remove")))
                                 .clicked()
                         {
                             job = Some(Job::Remove(c.id.clone()));
                         }
                         if ui
-                            .add_enabled(idle, egui::Button::new("Check"))
-                            .on_hover_text(
-                                "Reads the settings files again and shows whether the \
-                                 Statscraft entry is in them now.",
-                            )
+                            .add_enabled(idle, egui::Button::new(t("core-check")))
+                            .on_hover_text(t("core-check-hint"))
                             .clicked()
                         {
                             check = Some(c.id.clone());
@@ -180,12 +171,9 @@ impl Connect {
             if ui
                 .add_enabled(
                     idle && server_ok && !waiting.is_empty(),
-                    egui::Button::new("Connect all"),
+                    egui::Button::new(t("core-connect-all")),
                 )
-                .on_hover_text(
-                    "Connects every installed app that is not connected yet. Claude Desktop is \
-                     left to its own buttons.",
-                )
+                .on_hover_text(t("core-connect-all-hint"))
                 .clicked()
             {
                 job = Some(Job::Connect(waiting));
@@ -193,7 +181,7 @@ impl Connect {
             if self.running.is_some() {
                 ui.spinner();
                 if self.wsl {
-                    ui.weak("Asking WSL too; this can take a few seconds while it starts.");
+                    ui.weak(t("core-asking-wsl"));
                 }
             }
         });
@@ -205,8 +193,8 @@ impl Connect {
         }
         ui.add_space(8.0);
         ui.horizontal_wrapped(|ui| {
-            ui.label("To connect an app by hand, see");
-            ui.hyperlink_to("Connect your AI agent", DOCS);
+            ui.label(t("core-connect-by-hand"));
+            ui.hyperlink_to(t("core-connect-your-agent"), DOCS);
         });
         job
     }
@@ -222,7 +210,9 @@ impl Connect {
         if !matches!(job, Job::List) {
             self.checked = None;
         }
+        let language = self.language.clone();
         std::thread::spawn(move || {
+            crate::i18n::set_language(&language);
             // the connector holds a runner that cannot cross threads, so the worker makes its own
             let _ = sender.send(work(&Connector::from_env(), &server, &job));
             ctx.request_repaint();
@@ -253,11 +243,7 @@ fn work(connector: &Connector, server: &Path, job: &Job) -> Done {
             let mut messages = vec![install()];
             let desktop = clients.iter().find(|c| c.id == DESKTOP);
             if messages[0].is_ok() && desktop.is_some_and(|c| c.connected) {
-                messages.push(Ok(
-                    "Claude Desktop also has the entry in its settings file. \
-                     Remove takes it out, so that the tools do not show up twice."
-                        .into(),
-                ));
+                messages.push(Ok(t("core-desktop-twice").into()));
             }
             return Done {
                 messages,
@@ -302,38 +288,51 @@ fn connect_all(clients: &[ClientStatus]) -> Vec<String> {
 /// An app's state in the list; without our own server path an entry cannot be told apart.
 fn state(c: &ClientStatus, server_known: bool) -> &'static str {
     if c.problem.is_some() {
-        return "Settings file unreadable";
+        return t("core-settings-unreadable");
     }
     match (c.detected, c.connected, c.points_here || !server_known) {
-        (false, ..) => "Not installed",
-        (true, false, _) => "Not connected",
-        (true, true, true) => "Connected",
-        (true, true, false) => "Connected to another Statscraft copy",
+        (false, ..) => t("core-not-installed"),
+        (true, false, _) => t("core-not-connected"),
+        (true, true, true) => t("core-connected"),
+        (true, true, false) => t("core-connected-elsewhere"),
     }
 }
 
 fn message(name: &str, result: Result<Outcome, String>, remove: bool) -> Result<String, String> {
     let outcome = match result {
         Ok(outcome) => outcome,
-        Err(e) if remove => return Err(format!("Could not remove Statscraft from {name}: {e}.")),
-        Err(e) => return Err(format!("Could not connect {name}: {e}.")),
+        Err(e) if remove => {
+            return Err(t_args(
+                "core-could-not-remove",
+                &[("name", name.into()), ("error", e.into())],
+            ));
+        }
+        Err(e) => {
+            return Err(t_args(
+                "core-could-not-connect",
+                &[("name", name.into()), ("error", e.into())],
+            ));
+        }
     };
     let files: Vec<String> = outcome
         .files
         .iter()
         .map(|f| f.display().to_string())
         .collect();
-    let files = files.join(" and ");
-    let mut text = match (outcome.changed, remove, files.is_empty()) {
-        (false, false, _) => return Ok(format!("{name} was already connected.")),
-        (false, true, _) => return Ok(format!("{name} was not connected.")),
-        (true, false, true) => format!("{name}: connected."),
-        (true, false, false) => format!("{name}: connected in {files}."),
-        (true, true, true) => format!("{name}: Statscraft removed."),
-        (true, true, false) => format!("{name}: Statscraft removed from {files}."),
+    let files = files.join(t("core-files-and"));
+    let none = files.is_empty();
+    let args = [("name", name.into()), ("files", files.into())];
+    let mut text = match (outcome.changed, remove, none) {
+        (false, false, _) => return Ok(t_args("core-already-connected", &args)),
+        (false, true, _) => return Ok(t_args("core-was-not-connected", &args)),
+        (true, false, true) => t_args("core-now-connected", &args),
+        (true, false, false) => t_args("core-connected-in", &args),
+        (true, true, true) => t_args("core-removed", &args),
+        (true, true, false) => t_args("core-removed-from", &args),
     };
     if let Some(restart) = outcome.restart {
-        text.push_str(&format!(" To finish, {restart}."));
+        text.push(' ');
+        text.push_str(&t_args("core-to-finish", &[("restart", restart.into())]));
     }
     if let Some(warning) = outcome.warning {
         text.push_str(&format!(" {warning}."));
@@ -344,20 +343,29 @@ fn message(name: &str, result: Result<Outcome, String>, remove: bool) -> Result<
 /// What Check shows for one app: each settings file and whether our entry is in it now.
 fn check_lines(c: &ClientStatus) -> Vec<String> {
     if c.configs.is_empty() {
-        return vec![format!(
-            "{} keeps its own list of servers; `claude mcp list` in a terminal shows it.",
-            c.name
+        return vec![t_args(
+            "core-own-server-list",
+            &[("name", c.name.as_str().into())],
         )];
     }
     c.configs
         .iter()
         .map(|path| match entry_in(path) {
-            Ok(Some(command)) => format!(
-                "{}: has the Statscraft entry, which starts {command}",
-                path.display()
+            Ok(Some(command)) => t_args(
+                "core-has-entry",
+                &[
+                    ("file", path.display().to_string().into()),
+                    ("command", command.into()),
+                ],
             ),
-            Ok(None) if path.is_file() => format!("{}: no Statscraft entry", path.display()),
-            Ok(None) => format!("{}: no such file", path.display()),
+            Ok(None) if path.is_file() => t_args(
+                "core-no-entry",
+                &[("file", path.display().to_string().into())],
+            ),
+            Ok(None) => t_args(
+                "core-no-such-file",
+                &[("file", path.display().to_string().into())],
+            ),
             Err(e) => e,
         })
         .collect()
@@ -368,25 +376,26 @@ fn check_lines(c: &ClientStatus) -> Vec<String> {
 fn install() -> Result<String, String> {
     let version = current();
     let name = bundle(&version, std::env::consts::OS, std::env::consts::ARCH)
-        .ok_or("There is no Claude Desktop extension for this system.")?;
+        .ok_or(t("core-no-extension"))?;
     let release = Release::files(DOWNLOADS, version, &[&name]);
     let dir = downloads(std::env::home_dir());
     let file = Client::new()
         .download(&release, &name, &dir)
-        .map_err(|e| format!("Could not get the Claude Desktop extension: {e}."))?;
-    let drag = "drag it onto Claude Desktop's Settings, Extensions";
+        .map_err(|e| t_args("core-extension-failed", &[("error", e.to_string().into())]))?;
     let mut child = opener(&file).spawn().map_err(|e| {
-        format!(
-            "Saved {}, but could not open it ({e}); {drag}.",
-            file.display()
+        t_args(
+            "core-saved-not-opened",
+            &[
+                ("file", file.display().to_string().into()),
+                ("error", e.to_string().into()),
+            ],
         )
     })?;
     // reaps the opener, which ends once it has handed the file over
     std::thread::spawn(move || child.wait());
-    Ok(format!(
-        "Saved {} and opened it. Claude Desktop shows the extension: click Install. If nothing \
-         opens, {drag}.",
-        file.display()
+    Ok(t_args(
+        "core-saved-opened",
+        &[("file", file.display().to_string().into())],
     ))
 }
 
@@ -418,18 +427,25 @@ fn opener(file: &Path) -> Command {
 fn this_server() -> Result<PathBuf, String> {
     let exe = std::env::current_exe()
         .and_then(|e| e.canonicalize())
-        .map_err(|e| format!("Could not find this program's folder: {e}."))?;
+        .map_err(|e| t_args("core-no-folder", &[("error", e.to_string().into())]))?;
     let server = server_next_to(&exe).ok_or_else(|| {
-        format!(
-            "The Statscraft command-line program, which the AI apps start, was not found next to \
-             this window in {}. Install Statscraft from a release package, which has both.",
-            exe.parent().unwrap_or(&exe).display()
+        t_args(
+            "core-no-server",
+            &[(
+                "folder",
+                exe.parent().unwrap_or(&exe).display().to_string().into(),
+            )],
         )
     })?;
-    server
-        .canonicalize()
-        .map(plain_path)
-        .map_err(|e| format!("Could not read {}: {e}.", server.display()))
+    server.canonicalize().map(plain_path).map_err(|e| {
+        t_args(
+            "core-could-not-read",
+            &[
+                ("file", server.display().to_string().into()),
+                ("error", e.to_string().into()),
+            ],
+        )
+    })
 }
 
 /// Where the packages put the command line: next to the window (Windows, Linux, a build), or on

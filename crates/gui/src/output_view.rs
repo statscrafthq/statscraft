@@ -228,7 +228,10 @@ impl OutputView {
         };
         self.run_count += 1;
         self.runs.push(OutputRun {
-            label: format!("Run {}: {origin}", self.run_count),
+            label: t_args(
+                "core-run-label",
+                &[("number", self.run_count.into()), ("origin", origin.into())],
+            ),
             items,
         });
         self.scroll_to = Some((first, 2));

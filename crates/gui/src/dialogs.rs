@@ -2,28 +2,29 @@
 //! touches data: OK runs the syntax, Paste puts it in the syntax editor.
 
 use crate::bootstrap_dialog::Bootstrap;
+use crate::i18n::{t, t_args};
 use crate::syntax_text::{names, number, probability, quote, value};
 use statscraft_data::{Dataset, Value};
 
 /// Keyword and label of every statistic Frequencies offers, in the order shown.
 pub const FREQUENCIES_STATISTICS: [(&str, &str); 9] = [
-    ("MEAN", "Mean"),
-    ("MEDIAN", "Median"),
-    ("MODE", "Mode"),
-    ("STDDEV", "Standard deviation"),
-    ("VARIANCE", "Variance"),
-    ("MINIMUM", "Minimum"),
-    ("MAXIMUM", "Maximum"),
-    ("RANGE", "Range"),
-    ("SUM", "Sum"),
+    ("MEAN", "core-mean"),
+    ("MEDIAN", "core-median"),
+    ("MODE", "core-mode"),
+    ("STDDEV", "core-std-deviation"),
+    ("VARIANCE", "core-variance"),
+    ("MINIMUM", "core-minimum"),
+    ("MAXIMUM", "core-maximum"),
+    ("RANGE", "core-range"),
+    ("SUM", "core-sum"),
 ];
 
 /// Keyword and label of every order of the rows of a frequency table, the default first.
 pub const FREQUENCIES_ORDERS: [(&str, &str); 4] = [
-    ("AVALUE", "Ascending values"),
-    ("DVALUE", "Descending values"),
-    ("AFREQ", "Ascending counts"),
-    ("DFREQ", "Descending counts"),
+    ("AVALUE", "core-ascending-values"),
+    ("DVALUE", "core-descending-values"),
+    ("AFREQ", "core-ascending-counts"),
+    ("DFREQ", "core-descending-counts"),
 ];
 
 #[derive(Clone, PartialEq, Debug)]
@@ -68,7 +69,10 @@ pub(crate) fn whole(text: &str, least: u32, what: &str) -> Result<Option<u32>, S
     }
     match text.parse::<u32>() {
         Ok(n) if n >= least => Ok(Some(n)),
-        _ => Err(format!("{what} must be a whole number of at least {least}")),
+        _ => Err(t_args(
+            "core-whole-number",
+            &[("what", what.into()), ("least", least.into())],
+        )),
     }
 }
 
@@ -95,13 +99,13 @@ impl Frequencies {
     pub fn syntax(&self) -> Result<String, String> {
         let mut text = format!(
             "FREQUENCIES VARIABLES={}",
-            names(&self.variables, "Variables")?
+            names(&self.variables, t("core-variables"))?
         );
         let mut format = Vec::new();
         if !self.tables {
             format.push("NOTABLE".to_string());
         } else {
-            if let Some(n) = whole(&self.limit, 1, "the most values of a table")? {
+            if let Some(n) = whole(&self.limit, 1, t("core-most-values"))? {
                 format.push(format!("LIMIT({n})"));
             }
             if self.order > 0 {
@@ -122,7 +126,7 @@ impl Frequencies {
         if self.quartiles {
             text.push_str("\n  /NTILES=4");
         }
-        if let Some(n) = whole(&self.ntiles, 2, "the number of equal groups")? {
+        if let Some(n) = whole(&self.ntiles, 2, t("core-number-equal-groups"))? {
             text.push_str(&format!("\n  /NTILES={n}"));
         }
         let percentiles = self
@@ -135,7 +139,9 @@ impl Frequencies {
                     .ok()
                     .filter(|p| (0.0..=100.0).contains(p))
                     .map(number)
-                    .ok_or_else(|| format!("the percentile {p:?} is not a number from 0 to 100"))
+                    .ok_or_else(|| {
+                        t_args("core-bad-percentile", &[("value", format!("{p:?}").into())])
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
         if !percentiles.is_empty() {
@@ -148,24 +154,24 @@ impl Frequencies {
 
 /// Keyword and label of every statistic Descriptives offers, in the order shown.
 pub const DESCRIPTIVES_STATISTICS: [(&str, &str); 10] = [
-    ("MEAN", "Mean"),
-    ("STDDEV", "Standard deviation"),
-    ("MINIMUM", "Minimum"),
-    ("MAXIMUM", "Maximum"),
-    ("SEMEAN", "Standard error of the mean"),
-    ("VARIANCE", "Variance"),
-    ("RANGE", "Range"),
-    ("SUM", "Sum"),
-    ("SKEWNESS", "Skewness"),
-    ("KURTOSIS", "Kurtosis"),
+    ("MEAN", "core-mean"),
+    ("STDDEV", "core-std-deviation"),
+    ("MINIMUM", "core-minimum"),
+    ("MAXIMUM", "core-maximum"),
+    ("SEMEAN", "core-se-mean"),
+    ("VARIANCE", "core-variance"),
+    ("RANGE", "core-range"),
+    ("SUM", "core-sum"),
+    ("SKEWNESS", "core-skewness"),
+    ("KURTOSIS", "core-kurtosis"),
 ];
 
 /// The /SORT of each display order of Descriptives, and its label; the first keeps the list order.
 pub const DESCRIPTIVES_ORDERS: [(&str, &str); 4] = [
-    ("", "Variable list"),
-    ("NAME (A)", "Alphabetic"),
-    ("MEAN (A)", "Ascending means"),
-    ("MEAN (D)", "Descending means"),
+    ("", "core-variable-list"),
+    ("NAME (A)", "core-alphabetic"),
+    ("MEAN (A)", "core-ascending-means"),
+    ("MEAN (D)", "core-descending-means"),
 ];
 
 #[derive(Clone, PartialEq, Debug)]
@@ -199,7 +205,7 @@ impl Descriptives {
     pub fn syntax(&self) -> Result<String, String> {
         let mut text = format!(
             "DESCRIPTIVES VARIABLES={}",
-            names(&self.variables, "Variables")?
+            names(&self.variables, t("core-variables"))?
         );
         let statistics: Vec<&str> = DESCRIPTIVES_STATISTICS
             .iter()
@@ -207,7 +213,7 @@ impl Descriptives {
             .filter_map(|((keyword, _), on)| on.then_some(*keyword))
             .collect();
         if statistics.is_empty() {
-            return Err("choose at least one statistic".into());
+            return Err(t("core-choose-statistic").into());
         }
         text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
         if self.order > 0 {
@@ -226,32 +232,32 @@ impl Descriptives {
 
 /// Keyword and label of every cell statistic Crosstabs offers, in the order shown.
 pub const CROSSTABS_CELLS: [(&str, &str); 8] = [
-    ("COUNT", "Observed count"),
-    ("ROW", "Row percentage"),
-    ("COLUMN", "Column percentage"),
-    ("TOTAL", "Total percentage"),
-    ("EXPECTED", "Expected count"),
-    ("RESID", "Residual"),
-    ("SRESID", "Standardized residual"),
-    ("ASRESID", "Adjusted standardized residual"),
+    ("COUNT", "core-observed-count"),
+    ("ROW", "core-row-percentage"),
+    ("COLUMN", "core-column-percentage"),
+    ("TOTAL", "core-total-percentage"),
+    ("EXPECTED", "core-expected-count"),
+    ("RESID", "core-residual"),
+    ("SRESID", "core-std-residual"),
+    ("ASRESID", "core-adj-std-residual"),
 ];
 
 pub const CROSSTABS_STATISTICS: [(&str, &str); 15] = [
-    ("CHISQ", "Chi-square tests"),
-    ("CORR", "Correlations"),
-    ("PHI", "Phi and Cramer's V"),
-    ("CC", "Contingency coefficient"),
+    ("CHISQ", "core-chi-square-tests"),
+    ("CORR", "core-correlations"),
+    ("PHI", "core-phi-cramer"),
+    ("CC", "core-contingency"),
     ("LAMBDA", "Lambda"),
-    ("UC", "Uncertainty coefficient"),
+    ("UC", "core-uncertainty"),
     ("GAMMA", "Gamma"),
-    ("D", "Somers' d"),
-    ("BTAU", "Kendall's tau-b"),
-    ("CTAU", "Kendall's tau-c"),
+    ("D", "core-somers-d"),
+    ("BTAU", "core-kendall-tau-b"),
+    ("CTAU", "core-kendall-tau-c"),
     ("ETA", "Eta"),
     ("KAPPA", "Kappa"),
-    ("RISK", "Risk"),
+    ("RISK", "core-risk"),
     ("MCNEMAR", "McNemar"),
-    ("CMH", "Cochran's and Mantel-Haenszel statistics"),
+    ("CMH", "core-cmh"),
 ];
 
 /// The place of CMH in `CROSSTABS_STATISTICS`: the last, which `syntax` relies on.
@@ -308,8 +314,8 @@ impl Crosstabs {
     pub fn syntax(&self) -> Result<String, String> {
         let mut text = format!(
             "CROSSTABS /TABLES={} BY {}",
-            names(&self.rows, "Rows")?,
-            names(&self.columns, "Columns")?
+            names(&self.rows, t("core-rows"))?,
+            names(&self.columns, t("core-columns"))?
         );
         if !self.layers.is_empty() {
             text.push_str(&format!(" BY {}", self.layers.join(" ")));
@@ -336,7 +342,7 @@ impl Crosstabs {
             match odds.filter(|n| n.is_finite() && *n > 0.0) {
                 Some(1.0) => {}
                 Some(n) => *statistics.last_mut().unwrap() = format!("CMH({})", number(n)),
-                None => return Err("the common odds ratio must be a number above 0".into()),
+                None => return Err(t("core-odds-above-zero").into()),
             }
         }
         if !statistics.is_empty() {
@@ -351,19 +357,17 @@ impl Crosstabs {
                     Some(99.0) => {}
                     Some(l) => text.push_str(&format!(" CIN({})", number(l))),
                     None => {
-                        return Err(
-                            "the confidence level is a percentage above 0 and below 100".into()
-                        );
+                        return Err(t("core-confidence-range").into());
                     }
                 }
-                match whole(&self.mc_samples, 1, "the number of samples")? {
+                match whole(&self.mc_samples, 1, t("core-number-of-samples"))? {
                     None | Some(10000) => {}
                     Some(n) => text.push_str(&format!(" SAMPLES({n})")),
                 }
             }
             CrosstabsMethod::Exact => {
                 text.push_str("\n  /METHOD=EXACT");
-                match whole(&self.exact_minutes, 0, "the time limit")? {
+                match whole(&self.exact_minutes, 0, t("core-time-limit"))? {
                     None | Some(5) => {}
                     Some(n) => text.push_str(&format!(" TIMER({n})")),
                 }
@@ -397,7 +401,7 @@ impl Adjust {
         match self {
             Adjust::Bonferroni => "Bonferroni",
             Adjust::BenjaminiHochberg => "Benjamini-Hochberg",
-            Adjust::None => "No adjustment",
+            Adjust::None => t("core-no-adjustment"),
         }
     }
 }
@@ -426,9 +430,9 @@ impl Letters {
 
     pub fn label(self) -> &'static str {
         match self {
-            Letters::Separate => "In a table of their own",
-            Letters::Apa => "In the main table, shared letters (APA)",
-            Letters::Simple => "In the main table, column keys",
+            Letters::Separate => t("core-letters-separate"),
+            Letters::Apa => t("core-letters-apa"),
+            Letters::Simple => t("core-letters-simple"),
         }
     }
 }
@@ -509,7 +513,7 @@ impl Categories {
             }
             for subtotal in &self.subtotals {
                 if subtotal.values.is_empty() {
-                    return Err("a subtotal needs at least one category".into());
+                    return Err(t("core-subtotal-empty").into());
                 }
                 let label = match subtotal.label.trim() {
                     "" => "Subtotal",
@@ -607,7 +611,7 @@ impl Default for CustomTables {
 impl CustomTables {
     pub fn syntax(&self) -> Result<String, String> {
         if self.rows.is_empty() && self.scale_rows.is_empty() {
-            return Err("add at least one variable to Rows or Means".into());
+            return Err(t("core-ctables-empty").into());
         }
         let mut summaries = Vec::new();
         for (on, function) in [
@@ -621,16 +625,13 @@ impl CustomTables {
             }
         }
         if !self.rows.is_empty() && summaries.is_empty() {
-            return Err(
-                "choose count, effective count, column percentage or row percentage for the rows"
-                    .into(),
-            );
+            return Err(t("core-ctables-no-summary").into());
         }
         if !self.scale_rows.is_empty() && !self.mean {
-            return Err("variables under Means need the Mean statistic".into());
+            return Err(t("core-ctables-need-mean").into());
         }
         if self.scale_rows.iter().any(|name| is_set(name)) {
-            return Err("a multiple response set has no mean; put it in Rows".into());
+            return Err(t("core-ctables-set-mean").into());
         }
         let summary = summaries.join(", ");
         let mut rows: Vec<String> = self
@@ -651,7 +652,7 @@ impl CustomTables {
                 .parse::<u32>()
                 .ok()
                 .filter(|n| *n >= 2)
-                .ok_or("hide counts below a whole number of 2 or more")?;
+                .ok_or(t("core-ctables-hide-below"))?;
             text.push_str("\n  /HIDESMALLCOUNTS");
             if below != 5 {
                 text.push_str(&format!(" COUNT={below}"));
@@ -708,13 +709,13 @@ impl CustomTables {
         let tests = self.chi_square || self.compare_proportions || self.compare_means;
         if tests {
             if self.columns.is_empty() {
-                return Err("significance tests need at least one variable in Columns".into());
+                return Err(t("core-ctables-tests-columns").into());
             }
             let alpha = probability(&self.alpha)?;
             let adjust = self.adjust.keyword();
             let letters = self.letters.options();
             if (self.chi_square || self.compare_proportions) && self.rows.is_empty() {
-                return Err("chi-square and proportion tests need a variable in Rows".into());
+                return Err(t("core-ctables-tests-rows").into());
             }
             if self.chi_square {
                 text.push_str(&format!("\n  /SIGTEST TYPE=CHISQUARE ALPHA={alpha}"));
@@ -726,7 +727,7 @@ impl CustomTables {
             }
             if self.compare_means {
                 if self.scale_rows.is_empty() {
-                    return Err("the test of means needs a variable under Means".into());
+                    return Err(t("core-ctables-test-means").into());
                 }
                 text.push_str(&format!(
                     "\n  /COMPARETEST TYPE=MEAN ALPHA={alpha} ADJUST={adjust}{letters}"
@@ -771,11 +772,11 @@ impl Compute {
     pub fn syntax(&self) -> Result<String, String> {
         let target = self.target.trim();
         if target.is_empty() {
-            return Err("give the name of the target variable".into());
+            return Err(t("core-give-target").into());
         }
         let expression = clause(&self.expression);
         if expression.is_empty() {
-            return Err("give an expression".into());
+            return Err(t("core-give-expression").into());
         }
         Ok(match clause(&self.condition) {
             "" => format!("COMPUTE {target} = {expression}."),
@@ -799,13 +800,13 @@ pub enum OldValue {
 impl OldValue {
     /// Names for the choice in the dialog, in the order of `OldValue::from_choice`.
     pub const CHOICES: [&str; 7] = [
-        "Value",
-        "Range",
-        "Lowest through",
-        "Through highest",
-        "Any missing",
-        "System-missing",
-        "All other values",
+        "core-value",
+        "core-range",
+        "core-lowest-through",
+        "core-through-highest",
+        "core-any-missing",
+        "core-system-missing",
+        "core-all-other-values",
     ];
 
     pub fn from_choice(choice: usize, a: &str, b: &str) -> Self {
@@ -824,7 +825,7 @@ impl OldValue {
     pub fn syntax(&self, string: bool) -> Result<String, String> {
         let range = |text: &str| {
             if string {
-                Err("ranges work only with numeric variables".to_string())
+                Err(t("core-ranges-numeric").to_string())
             } else {
                 value(text, false)
             }
@@ -849,7 +850,7 @@ pub enum NewValue {
 }
 
 impl NewValue {
-    pub const CHOICES: [&str; 3] = ["Value", "System-missing", "Copy old value"];
+    pub const CHOICES: [&str; 3] = ["core-value", "core-system-missing", "core-copy-old-value"];
 
     pub fn from_choice(choice: usize, a: &str) -> Self {
         match choice {
@@ -897,9 +898,9 @@ pub struct Recode {
 impl Recode {
     /// `string` tells whether the variables are string variables, so values get quotes.
     pub fn syntax(&self, string: bool) -> Result<String, String> {
-        let variables = names(&self.variables, "Variables")?;
+        let variables = names(&self.variables, t("core-variables"))?;
         if self.rules.is_empty() {
-            return Err("add at least one rule".into());
+            return Err(t("core-add-a-rule").into());
         }
         let rules = self
             .rules
@@ -910,10 +911,12 @@ impl Recode {
         let into: Vec<&str> = self.into.split_whitespace().collect();
         if !into.is_empty() {
             if into.len() != self.variables.len() {
-                return Err(format!(
-                    "give one new name per variable: {} variables, {} names",
-                    self.variables.len(),
-                    into.len()
+                return Err(t_args(
+                    "core-one-name-each",
+                    &[
+                        ("variables", self.variables.len().into()),
+                        ("names", into.len().into()),
+                    ],
                 ));
             }
             text.push_str(&format!(" INTO {}", into.join(" ")));
@@ -937,17 +940,17 @@ impl Count {
     pub fn syntax(&self, string: bool) -> Result<String, String> {
         let target = self.target.trim();
         if target.is_empty() {
-            return Err("give the name of the target variable".into());
+            return Err(t("core-give-target").into());
         }
-        let variables = names(&self.variables, "Variables")?;
+        let variables = names(&self.variables, t("core-variables"))?;
         if self.values.is_empty() {
-            return Err("add at least one value to count".into());
+            return Err(t("core-add-a-value").into());
         }
         let values = self
             .values
             .iter()
             .map(|v| match v {
-                OldValue::Else => Err("all other values cannot be counted".to_string()),
+                OldValue::Else => Err(t("core-else-not-counted").to_string()),
                 v => v.syntax(string),
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -960,21 +963,21 @@ impl Count {
 
 /// Keyword and label of every RANK function but NTILES, in the order shown.
 pub const RANK_FUNCTIONS: [(&str, &str); 7] = [
-    ("RANK", "Rank"),
-    ("RFRACTION", "Fractional rank"),
-    ("PERCENT", "Fractional rank as %"),
-    ("PROPORTION", "Proportion estimate"),
-    ("N", "Sum of case weights"),
-    ("SAVAGE", "Savage score"),
-    ("NORMAL", "Normal score"),
+    ("RANK", "core-rank"),
+    ("RFRACTION", "core-fractional-rank"),
+    ("PERCENT", "core-fractional-rank-pct"),
+    ("PROPORTION", "core-proportion-estimate"),
+    ("N", "core-sum-case-weights"),
+    ("SAVAGE", "core-savage-score"),
+    ("NORMAL", "core-normal-score"),
 ];
 
 /// Keyword and label of every way RANK handles ties, the default first.
 pub const RANK_TIES: [(&str, &str); 4] = [
-    ("MEAN", "Mean rank"),
-    ("LOW", "Lowest rank"),
-    ("HIGH", "Highest rank"),
-    ("CONDENSE", "Consecutive ranks"),
+    ("MEAN", "core-mean-rank"),
+    ("LOW", "core-lowest-rank"),
+    ("HIGH", "core-highest-rank"),
+    ("CONDENSE", "core-consecutive-ranks"),
 ];
 
 /// Keyword and label of every proportion formula, the default first.
@@ -1036,7 +1039,10 @@ impl Rank {
     }
 
     pub fn syntax(&self) -> Result<String, String> {
-        let mut text = format!("RANK VARIABLES={}", names(&self.variables, "Variables")?);
+        let mut text = format!(
+            "RANK VARIABLES={}",
+            names(&self.variables, t("core-variables"))?
+        );
         if self.descending {
             text.push_str(" (D)");
         }
@@ -1051,26 +1057,29 @@ impl Rank {
             .map(|(((keyword, label), _), into)| (keyword.to_string(), *label, into))
             .collect();
         if self.ntiles {
-            let groups = whole(&self.groups, 2, "the number of groups")?
-                .ok_or("give the number of percentile groups")?;
+            let groups =
+                whole(&self.groups, 2, t("core-number-of-groups"))?.ok_or(t("core-give-ntiles"))?;
             functions.push((
                 format!("NTILES({groups})"),
-                "Percentile groups",
+                "core-percentile-groups-label",
                 &self.into[7],
             ));
         }
         if functions.is_empty() {
-            return Err("choose at least one function".into());
+            return Err(t("core-choose-function").into());
         }
         // RANK alone with its default names is what RANK does without a function
         let only_rank = functions.len() == 1 && self.functions[0] && self.into[0].trim().is_empty();
         for (keyword, label, into) in functions.iter().filter(|_| !only_rank) {
             let into: Vec<&str> = into.split_whitespace().collect();
             if into.len() > self.variables.len() {
-                return Err(format!(
-                    "{label}: {} new names for {} variables",
-                    into.len(),
-                    self.variables.len()
+                return Err(t_args(
+                    "core-too-many-names",
+                    &[
+                        ("function", t(label).into()),
+                        ("names", into.len().into()),
+                        ("variables", self.variables.len().into()),
+                    ],
                 ));
             }
             text.push_str(&format!("\n  /{keyword}"));
@@ -1117,13 +1126,15 @@ pub struct Autorecode {
 
 impl Autorecode {
     pub fn syntax(&self) -> Result<String, String> {
-        let variables = names(&self.variables, "Variables")?;
+        let variables = names(&self.variables, t("core-variables"))?;
         let into: Vec<&str> = self.into.split_whitespace().collect();
         if into.len() != self.variables.len() {
-            return Err(format!(
-                "give one new name per variable: {} variables, {} names",
-                self.variables.len(),
-                into.len()
+            return Err(t_args(
+                "core-one-name-each",
+                &[
+                    ("variables", self.variables.len().into()),
+                    ("names", into.len().into()),
+                ],
             ));
         }
         let mut text = format!(
@@ -1211,6 +1222,46 @@ pub(crate) mod testing {
 mod tests {
     use super::testing::{open, run_in, runs, v};
     use super::*;
+
+    /// The option tables of the window's own dialogs hold catalog keys where they hold no
+    /// ready text; each key is in the English catalog (`t` gives the key back for one that is
+    /// not).
+    #[test]
+    fn every_key_in_the_option_tables_is_in_the_catalog() {
+        use crate::{data_dialogs, data_tools_dialog, edits, oms_dialog};
+        let pairs = |t: &[(&'static str, &'static str)]| t.iter().map(|p| p.1).collect::<Vec<_>>();
+        let lists = [
+            pairs(&FREQUENCIES_STATISTICS),
+            pairs(&FREQUENCIES_ORDERS),
+            pairs(&DESCRIPTIVES_STATISTICS),
+            pairs(&DESCRIPTIVES_ORDERS),
+            pairs(&CROSSTABS_CELLS),
+            pairs(&CROSSTABS_STATISTICS),
+            pairs(&RANK_FUNCTIONS),
+            pairs(&RANK_TIES),
+            pairs(&RANK_FRACTIONS),
+            OldValue::CHOICES.to_vec(),
+            NewValue::CHOICES.to_vec(),
+            pairs(&data_dialogs::AGGREGATE_FUNCTIONS),
+            data_dialogs::EXPORT_NAMES.to_vec(),
+            pairs(&data_dialogs::SORT_VARIABLES_KEYS),
+            pairs(&data_tools_dialog::VALIDATE_SAVE),
+            pairs(&data_tools_dialog::COMPARE_PROPERTIES),
+            data_tools_dialog::COPY_VARINFO.map(|e| e.1).to_vec(),
+            data_tools_dialog::COPY_FILEINFO.map(|e| e.1).to_vec(),
+            pairs(&oms_dialog::OMS_KINDS),
+            oms_dialog::OMS_FORMATS.map(|e| e.1).to_vec(),
+            edits::FORMAT_KINDS.iter().map(|k| k.label).collect(),
+            vec!["core-percentile-groups-label"],
+        ];
+        let is_key =
+            |s: &str| s.contains('-') && s.chars().all(|c| c.is_ascii_lowercase() || c == '-');
+        let keys: Vec<&str> = lists.concat().into_iter().filter(|s| is_key(s)).collect();
+        assert!(keys.len() > 100, "only {} keys", keys.len());
+        for key in keys {
+            assert_ne!(crate::i18n::t(key), key, "{key} is not in the catalog");
+        }
+    }
 
     #[test]
     fn a_new_variable_starts_from_its_labelled_values_without_missing_codes() {

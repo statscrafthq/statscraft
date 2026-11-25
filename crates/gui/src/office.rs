@@ -2,6 +2,7 @@
 //! editable chart. The files and the clipboard package come from the engine's `office` module.
 
 use crate::app::file_name;
+use crate::i18n::t_args;
 use statscraft_engine::Chart;
 use statscraft_engine::office::{self, Item};
 use statscraft_export::picture::Paper;
@@ -57,8 +58,19 @@ pub fn open(chart: &Chart, program: Program) -> Result<String, String> {
     let n = WRITTEN.fetch_add(1, Ordering::Relaxed) + 1;
     let path = dir.join(format!("{} {n}.{extension}", name.trim()));
     std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", file_name(&path)))?;
-    open_with_system(&path).map_err(|e| format!("cannot open {}: {e}", file_name(&path)))?;
-    Ok(format!("chart opened from {}", path.display()))
+    open_with_system(&path).map_err(|e| {
+        t_args(
+            "core-cannot-open",
+            &[
+                ("file", file_name(&path).into()),
+                ("error", e.to_string().into()),
+            ],
+        )
+    })?;
+    Ok(t_args(
+        "core-chart-opened",
+        &[("file", path.display().to_string().into())],
+    ))
 }
 
 /// Opens a file with the program the system has for its type. The window's links go to the web
@@ -88,16 +100,18 @@ pub fn copy(chart: &Chart, text: &str, paper: Paper) -> Result<bool, String> {
         return Ok(false);
     };
     let format = clipboard_win::register_format(office::CLIPBOARD_FORMAT)
-        .ok_or("the clipboard format could not be registered")?;
-    let failed = |e: clipboard_win::ErrorCode| format!("the clipboard refused the chart: {e}");
+        .ok_or(crate::i18n::t("core-clipboard-format"))?;
+    let failed = |e: clipboard_win::ErrorCode| {
+        t_args("core-clipboard-refused", &[("error", e.to_string().into())])
+    };
     let _open = clipboard_win::Clipboard::new_attempts(10).map_err(failed)?;
     raw::empty().map_err(failed)?;
     raw::set_without_clear(format.get(), &package).map_err(failed)?;
     raw::set_string_with(text, NoClear).map_err(failed)?;
     // "PNG" is the name the office programs, browsers and image editors read a picture under
     if let Some(Ok(png)) = statscraft_export::picture::chart_png(chart, paper) {
-        let format = clipboard_win::register_format("PNG")
-            .ok_or("the clipboard format PNG could not be registered")?;
+        let format =
+            clipboard_win::register_format("PNG").ok_or(crate::i18n::t("core-clipboard-png"))?;
         raw::set_without_clear(format.get(), &png).map_err(failed)?;
     }
     Ok(true)

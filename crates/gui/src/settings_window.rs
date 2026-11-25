@@ -133,6 +133,7 @@ pub fn show(
                     ui.set_width(if wide { 560.0 } else { 320.0 });
                     ui.set_min_height(140.0);
                     if agents {
+                        connect.language.clone_from(&settings.language);
                         connect.ui(ui);
                     }
                     changed = body(ui, *current, settings);

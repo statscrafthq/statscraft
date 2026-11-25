@@ -5,6 +5,7 @@
 //! saved document keeps them. A plugin's settings are data file attributes of the active
 //! dataset, which its Plugin Settings dialog (Settings... in that list) writes through syntax.
 
+use crate::i18n::{t, t_args};
 use crate::settings::{PluginCheck, Preset, Settings, Template, active_template};
 use crate::syntax_text::quote;
 use crate::windows::WindowId;
@@ -178,9 +179,9 @@ impl StyleEdit {
             size.is_empty() || size.parse().is_ok_and(|s: f64| (1.0..=409.0).contains(&s));
         let colour = |on: bool, c: &str| !on || parse_colour(c.trim()).is_some();
         match () {
-            _ if !size_ok => Some("the size is a number of points from 1 to 409"),
-            _ if !colour(self.text_on, &self.text) => Some("the text colour is not #rrggbb"),
-            _ if !colour(self.fill_on, &self.fill) => Some("the fill is not #rrggbb"),
+            _ if !size_ok => Some(t("core-style-size")),
+            _ if !colour(self.text_on, &self.text) => Some(t("core-style-text-colour")),
+            _ if !colour(self.fill_on, &self.fill) => Some(t("core-style-fill")),
             _ => None,
         }
     }
@@ -285,7 +286,7 @@ impl Plugins {
         let d = match self.description(program) {
             Ok(d) => d,
             Err(e) => {
-                let line = format!("Not usable: {e}");
+                let line = t_args("core-not-usable", &[("error", e.to_string().into())]);
                 return Row {
                     line,
                     busy,
@@ -361,15 +362,21 @@ impl Plugins {
                 UpdateEvent::Checked(program, found) => {
                     let status = match &found {
                         Ok(Some(_)) => None,
-                        Ok(None) => Some("Up to date.".to_string()),
-                        Err(e) => Some(format!("The update check failed: {e}")),
+                        Ok(None) => Some(t("core-plugin-up-to-date").to_string()),
+                        Err(e) => Some(t_args(
+                            "update-check-failed",
+                            &[("error", e.to_string().into())],
+                        )),
                     };
                     (program, status, found.ok().flatten())
                 }
                 UpdateEvent::Installed(program, done) => {
                     let status = match &done {
-                        Ok(version) => format!("Updated to {version}."),
-                        Err(e) => format!("The update failed: {e}"),
+                        Ok(version) => t_args(
+                            "core-updated-to",
+                            &[("version", version.to_string().into())],
+                        ),
+                        Err(e) => t_args("update-failed", &[("error", e.to_string().into())]),
                     };
                     let kept = settings
                         .plugin_check(&program)
@@ -491,7 +498,12 @@ impl Plugins {
         self.described.retain(|(p, _)| p != program);
         let description = match self.description(program) {
             Ok(d) => d.clone(),
-            Err(e) => return Err(format!("plugin: {e}")),
+            Err(e) => {
+                return Err(t_args(
+                    "core-plugin-error",
+                    &[("error", e.to_string().into())],
+                ));
+            }
         };
         let template = settings.active_template(&description);
         let known = with_template(&description, attributes(settings, data), template);
@@ -546,158 +558,157 @@ impl Plugins {
         let (mut open, mut ok, mut cancel) = (true, false, false);
         let screen = ctx.content_rect();
         let sections = sections(&description.settings);
-        egui::Window::new(format!("Plugin Settings: {}", description.name))
-            .id(egui::Id::unique("plugin settings"))
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.weak(
-                    "Kept with the active data (save the data file to take them along) and \
-                     remembered on this computer for its file; one marked (all data files) is \
-                     kept on this computer for every file, also with no data open.",
-                );
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.label("Template");
-                    egui::ComboBox::from_id_salt("plugin template")
-                        .selected_text(chosen.as_deref().unwrap_or("(none)"))
-                        .show_ui(ui, |ui| {
-                            if ui.selectable_label(chosen.is_none(), "(none)").clicked() {
-                                *chosen = None;
-                            }
-                            for t in templates.iter() {
-                                let on = chosen.as_ref() == Some(&t.name);
-                                if ui.selectable_label(on, &t.name).clicked() {
-                                    load_template(description, fields, t);
-                                    *chosen = Some(t.name.clone());
-                                }
-                            }
-                        });
-                    if ui
-                        .add_enabled(chosen.is_some(), egui::Button::new("Delete"))
-                        .clicked()
-                    {
-                        templates.retain(|t| Some(&t.name) != chosen.as_ref());
-                        *chosen = None;
-                    }
-                    let name = egui::TextEdit::singleline(new_name)
-                        .hint_text("Template name")
-                        .desired_width(130.0);
-                    ui.add(name);
-                    let all_valid = fields.iter().all(|f| valid(f.setting.kind, &f.text));
-                    let can = !new_name.trim().is_empty() && all_valid;
-                    if ui
-                        .add_enabled(can, egui::Button::new("Save as template"))
-                        .clicked()
-                    {
-                        *chosen = Some(save_template(description, fields, templates, new_name));
-                        new_name.clear();
-                    }
-                    let export = chosen.is_some() && all_valid;
-                    if ui
-                        .add_enabled(export, egui::Button::new("Export..."))
-                        .on_hover_text(
-                            "Write the chosen template and this plugin's presets to a file, \
-                             for statscraft --plugin-template or for Import on another computer",
-                        )
-                        .clicked()
-                        && let Some(name) = chosen.as_deref()
-                        && let Some(path) = crate::app::file_dialog(&folder)
-                            .set_file_name(format!("{name}.txt"))
-                            .add_filter("Plugin template", &["txt"])
-                            .save_file()
-                    {
-                        let text = export_file(description, fields, name, presets).text();
-                        *note = match std::fs::write(&path, text) {
-                            Ok(()) => String::new(),
-                            Err(e) => format!("{}: {e}", path.display()),
-                        };
-                    }
-                    if ui.button("Import...").clicked()
-                        && let Some(path) = crate::app::file_dialog(&folder)
-                            .add_filter("Plugin template", &["txt"])
-                            .pick_file()
-                    {
-                        let read = std::fs::read_to_string(&path)
-                            .map_err(|e| e.to_string())
-                            .and_then(|text| TemplateFile::parse(&text))
-                            .and_then(|file| {
-                                import_file(description, file, fields, templates, presets)
-                            });
-                        *note = match read {
-                            Ok(name) => {
-                                if name.is_some() {
-                                    *chosen = name;
-                                }
-                                String::new()
-                            }
-                            Err(e) => format!("{}: {e}", path.display()),
-                        };
-                    }
-                });
-                if !note.is_empty() {
-                    ui.colored_label(ui.visuals().error_fg_color, note.as_str());
-                }
-                ui.weak(
-                    "A template holds every setting except those kept per data file, and is \
-                     used for every data file until another is chosen.",
-                );
-                ui.add_space(6.0);
-                let mut column = |ui: &mut Ui, sections: &[(String, Vec<usize>)]| {
-                    for (n, (group, list)) in sections.iter().enumerate() {
-                        if !group.is_empty() {
-                            ui.add_space(6.0);
-                            ui.strong(group);
+        egui::Window::new(t_args(
+            "core-plugin-settings-title",
+            &[("name", description.name.as_str().into())],
+        ))
+        .id(egui::Id::unique("plugin settings"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.weak(t("core-plugin-settings-kept"));
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(t("core-template"));
+                egui::ComboBox::from_id_salt("plugin template")
+                    .selected_text(chosen.as_deref().unwrap_or(t("core-none-parens")))
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(chosen.is_none(), t("core-none-parens"))
+                            .clicked()
+                        {
+                            *chosen = None;
                         }
-                        egui::Grid::new(("plugin settings", group)).show(ui, |ui| {
-                            for &i in list {
-                                setting_ui(ui, &mut fields[i], description, presets);
+                        for t in templates.iter() {
+                            let on = chosen.as_ref() == Some(&t.name);
+                            if ui.selectable_label(on, &t.name).clicked() {
+                                load_template(description, fields, t);
+                                *chosen = Some(t.name.clone());
                             }
-                        });
-                        if n + 1 < sections.len() {
-                            ui.add_space(4.0);
                         }
-                    }
-                };
-                egui::ScrollArea::vertical()
-                    .max_height(screen.height() * 0.7)
-                    .show(ui, |ui| {
-                        // two columns of sections on a wide screen, the first holding about
-                        // half the rows
-                        if screen.width() < 1100.0 || sections.len() < 2 {
-                            return column(ui, &sections);
-                        }
-                        let rows = |s: &(String, Vec<usize>)| s.1.len() + 1;
-                        let half = sections.iter().map(rows).sum::<usize>().div_ceil(2);
-                        let mut split = 0;
-                        let mut taken = 0;
-                        while split < sections.len() - 1 && taken < half {
-                            taken += rows(&sections[split]);
-                            split += 1;
-                        }
-                        let (left, right) = sections.split_at(split);
-                        ui.horizontal_top(|ui| {
-                            ui.vertical(|ui| column(ui, left));
-                            ui.add_space(18.0);
-                            ui.vertical(|ui| column(ui, right));
-                        });
                     });
-                let bad = fields.iter().find(|f| !valid(f.setting.kind, &f.text));
-                if let Some(f) = bad {
-                    ui.colored_label(
-                        ui.visuals().error_fg_color,
-                        format!("{}: not a number", f.setting.label),
-                    );
+                if ui
+                    .add_enabled(chosen.is_some(), egui::Button::new(t("data-delete")))
+                    .clicked()
+                {
+                    templates.retain(|t| Some(&t.name) != chosen.as_ref());
+                    *chosen = None;
                 }
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ok = ui
-                        .add_enabled(bad.is_none(), egui::Button::new("OK"))
-                        .clicked();
-                    cancel = ui.button("Cancel").clicked();
-                });
+                let name = egui::TextEdit::singleline(new_name)
+                    .hint_text(t("core-template-name"))
+                    .desired_width(130.0);
+                ui.add(name);
+                let all_valid = fields.iter().all(|f| valid(f.setting.kind, &f.text));
+                let can = !new_name.trim().is_empty() && all_valid;
+                if ui
+                    .add_enabled(can, egui::Button::new(t("core-save-as-template")))
+                    .clicked()
+                {
+                    *chosen = Some(save_template(description, fields, templates, new_name));
+                    new_name.clear();
+                }
+                let export = chosen.is_some() && all_valid;
+                if ui
+                    .add_enabled(export, egui::Button::new(t("menu-export")))
+                    .on_hover_text(t("core-plugin-export-hint"))
+                    .clicked()
+                    && let Some(name) = chosen.as_deref()
+                    && let Some(path) = crate::app::file_dialog(&folder)
+                        .set_file_name(format!("{name}.txt"))
+                        .add_filter(t("core-plugin-template"), &["txt"])
+                        .save_file()
+                {
+                    let text = export_file(description, fields, name, presets).text();
+                    *note = match std::fs::write(&path, text) {
+                        Ok(()) => String::new(),
+                        Err(e) => format!("{}: {e}", path.display()),
+                    };
+                }
+                if ui.button(t("core-import")).clicked()
+                    && let Some(path) = crate::app::file_dialog(&folder)
+                        .add_filter(t("core-plugin-template"), &["txt"])
+                        .pick_file()
+                {
+                    let read = std::fs::read_to_string(&path)
+                        .map_err(|e| e.to_string())
+                        .and_then(|text| TemplateFile::parse(&text))
+                        .and_then(|file| {
+                            import_file(description, file, fields, templates, presets)
+                        });
+                    *note = match read {
+                        Ok(name) => {
+                            if name.is_some() {
+                                *chosen = name;
+                            }
+                            String::new()
+                        }
+                        Err(e) => format!("{}: {e}", path.display()),
+                    };
+                }
             });
+            if !note.is_empty() {
+                ui.colored_label(ui.visuals().error_fg_color, note.as_str());
+            }
+            ui.weak(t("core-template-holds"));
+            ui.add_space(6.0);
+            let mut column = |ui: &mut Ui, sections: &[(String, Vec<usize>)]| {
+                for (n, (group, list)) in sections.iter().enumerate() {
+                    if !group.is_empty() {
+                        ui.add_space(6.0);
+                        ui.strong(group);
+                    }
+                    egui::Grid::new(("plugin settings", group)).show(ui, |ui| {
+                        for &i in list {
+                            setting_ui(ui, &mut fields[i], description, presets);
+                        }
+                    });
+                    if n + 1 < sections.len() {
+                        ui.add_space(4.0);
+                    }
+                }
+            };
+            egui::ScrollArea::vertical()
+                .max_height(screen.height() * 0.7)
+                .show(ui, |ui| {
+                    // two columns of sections on a wide screen, the first holding about
+                    // half the rows
+                    if screen.width() < 1100.0 || sections.len() < 2 {
+                        return column(ui, &sections);
+                    }
+                    let rows = |s: &(String, Vec<usize>)| s.1.len() + 1;
+                    let half = sections.iter().map(rows).sum::<usize>().div_ceil(2);
+                    let mut split = 0;
+                    let mut taken = 0;
+                    while split < sections.len() - 1 && taken < half {
+                        taken += rows(&sections[split]);
+                        split += 1;
+                    }
+                    let (left, right) = sections.split_at(split);
+                    ui.horizontal_top(|ui| {
+                        ui.vertical(|ui| column(ui, left));
+                        ui.add_space(18.0);
+                        ui.vertical(|ui| column(ui, right));
+                    });
+                });
+            let bad = fields.iter().find(|f| !valid(f.setting.kind, &f.text));
+            if let Some(f) = bad {
+                ui.colored_label(
+                    ui.visuals().error_fg_color,
+                    t_args(
+                        "core-not-a-number",
+                        &[("setting", f.setting.label.as_str().into())],
+                    ),
+                );
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                ok = ui
+                    .add_enabled(bad.is_none(), egui::Button::new(t("button-ok")))
+                    .clicked();
+                cancel = ui.button(t("button-cancel")).clicked();
+            });
+        });
         for f in fields.iter_mut() {
             let Some(edit) = &mut f.style else {
                 continue;
@@ -819,16 +830,23 @@ fn import_file(
     presets: &mut Vec<Preset>,
 ) -> Result<Option<String>, String> {
     if let Some(t) = file.templates.iter().find(|t| !t.belongs_to(description)) {
-        return Err(format!(
-            "the template {} is not for {}",
-            t.name, description.name
+        return Err(t_args(
+            "core-template-not-for",
+            &[
+                ("template", t.name.as_str().into()),
+                ("plugin", description.name.as_str().into()),
+            ],
         ));
     }
     let attributes = preset_attributes(description);
     if let Some(p) = file.presets.iter().find(|p| !attributes.contains(&p.0)) {
-        return Err(format!(
-            "the preset {} is for {}, which {} does not offer presets for",
-            p.1, p.0, description.name
+        return Err(t_args(
+            "core-preset-not-for",
+            &[
+                ("preset", p.1.as_str().into()),
+                ("attribute", p.0.as_str().into()),
+                ("plugin", description.name.as_str().into()),
+            ],
         ));
     }
     for (attribute, name, value) in &file.presets {
@@ -873,13 +891,16 @@ fn sections(settings: &[plugin::Setting]) -> Vec<(String, Vec<usize>)> {
 /// preview and Define.
 fn setting_ui(ui: &mut Ui, f: &mut Field, description: &Description, presets: &mut Vec<Preset>) {
     match f.setting.global {
-        true => ui.label(format!("{} (all data files)", f.setting.label)),
+        true => ui.label(t_args(
+            "core-all-data-files",
+            &[("setting", f.setting.label.as_str().into())],
+        )),
         false => ui.label(&f.setting.label),
     };
     if f.setting.kind == Kind::Style {
         ui.horizontal(|ui| {
             preview(ui, &StyleEdit::read(&f.text));
-            if ui.button("Define...").clicked() {
+            if ui.button(t("core-define")).clicked() {
                 f.style = Some(StyleEdit::read(&f.text));
             }
         });
@@ -905,7 +926,7 @@ fn preview(ui: &mut Ui, style: &StyleEdit) {
     };
     let words = [style.font.trim(), style.size.trim()].join(" ");
     let mut text = egui::RichText::new(match words.trim() {
-        "" => "Sample",
+        "" => t("core-sample"),
         words => words,
     });
     if style.bold == Some(true) {
@@ -939,87 +960,106 @@ fn style_window(
     edit: &mut StyleEdit,
 ) -> Option<bool> {
     let (mut open, mut done) = (true, None);
-    egui::Window::new(format!("Define Style: {}", setting.label))
-        .id(egui::Id::unique(("plugin style", &setting.key)))
-        .open(&mut open)
-        .collapsible(false)
-        .resizable(false)
-        .show(ctx, |ui| {
-            egui::Grid::new(("plugin style grid", &setting.key)).show(ui, |ui| {
-                ui.label("Font");
-                ui.add(egui::TextEdit::singleline(&mut edit.font).hint_text("not set"));
+    egui::Window::new(t_args(
+        "core-define-style",
+        &[("setting", setting.label.as_str().into())],
+    ))
+    .id(egui::Id::unique(("plugin style", &setting.key)))
+    .open(&mut open)
+    .collapsible(false)
+    .resizable(false)
+    .show(ctx, |ui| {
+        egui::Grid::new(("plugin style grid", &setting.key)).show(ui, |ui| {
+            ui.label(t("core-font"));
+            ui.add(egui::TextEdit::singleline(&mut edit.font).hint_text(t("core-not-set")));
+            ui.end_row();
+            ui.label(t("core-size"));
+            ui.horizontal(|ui| {
+                let size = egui::TextEdit::singleline(&mut edit.size)
+                    .hint_text(t("core-not-set"))
+                    .desired_width(60.0);
+                ui.add(size);
+                ui.label(t("core-points"));
+            });
+            ui.end_row();
+            for (name, value) in [
+                (t("core-bold"), &mut edit.bold),
+                (t("core-italic"), &mut edit.italic),
+            ] {
+                ui.label(name);
+                let mut on = value.unwrap_or(false);
+                if ui.checkbox(&mut on, "").changed() {
+                    *value = Some(on);
+                }
                 ui.end_row();
-                ui.label("Size");
+            }
+            let colours = [
+                (
+                    t("core-text-colour"),
+                    t("core-none-lower"),
+                    &mut edit.text_on,
+                    &mut edit.text,
+                ),
+                (
+                    t("core-fill"),
+                    t("core-no-fill"),
+                    &mut edit.fill_on,
+                    &mut edit.fill,
+                ),
+            ];
+            for (name, none, on, colour) in colours {
+                ui.label(name);
                 ui.horizontal(|ui| {
-                    let size = egui::TextEdit::singleline(&mut edit.size)
-                        .hint_text("not set")
-                        .desired_width(60.0);
-                    ui.add(size);
-                    ui.label("points");
+                    let mut off = !*on;
+                    if ui.checkbox(&mut off, none).changed() {
+                        *on = !off;
+                    }
+                    if *on {
+                        field(ui, Kind::Colour, colour);
+                    }
                 });
                 ui.end_row();
-                for (name, value) in [("Bold", &mut edit.bold), ("Italic", &mut edit.italic)] {
-                    ui.label(name);
-                    let mut on = value.unwrap_or(false);
-                    if ui.checkbox(&mut on, "").changed() {
-                        *value = Some(on);
-                    }
-                    ui.end_row();
-                }
-                let colours = [
-                    ("Text colour", "none", &mut edit.text_on, &mut edit.text),
-                    ("Fill", "no fill", &mut edit.fill_on, &mut edit.fill),
-                ];
-                for (name, none, on, colour) in colours {
-                    ui.label(name);
-                    ui.horizontal(|ui| {
-                        let mut off = !*on;
-                        if ui.checkbox(&mut off, none).changed() {
-                            *on = !off;
-                        }
-                        if *on {
-                            field(ui, Kind::Colour, colour);
-                        }
-                    });
-                    ui.end_row();
-                }
-                ui.label("Alignment");
-                let shown = |a: &str| {
-                    if a.is_empty() {
-                        "not set".to_string()
-                    } else {
-                        a.to_string()
-                    }
-                };
-                egui::ComboBox::from_id_salt(("plugin style align", &setting.key))
-                    .selected_text(shown(&edit.align))
-                    .show_ui(ui, |ui| {
-                        for a in ["", "left", "center", "right"] {
-                            ui.selectable_value(&mut edit.align, a.to_string(), shown(a));
-                        }
-                    });
-                ui.end_row();
-                ui.label("Preview");
-                preview(ui, edit);
-                ui.end_row();
-            });
-            let problem = edit.problem();
-            if let Some(problem) = problem {
-                ui.colored_label(ui.visuals().error_fg_color, problem);
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(problem.is_none(), egui::Button::new("OK"))
-                    .clicked()
-                {
-                    done = Some(true);
+            ui.label(t("data-field-align"));
+            let shown = |a: &str| {
+                match a {
+                    "" => t("core-not-set"),
+                    "left" => t("core-align-left"),
+                    "center" => t("core-align-center"),
+                    "right" => t("core-align-right"),
+                    other => return other.to_string(),
                 }
-                if ui.button("Cancel").clicked() {
-                    done = Some(false);
-                }
-            });
+                .to_string()
+            };
+            egui::ComboBox::from_id_salt(("plugin style align", &setting.key))
+                .selected_text(shown(&edit.align))
+                .show_ui(ui, |ui| {
+                    for a in ["", "left", "center", "right"] {
+                        ui.selectable_value(&mut edit.align, a.to_string(), shown(a));
+                    }
+                });
+            ui.end_row();
+            ui.label(t("core-preview"));
+            preview(ui, edit);
+            ui.end_row();
         });
+        let problem = edit.problem();
+        if let Some(problem) = problem {
+            ui.colored_label(ui.visuals().error_fg_color, problem);
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(problem.is_none(), egui::Button::new(t("button-ok")))
+                .clicked()
+            {
+                done = Some(true);
+            }
+            if ui.button(t("button-cancel")).clicked() {
+                done = Some(false);
+            }
+        });
+    });
     match open {
         true => done,
         false => Some(false),
@@ -1034,8 +1074,8 @@ fn preset_ui(ui: &mut Ui, field: &mut Field, presets: &mut Vec<Preset>, attribut
     let editing = field.preset.as_ref().map(|p| p.0.clone());
     let shown = match (field.preset(), &editing) {
         (Some(name), _) => name.to_string(),
-        (None, Some(name)) => format!("{name} (changed)"),
-        (None, None) => "Presets".to_string(),
+        (None, Some(name)) => t_args("core-preset-changed", &[("name", name.as_str().into())]),
+        (None, None) => t("core-presets").to_string(),
     };
     egui::ComboBox::from_id_salt(("plugin preset", attribute))
         .selected_text(shown)
@@ -1053,7 +1093,7 @@ fn preset_ui(ui: &mut Ui, field: &mut Field, presets: &mut Vec<Preset>, attribut
             }
         });
     if ui
-        .add_enabled(editing.is_some(), egui::Button::new("Remove"))
+        .add_enabled(editing.is_some(), egui::Button::new(t("data-remove")))
         .clicked()
     {
         presets.retain(|p| !(p.attribute == attribute && Some(&p.name) == editing.as_ref()));
@@ -1061,12 +1101,15 @@ fn preset_ui(ui: &mut Ui, field: &mut Field, presets: &mut Vec<Preset>, attribut
         field.new_name.clear();
     }
     let name = egui::TextEdit::singleline(&mut field.new_name)
-        .hint_text("Preset name")
+        .hint_text(t("core-preset-name"))
         .desired_width(110.0);
     ui.add(name);
     let can = !field.new_name.trim().is_empty() && valid(field.setting.kind, &field.text);
-    let save = ui.add_enabled(can && editing.is_some(), egui::Button::new("Save"));
-    let new = ui.add_enabled(can, egui::Button::new("Save as new"));
+    let save = ui.add_enabled(
+        can && editing.is_some(),
+        egui::Button::new(t("button-save")),
+    );
+    let new = ui.add_enabled(can, egui::Button::new(t("core-save-as-new")));
     let replaced = match (save.clicked(), new.clicked()) {
         (true, _) => editing.as_deref(),
         (false, true) => None,

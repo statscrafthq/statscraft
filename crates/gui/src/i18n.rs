@@ -24,6 +24,7 @@ macro_rules! catalog {
             include_str!(concat!("../i18n/", $code, "/syntax.ftl")),
             include_str!(concat!("../i18n/", $code, "/output.ftl")),
             include_str!(concat!("../i18n/", $code, "/settings.ftl")),
+            include_str!(concat!("../i18n/", $code, "/dialogs-core.ftl")),
         ]
     };
 }

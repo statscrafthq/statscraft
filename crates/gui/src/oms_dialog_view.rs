@@ -1,54 +1,60 @@
 //! Drawing of the Output Management dialogs.
 
 use crate::app::{field, file_dialog};
+use crate::i18n::t;
 use crate::oms_dialog::{OMS_FORMATS, OMS_KINDS, Oms, Omsend};
 use eframe::egui::{self, ComboBox, Ui};
 
 pub fn oms(ui: &mut Ui, d: &mut Oms) {
-    ui.strong("Send this output");
+    ui.strong(t("core-send-this-output"));
     for ((_, label), flag) in OMS_KINDS.iter().zip(&mut d.kinds) {
-        ui.checkbox(flag, *label);
+        ui.checkbox(flag, t(label));
     }
-    ui.weak("The request lasts until it is ended (File > Output Management > End)");
+    ui.weak(t("core-oms-lasts"));
     ui.add_space(6.0);
-    egui::CollapsingHeader::new("Only these commands and tables")
+    egui::CollapsingHeader::new(t("core-only-these-commands"))
         .default_open(true)
         .show(ui, |ui| {
-            field(ui, "Commands", &mut d.commands, 320.0);
-            ui.weak("Names such as Frequencies, separated by commas; empty: every command");
-            field(ui, "Tables", &mut d.subtypes, 320.0);
-            ui.weak("Table titles, separated by commas; a trailing * matches the rest of a title");
+            field(ui, t("core-commands"), &mut d.commands, 320.0);
+            ui.weak(t("core-oms-commands-hint"));
+            field(ui, t("settings-part-tables"), &mut d.subtypes, 320.0);
+            ui.weak(t("core-oms-tables-hint"));
         });
     ui.add_space(6.0);
-    ui.strong("Destination");
+    ui.strong(t("core-destination"));
     ui.horizontal(|ui| {
-        ui.label("Format");
+        ui.label(t("data-format"));
         ComboBox::new("oms format", "")
-            .selected_text(OMS_FORMATS[d.format].1)
-            .show_index(ui, &mut d.format, OMS_FORMATS.len(), |i| OMS_FORMATS[i].1);
+            .selected_text(t(OMS_FORMATS[d.format].1))
+            .show_index(
+                ui,
+                &mut d.format,
+                OMS_FORMATS.len(),
+                |i| t(OMS_FORMATS[i].1),
+            );
     });
     ui.horizontal(|ui| {
-        ui.label("File");
-        if ui.button("Browse...").clicked()
+        ui.label(t("core-file"));
+        if ui.button(t("core-browse")).clicked()
             && let Some(chosen) = file_dialog(&None)
-                .add_filter(OMS_FORMATS[d.format].1, OMS_FORMATS[d.format].2)
+                .add_filter(t(OMS_FORMATS[d.format].1), OMS_FORMATS[d.format].2)
                 .save_file()
         {
             d.file = chosen.to_string_lossy().into_owned();
         }
     });
     ui.add(egui::TextEdit::singleline(&mut d.file).desired_width(360.0));
-    ui.weak("Empty: no file, only the results are changed");
-    ui.checkbox(&mut d.viewer, "Also show the output in the results");
-    field(ui, "Tag", &mut d.tag, 120.0);
-    ui.weak("A name to end the request by; empty: none");
+    ui.weak(t("core-oms-no-file"));
+    ui.checkbox(&mut d.viewer, t("core-oms-viewer"));
+    field(ui, t("core-tag"), &mut d.tag, 120.0);
+    ui.weak(t("core-tag-hint"));
 }
 
 pub fn omsend(ui: &mut Ui, d: &mut Omsend) {
-    field(ui, "Tags", &mut d.tags, 260.0);
-    ui.weak("Requests with these tags end, separated by commas");
-    field(ui, "Files", &mut d.files, 260.0);
-    ui.weak("Requests writing these files end, separated by commas");
+    field(ui, t("core-tags"), &mut d.tags, 260.0);
+    ui.weak(t("core-tags-hint"));
+    field(ui, t("core-files"), &mut d.files, 260.0);
+    ui.weak(t("core-files-hint"));
     ui.add_space(4.0);
-    ui.weak("Both empty: every request ends");
+    ui.weak(t("core-both-empty"));
 }

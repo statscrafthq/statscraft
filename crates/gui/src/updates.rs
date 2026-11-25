@@ -254,7 +254,10 @@ impl Updates {
                     self.quit = true;
                     ui.ctx().request_repaint();
                 } else {
-                    let missing = format!("cannot restart: {} is missing", file_name(&program));
+                    let missing = t_args(
+                        "core-cannot-restart",
+                        &[("file", file_name(&program).into())],
+                    );
                     self.bar = Bar::Message(Err(missing));
                 }
             }

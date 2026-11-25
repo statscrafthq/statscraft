@@ -287,63 +287,63 @@ pub(crate) enum Dialog {
 impl Dialog {
     fn title(&self) -> &'static str {
         match self {
-            Dialog::Frequencies(_) => "Frequencies",
-            Dialog::Descriptives(_) => "Descriptives",
-            Dialog::Explore(_) => "Explore",
-            Dialog::Crosstabs(_) => "Crosstabs",
-            Dialog::CustomTables(..) => "Custom Tables",
-            Dialog::Compute(..) => "Compute Variable",
-            Dialog::Recode(..) => "Recode",
-            Dialog::Count(..) => "Count Values within Cases",
-            Dialog::Rank(_) => "Rank Cases",
-            Dialog::Autorecode(_) => "Automatic Recode",
-            Dialog::Means(_) => "Means",
+            Dialog::Frequencies(_) => t("data-frequencies"),
+            Dialog::Descriptives(_) => t("data-descriptives"),
+            Dialog::Explore(_) => t("core-title-explore"),
+            Dialog::Crosstabs(_) => t("core-title-crosstabs"),
+            Dialog::CustomTables(..) => t("core-title-custom-tables"),
+            Dialog::Compute(..) => t("core-title-compute"),
+            Dialog::Recode(..) => t("core-title-recode"),
+            Dialog::Count(..) => t("core-title-count"),
+            Dialog::Rank(_) => t("core-title-rank"),
+            Dialog::Autorecode(_) => t("core-title-autorecode"),
+            Dialog::Means(_) => t("core-title-means"),
             Dialog::TTest(d) => d.title(),
-            Dialog::Oneway(_) => "One-Way ANOVA",
-            Dialog::Correlations(_) => "Bivariate Correlations",
-            Dialog::Mrsets(_) => "Define Multiple Response Sets",
-            Dialog::SortCases(_) => "Sort Cases",
-            Dialog::SplitFile(_) => "Split File",
-            Dialog::SelectCases(_) => "Select Cases",
-            Dialog::WeightCases(_) => "Weight Cases",
-            Dialog::Aggregate(..) => "Aggregate",
+            Dialog::Oneway(_) => t("core-title-oneway"),
+            Dialog::Correlations(_) => t("core-title-correlations"),
+            Dialog::Mrsets(_) => t("core-title-mrsets"),
+            Dialog::SortCases(_) => t("core-title-sort-cases"),
+            Dialog::SplitFile(_) => t("core-title-split-file"),
+            Dialog::SelectCases(_) => t("core-title-select-cases"),
+            Dialog::WeightCases(_) => t("core-title-weight-cases"),
+            Dialog::Aggregate(..) => t("core-title-aggregate"),
             Dialog::MergeFiles(d) => d.title(),
             Dialog::MultResponse(d) => d.title(),
-            Dialog::Tree(_) => "Classification Tree",
-            Dialog::Regression(_) => "Linear Regression",
-            Dialog::Reliability(_) => "Reliability Analysis",
+            Dialog::Tree(_) => t("core-title-tree"),
+            Dialog::Regression(_) => t("core-title-regression"),
+            Dialog::Reliability(_) => t("core-title-reliability"),
             Dialog::NparTests(d) => d.title(),
-            Dialog::PartialCorr(_) => "Partial Correlations",
-            Dialog::FactorAnalysis(_) => "Factor Analysis",
-            Dialog::KMeans(_) => "K-Means Cluster Analysis",
-            Dialog::Hierarchical(_) => "Hierarchical Cluster Analysis",
-            Dialog::TwoStep(_) => "TwoStep Cluster Analysis",
-            Dialog::Aim(_) => "Attribute Importance",
-            Dialog::FeatureSelection(_) => "Feature Selection",
-            Dialog::PrepareData(_) => "Prepare Data for Modeling",
-            Dialog::Anomaly(_) => "Identify Unusual Cases",
-            Dialog::Mlp(_) => "Multilayer Perceptron",
-            Dialog::Rbf(_) => "Radial Basis Function",
-            Dialog::Discriminant(_) => "Discriminant Analysis",
-            Dialog::Logistic(_) => "Logistic Regression",
-            Dialog::Univariate(d) if d.multivariate => "Multivariate",
-            Dialog::Univariate(_) => "Univariate",
-            Dialog::RepeatedMeasures(_) => "Repeated Measures",
+            Dialog::PartialCorr(_) => t("core-title-partial-corr"),
+            Dialog::FactorAnalysis(_) => t("core-title-factor"),
+            Dialog::KMeans(_) => t("core-title-k-means"),
+            Dialog::Hierarchical(_) => t("core-title-hierarchical"),
+            Dialog::TwoStep(_) => t("core-title-twostep"),
+            Dialog::Aim(_) => t("core-title-aim"),
+            Dialog::FeatureSelection(_) => t("core-title-feature-selection"),
+            Dialog::PrepareData(_) => t("core-title-prepare-data"),
+            Dialog::Anomaly(_) => t("core-title-anomaly"),
+            Dialog::Mlp(_) => t("core-title-mlp"),
+            Dialog::Rbf(_) => t("core-title-rbf"),
+            Dialog::Discriminant(_) => t("core-title-discriminant"),
+            Dialog::Logistic(_) => t("core-title-logistic"),
+            Dialog::Univariate(d) if d.multivariate => t("core-title-multivariate"),
+            Dialog::Univariate(_) => t("core-title-univariate"),
+            Dialog::RepeatedMeasures(_) => t("core-title-repeated"),
             Dialog::Advanced(d) => d.title(),
-            Dialog::Restructure(_) => "Restructure",
-            Dialog::SortVariables(_) => "Sort Variables",
-            Dialog::ImportData(_) => "Open Data",
-            Dialog::ExportData(_) => "Export Data",
-            Dialog::ChartBuilder(_) => "Chart Builder",
+            Dialog::Restructure(_) => t("core-title-restructure"),
+            Dialog::SortVariables(_) => t("core-title-sort-variables"),
+            Dialog::ImportData(_) => t("core-title-open-data"),
+            Dialog::ExportData(_) => t("core-title-export-data"),
+            Dialog::ChartBuilder(_) => t("core-title-chart-builder"),
             Dialog::ProbabilityPlot(d) => d.title(),
-            Dialog::RocCurve(_) => "ROC Curve",
-            Dialog::QuantileRegression(_) => "Quantile Regression",
-            Dialog::VarianceComponents(_) => "Variance Components",
-            Dialog::OptimalBinning(_) => "Optimal Binning",
-            Dialog::RocAnalysis(_) => "ROC Analysis",
-            Dialog::ResponseRate(_) => "Response Rate",
-            Dialog::ControlCharts(_) => "Control Charts",
-            Dialog::Catreg(_) => "Categorical Regression",
+            Dialog::RocCurve(_) => t("core-title-roc-curve"),
+            Dialog::QuantileRegression(_) => t("core-title-quantile"),
+            Dialog::VarianceComponents(_) => t("core-title-variance-components"),
+            Dialog::OptimalBinning(_) => t("core-title-optimal-binning"),
+            Dialog::RocAnalysis(_) => t("core-title-roc-analysis"),
+            Dialog::ResponseRate(_) => t("core-title-response-rate"),
+            Dialog::ControlCharts(_) => t("core-title-control-charts"),
+            Dialog::Catreg(_) => t("core-title-catreg"),
         }
     }
 
@@ -443,14 +443,14 @@ impl Dialog {
                     .filter(|name| data.variable(name).is_ok_and(|v| v.is_string()))
                     .count();
                 if strings > 0 && strings < d.variables.len() {
-                    return Err("recode string and numeric variables separately".into());
+                    return Err(t("core-recode-mixed").into());
                 }
                 d.syntax(strings > 0)
             }
             Dialog::Count(d, label, _) => {
                 let strings = d.variables.iter().filter(|n| is_string(data, n)).count();
                 if strings > 0 && strings < d.variables.len() {
-                    return Err("count in string and numeric variables separately".into());
+                    return Err(t("core-count-mixed").into());
                 }
                 let mut text = d.syntax(strings > 0)?;
                 if let Some(label) = label_command(&d.target, label) {
@@ -460,15 +460,16 @@ impl Dialog {
                 Ok(text)
             }
             Dialog::Rank(d) => match d.variables.iter().find(|n| is_string(data, n)) {
-                Some(name) => Err(format!(
-                    "{name} is a string; Automatic Recode makes it a number to rank"
+                Some(name) => Err(t_args(
+                    "core-rank-string",
+                    &[("name", name.as_str().into())],
                 )),
                 None => d.syntax(),
             },
             Dialog::Autorecode(d) => {
                 let strings = d.variables.iter().filter(|n| is_string(data, n)).count();
                 if d.group && strings > 0 && strings < d.variables.len() {
-                    return Err("one scheme needs all numeric or all string variables".into());
+                    return Err(t("core-one-scheme-mixed").into());
                 }
                 d.syntax()
             }
@@ -479,7 +480,7 @@ impl Dialog {
             Dialog::Mrsets(d) => {
                 let strings = d.variables.iter().filter(|n| is_string(data, n)).count();
                 if strings > 0 && strings < d.variables.len() {
-                    return Err("the variables of a set must be all numeric or all strings".into());
+                    return Err(t("core-set-mixed").into());
                 }
                 let text = d.syntax(strings > 0)?;
                 if !d.delete && d.dichotomy && d.counted_value_labels {
@@ -499,7 +500,10 @@ impl Dialog {
                     .find(|n| is_string(data, n))
                     .or_else(|| d.table_variables().into_iter().find(|n| is_string(data, n)))
                 {
-                    Some(name) => Err(format!("{name} is a string; the command counts numbers")),
+                    Some(name) => Err(t_args(
+                        "core-mult-response-string",
+                        &[("name", name.as_str().into())],
+                    )),
                     None => d.syntax(),
                 }
             }
@@ -508,9 +512,9 @@ impl Dialog {
                     .variable(&d.dependent)
                     .is_ok_and(|v| v.measure() == Measure::Scale);
                 if scale && TREE_LEVELS[d.dependent_level].0.is_empty() {
-                    return Err(format!(
-                        "{} is a scale variable; choose Nominal or Ordinal",
-                        d.dependent
+                    return Err(t_args(
+                        "core-tree-scale",
+                        &[("name", d.dependent.as_str().into())],
                     ));
                 }
                 d.syntax(is_string(data, &d.dependent))
@@ -729,7 +733,10 @@ impl App {
         });
         let status = match &server {
             Ok(_) => Ok(t("status-ready").into()),
-            Err(e) => Err(format!("the command line cannot reach this window: {e}")),
+            Err(e) => Err(t_args(
+                "core-command-line-unreachable",
+                &[("error", e.to_string().into())],
+            )),
         };
         app_ctx.all_styles_mut(|style| {
             square(&mut style.visuals);
@@ -951,7 +958,10 @@ impl App {
         for done in std::mem::take(&mut self.plugins.waiting) {
             // a plugin that failed says so; the others' answers still go on the tables
             if !done.errors.is_empty() {
-                self.status = Err(format!("plugin: {}", done.errors.join("; ")));
+                self.status = Err(t_args(
+                    "core-plugin-error",
+                    &[("error", done.errors.join("; ").into())],
+                ));
             }
             let answer = done.answers;
             // an answer that comes in after the plugins were turned off is dropped
@@ -968,7 +978,10 @@ impl App {
             {
                 let placed = o.view.decorate(answer);
                 if let Err(e) = self.session.decorate_output(&done.document, placed) {
-                    self.status = Err(format!("plugin: {e}"));
+                    self.status = Err(t_args(
+                        "core-plugin-error",
+                        &[("error", e.to_string().into())],
+                    ));
                 }
             }
         }
@@ -1178,9 +1191,9 @@ impl App {
                 let _ = reply.send(live::reply(&mut result, &request));
                 if request.action == Action::Check {
                     self.status = match &result {
-                        Ok(r) => Ok(format!(
-                            "checked {} command(s) from the command line",
-                            r.commands.len()
+                        Ok(r) => Ok(t_args(
+                            "core-checked-commands",
+                            &[("count", r.commands.len().into())],
                         )),
                         Err(errors) => Err(error_text(errors)),
                     };
@@ -1191,19 +1204,19 @@ impl App {
                     view.cell_edit = None;
                     view.field_edit = None;
                 }
-                self.show(result, "command line", None);
+                self.show(result, t("core-origin-command-line"), None);
             }
             After::Show => {
-                self.show(result, "window", None);
+                self.show(result, t("core-origin-window"), None);
             }
             After::Activate(name) => {
                 if same(self.activating.as_deref(), Some(&name)) {
                     self.activating = None;
                 }
-                self.show(result, "window", None);
+                self.show(result, t("core-origin-window"), None);
             }
             After::CloseWindow(id) => {
-                if self.show(result, "window", None) {
+                if self.show(result, t("core-origin-window"), None) {
                     self.drop_window(id);
                 } else if let Some(w) = self.windows.get_mut(id) {
                     // the close failed: the window stays, and can be closed again
@@ -1211,7 +1224,7 @@ impl App {
                 }
             }
             After::Editor(id) => {
-                self.show(result, "syntax editor", Some(id));
+                self.show(result, t("core-origin-syntax-editor"), Some(id));
             }
             After::Window((request, reply), id) => {
                 if let Ok(r) = &mut result {
@@ -1227,17 +1240,17 @@ impl App {
                     view.cell_edit = None;
                     view.field_edit = None;
                 }
-                self.show(result, "syntax editor", Some(id));
+                self.show(result, t("core-origin-syntax-editor"), Some(id));
             }
             After::OpenData(path) => {
-                if self.show(result, "open file", None) {
+                if self.show(result, t("core-origin-open-file"), None) {
                     self.add_recent(&path);
                     self.data_file = Some(path);
                     self.front_active_data();
                 }
             }
             After::SaveData(path) => {
-                if self.show(result, "save file", None) {
+                if self.show(result, t("core-origin-save-file"), None) {
                     self.add_recent(&path);
                     self.data_file = Some(path);
                 }
@@ -1245,7 +1258,7 @@ impl App {
             After::CloseDialog(title) => {
                 if self.show(result, title, None) {
                     self.dialog = None;
-                    if title == "Open Data" {
+                    if title == t("core-title-open-data") {
                         self.front_active_data();
                     }
                 }
@@ -1377,7 +1390,7 @@ impl App {
         let path = file.or_else(|| {
             let dialog = self
                 .file_dialog()
-                .add_filter("Statscraft output", &["scout"]);
+                .add_filter(t("filter-statscraft-output"), &["scout"]);
             let mut path = dialog.save_file()?;
             if path.extension().is_none() {
                 path.set_extension("scout");
@@ -1605,7 +1618,7 @@ impl App {
     fn save_syntax_as(&mut self, id: WindowId) -> bool {
         match self
             .file_dialog()
-            .add_filter("Syntax", &["sps"])
+            .add_filter(t("filter-syntax"), &["sps"])
             .save_file()
         {
             Some(path) => self.save_syntax(id, path),
@@ -3592,10 +3605,10 @@ impl App {
                     ui.label(t("data-format"));
                     let before = d.kind;
                     ComboBox::new("format kind", "")
-                        .selected_text(edits::FORMAT_KINDS[d.kind].label)
+                        .selected_text(t(edits::FORMAT_KINDS[d.kind].label))
                         .height(400.0)
                         .show_index(ui, &mut d.kind, edits::FORMAT_KINDS.len(), |i| {
-                            edits::FORMAT_KINDS[i].label
+                            t(edits::FORMAT_KINDS[i].label)
                         });
                     if d.kind != before {
                         d.fit();
@@ -3962,7 +3975,7 @@ impl App {
         }
         let cell = |r: usize, c: usize| {
             let field = Field::ALL[c];
-            let text = edits::field_text(&data.variable_at(r), field);
+            let text = edits::shown(field, edits::field_text(&data.variable_at(r), field));
             let right = matches!(field, Field::Width | Field::Decimals | Field::Columns);
             (Some(text), if right { Align::Max } else { Align::Min })
         };
@@ -3982,17 +3995,19 @@ impl App {
             edit.as_ref().map(|e| (e.row, e.column)),
             &mut |ui, rect| {
                 let Some(e) = edit.as_mut() else { return };
-                let Some(choices) = Field::ALL[e.column].choices() else {
+                let field = Field::ALL[e.column];
+                let Some(choices) = field.choices() else {
                     (commit, cancel) = cell_editor(ui, rect, e);
                     return;
                 };
                 ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
                     ComboBox::new("choice_edit", "")
-                        .selected_text(e.text.clone())
+                        .selected_text(edits::shown(field, e.text.clone()))
                         .width(rect.width() - 8.0)
                         .show_ui(ui, |ui| {
                             for &level in choices {
-                                if ui.selectable_label(e.text == level, level).clicked() {
+                                let text = edits::shown(field, level.to_string());
+                                if ui.selectable_label(e.text == level, text).clicked() {
                                     e.text = level.into();
                                     commit = true;
                                 }
@@ -4144,9 +4159,9 @@ impl App {
             && a.from_data
             && dataset_named(&self.session, Some(crate::mds_dialog::DISTANCES)).is_some()
         {
-            syntax = Err(format!(
-                "a dataset named {} is open; rename or close it first",
-                crate::mds_dialog::DISTANCES
+            syntax = Err(t_args(
+                "core-dataset-open",
+                &[("name", crate::mds_dialog::DISTANCES.into())],
             ));
         }
         let raw = syntax.clone();
@@ -4557,11 +4572,7 @@ impl App {
             // with no data open only the values kept on the computer change
             match (syntax.is_empty(), self.session.dataset().is_some()) {
                 (false, true) => self.run(&syntax, None, After::Show),
-                (false, false) => {
-                    self.status = Ok("plugin settings: only those for all data files were kept; \
-                         the others need data open"
-                        .into())
-                }
+                (false, false) => self.status = Ok(t("core-plugin-global-only").into()),
                 (true, _) => {}
             }
             self.plugins.again();
@@ -4922,10 +4933,21 @@ fn output_groups(outputs: Vec<CommandResult>, source: &str, from_editor: bool) -
         }
         let heading = match (from_editor, out.first_line == out.last_line) {
             (false, _) => out.name,
-            (true, true) => format!("{}, line {}", out.name, out.first_line),
-            (true, false) => {
-                format!("{}, lines {}-{}", out.name, out.first_line, out.last_line)
-            }
+            (true, true) => t_args(
+                "core-command-line-n",
+                &[
+                    ("command", out.name.as_str().into()),
+                    ("line", out.first_line.into()),
+                ],
+            ),
+            (true, false) => t_args(
+                "core-command-lines",
+                &[
+                    ("command", out.name.as_str().into()),
+                    ("first", out.first_line.into()),
+                    ("last", out.last_line.into()),
+                ],
+            ),
         };
         let syntax = output::source_lines(source, out.first_line, out.last_line);
         // a chart keeps its data table: for Show data, Copy and a kind not drawn yet
@@ -5152,11 +5174,9 @@ fn counted_labels(data: &Dataset, variables: &[String], counted: &str) -> Result
             })
         });
         match label {
-            None => return Err(format!("{name} has no value label for the counted value")),
+            None => return Err(t_args("core-no-counted-label", &[("name", name.into())])),
             Some(label) if seen.contains(&label) => {
-                return Err(format!(
-                    "{name} has the same label for the counted value as another variable"
-                ));
+                return Err(t_args("core-same-counted-label", &[("name", name.into())]));
             }
             Some(label) => seen.push(label),
         }
@@ -5799,8 +5819,8 @@ fn variable_picker(
     picked: &mut Vec<String>,
     height: f32,
 ) {
-    ui.strong("Variables");
-    ui.add(TextEdit::singleline(filter).hint_text("Filter"));
+    ui.strong(t("core-variables"));
+    ui.add(TextEdit::singleline(filter).hint_text(t("core-filter-hint")));
     let needle = filter.to_lowercase();
     let matches: Vec<usize> = (0..data.variable_count())
         .filter(|&i| {
@@ -5851,12 +5871,21 @@ fn variable_picker(
         .collect();
     if !sets.is_empty() {
         ui.add_space(4.0);
-        ui.strong("Multiple response sets");
+        ui.strong(t("core-mr-sets"));
         for set in sets {
             let on = picked.contains(&set.name);
             let response = ui
-                .selectable_label(on, format!("{} (set)", set.name))
-                .on_hover_text(format!("{} set: {}", set.kind, set.label));
+                .selectable_label(
+                    on,
+                    t_args("core-set-name", &[("name", set.name.as_str().into())]),
+                )
+                .on_hover_text(t_args(
+                    "core-set-hover",
+                    &[
+                        ("kind", set.kind.to_string().into()),
+                        ("label", set.label.as_str().into()),
+                    ],
+                ));
             if response.clicked() {
                 if on {
                     picked.retain(|p| p != &set.name);
@@ -5879,7 +5908,7 @@ pub(crate) fn target_list(
         ui.horizontal(|ui| {
             ui.strong(title);
             if ui
-                .add_enabled(!picked.is_empty(), egui::Button::new("Add").small())
+                .add_enabled(!picked.is_empty(), egui::Button::new(t("core-add")).small())
                 .clicked()
             {
                 for name in picked.drain(..) {
@@ -5892,14 +5921,14 @@ pub(crate) fn target_list(
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_min_width(260.0);
             if list.is_empty() {
-                ui.weak("empty");
+                ui.weak(t("core-empty"));
             }
             let mut remove = None;
             ui.horizontal_wrapped(|ui| {
                 for (i, name) in list.iter().enumerate() {
                     if ui
                         .button(format!("{name}  \u{d7}"))
-                        .on_hover_text("Remove")
+                        .on_hover_text(t("data-remove"))
                         .clicked()
                     {
                         remove = Some(i);
@@ -5919,16 +5948,16 @@ pub(crate) fn target_one(ui: &mut Ui, title: &str, slot: &mut String, picked: &m
         ui.horizontal(|ui| {
             ui.strong(title);
             if ui
-                .add_enabled(!picked.is_empty(), egui::Button::new("Set").small())
+                .add_enabled(!picked.is_empty(), egui::Button::new(t("core-set")).small())
                 .clicked()
             {
                 *slot = picked.remove(0);
             }
             if slot.is_empty() {
-                ui.weak("empty");
+                ui.weak(t("core-empty"));
             } else if ui
                 .button(format!("{slot}  \u{d7}"))
-                .on_hover_text("Remove")
+                .on_hover_text(t("data-remove"))
                 .clicked()
             {
                 slot.clear();
@@ -5948,12 +5977,15 @@ pub(crate) fn field(ui: &mut Ui, label: &str, text: &mut String, width: f32) {
 /// The Means dialog: dependents, layers of control variables, cell statistics and the
 /// analysis of variance; Case Summaries shows the same.
 pub(crate) fn means_body(ui: &mut Ui, d: &mut Means, picked: &mut Vec<String>) {
-    target_list(ui, "Dependent variables", &mut d.dependents, picked);
+    target_list(ui, t("core-dependent-variables"), &mut d.dependents, picked);
     ui.horizontal(|ui| {
         let count = d.layers.len();
-        ui.label(format!("Layer {} of {count}", d.layer + 1));
+        ui.label(t_args(
+            "core-layer-of",
+            &[("layer", (d.layer + 1).into()), ("count", count.into())],
+        ));
         if ui
-            .add_enabled(d.layer > 0, egui::Button::new("Previous").small())
+            .add_enabled(d.layer > 0, egui::Button::new(t("syntax-previous")).small())
             .clicked()
         {
             d.layer -= 1;
@@ -5962,7 +5994,7 @@ pub(crate) fn means_body(ui: &mut Ui, d: &mut Means, picked: &mut Vec<String>) {
         if ui
             .add_enabled(
                 d.layer + 1 < count || can_add,
-                egui::Button::new("Next").small(),
+                egui::Button::new(t("syntax-next")).small(),
             )
             .clicked()
         {
@@ -5974,20 +6006,20 @@ pub(crate) fn means_body(ui: &mut Ui, d: &mut Means, picked: &mut Vec<String>) {
     });
     target_list(
         ui,
-        "Group by (control variables)",
+        t("core-group-by-controls"),
         &mut d.layers[d.layer],
         picked,
     );
     ui.add_space(6.0);
-    ui.strong("Statistics");
+    ui.strong(t("core-statistics"));
     checkboxes(ui, &MEANS_CELLS, &mut d.cells);
     let controls: Vec<String> = d.layers.iter().flatten().cloned().collect();
     ui.horizontal(|ui| {
-        ui.checkbox(&mut d.npct_within, "Percent of cases");
-        ui.checkbox(&mut d.spct_within, "Percent of sum, within");
+        ui.checkbox(&mut d.npct_within, t("core-percent-of-cases"));
+        ui.checkbox(&mut d.spct_within, t("core-percent-of-sum-within"));
         ComboBox::new("within", "")
             .selected_text(if d.within.is_empty() {
-                "a control variable"
+                t("core-a-control-variable")
             } else {
                 &d.within
             })
@@ -5997,8 +6029,18 @@ pub(crate) fn means_body(ui: &mut Ui, d: &mut Means, picked: &mut Vec<String>) {
                 }
             });
     });
-    ui.checkbox(&mut d.anova, "Analysis of variance and eta (Layer 1)");
-    ui.checkbox(&mut d.linearity, "Test for linearity");
+    ui.checkbox(&mut d.anova, t("core-anova-eta"));
+    ui.checkbox(&mut d.linearity, t("core-linearity"));
+}
+
+/// An option label of `choice` and `checkboxes` as shown: a catalog key (`stats-mean`) in the
+/// window's language, any other text as it is, without a catalog lookup.
+fn option_text(label: &str) -> String {
+    let key = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-';
+    match label.contains('-') && label.chars().all(key) {
+        true => t_args(label, &[]),
+        false => label.to_string(),
+    }
 }
 
 /// A list to choose one of `options` by its label, with a label in front, on one line.
@@ -6006,8 +6048,8 @@ pub(crate) fn choice(ui: &mut Ui, label: &str, options: &[(&str, &str)], index: 
     ui.horizontal(|ui| {
         ui.label(label);
         ComboBox::new(label, "")
-            .selected_text(options[*index].1)
-            .show_index(ui, index, options.len(), |i| options[i].1);
+            .selected_text(option_text(options[*index].1))
+            .show_index(ui, index, options.len(), |i| option_text(options[i].1));
     });
 }
 
@@ -6016,7 +6058,7 @@ pub(crate) fn checkboxes(ui: &mut Ui, options: &[(&str, &str)], flags: &mut [boo
         .num_columns(2)
         .show(ui, |ui| {
             for (i, ((_, label), flag)) in options.iter().zip(flags.iter_mut()).enumerate() {
-                ui.checkbox(flag, *label);
+                ui.checkbox(flag, option_text(label));
                 if i % 2 == 1 {
                     ui.end_row();
                 }
@@ -6033,160 +6075,152 @@ fn dialog_body(
 ) {
     match dialog {
         Dialog::Frequencies(d) => {
-            target_list(ui, "Variables", &mut d.variables, picked);
+            target_list(ui, t("core-variables"), &mut d.variables, picked);
             ui.add_space(6.0);
-            ui.checkbox(&mut d.tables, "Display frequency tables");
+            ui.checkbox(&mut d.tables, t("core-show-frequency-tables"));
             ui.add_enabled_ui(d.tables, |ui| {
-                choice(ui, "Order rows by", &FREQUENCIES_ORDERS, &mut d.order);
-                field(
+                choice(
                     ui,
-                    "Leave out tables with more values than",
-                    &mut d.limit,
-                    50.0,
+                    t("core-order-rows-by"),
+                    &FREQUENCIES_ORDERS,
+                    &mut d.order,
                 );
+                field(ui, t("core-leave-out-tables-over"), &mut d.limit, 50.0);
             });
             ui.add_space(6.0);
-            ui.strong("Statistics");
+            ui.strong(t("core-statistics"));
             checkboxes(ui, &FREQUENCIES_STATISTICS, &mut d.statistics);
             ui.add_space(6.0);
-            ui.strong("Percentile values");
-            ui.checkbox(&mut d.quartiles, "Quartiles");
-            field(ui, "Cut points for equal groups:", &mut d.ntiles, 50.0);
-            field(ui, "Percentiles:", &mut d.percentiles, 180.0);
+            ui.strong(t("core-percentile-values"));
+            ui.checkbox(&mut d.quartiles, t("core-quartiles"));
+            field(ui, t("core-cut-points"), &mut d.ntiles, 50.0);
+            field(ui, t("core-percentiles-field"), &mut d.percentiles, 180.0);
             d.bootstrap.view(ui, picked);
         }
         Dialog::Descriptives(d) => {
-            target_list(ui, "Variables", &mut d.variables, picked);
+            target_list(ui, t("core-variables"), &mut d.variables, picked);
             ui.add_space(6.0);
-            ui.strong("Statistics");
+            ui.strong(t("core-statistics"));
             checkboxes(ui, &DESCRIPTIVES_STATISTICS, &mut d.statistics);
-            choice(ui, "Display order", &DESCRIPTIVES_ORDERS, &mut d.order);
-            ui.checkbox(
-                &mut d.listwise,
-                "Leave out a case missing on any listed variable",
+            choice(
+                ui,
+                t("core-display-order"),
+                &DESCRIPTIVES_ORDERS,
+                &mut d.order,
             );
-            ui.checkbox(&mut d.save_z_scores, "Save z-scores as new variables");
+            ui.checkbox(&mut d.listwise, t("core-listwise"));
+            ui.checkbox(&mut d.save_z_scores, t("core-save-z-scores"));
             d.bootstrap.view(ui, picked);
         }
         Dialog::Explore(d) => {
-            target_list(ui, "Dependent variables", &mut d.dependents, picked);
-            target_list(ui, "Factors (each on its own)", &mut d.factors, picked);
-            target_one(ui, "Label cases by", &mut d.id, picked);
+            target_list(ui, t("core-dependent-variables"), &mut d.dependents, picked);
+            target_list(ui, t("core-factors-each"), &mut d.factors, picked);
+            target_one(ui, t("core-label-cases-by"), &mut d.id, picked);
             ui.add_space(6.0);
-            ui.strong("Statistics");
+            ui.strong(t("core-statistics"));
             ui.horizontal(|ui| {
-                ui.checkbox(&mut d.descriptives, "Descriptives, mean interval at");
+                ui.checkbox(&mut d.descriptives, t("core-descriptives-interval"));
                 ui.add_enabled(
                     d.descriptives,
                     TextEdit::singleline(&mut d.confidence).desired_width(50.0),
                 );
                 ui.label("%");
             });
-            ui.checkbox(
-                &mut d.mestimators,
-                "M-estimators (Huber, Tukey, Hampel, Andrews)",
-            );
-            ui.checkbox(&mut d.outliers, "Five highest and lowest values");
-            ui.checkbox(
-                &mut d.percentiles,
-                "Percentiles 5 to 95, with Tukey's hinges",
-            );
-            ui.checkbox(
-                &mut d.normality,
-                "Tests of normality (Kolmogorov-Smirnov, Shapiro-Wilk)",
-            );
+            ui.checkbox(&mut d.mestimators, t("core-m-estimators"));
+            ui.checkbox(&mut d.outliers, t("core-extreme-values"));
+            ui.checkbox(&mut d.percentiles, t("core-explore-percentiles"));
+            ui.checkbox(&mut d.normality, t("core-normality-tests"));
             ui.add_space(6.0);
-            ui.strong("Missing values");
+            ui.strong(t("data-field-missing"));
             for missing in ExploreMissing::ALL {
                 ui.radio_value(&mut d.missing, missing, missing.label());
             }
             d.bootstrap.view(ui, picked);
         }
         Dialog::Crosstabs(d) => {
-            target_list(ui, "Rows", &mut d.rows, picked);
-            target_list(ui, "Columns", &mut d.columns, picked);
-            target_list(ui, "Layers", &mut d.layers, picked);
+            target_list(ui, t("core-rows"), &mut d.rows, picked);
+            target_list(ui, t("core-columns"), &mut d.columns, picked);
+            target_list(ui, t("core-layers"), &mut d.layers, picked);
             ui.add_space(6.0);
-            ui.strong("Cells");
+            ui.strong(t("core-cells"));
             checkboxes(ui, &CROSSTABS_CELLS, &mut d.cells);
             ui.add_space(6.0);
-            ui.strong("Statistics");
+            ui.strong(t("core-statistics"));
             checkboxes(ui, &CROSSTABS_STATISTICS, &mut d.statistics);
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(d.statistics[CROSSTABS_CMH], |ui| {
-                    ui.label("Test common odds ratio equals");
+                    ui.label(t("core-cmh-odds"));
                     ui.add(TextEdit::singleline(&mut d.cmh_odds).desired_width(50.0));
                 });
             });
             ui.add_space(6.0);
-            ui.strong("Significance");
+            ui.strong(t("core-significance"));
             ui.radio_value(
                 &mut d.method,
                 CrosstabsMethod::Asymptotic,
-                "Asymptotic only",
+                t("core-asymptotic-only"),
             );
             ui.horizontal(|ui| {
-                ui.radio_value(&mut d.method, CrosstabsMethod::MonteCarlo, "Monte Carlo:");
+                ui.radio_value(
+                    &mut d.method,
+                    CrosstabsMethod::MonteCarlo,
+                    t("core-monte-carlo"),
+                );
                 ui.add_enabled_ui(d.method == CrosstabsMethod::MonteCarlo, |ui| {
-                    ui.label("confidence level, %");
+                    ui.label(t("core-confidence-level-pct"));
                     ui.add(TextEdit::singleline(&mut d.mc_level).desired_width(40.0));
-                    ui.label("samples");
+                    ui.label(t("core-samples"));
                     ui.add(TextEdit::singleline(&mut d.mc_samples).desired_width(60.0));
                 });
             });
             ui.horizontal(|ui| {
-                ui.radio_value(&mut d.method, CrosstabsMethod::Exact, "Exact:");
+                ui.radio_value(&mut d.method, CrosstabsMethod::Exact, t("core-exact"));
                 ui.add_enabled_ui(d.method == CrosstabsMethod::Exact, |ui| {
-                    ui.label("at most");
+                    ui.label(t("core-at-most"));
                     ui.add(TextEdit::singleline(&mut d.exact_minutes).desired_width(40.0));
-                    ui.label("minutes per table (0: no limit)");
+                    ui.label(t("core-minutes-per-table"));
                 });
             });
             d.bootstrap.view(ui, picked);
         }
         Dialog::CustomTables(d, draft) => {
-            target_list(ui, "Rows (categories or sets)", &mut d.rows, picked);
-            target_list(ui, "Columns (categories or sets)", &mut d.columns, picked);
-            target_list(
-                ui,
-                "Layers (a table for each category)",
-                &mut d.layers,
-                picked,
-            );
-            target_list(
-                ui,
-                "Means of (scale variables, in the rows)",
-                &mut d.scale_rows,
-                picked,
-            );
+            target_list(ui, t("core-ctables-rows"), &mut d.rows, picked);
+            target_list(ui, t("core-ctables-columns"), &mut d.columns, picked);
+            target_list(ui, t("core-ctables-layers"), &mut d.layers, picked);
+            target_list(ui, t("core-ctables-means"), &mut d.scale_rows, picked);
             ui.add_space(6.0);
-            ui.strong("Summaries");
+            ui.strong(t("core-summaries"));
             ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut d.count, "Count");
-                ui.checkbox(&mut d.effective_count, "Effective count");
-                ui.checkbox(&mut d.column_percent, "Column %");
-                ui.checkbox(&mut d.row_percent, "Row %");
-                ui.checkbox(&mut d.mean, "Mean");
-                ui.checkbox(&mut d.totals, "Totals");
+                ui.checkbox(&mut d.count, t("core-count"));
+                ui.checkbox(&mut d.effective_count, t("core-effective-count"));
+                ui.checkbox(&mut d.column_percent, t("core-column-pct"));
+                ui.checkbox(&mut d.row_percent, t("core-row-pct"));
+                ui.checkbox(&mut d.mean, t("core-mean"));
+                ui.checkbox(&mut d.totals, t("core-totals"));
             });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut d.hide_small_counts, "Hide counts below");
+                ui.checkbox(&mut d.hide_small_counts, t("core-hide-counts-below"));
                 ui.add_enabled(
                     d.hide_small_counts,
                     TextEdit::singleline(&mut d.small_count).desired_width(40.0),
                 );
             });
-            target_one(ui, "Effective base weight", &mut d.effective_weight, picked);
+            target_one(
+                ui,
+                t("core-effective-base-weight"),
+                &mut d.effective_weight,
+                picked,
+            );
             if !(d.rows.is_empty() && d.columns.is_empty() && d.layers.is_empty()) {
-                egui::CollapsingHeader::new("Categories, totals and subtotals")
+                egui::CollapsingHeader::new(t("core-categories-totals"))
                     .show(ui, |ui| categories_panel(ui, data, d, draft));
             }
-            ui.strong("Significance tests");
-            ui.checkbox(&mut d.chi_square, "Chi-square test of independence");
-            ui.checkbox(&mut d.compare_proportions, "Compare column proportions");
-            ui.checkbox(&mut d.compare_means, "Compare column means");
+            ui.strong(t("core-significance-tests"));
+            ui.checkbox(&mut d.chi_square, t("core-chi-square-independence"));
+            ui.checkbox(&mut d.compare_proportions, t("core-compare-proportions"));
+            ui.checkbox(&mut d.compare_means, t("core-compare-means"));
             ui.horizontal(|ui| {
-                ui.label("Significance level");
+                ui.label(t("core-significance-level"));
                 ui.add(TextEdit::singleline(&mut d.alpha).desired_width(60.0));
                 ComboBox::new("adjust", "")
                     .selected_text(d.adjust.label())
@@ -6197,7 +6231,7 @@ fn dialog_body(
                     });
             });
             ui.horizontal(|ui| {
-                ui.label("Letters of the column comparisons");
+                ui.label(t("core-comparison-letters"));
                 ComboBox::new("letters", "")
                     .selected_text(d.letters.label())
                     .show_ui(ui, |ui| {
@@ -6209,23 +6243,20 @@ fn dialog_body(
         }
         Dialog::Compute(d, label) => {
             egui::Grid::new("compute").num_columns(2).show(ui, |ui| {
-                ui.label("Target variable");
+                ui.label(t("core-target-variable"));
                 ui.text_edit_singleline(&mut d.target);
                 ui.end_row();
-                ui.label("Label (optional)");
+                ui.label(t("core-label-optional"));
                 ui.text_edit_singleline(label);
                 ui.end_row();
-                ui.label("Expression");
+                ui.label(t("core-expression"));
                 ui.add(TextEdit::singleline(&mut d.expression).desired_width(320.0));
                 ui.end_row();
-                ui.label("Only where (optional)");
+                ui.label(t("core-only-where"));
                 ui.add(TextEdit::singleline(&mut d.condition).desired_width(320.0));
                 ui.end_row();
             });
-            if ui
-                .button("Add picked variables to the expression")
-                .clicked()
-            {
+            if ui.button(t("core-add-to-expression")).clicked() {
                 for name in picked.drain(..) {
                     if !d.expression.is_empty() && !d.expression.ends_with(' ') {
                         d.expression.push(' ');
@@ -6236,16 +6267,16 @@ fn dialog_body(
         }
         Dialog::Count(d, label, draft) => {
             egui::Grid::new("count").num_columns(2).show(ui, |ui| {
-                ui.label("Target variable");
+                ui.label(t("core-target-variable"));
                 ui.text_edit_singleline(&mut d.target);
                 ui.end_row();
-                ui.label("Label (optional)");
+                ui.label(t("core-label-optional"));
                 ui.text_edit_singleline(label);
                 ui.end_row();
             });
-            target_list(ui, "Variables", &mut d.variables, picked);
+            target_list(ui, t("core-variables"), &mut d.variables, picked);
             ui.add_space(6.0);
-            ui.strong("Values to count");
+            ui.strong(t("core-values-to-count"));
             let mut remove = None;
             for (i, value) in d.values.iter().enumerate() {
                 ui.horizontal(|ui| {
@@ -6270,8 +6301,8 @@ fn dialog_body(
             let choices = OldValue::CHOICES.len() - 1;
             ui.horizontal_wrapped(|ui| {
                 ComboBox::new("count value", "")
-                    .selected_text(OldValue::CHOICES[draft.old])
-                    .show_index(ui, &mut draft.old, choices, |i| OldValue::CHOICES[i]);
+                    .selected_text(t(OldValue::CHOICES[draft.old]))
+                    .show_index(ui, &mut draft.old, choices, |i| t(OldValue::CHOICES[i]));
                 if draft.old <= 3 {
                     ui.add(TextEdit::singleline(&mut draft.low).desired_width(70.0));
                 }
@@ -6279,7 +6310,7 @@ fn dialog_body(
                     ui.label(t("data-through"));
                     ui.add(TextEdit::singleline(&mut draft.high).desired_width(70.0));
                 }
-                if ui.button("Add value").clicked() {
+                if ui.button(t("core-add-value")).clicked() {
                     d.values
                         .push(OldValue::from_choice(draft.old, &draft.low, &draft.high));
                     *draft = RuleDraft::default();
@@ -6293,15 +6324,15 @@ fn dialog_body(
         Dialog::TTest(d) => {
             match d.kind {
                 TTestKind::OneSample => {
-                    target_list(ui, "Test variables", &mut d.variables, picked);
-                    field(ui, "Test value", &mut d.test_value, 70.0);
+                    target_list(ui, t("core-test-variables"), &mut d.variables, picked);
+                    field(ui, t("core-test-value"), &mut d.test_value, 70.0);
                     t_test_options(ui, d);
                 }
                 TTestKind::Independent => {
-                    target_list(ui, "Test variables", &mut d.variables, picked);
-                    target_one(ui, "Grouping variable", &mut d.grouping, picked);
+                    target_list(ui, t("core-test-variables"), &mut d.variables, picked);
+                    target_one(ui, t("core-grouping-variable"), &mut d.grouping, picked);
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut d.cut_point, false, "Values");
+                        ui.radio_value(&mut d.cut_point, false, t("settings-values"));
                         ui.add(
                             TextEdit::singleline(&mut d.group1)
                                 .desired_width(60.0)
@@ -6315,16 +6346,19 @@ fn dialog_body(
                                     .hint_text("2"),
                             );
                         }
-                        ui.radio_value(&mut d.cut_point, true, "Cut point");
+                        ui.radio_value(&mut d.cut_point, true, t("core-cut-point"));
                     });
                     t_test_options(ui, d);
                 }
                 TTestKind::Paired => {
-                    ui.strong("Pairs");
+                    ui.strong(t("core-pairs"));
                     let mut remove = None;
                     for (i, (a, b)) in d.pairs.iter().enumerate() {
                         ui.horizontal(|ui| {
-                            ui.label(format!("{a}  with  {b}"));
+                            ui.label(t_args(
+                                "core-pair-with",
+                                &[("a", a.as_str().into()), ("b", b.as_str().into())],
+                            ));
                             if ui
                                 .small_button("\u{d7}")
                                 .on_hover_text(t("data-remove"))
@@ -6338,7 +6372,7 @@ fn dialog_body(
                         d.pairs.remove(i);
                     }
                     if ui
-                        .add_enabled(picked.len() >= 2, egui::Button::new("Add pair"))
+                        .add_enabled(picked.len() >= 2, egui::Button::new(t("core-add-pair")))
                         .clicked()
                     {
                         let first = picked.remove(0);
@@ -6350,18 +6384,18 @@ fn dialog_body(
             d.bootstrap.view(ui, picked);
         }
         Dialog::Oneway(d) => {
-            target_list(ui, "Dependent variables", &mut d.dependents, picked);
-            target_one(ui, "Factor", &mut d.factor, picked);
+            target_list(ui, t("core-dependent-variables"), &mut d.dependents, picked);
+            target_one(ui, t("core-factor"), &mut d.factor, picked);
             ui.add_space(6.0);
-            egui::CollapsingHeader::new("Contrasts").show(ui, |ui| {
+            egui::CollapsingHeader::new(t("core-contrasts")).show(ui, |ui| {
                 choice(
                     ui,
-                    "Polynomial trend",
+                    t("core-polynomial-trend"),
                     &ONEWAY_POLYNOMIALS,
                     &mut d.polynomial,
                 );
             });
-            egui::CollapsingHeader::new("Post hoc comparisons").show(ui, |ui| {
+            egui::CollapsingHeader::new(t("core-post-hoc")).show(ui, |ui| {
                 model_dialogs_view::post_hoc_tests(
                     ui,
                     &mut d.post_hoc,
@@ -6369,76 +6403,64 @@ fn dialog_body(
                     &mut d.dunnett_first,
                     &mut d.dunnett_side,
                 );
-                field(ui, "Significance level", &mut d.alpha, 60.0);
+                field(ui, t("core-significance-level"), &mut d.alpha, 60.0);
             });
-            egui::CollapsingHeader::new("Options").show(ui, |ui| {
+            egui::CollapsingHeader::new(t("core-options")).show(ui, |ui| {
                 checkboxes(ui, &ONEWAY_STATISTICS, &mut d.statistics);
-                field(ui, "Confidence level %", &mut d.confidence, 60.0);
-                ui.checkbox(
-                    &mut d.listwise,
-                    "Leave out a case missing on any listed variable",
-                );
+                field(ui, t("core-confidence-level"), &mut d.confidence, 60.0);
+                ui.checkbox(&mut d.listwise, t("core-listwise"));
             });
             d.bootstrap.view(ui, picked);
         }
         Dialog::Correlations(d) => {
-            target_list(ui, "Variables", &mut d.variables, picked);
+            target_list(ui, t("core-variables"), &mut d.variables, picked);
             ui.add_space(6.0);
-            ui.strong("Coefficients");
+            ui.strong(t("core-coefficients"));
             ui.horizontal(|ui| {
                 ui.checkbox(&mut d.pearson, "Pearson");
-                ui.checkbox(&mut d.kendall, "Kendall's tau-b");
+                ui.checkbox(&mut d.kendall, t("core-kendall-tau-b"));
                 ui.checkbox(&mut d.spearman, "Spearman");
             });
             ui.horizontal(|ui| {
-                ui.radio_value(&mut d.one_tailed, false, "Two-tailed test");
-                ui.radio_value(&mut d.one_tailed, true, "One-tailed test");
+                ui.radio_value(&mut d.one_tailed, false, t("core-two-tailed"));
+                ui.radio_value(&mut d.one_tailed, true, t("core-one-tailed"));
             });
-            ui.checkbox(&mut d.flag, "Mark significant correlations with stars");
+            ui.checkbox(&mut d.flag, t("core-flag-significant"));
             ui.add_enabled_ui(d.pearson, |ui| {
-                ui.checkbox(
-                    &mut d.descriptives,
-                    "Means and standard deviations (Pearson)",
-                );
-                ui.checkbox(
-                    &mut d.cross_products,
-                    "Cross-products and covariances (Pearson)",
-                );
+                ui.checkbox(&mut d.descriptives, t("core-means-sd-pearson"));
+                ui.checkbox(&mut d.cross_products, t("core-cross-products"));
             });
             // Kendall's tau-b has no interval
             ui.add_enabled_ui(d.pearson || d.spearman, |ui| {
-                ui.checkbox(&mut d.ci, "Confidence intervals");
+                ui.checkbox(&mut d.ci, t("core-confidence-intervals"));
                 ui.add_enabled_ui(d.ci, |ui| {
-                    field(ui, "Confidence level %", &mut d.ci_level, 50.0);
+                    field(ui, t("core-confidence-level"), &mut d.ci_level, 50.0);
                     ui.add_enabled_ui(d.pearson, |ui| {
-                        ui.checkbox(&mut d.ci_bias, "Bias adjustment (Pearson)");
+                        ui.checkbox(&mut d.ci_bias, t("core-bias-adjustment"));
                     });
                     ui.add_enabled_ui(d.spearman, |ui| {
                         choice(
                             ui,
-                            "Standard error (Spearman)",
+                            t("core-standard-error-spearman"),
                             &SPEARMAN_CI,
                             &mut d.spearman_ci,
                         );
                     });
                 });
             });
-            ui.checkbox(
-                &mut d.listwise,
-                "Leave out a case missing on any listed variable",
-            );
+            ui.checkbox(&mut d.listwise, t("core-listwise"));
             d.bootstrap.view(ui, picked);
         }
         Dialog::Mrsets(d) => {
             ui.horizontal(|ui| {
-                ui.radio_value(&mut d.delete, false, "Define a set");
-                ui.radio_value(&mut d.delete, true, "Delete sets");
+                ui.radio_value(&mut d.delete, false, t("core-define-set"));
+                ui.radio_value(&mut d.delete, true, t("core-delete-sets"));
             });
             let sets = data.multiple_response_sets();
             if d.delete {
-                ui.strong("Sets to delete");
+                ui.strong(t("core-sets-to-delete"));
                 if sets.is_empty() {
-                    ui.weak("The dataset has no sets.");
+                    ui.weak(t("core-no-sets"));
                 }
                 for set in sets {
                     let mut on = d.sets.contains(&set.name);
@@ -6456,41 +6478,38 @@ fn dialog_body(
                 return;
             }
             ui.horizontal(|ui| {
-                ui.radio_value(&mut d.dichotomy, true, "Dichotomies");
-                ui.radio_value(&mut d.dichotomy, false, "Categories");
+                ui.radio_value(&mut d.dichotomy, true, t("core-dichotomies"));
+                ui.radio_value(&mut d.dichotomy, false, t("core-categories"));
             });
             ui.horizontal(|ui| {
-                ui.label("Name");
+                ui.label(t("data-field-name"));
                 ui.add(TextEdit::singleline(&mut d.name).desired_width(160.0));
             });
-            target_list(ui, "Variables", &mut d.variables, picked);
+            target_list(ui, t("core-variables"), &mut d.variables, picked);
             if d.dichotomy {
-                field(ui, "Counted value", &mut d.value, 70.0);
-                ui.checkbox(
-                    &mut d.counted_value_labels,
-                    "Label categories with the value label of the counted value",
-                );
+                field(ui, t("core-counted-value"), &mut d.value, 70.0);
+                ui.checkbox(&mut d.counted_value_labels, t("core-label-with-counted"));
             }
             let from_variables = d.dichotomy && d.counted_value_labels;
             if from_variables {
-                ui.checkbox(
-                    &mut d.label_from_variables,
-                    "Take the set label from the first variable label",
-                );
+                ui.checkbox(&mut d.label_from_variables, t("core-set-label-from-first"));
             }
             if !(from_variables && d.label_from_variables) {
-                field(ui, "Label", &mut d.label, 260.0);
+                field(ui, t("data-label"), &mut d.label, 260.0);
             }
             if !sets.is_empty() {
                 let names: Vec<&str> = sets.iter().map(|s| s.name.as_str()).collect();
-                ui.weak(format!("Sets now: {}", names.join(", ")));
+                ui.weak(t_args(
+                    "core-sets-now",
+                    &[("names", names.join(", ").into())],
+                ));
             }
         }
         Dialog::SortCases(d) => {
             ui.horizontal(|ui| {
-                ui.strong("Sort by");
+                ui.strong(t("core-sort-by"));
                 if ui
-                    .add_enabled(!picked.is_empty(), egui::Button::new("Add").small())
+                    .add_enabled(!picked.is_empty(), egui::Button::new(t("core-add")).small())
                     .clicked()
                 {
                     for name in picked.drain(..) {
@@ -6501,16 +6520,16 @@ fn dialog_body(
                 }
             });
             if d.keys.is_empty() {
-                ui.weak("empty");
+                ui.weak(t("core-empty"));
             }
             let mut remove = None;
             for (i, (name, descending)) in d.keys.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(name.as_str());
                     let order = if *descending {
-                        "descending"
+                        t("core-descending")
                     } else {
-                        "ascending"
+                        t("core-ascending")
                     };
                     if ui.small_button(order).clicked() {
                         *descending = !*descending;
@@ -6529,43 +6548,45 @@ fn dialog_body(
             }
         }
         Dialog::SplitFile(d) => {
-            ui.radio_value(&mut d.mode, SplitMode::Off, "Analyze all cases together");
-            ui.radio_value(
-                &mut d.mode,
-                SplitMode::Layered,
-                "Compare groups in the same tables",
-            );
-            ui.radio_value(
-                &mut d.mode,
-                SplitMode::Separate,
-                "Tables of their own for each group",
-            );
+            ui.radio_value(&mut d.mode, SplitMode::Off, t("core-split-off"));
+            ui.radio_value(&mut d.mode, SplitMode::Layered, t("core-split-layered"));
+            ui.radio_value(&mut d.mode, SplitMode::Separate, t("core-split-separate"));
             if d.mode != SplitMode::Off {
-                target_list(ui, "Groups based on", &mut d.variables, picked);
-                ui.checkbox(&mut d.sort, "Sort the cases by these variables first");
+                target_list(ui, t("core-groups-based-on"), &mut d.variables, picked);
+                ui.checkbox(&mut d.sort, t("core-sort-first"));
             }
             ui.weak(match data.split_file() {
-                Some(split) => format!("Now split by {}.", split.variables.join(" ")),
-                None => "Now not split.".to_string(),
+                Some(split) => t_args(
+                    "core-now-split-by",
+                    &[("variables", split.variables.join(" ").into())],
+                ),
+                None => t("core-now-not-split").to_string(),
             });
         }
         Dialog::SelectCases(d) => {
-            ui.radio_value(&mut d.mode, SelectMode::All, "All cases");
+            ui.radio_value(&mut d.mode, SelectMode::All, t("core-all-cases"));
             ui.radio_value(
                 &mut d.mode,
                 SelectMode::Filter,
-                format!("Filter: leave the other cases out of analyses ({FILTER_VARIABLE})"),
+                t_args(
+                    "core-filter-others",
+                    &[("variable", FILTER_VARIABLE.into())],
+                ),
             );
-            ui.radio_value(&mut d.mode, SelectMode::Delete, "Delete the other cases");
+            ui.radio_value(
+                &mut d.mode,
+                SelectMode::Delete,
+                t("core-delete-other-cases"),
+            );
             if d.mode != SelectMode::All {
                 ui.add_space(6.0);
-                ui.strong("Keep the cases where");
+                ui.strong(t("core-keep-cases-where"));
                 ui.add(
                     TextEdit::multiline(&mut d.condition)
                         .desired_width(360.0)
                         .desired_rows(3),
                 );
-                if ui.button("Add picked variables to the condition").clicked() {
+                if ui.button(t("core-add-to-condition")).clicked() {
                     for name in picked.drain(..) {
                         if !d.condition.is_empty() && !d.condition.ends_with(' ') {
                             d.condition.push(' ');
@@ -6575,31 +6596,28 @@ fn dialog_body(
                 }
             }
             if d.mode == SelectMode::Delete {
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    "The other cases are deleted from the dataset.",
-                );
+                ui.colored_label(ui.visuals().warn_fg_color, t("core-others-deleted"));
             }
             ui.weak(match data.filter_variable() {
-                Some(name) => format!("Now filtered by {name}."),
-                None => "Now no filter.".to_string(),
+                Some(name) => t_args("core-now-filtered-by", &[("name", name.into())]),
+                None => t("core-now-no-filter").to_string(),
             });
         }
         Dialog::WeightCases(d) => {
-            ui.radio_value(&mut d.on, false, "Do not weight cases");
-            ui.radio_value(&mut d.on, true, "Weight cases by a variable");
+            ui.radio_value(&mut d.on, false, t("core-do-not-weight"));
+            ui.radio_value(&mut d.on, true, t("core-weight-by-variable"));
             if d.on {
-                target_one(ui, "Weight variable", &mut d.variable, picked);
+                target_one(ui, t("core-weight-variable"), &mut d.variable, picked);
             }
             ui.weak(match data.weight_variable() {
-                Some(name) => format!("Now weighted by {name}."),
-                None => "Now not weighted.".to_string(),
+                Some(name) => t_args("core-now-weighted-by", &[("name", name.into())]),
+                None => t("core-now-not-weighted").to_string(),
             });
         }
         Dialog::Aggregate(d, function) => {
-            target_list(ui, "Group by (break variables)", &mut d.breaks, picked);
+            target_list(ui, t("core-group-by-breaks"), &mut d.breaks, picked);
             ui.add_space(6.0);
-            ui.strong("Aggregated variables");
+            ui.strong(t("core-aggregated-variables"));
             let mut remove = None;
             for (i, v) in d.variables.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
@@ -6622,15 +6640,12 @@ fn dialog_body(
             }
             ui.horizontal(|ui| {
                 ComboBox::new("function", "")
-                    .selected_text(AGGREGATE_FUNCTIONS[*function].1)
+                    .selected_text(t(AGGREGATE_FUNCTIONS[*function].1))
                     .show_index(ui, function, AGGREGATE_FUNCTIONS.len(), |i| {
-                        AGGREGATE_FUNCTIONS[i].1
+                        t(AGGREGATE_FUNCTIONS[i].1)
                     });
                 if ui
-                    .add_enabled(
-                        !picked.is_empty(),
-                        egui::Button::new("Add picked variables"),
-                    )
+                    .add_enabled(!picked.is_empty(), egui::Button::new(t("core-add-picked")))
                     .clicked()
                 {
                     for name in picked.drain(..) {
@@ -6639,31 +6654,27 @@ fn dialog_body(
                 }
             });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut d.count, "Number of cases in the group as");
+                ui.checkbox(&mut d.count, t("core-cases-in-group-as"));
                 ui.add_enabled(
                     d.count,
                     TextEdit::singleline(&mut d.count_name).desired_width(100.0),
                 );
             });
             ui.add_space(6.0);
-            ui.strong("Result");
+            ui.strong(t("core-result"));
             ui.radio_value(
                 &mut d.to,
                 AggregateTo::AddVariables,
-                "Add the variables to every case",
+                t("core-aggregate-add"),
             );
-            ui.radio_value(
-                &mut d.to,
-                AggregateTo::Replace,
-                "Replace the dataset with one case per group",
-            );
+            ui.radio_value(&mut d.to, AggregateTo::Replace, t("core-aggregate-replace"));
             ui.horizontal(|ui| {
-                ui.radio_value(&mut d.to, AggregateTo::File, "Write to a data file");
+                ui.radio_value(&mut d.to, AggregateTo::File, t("core-aggregate-file"));
                 if d.to == AggregateTo::File {
                     ui.add(TextEdit::singleline(&mut d.path).desired_width(220.0));
-                    if ui.button("Browse...").clicked()
+                    if ui.button(t("core-browse")).clicked()
                         && let Some(path) = file_dialog(folder)
-                            .add_filter("Data file", &["sav"])
+                            .add_filter(t("filter-data-file"), &["sav"])
                             .save_file()
                     {
                         *folder = path.parent().map(Path::to_path_buf);
@@ -6675,12 +6686,12 @@ fn dialog_body(
         Dialog::ImportData(d) => import_body(ui, d),
         Dialog::ExportData(d) => {
             ui.horizontal(|ui| {
-                ui.strong("File");
-                if ui.button("Browse...").clicked()
+                ui.strong(t("core-file"));
+                if ui.button(t("core-browse")).clicked()
                     && let Some(path) = file_dialog(folder)
-                        .add_filter("Excel workbook", &["xlsx"])
+                        .add_filter(t("filter-excel-workbook"), &["xlsx"])
                         .add_filter("CSV", &["csv"])
-                        .add_filter("Tab-delimited text", &["txt"])
+                        .add_filter(t("core-tab-delimited-text"), &["txt"])
                         .add_filter("Stata", &["dta"])
                         .save_file()
                 {
@@ -6692,36 +6703,33 @@ fn dialog_body(
             ui.add_space(6.0);
             if d.stata() {
                 ui.horizontal(|ui| {
-                    ui.label("For Stata release (8 to 14)");
+                    ui.label(t("core-stata-release"));
                     ui.add(TextEdit::singleline(&mut d.stata_version).desired_width(40.0));
                 });
-                ui.checkbox(
-                    &mut d.stata_se,
-                    "Keep whole strings (SE edition; off cuts them at 80 bytes)",
-                );
+                ui.checkbox(&mut d.stata_se, t("core-stata-se"));
             } else {
-                ui.strong("First row");
+                ui.strong(t("core-first-row"));
                 ui.horizontal(|ui| {
                     for (i, label) in EXPORT_NAMES.iter().enumerate() {
-                        ui.radio_value(&mut d.names, i, *label);
+                        ui.radio_value(&mut d.names, i, t(label));
                     }
                 });
-                ui.checkbox(&mut d.labels, "Value labels instead of values");
+                ui.checkbox(&mut d.labels, t("core-labels-instead"));
             }
-            ui.checkbox(&mut d.recode_missing, "User-missing values as empty");
+            ui.checkbox(&mut d.recode_missing, t("core-user-missing-empty"));
             ui.add_space(6.0);
-            target_list(ui, "Variables (none: all)", &mut d.variables, picked);
+            target_list(ui, t("core-variables-none-all"), &mut d.variables, picked);
         }
         Dialog::MergeFiles(d) => {
             ui.horizontal(|ui| {
                 ui.strong(if d.add_variables {
-                    "File with the variables to add"
+                    t("core-file-variables-to-add")
                 } else {
-                    "File with the cases to add"
+                    t("core-file-cases-to-add")
                 });
-                if ui.button("Browse...").clicked()
+                if ui.button(t("core-browse")).clicked()
                     && let Some(path) = file_dialog(folder)
-                        .add_filter("Data file", &["sav", "zsav"])
+                        .add_filter(t("filter-data-file"), &["sav", "zsav"])
                         .pick_file()
                 {
                     *folder = path.parent().map(Path::to_path_buf);
@@ -6730,18 +6738,15 @@ fn dialog_body(
             });
             ui.add(TextEdit::singleline(&mut d.path).desired_width(360.0));
             if d.add_variables {
-                ui.checkbox(
-                    &mut d.table,
-                    "The file is a lookup table: one case per key, adds no cases",
-                );
-                target_list(ui, "Key variables", &mut d.by, picked);
+                ui.checkbox(&mut d.table, t("core-lookup-table"));
+                target_list(ui, t("core-key-variables"), &mut d.by, picked);
             }
         }
         Dialog::MultResponse(d) => {
             ui.horizontal(|ui| {
-                ui.strong("Groups");
+                ui.strong(t("core-groups"));
                 if ui
-                    .add_enabled(!picked.is_empty(), egui::Button::new("Add").small())
+                    .add_enabled(!picked.is_empty(), egui::Button::new(t("core-add")).small())
                     .clicked()
                 {
                     d.groups.push(MrGroup {
@@ -6751,16 +6756,16 @@ fn dialog_body(
                 }
             });
             if d.groups.is_empty() {
-                ui.weak("empty");
+                ui.weak(t("core-empty"));
             }
             let mut remove = None;
             for (i, g) in d.groups.iter_mut().enumerate() {
                 ui.push_id(("group", i), |ui| {
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            ui.label("Name");
+                            ui.label(t("data-field-name"));
                             ui.add(TextEdit::singleline(&mut g.name).desired_width(110.0));
-                            ui.label("Label");
+                            ui.label(t("data-label"));
                             ui.add(TextEdit::singleline(&mut g.label).desired_width(170.0));
                             if ui
                                 .small_button("\u{d7}")
@@ -6771,21 +6776,21 @@ fn dialog_body(
                             }
                         });
                         ui.horizontal(|ui| {
-                            ui.radio_value(&mut g.dichotomy, true, "Dichotomies, counted value");
+                            ui.radio_value(&mut g.dichotomy, true, t("core-dichotomies-counted"));
                             ui.add_enabled(
                                 g.dichotomy,
                                 TextEdit::singleline(&mut g.value).desired_width(40.0),
                             );
                         });
                         ui.horizontal(|ui| {
-                            ui.radio_value(&mut g.dichotomy, false, "Categories from");
+                            ui.radio_value(&mut g.dichotomy, false, t("core-categories-from"));
                             if !g.dichotomy {
                                 ui.add(TextEdit::singleline(&mut g.value).desired_width(40.0));
                                 ui.label(t("data-through"));
                                 ui.add(TextEdit::singleline(&mut g.max).desired_width(40.0));
                             }
                         });
-                        target_list(ui, "Variables", &mut g.variables, picked);
+                        target_list(ui, t("core-variables"), &mut g.variables, picked);
                     });
                 });
             }
@@ -6801,14 +6806,14 @@ fn dialog_body(
                     .filter(|n| !n.is_empty())
                     .collect();
                 for (title, list) in [
-                    ("Rows", &mut d.rows),
-                    ("Columns", &mut d.columns),
-                    ("Layers", &mut d.layers),
+                    (t("core-rows"), &mut d.rows),
+                    (t("core-columns"), &mut d.columns),
+                    (t("core-layers"), &mut d.layers),
                 ] {
                     target_list(ui, title, list, picked);
                     if !groups.is_empty() {
                         ui.horizontal_wrapped(|ui| {
-                            ui.label("Add group");
+                            ui.label(t("core-add-group"));
                             for name in &groups {
                                 if ui.small_button(name).clicked() && !list.contains(name) {
                                     list.push(name.clone());
@@ -6820,7 +6825,7 @@ fn dialog_body(
                 let variables: Vec<String> = d.table_variables().into_iter().cloned().collect();
                 if !variables.is_empty() {
                     ui.add_space(6.0);
-                    ui.strong("Ranges of the variables");
+                    ui.strong(t("core-variable-ranges"));
                 }
                 for name in variables {
                     if !d.ranges.iter().any(|(n, ..)| *n == name) {
@@ -6839,35 +6844,37 @@ fn dialog_body(
                     }
                 }
                 ui.add_space(6.0);
-                ui.strong("Cells");
+                ui.strong(t("core-cells"));
                 checkboxes(ui, &MULT_RESPONSE_CELLS, &mut d.cells);
                 ui.add_enabled_ui(d.cells.contains(&true), |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Percentages based on");
-                        ui.radio_value(&mut d.base_responses, false, "cases");
-                        ui.radio_value(&mut d.base_responses, true, "responses");
+                        ui.label(t("core-percentages-based-on"));
+                        ui.radio_value(&mut d.base_responses, false, t("core-cases-lower"));
+                        ui.radio_value(&mut d.base_responses, true, t("core-responses"));
                     });
                 });
             }
             ui.add_space(6.0);
-            ui.strong("Missing values");
+            ui.strong(t("data-field-missing"));
             ui.checkbox(
                 &mut d.missing_dichotomies,
-                "Leave out a case missing on any variable of a dichotomy group",
+                t("core-missing-dichotomy-group"),
             );
-            ui.checkbox(
-                &mut d.missing_categories,
-                "Leave out a case missing on any variable of a category group",
-            );
+            ui.checkbox(&mut d.missing_categories, t("core-missing-category-group"));
         }
         Dialog::Tree(d) => {
-            target_one(ui, "Dependent variable", &mut d.dependent, picked);
-            choice(ui, "Level", &TREE_LEVELS[..3], &mut d.dependent_level);
+            target_one(ui, t("core-dependent-variable"), &mut d.dependent, picked);
+            choice(
+                ui,
+                t("core-level"),
+                &TREE_LEVELS[..3],
+                &mut d.dependent_level,
+            );
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.strong("Predictors");
+                ui.strong(t("core-predictors"));
                 if ui
-                    .add_enabled(!picked.is_empty(), egui::Button::new("Add").small())
+                    .add_enabled(!picked.is_empty(), egui::Button::new(t("core-add")).small())
                     .clicked()
                 {
                     for name in picked.drain(..) {
@@ -6878,15 +6885,15 @@ fn dialog_body(
                 }
             });
             if d.predictors.is_empty() {
-                ui.weak("empty");
+                ui.weak(t("core-empty"));
             }
             let mut remove = None;
             egui::Grid::new("predictors").num_columns(3).show(ui, |ui| {
                 for (i, (name, level)) in d.predictors.iter_mut().enumerate() {
                     ui.label(name.as_str());
                     ComboBox::from_id_salt(("predictor level", i))
-                        .selected_text(TREE_LEVELS[*level].1)
-                        .show_index(ui, level, TREE_LEVELS.len(), |i| TREE_LEVELS[i].1);
+                        .selected_text(t(TREE_LEVELS[*level].1))
+                        .show_index(ui, level, TREE_LEVELS.len(), |i| t(TREE_LEVELS[i].1));
                     if ui
                         .small_button("\u{d7}")
                         .on_hover_text(t("data-remove"))
@@ -6902,24 +6909,19 @@ fn dialog_body(
             }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.strong("Method");
+                ui.strong(t("core-method"));
                 ui.radio_value(&mut d.exhaustive, false, "CHAID");
-                ui.radio_value(&mut d.exhaustive, true, "Exhaustive CHAID");
+                ui.radio_value(&mut d.exhaustive, true, t("core-exhaustive-chaid"));
             });
             ui.add_space(6.0);
-            ui.strong("Growth limits");
-            field(
-                ui,
-                "Maximum depth, empty for automatic",
-                &mut d.max_depth,
-                40.0,
-            );
-            field(ui, "Fewest cases in a parent node", &mut d.min_parent, 50.0);
-            field(ui, "Fewest cases in a child node", &mut d.min_child, 50.0);
+            ui.strong(t("core-growth-limits"));
+            field(ui, t("core-max-depth"), &mut d.max_depth, 40.0);
+            field(ui, t("core-min-parent"), &mut d.min_parent, 50.0);
+            field(ui, t("core-min-child"), &mut d.min_child, 50.0);
             ui.add_space(6.0);
-            field(ui, "Target categories", &mut d.targets, 160.0);
+            field(ui, t("core-target-categories"), &mut d.targets, 160.0);
             ui.add_space(6.0);
-            ui.strong("Save");
+            ui.strong(t("button-save"));
             checkboxes(ui, &TREE_SAVE, &mut d.save);
         }
         Dialog::Regression(d) => {
@@ -6970,18 +6972,14 @@ fn dialog_body(
             ui.radio_value(
                 &mut d.kind,
                 RestructureKind::VariablesToCases,
-                "Variables to cases",
+                t("core-variables-to-cases"),
             );
             ui.radio_value(
                 &mut d.kind,
                 RestructureKind::CasesToVariables,
-                "Cases to variables",
+                t("core-cases-to-variables"),
             );
-            ui.radio_value(
-                &mut d.kind,
-                RestructureKind::Transpose,
-                "Transpose cases and variables",
-            );
+            ui.radio_value(&mut d.kind, RestructureKind::Transpose, t("core-transpose"));
             ui.add_space(6.0);
             match d.kind {
                 RestructureKind::VariablesToCases => {
@@ -6989,7 +6987,7 @@ fn dialog_body(
                     for (i, make) in d.makes.iter_mut().enumerate() {
                         ui.push_id(("make", i), |ui| {
                             ui.horizontal(|ui| {
-                                ui.label("New variable");
+                                ui.label(t("core-new-variable"));
                                 ui.add(TextEdit::singleline(&mut make.name).desired_width(120.0));
                                 if i > 0
                                     && ui
@@ -7000,58 +6998,63 @@ fn dialog_body(
                                     remove = Some(i);
                                 }
                             });
-                            target_list(ui, "Made from", &mut make.from, picked);
+                            target_list(ui, t("core-made-from"), &mut make.from, picked);
                         });
                     }
                     if let Some(i) = remove {
                         d.makes.remove(i);
                     }
-                    if ui.button("Another new variable").clicked() {
+                    if ui.button(t("core-another-new-variable")).clicked() {
                         d.makes.push(Default::default());
                     }
                     ui.add_space(6.0);
-                    field(ui, "Index variable", &mut d.index, 120.0);
-                    field(ui, "Case number variable", &mut d.id, 120.0);
-                    target_list(ui, "Copied variables, empty for all", &mut d.keep, picked);
+                    field(ui, t("core-index-variable"), &mut d.index, 120.0);
+                    field(ui, t("core-case-number-variable"), &mut d.id, 120.0);
+                    target_list(ui, t("core-copied-variables"), &mut d.keep, picked);
                 }
                 RestructureKind::CasesToVariables => {
-                    target_list(ui, "Identifier variables", &mut d.ids, picked);
-                    target_list(ui, "Index variables", &mut d.indexes, picked);
-                    ui.checkbox(&mut d.sort, "Sort the cases by these variables first");
+                    target_list(ui, t("core-identifier-variables"), &mut d.ids, picked);
+                    target_list(ui, t("core-index-variables"), &mut d.indexes, picked);
+                    ui.checkbox(&mut d.sort, t("core-sort-first"));
                     ui.horizontal(|ui| {
-                        ui.label("New variables in order of the");
-                        ui.radio_value(&mut d.by_index, false, "variable");
-                        ui.radio_value(&mut d.by_index, true, "index");
+                        ui.label(t("core-new-in-order-of"));
+                        ui.radio_value(&mut d.by_index, false, t("core-variable-lower"));
+                        ui.radio_value(&mut d.by_index, true, t("core-index-lower"));
                     });
                 }
                 RestructureKind::Transpose => {
-                    target_list(ui, "Variables, empty for all", &mut d.variables, picked);
-                    target_one(ui, "Name the new variables by", &mut d.names, picked);
+                    target_list(ui, t("core-variables-empty-all"), &mut d.variables, picked);
+                    target_one(ui, t("core-name-new-by"), &mut d.names, picked);
                 }
             }
         }
         Dialog::SortVariables(d) => {
-            choice(ui, "Sort the variables by", &SORT_VARIABLES_KEYS, &mut d.by);
+            choice(
+                ui,
+                t("core-sort-variables-by"),
+                &SORT_VARIABLES_KEYS,
+                &mut d.by,
+            );
             ui.horizontal(|ui| {
-                ui.radio_value(&mut d.descending, false, "Ascending");
-                ui.radio_value(&mut d.descending, true, "Descending");
+                ui.radio_value(&mut d.descending, false, t("core-ascending-cap"));
+                ui.radio_value(&mut d.descending, true, t("core-descending-cap"));
             });
         }
         Dialog::Rank(d) => {
-            target_list(ui, "Variables", &mut d.variables, picked);
-            target_list(ui, "Rank within groups of", &mut d.by, picked);
+            target_list(ui, t("core-variables"), &mut d.variables, picked);
+            target_list(ui, t("core-rank-within"), &mut d.by, picked);
             ui.horizontal(|ui| {
-                ui.label("Rank 1 goes to the");
-                ui.radio_value(&mut d.descending, false, "smallest value");
-                ui.radio_value(&mut d.descending, true, "largest value");
+                ui.label(t("core-rank-one-to"));
+                ui.radio_value(&mut d.descending, false, t("core-smallest-value"));
+                ui.radio_value(&mut d.descending, true, t("core-largest-value"));
             });
             ui.add_space(6.0);
-            ui.strong("New variables");
+            ui.strong(t("core-new-variables"));
             egui::Grid::new("rank functions")
                 .num_columns(2)
                 .show(ui, |ui| {
                     for (i, (_, label)) in RANK_FUNCTIONS.iter().enumerate() {
-                        ui.checkbox(&mut d.functions[i], *label);
+                        ui.checkbox(&mut d.functions[i], t(label));
                         ui.add_enabled(
                             d.functions[i],
                             TextEdit::singleline(&mut d.into[i]).desired_width(200.0),
@@ -7059,7 +7062,7 @@ fn dialog_body(
                         ui.end_row();
                     }
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut d.ntiles, "Percentile groups:");
+                        ui.checkbox(&mut d.ntiles, t("core-percentile-groups"));
                         ui.add_enabled(
                             d.ntiles,
                             TextEdit::singleline(&mut d.groups).desired_width(32.0),
@@ -7072,31 +7075,36 @@ fn dialog_body(
                     ui.end_row();
                 });
             ui.add_space(6.0);
-            choice(ui, "Ties get the", &RANK_TIES, &mut d.ties);
+            choice(ui, t("core-ties-get"), &RANK_TIES, &mut d.ties);
             let fraction = d.uses_fraction();
             ui.add_enabled_ui(fraction, |ui| {
-                choice(ui, "Proportion formula", &RANK_FRACTIONS, &mut d.fraction);
+                choice(
+                    ui,
+                    t("core-proportion-formula"),
+                    &RANK_FRACTIONS,
+                    &mut d.fraction,
+                );
             });
-            ui.checkbox(&mut d.include_missing, "Rank user-missing values too");
-            ui.checkbox(&mut d.print, "Table of the new variables");
+            ui.checkbox(&mut d.include_missing, t("core-rank-missing"));
+            ui.checkbox(&mut d.print, t("core-table-new-variables"));
         }
         Dialog::Autorecode(d) => {
-            target_list(ui, "Variables", &mut d.variables, picked);
-            field(ui, "New names, one per variable:", &mut d.into, 220.0);
+            target_list(ui, t("core-variables"), &mut d.variables, picked);
+            field(ui, t("core-new-names"), &mut d.into, 220.0);
             ui.add_space(6.0);
-            ui.checkbox(&mut d.descending, "Number from the largest value");
-            ui.checkbox(&mut d.group, "One scheme for all the variables");
-            ui.checkbox(&mut d.blank_missing, "Blank strings become a missing value");
-            ui.checkbox(&mut d.print, "Table of old and new values");
+            ui.checkbox(&mut d.descending, t("core-number-from-largest"));
+            ui.checkbox(&mut d.group, t("core-one-scheme"));
+            ui.checkbox(&mut d.blank_missing, t("core-blank-missing"));
+            ui.checkbox(&mut d.print, t("core-old-new-table"));
         }
         Dialog::Recode(d, draft) => {
-            target_list(ui, "Variables", &mut d.variables, picked);
+            target_list(ui, t("core-variables"), &mut d.variables, picked);
             ui.horizontal(|ui| {
-                ui.label("Into new variables (optional, one name each)");
+                ui.label(t("core-into-new"));
                 ui.text_edit_singleline(&mut d.into);
             });
             ui.add_space(6.0);
-            ui.strong("Rules, the first match wins");
+            ui.strong(t("core-rules"));
             let mut remove = None;
             for (i, rule) in d.rules.iter().enumerate() {
                 ui.horizontal(|ui| {
@@ -7119,9 +7127,9 @@ fn dialog_body(
             }
             ui.horizontal_wrapped(|ui| {
                 ComboBox::new("old", "")
-                    .selected_text(OldValue::CHOICES[draft.old])
+                    .selected_text(t(OldValue::CHOICES[draft.old]))
                     .show_index(ui, &mut draft.old, OldValue::CHOICES.len(), |i| {
-                        OldValue::CHOICES[i]
+                        t(OldValue::CHOICES[i])
                     });
                 if draft.old <= 3 {
                     ui.add(TextEdit::singleline(&mut draft.low).desired_width(70.0));
@@ -7130,16 +7138,16 @@ fn dialog_body(
                     ui.label(t("data-through"));
                     ui.add(TextEdit::singleline(&mut draft.high).desired_width(70.0));
                 }
-                ui.label("becomes");
+                ui.label(t("core-becomes"));
                 ComboBox::new("new", "")
-                    .selected_text(NewValue::CHOICES[draft.new])
+                    .selected_text(t(NewValue::CHOICES[draft.new]))
                     .show_index(ui, &mut draft.new, NewValue::CHOICES.len(), |i| {
-                        NewValue::CHOICES[i]
+                        t(NewValue::CHOICES[i])
                     });
                 if draft.new == 0 {
                     ui.add(TextEdit::singleline(&mut draft.value).desired_width(70.0));
                 }
-                if ui.button("Add rule").clicked() {
+                if ui.button(t("core-add-rule")).clicked() {
                     d.rules.push(RecodeRule {
                         old: OldValue::from_choice(draft.old, &draft.low, &draft.high),
                         new: NewValue::from_choice(draft.new, &draft.value),
@@ -7183,7 +7191,7 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
         .iter()
         .position(|c| c.variable == draft.variable)
     else {
-        if ui.button("Set the categories of this variable").clicked() {
+        if ui.button(t("core-set-categories")).clicked() {
             d.categories
                 .push(Categories::new(&draft.variable, d.totals));
         }
@@ -7194,12 +7202,15 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
     let listed = !c.subtotals.is_empty();
     ui.add_enabled_ui(!listed, |ui| {
         ui.horizontal(|ui| {
-            ui.label("Sort by");
+            ui.label(t("core-sort-by"));
             let key_label = |key: &str| match key {
-                "" => "Value".to_string(),
-                "LABEL" => "Label".to_string(),
-                "COUNT" => "Count".to_string(),
-                other => format!("Mean of {}", &other[5..other.len() - 1]),
+                "" => t("core-value").to_string(),
+                "LABEL" => t("data-label").to_string(),
+                "COUNT" => t("core-count").to_string(),
+                other => t_args(
+                    "core-mean-of",
+                    &[("variable", other[5..other.len() - 1].into())],
+                ),
             };
             ComboBox::new("category_key", "")
                 .selected_text(key_label(&c.key))
@@ -7210,12 +7221,12 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
                         ui.selectable_value(&mut c.key, key, text);
                     }
                 });
-            ui.radio_value(&mut c.descending, false, "ascending");
-            ui.radio_value(&mut c.descending, true, "descending");
+            ui.radio_value(&mut c.descending, false, t("core-ascending"));
+            ui.radio_value(&mut c.descending, true, t("core-descending"));
         });
     });
     ui.horizontal(|ui| {
-        ui.checkbox(&mut c.total, "Total, labeled");
+        ui.checkbox(&mut c.total, t("core-total-labeled"));
         ui.add_enabled(
             c.total,
             TextEdit::singleline(&mut c.total_label)
@@ -7224,14 +7235,14 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
         );
     });
     ui.horizontal(|ui| {
-        ui.label("Totals and subtotals");
-        ui.radio_value(&mut c.before, false, "after");
-        ui.radio_value(&mut c.before, true, "before");
-        ui.label("their categories");
+        ui.label(t("core-totals-subtotals"));
+        ui.radio_value(&mut c.before, false, t("core-after"));
+        ui.radio_value(&mut c.before, true, t("core-before"));
+        ui.label(t("core-their-categories"));
     });
-    ui.checkbox(&mut c.missing, "Show user-missing values as categories");
+    ui.checkbox(&mut c.missing, t("core-missing-as-categories"));
     if !is_set(&c.variable) {
-        ui.strong("Subtotals");
+        ui.strong(t("core-subtotals"));
         let mut remove = None;
         for (s, subtotal) in c.subtotals.iter().enumerate() {
             ui.horizontal(|ui| {
@@ -7275,10 +7286,13 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
             ui.add(
                 TextEdit::singleline(&mut draft.label)
                     .desired_width(140.0)
-                    .hint_text("Subtotal label"),
+                    .hint_text(t("core-subtotal-label")),
             );
             if ui
-                .add_enabled(!draft.chosen.is_empty(), egui::Button::new("Add subtotal"))
+                .add_enabled(
+                    !draft.chosen.is_empty(),
+                    egui::Button::new(t("core-add-subtotal")),
+                )
                 .clicked()
             {
                 // the categories in their value order
@@ -7297,11 +7311,11 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
             }
         });
         ui.add_enabled_ui(listed, |ui| {
-            ui.checkbox(&mut c.hide_sources, "Hide the categories a subtotal sums");
-            ui.checkbox(&mut c.other, "Show the categories outside the subtotals");
+            ui.checkbox(&mut c.hide_sources, t("core-hide-subtotaled"));
+            ui.checkbox(&mut c.other, t("core-show-outside"));
         });
     }
-    if ui.button("Back to the defaults").clicked() {
+    if ui.button(t("core-back-to-defaults")).clicked() {
         d.categories.remove(i);
     }
 }
@@ -7355,18 +7369,15 @@ fn categories(data: &Dataset, name: &str) -> Vec<(String, String)> {
 /// The options the three t tests share.
 fn t_test_options(ui: &mut Ui, d: &mut TTest) {
     ui.add_space(6.0);
-    egui::CollapsingHeader::new("Options").show(ui, |ui| {
-        field(ui, "Confidence interval %", &mut d.confidence, 60.0);
-        ui.checkbox(
-            &mut d.listwise,
-            "Leave out a case missing on any variable of the test",
-        );
-        ui.checkbox(&mut d.effect_sizes, "Effect sizes");
+    egui::CollapsingHeader::new(t("core-options")).show(ui, |ui| {
+        field(ui, t("core-confidence-interval"), &mut d.confidence, 60.0);
+        ui.checkbox(&mut d.listwise, t("core-missing-test"));
+        ui.checkbox(&mut d.effect_sizes, t("core-effect-sizes"));
         if d.kind == TTestKind::Paired && d.effect_sizes {
-            ComboBox::new("standardizer", "Scale of Cohen's d")
-                .selected_text(STANDARDIZERS[d.standardizer].1)
+            ComboBox::new("standardizer", t("core-cohens-d-scale"))
+                .selected_text(t(STANDARDIZERS[d.standardizer].1))
                 .show_index(ui, &mut d.standardizer, STANDARDIZERS.len(), |i| {
-                    STANDARDIZERS[i].1
+                    t(STANDARDIZERS[i].1)
                 });
         }
     });

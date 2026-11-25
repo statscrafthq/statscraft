@@ -379,7 +379,7 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
     }
     if let Target::Cell { case, column } = *target {
         if case >= data.case_count() || column >= data.variable_count() {
-            return Err("the case is gone".into());
+            return Err(t("core-case-gone").into());
         }
         let variable = data.variable_at(column);
         match item {
@@ -402,7 +402,7 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
         return Ok(Action::EditField(*variable, *field));
     }
     let columns = columns(data, target);
-    let first = *columns.first().ok_or("the variable is gone")?;
+    let first = *columns.first().ok_or(t("core-variable-gone"))?;
     let all = varlist(data, &columns);
     let names: Vec<String> = columns.iter().map(|&c| name(data, c)).collect();
     let numeric = numeric(data, &columns);
