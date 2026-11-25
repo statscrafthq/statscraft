@@ -494,3 +494,76 @@ fn layers_agree_with_r_on_the_homogeneity_and_the_common_odds_ratio() {
         "upper",
     );
 }
+
+/// Cases of a 2 x 2 table with fractional weights, two cases in three of the cells, so that
+/// rounding each case (CASE) and rounding the sum of a cell (CELL) differ.
+const FRACTIONAL: &str = "DATA LIST FREE /x y w.
+BEGIN DATA
+1 1 2.4  1 1 2.4  1 2 3.6  1 2 3.6  2 1 5.5  2 2 4.4  2 2 4.4
+END DATA.
+WEIGHT BY w.
+";
+
+#[test]
+fn count_keywords_agree_with_r_on_fractional_weights() {
+    // R: chisq.test(correct = FALSE) on the table the keyword makes of the weights
+    for (count, pearson, likelihood, n) in [
+        ("ASIS", 0.00648170276326, 0.00647938625557, 26.3),
+        ("CASE ROUND", 0.247619047619, 0.248712034874, 26.0),
+        ("CELL ROUND", 0.00767045454545, 0.00766725692231, 27.0),
+        ("CASE TRUNCATE", 0.00561660561661, 0.00561346849499, 23.0),
+        ("CELL TRUNCATE", 0.0111888111888, 0.0111969029709, 24.0),
+    ] {
+        let t = run(
+            FRACTIONAL,
+            &format!("CROSSTABS /TABLES=x BY y /COUNT {count} /STATISTICS=CHISQ."),
+        );
+        let chi = "Chi-Square Tests";
+        near(
+            get(&t, chi, &["Pearson Chi-Square"], "Value"),
+            pearson,
+            count,
+        );
+        near(
+            get(&t, chi, &["Likelihood Ratio"], "Value"),
+            likelihood,
+            count,
+        );
+        near(get(&t, chi, &["N of Valid Cases"], "Value"), n, count);
+    }
+}
+
+/// 12 0 / 5 9: an empty cell, with the chi-square statistics and the exact test.
+#[test]
+fn table_with_an_empty_cell_agrees_with_r() {
+    let t = run(
+        "DATA LIST FREE /x y w.
+BEGIN DATA
+1 1 12  1 2 0  2 1 5  2 2 9
+END DATA.
+WEIGHT BY w.
+",
+        "CROSSTABS /TABLES=x BY y /STATISTICS=CHISQ.",
+    );
+    let chi = "Chi-Square Tests";
+    near(
+        get(&t, chi, &["Pearson Chi-Square"], "Value"),
+        11.7983193277,
+        "chi",
+    );
+    near(
+        get(&t, chi, &["Continuity Correction"], "Value"),
+        9.12892934952,
+        "continuity",
+    );
+    near(
+        get(&t, chi, &["Fisher's Exact Test"], "Exact Sig. (2-sided)"),
+        0.000711142404506,
+        "fisher",
+    );
+    near(
+        get(&t, chi, &["Fisher's Exact Test"], "Exact Sig. (1-sided)"),
+        0.000640732265446,
+        "fisher one-sided",
+    );
+}
