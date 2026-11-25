@@ -157,30 +157,30 @@ fn template(path: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-// The manual's examples: the template of var1 holds a and b only (c is user-missing); a template
-// of a, b and d applied to a, b and c gives 1, 2 and 4, with the value labels a, b, d and c.
+// A saved template holds the valid values of its variable only (a user-missing value is left
+// out); a template applied to other data keeps its codes and gives a value it lacks the next code.
 #[test]
 fn a_template_is_saved_and_applied_with_new_values_after_its_own() {
     let dir = folder("scheme");
-    let file = dir.join("var1_template.sat");
+    let file = dir.join("grade_template.sat");
     run_plain(&format!(
-        "DATA LIST FREE /var1 (a1) var2 (a1).\nBEGIN DATA\na d\nb e\nc f\nEND DATA.\n\
-         MISSING VALUES var1 ('c') var2 ('f').\n\
-         AUTORECODE VARIABLES=var1 var2 /INTO newvar1 newvar2 /SAVE TEMPLATE='{}'.",
+        "DATA LIST FREE /grade (a1) tier (a1).\nBEGIN DATA\nk t\nm u\nz v\nEND DATA.\n\
+         MISSING VALUES grade ('z') tier ('v').\n\
+         AUTORECODE VARIABLES=grade tier /INTO grade_n tier_n /SAVE TEMPLATE='{}'.",
         file.display()
     ));
-    assert_eq!(template(&file), ["a=1", "b=2"]);
+    assert_eq!(template(&file), ["k=1", "m=2"]);
 
     let session = run_plain(&format!(
-        "DATA LIST FREE /var1 (a1).\nBEGIN DATA\na b d\nEND DATA.\n\
-         AUTORECODE VARIABLES=var1 /INTO newvar1 /SAVE TEMPLATE='{}'.\n\
-         DATA LIST FREE /var2 (a1).\nBEGIN DATA\na b c\nEND DATA.\n\
-         AUTORECODE VARIABLES=var2 /INTO newvar2 /APPLY TEMPLATE='{}'.",
+        "DATA LIST FREE /size (a1).\nBEGIN DATA\nk m q\nEND DATA.\n\
+         AUTORECODE VARIABLES=size /INTO size_n /SAVE TEMPLATE='{}'.\n\
+         DATA LIST FREE /width (a1).\nBEGIN DATA\nk m z\nEND DATA.\n\
+         AUTORECODE VARIABLES=width /INTO width_n /APPLY TEMPLATE='{}'.",
         file.display(),
         file.display()
     ));
-    assert_eq!(codes(&session, "newvar2"), "1 2 4");
-    assert_eq!(labels(&session, "newvar2"), ["1=a", "2=b", "3=d", "4=c"]);
+    assert_eq!(codes(&session, "width_n"), "1 2 4");
+    assert_eq!(labels(&session, "width_n"), ["1=k", "2=m", "3=q", "4=z"]);
     std::fs::remove_dir_all(dir).ok();
 }
 
