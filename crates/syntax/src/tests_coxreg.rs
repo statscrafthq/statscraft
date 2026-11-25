@@ -106,13 +106,31 @@ fn subcommands_and_abbreviations() {
 }
 
 #[test]
+fn outfile_names_a_file_or_dataset_for_each_keyword() {
+    let c =
+        coxreg("COXREG months WITH spend /STATUS=ended(1) /OUTFILE=COEFF('c.sav') TABLE(surv).");
+    let out = c.outfile.unwrap();
+    assert_eq!(out.coeff.as_deref(), Some("c.sav"));
+    assert_eq!(out.table.as_deref(), Some("surv"));
+    let c = coxreg("COXREG months WITH spend /STATUS=ended(1) /OUTFILE TABLE='t.sav'.");
+    let out = c.outfile.unwrap();
+    assert_eq!((out.coeff, out.table.as_deref()), (None, Some("t.sav")));
+}
+
+#[test]
 fn errors() {
     assert!(err("COXREG months WITH spend.").contains("STATUS"));
     assert!(err("COXREG months age WITH spend /STATUS=ended(1).").contains("one survival time"));
+    // a model file is not written; each keyword once; a keyword is needed
     assert!(
-        err("COXREG months WITH spend /STATUS=ended(1) /OUTFILE=COEFF('c.sav').")
-            .contains("not supported yet")
+        err("COXREG months WITH spend /STATUS=ended(1) /OUTFILE=PARAMETER('m.xml').")
+            .contains("PARAMETER")
     );
+    assert!(
+        err("COXREG months WITH spend /STATUS=ended(1) /OUTFILE=COEFF('a.sav') COEFF('b.sav').")
+            .contains("only once")
+    );
+    err("COXREG months WITH spend /STATUS=ended(1) /OUTFILE.");
     assert!(err("COXREG months WITH spend /STATUS=ended(1) /SAVE=SE SE.").contains("only once"));
     assert!(err("COXREG months WITH spend /STATUS=ended(1) /SAVE=SE(#s).").contains("scratch"));
     assert!(

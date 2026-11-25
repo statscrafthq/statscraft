@@ -84,6 +84,14 @@ pub enum CoxregTemp {
     Xbeta,
 }
 
+/// `/OUTFILE`: where the coefficients of the final model and the survival table go, each a file
+/// or a dataset made with DATASET DECLARE.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CoxregOutfile {
+    pub coeff: Option<String>,
+    pub table: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Coxreg {
     pub time: String,
@@ -102,6 +110,7 @@ pub struct Coxreg {
     pub plot: CoxregPlot,
     pub patterns: Vec<CoxregPattern>,
     pub save: Vec<(CoxregTemp, Option<String>)>,
+    pub outfile: Option<CoxregOutfile>,
     /// STATUS was given more than once; the last counts.
     pub repeated_status: bool,
 }
@@ -223,6 +232,46 @@ fn plot(p: &mut Parser) -> PResult<CoxregPlot> {
             return Err(p.unexpected(&["NONE", "SURVIVAL", "HAZARD", "LML", "OMS"]));
         }
         p.eat(Punct::Comma);
+    }
+    Ok(out)
+}
+
+fn outfile(p: &mut Parser) -> PResult<CoxregOutfile> {
+    p.eat(Punct::Eq);
+    let mut out = CoxregOutfile::default();
+    while !at_end(p) {
+        let at = p.pos;
+        let slot = if p.eat_keyword("COEFF") {
+            &mut out.coeff
+        } else if p.eat_keyword("TABLE") {
+            &mut out.table
+        } else if p.eat_keyword("PARAMETER") {
+            return Err(SyntaxError::new(
+                p.span_from(at),
+                "PARAMETER would write a model file, which COXREG does not write; COEFF writes the coefficients to a data file",
+            ));
+        } else {
+            return Err(p.unexpected(&["COEFF", "TABLE"]));
+        };
+        // COEFF('file') as the manual writes it, or COEFF=file
+        let target = if p.eat(Punct::LParen) {
+            let target = crate::files::dataset_or_file(p)?;
+            p.expect(Punct::RParen)?;
+            target
+        } else {
+            p.eat(Punct::Eq);
+            crate::files::dataset_or_file(p)?
+        };
+        if slot.is_some() {
+            return Err(SyntaxError::new(
+                p.span_from(at),
+                "each keyword of OUTFILE is given only once",
+            ));
+        }
+        *slot = Some(target);
+    }
+    if out == CoxregOutfile::default() {
+        return Err(p.unexpected(&["COEFF", "TABLE"]));
     }
     Ok(out)
 }
@@ -353,6 +402,7 @@ pub(crate) fn coxreg(p: &mut Parser) -> PResult<Command> {
         criteria: CoxregCriteria::default(),
         plot: CoxregPlot::default(),
         patterns: Vec::new(),
+        outfile: None,
         save: Vec::new(),
         repeated_status: false,
     };
@@ -410,6 +460,8 @@ pub(crate) fn coxreg(p: &mut Parser) -> PResult<Command> {
             command.patterns.push(pattern(p)?);
         } else if p.eat_keyword("SAVE") {
             command.save = save(p)?;
+        } else if p.eat_keyword("OUTFILE") {
+            command.outfile = Some(outfile(p)?);
         } else if p.eat_keyword("EXTERNAL") {
             // only a memory hint: every case is held in memory anyway
         } else {

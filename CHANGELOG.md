@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [COXREG](docs/commands/coxreg.md) writes the coefficients of the final model and the survival table of every stratum (at the baseline, at the means and for each PATTERN line) with `/OUTFILE COEFF` and `TABLE`.
+
 ## 0.43.0 (2026-11-25)
 
 UNIANOVA and GLM save their robust covariance matrix, and a plugin setting can hold for every data file.

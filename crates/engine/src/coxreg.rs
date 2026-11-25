@@ -1460,6 +1460,7 @@ impl Engine {
         }
         let final_fit = &last.fit;
         let bases = baselines(&rows, strata, final_fit);
+        let strata_name: Option<String> = strata_var.map(|v| v.name().to_string());
         let stratum_name = |s: usize| -> String {
             match &strata_var {
                 Some(v) => format!("{} = {}", shown.variable(v), shown.value(v, &levels[s])),
@@ -1543,8 +1544,130 @@ impl Engine {
                 self.charts.extend(charts);
             }
         }
+        // the files of OUTFILE, built here while the rows are at hand and written below
+        let mut files: Vec<(&str, Dataset)> = Vec::new();
+        if let Some(out) = &command.outfile {
+            if let Some(target) = &out.coeff {
+                let mut part = Dataset::new(final_fit.cols.len());
+                let at = |f: &dyn Fn(usize) -> f64| -> Vec<Option<f64>> {
+                    (0..final_fit.cols.len()).map(|p| Some(f(p))).collect()
+                };
+                let wald = |p: usize| (final_fit.b[p] / final_fit.cov[p][p].sqrt()).powi(2);
+                let labels: Vec<String> =
+                    final_fit.cols.iter().map(|&c| names[c].clone()).collect();
+                let width = labels.iter().map(String::len).max().unwrap_or(1).max(8);
+                part.set_string_values("VARNAME_", width, labels)?;
+                for (name, label, values) in [
+                    ("B", "Coefficient", at(&|p| final_fit.b[p])),
+                    ("SE", "Standard error", at(&|p| final_fit.cov[p][p].sqrt())),
+                    ("WALD", "Wald statistic", at(&wald)),
+                    ("DF", "Degrees of freedom", at(&|_| 1.0)),
+                    (
+                        "SIG",
+                        "Significance of the Wald statistic",
+                        at(&|p| chi_square_p(wald(p), 1.0)),
+                    ),
+                    ("EXPB", "Exp(B)", at(&|p| final_fit.b[p].exp())),
+                ] {
+                    part.set_numeric_values(name, values)?;
+                    part.set_variable_label(name, Some(label))?;
+                }
+                files.push((target, part));
+            }
+            if let Some(target) = &out.table {
+                if time_dependent {
+                    warnings
+                        .push("OUTFILE TABLE is not written with time-dependent covariates".into());
+                } else {
+                    // a row for every event time of every stratum; the statistics at the
+                    // baseline (every covariate 0), at the covariate means, and for each line
+                    // of PATTERN
+                    let at_zero: Vec<f64> = final_fit.cols.iter().map(|&c| -means[c]).collect();
+                    let at_means = vec![0.0; final_fit.cols.len()];
+                    let mut sets: Vec<(String, String, Vec<f64>)> = vec![
+                        (
+                            "0".into(),
+                            "at the baseline, every covariate 0".into(),
+                            at_zero,
+                        ),
+                        ("M".into(), "at the mean of the covariates".into(), at_means),
+                    ];
+                    let mut line = 0;
+                    for pattern in &patterns {
+                        for (title, values) in &pattern.lines {
+                            line += 1;
+                            let z = final_fit
+                                .cols
+                                .iter()
+                                .map(|&c| values[c] - means[c])
+                                .collect();
+                            sets.push((line.to_string(), format!("pattern line {title}"), z));
+                        }
+                    }
+                    let mut stratum: Vec<usize> = Vec::new();
+                    let mut time: Vec<Option<f64>> = Vec::new();
+                    let mut columns: Vec<Vec<Option<f64>>> = vec![Vec::new(); sets.len() * 3];
+                    for (s, base) in bases.iter().enumerate() {
+                        for &t in &base.times {
+                            stratum.push(s);
+                            time.push(Some(t));
+                            for (k, (_, _, z)) in sets.iter().enumerate() {
+                                let (surv, se, h) = at_time(base, final_fit, t, z);
+                                columns[3 * k].push(Some(surv));
+                                columns[3 * k + 1].push(Some(se));
+                                columns[3 * k + 2].push(Some(h));
+                            }
+                        }
+                    }
+                    let mut part = Dataset::new(time.len());
+                    if let Some(name) = &strata_name {
+                        match levels.first() {
+                            Some(Key::Text(_)) => {
+                                let texts: Vec<String> = stratum
+                                    .iter()
+                                    .map(|&s| match &levels[s] {
+                                        Key::Text(t) => t.trim_end().to_string(),
+                                        Key::Number(_) => String::new(),
+                                    })
+                                    .collect();
+                                let width = texts.iter().map(String::len).max().unwrap_or(1).max(1);
+                                part.set_string_values(name, width, texts)?;
+                            }
+                            _ => {
+                                let numbers = stratum
+                                    .iter()
+                                    .map(|&s| match &levels[s] {
+                                        Key::Number(n) => Some(*n),
+                                        Key::Text(_) => None,
+                                    })
+                                    .collect();
+                                part.set_numeric_values(name, numbers)?;
+                            }
+                        }
+                    }
+                    part.set_numeric_values("TIME_", time)?;
+                    part.set_variable_label("TIME_", Some("Survival time of the event"))?;
+                    let mut columns = columns.into_iter();
+                    for (tag, label, _) in &sets {
+                        for (stem, what) in [
+                            ("SURVIVAL_", "Cumulative survival"),
+                            ("SE_", "Standard error of the survival"),
+                            ("HAZARD_", "Cumulative hazard"),
+                        ] {
+                            let name = format!("{stem}{tag}");
+                            part.set_numeric_values(&name, columns.next().expect("a column"))?;
+                            part.set_variable_label(&name, Some(&format!("{what} {label}")))?;
+                        }
+                    }
+                    files.push((target, part));
+                }
+            }
+        }
         for warning in warnings {
             self.warn(warning);
+        }
+        for (target, part) in files {
+            self.write_data_file(target, part)?;
         }
         if !command.save.is_empty() {
             let stats = CaseStats::new(&rows, strata, final_fit, &bases, used.len(), names.len());

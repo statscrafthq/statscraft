@@ -1056,3 +1056,136 @@ COXREG weeks WITH load /STATUS=failed(1) /PRINT=BASELINE.",
     assert_eq!(num(&last[2]), 0.0);
     assert!(num(&last[4]).is_finite() && num(&last[4]) > 0.0);
 }
+
+// OUTFILE COEFF writes the coefficients of the final model, one record per column, and TABLE the
+// survival table of every stratum, at the baseline (covariates 0), at the covariate means and for
+// each line of PATTERN. The numbers are those of the printed tables and of R's survfit, spelled
+// out in the tests above.
+#[test]
+fn outfile_writes_the_coefficients_and_the_survival_table() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}DATASET DECLARE coef.\nDATASET DECLARE surv.\n\
+             COXREG months WITH plan spend /STATUS=ended(1) /CATEGORICAL=plan
+              /PRINT=BASELINE /PATTERN=spend(50) BY plan {TIGHT}\n\
+             COXREG months WITH plan spend /STATUS=ended(1) /CATEGORICAL=plan
+              /PATTERN=spend(50) BY plan
+              /OUTFILE=COEFF(coef) TABLE(surv) {TIGHT}"
+        ),
+    );
+    drop(t);
+    let tables = run(
+        &mut engine,
+        "COXREG months WITH plan spend /STATUS=ended(1) /CATEGORICAL=plan /PRINT=BASELINE
+          /CRITERIA=BCON(1E-12) LCON(0) ITERATE(50).",
+    );
+    // the coefficients: R's coxph with the deviation coding and Breslow ties
+    run(&mut engine, "DATASET ACTIVATE coef.");
+    let data = engine.dataset().unwrap();
+    assert_eq!(data.case_count(), 3);
+    let b = values(&engine, "B");
+    let se = values(&engine, "SE");
+    for (k, (want_b, want_se)) in [
+        (0.8063256135549, 0.2267676308406),
+        (-0.1915367556043, 0.2570577029169),
+        (0.0119580999740, 0.0158365271543),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        near(b[k].unwrap(), want_b, 1e-6);
+        near(se[k].unwrap(), want_se, 1e-6);
+    }
+    // the same numbers as the Variables in the Equation table
+    let eq = "Variables in the Equation";
+    for (k, row) in ["Step 1 / plan(1)", "Step 1 / plan(2)", "Step 1 / spend"]
+        .into_iter()
+        .enumerate()
+    {
+        near(
+            values(&engine, "WALD")[k].unwrap(),
+            value(&tables, eq, row, "Wald"),
+            1e-9,
+        );
+        near(
+            values(&engine, "SIG")[k].unwrap(),
+            value(&tables, eq, row, "Sig."),
+            1e-9,
+        );
+        near(
+            values(&engine, "EXPB")[k].unwrap(),
+            value(&tables, eq, row, "Exp(B)"),
+            1e-9,
+        );
+        assert_eq!(values(&engine, "DF")[k], Some(1.0));
+    }
+    // the survival table: one record per event time (R: 16 distinct event times of 39 events)
+    run(&mut engine, "DATASET ACTIVATE surv.");
+    let time = values(&engine, "TIME_");
+    assert_eq!(time.len(), 16);
+    let row = |t: f64| time.iter().position(|x| *x == Some(t)).unwrap();
+    let col = |name: &str, t: f64| values(&engine, name)[row(t)].unwrap();
+    // R's survfit at the means: survival, its standard error and the cumulative hazard
+    for (at, surv, se, cum, base) in [
+        (
+            1.0,
+            0.9874005787447,
+            0.01255390643498,
+            0.01267946702765,
+            0.007634196160295,
+        ),
+        (
+            4.0,
+            0.8300671419473,
+            0.04336873648636,
+            0.18624868755082,
+            0.112138705219979,
+        ),
+    ] {
+        near(col("SURVIVAL_M", at), surv, 1e-6);
+        near(col("SE_M", at), se, 1e-6);
+        near(col("HAZARD_M", at), cum, 1e-6);
+        near(col("HAZARD_0", at), base, 1e-6);
+        near(col("SURVIVAL_0", at), (-base).exp(), 1e-6);
+    }
+    // R's survfit at plan 1 and plan 3 with spend 50 (lines 1 and 3 of PATTERN ... BY plan)
+    near(col("SURVIVAL_1", 4.0), 0.6333875517073, 1e-6);
+    near(col("SURVIVAL_3", 4.0), 0.8956001158324, 1e-6);
+    assert!(values(&engine, "SURVIVAL_2")[row(4.0)].is_some());
+    assert!(engine.dataset().unwrap().variable("SURVIVAL_4").is_err());
+}
+
+#[test]
+fn outfile_table_has_a_record_per_stratum_and_event_time() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}DATASET DECLARE surv.\n\
+             COXREG months WITH plan spend /STATUS=ended(1) /STRATA=site
+              /CATEGORICAL=plan /CONTRAST(plan)=INDICATOR(1) /PRINT=BASELINE
+              /OUTFILE=TABLE(surv) {TIGHT}"
+        ),
+    );
+    let printed: Vec<&Table> = t.iter().filter(|t| t.title == "Survival Table").collect();
+    assert_eq!(printed.len(), 2);
+    run(&mut engine, "DATASET ACTIVATE surv.");
+    let site = values(&engine, "site");
+    let time = values(&engine, "TIME_");
+    let hazard = values(&engine, "HAZARD_M");
+    assert_eq!(site.len(), printed[0].rows.len() + printed[1].rows.len());
+    // the records of each stratum, in time order, are the rows of its printed table
+    let mut at = 0;
+    for (s, table) in printed.iter().enumerate() {
+        for row in &table.rows {
+            assert_eq!(site[at], Some(s as f64 + 1.0));
+            near(time[at].unwrap(), num(&row[0]), 1e-12);
+            near(hazard[at].unwrap(), num(&row[4]), 1e-9);
+            at += 1;
+        }
+    }
+    // no PATTERN: the baseline and the means only
+    assert!(engine.dataset().unwrap().variable("SURVIVAL_1").is_err());
+}

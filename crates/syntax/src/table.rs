@@ -3155,7 +3155,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/MISSING=EXCLUDE | INCLUDE] [/PRINT=[DEFAULT] [SUMMARY] [BASELINE] [CORR] [CI[(95)]] [ALL]]\n\
                  \x20  [/CRITERIA=[BCON(1E-4)] [LCON(1E-5)] [ITERATE(20)] [PIN(0.05)] [POUT(0.1)]]\n\
                  \x20  [/PLOT=[NONE] [SURVIVAL] [HAZARD] [LML] [OMS]] [/PATTERN=var(value) ... [BY var]] ...\n\
-                 \x20  [/SAVE=tempvar[(name)] ...] [/EXTERNAL].\n\
+                 \x20  [/SAVE=tempvar[(name)] ...] [/OUTFILE=[COEFF('file' | dataset)] [TABLE('file' | dataset)]] [/EXTERNAL].\n\
                  tempvar: SURVIVAL SE HAZARD (or RESID) LML XBETA DFBETA PRESID. A case is used when time, status,\n\
                  strata and covariates are valid and its weight is positive; a negative time drops it, and so does\n\
                  a censored time earlier than every event of its stratum. Status values on the EVENT list mark an\n\
