@@ -6,13 +6,15 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.41.0 (2026-11-25)
+
+More procedures write their parameter matrices to a file or dataset, and two more commands repeat with /APPLY.
+
 - [REGRESSION](docs/commands/regression.md) writes the covariance (`/OUTFILE COVB`) or correlation (`CORB`) matrix of the coefficients of its last equation, with the estimates, standard errors, significances and degrees of freedom, to a file or dataset.
-
 - [UNIANOVA](docs/commands/unianova.md) and GLM with one dependent variable write the parameter covariance matrix (`/OUTFILE COVB`), their correlation matrix (`CORB`) and the design matrix (`DESIGN`) to files or datasets.
-
-- [GENLIN](docs/commands/genlin.md) writes the covariance or correlation matrix of its parameters with the estimates, standard errors, significances and degrees of freedom to a file or a dataset (`/OUTFILE COVB=` or `CORB=`), and `/CRITERIA INITIAL=` reads start values from such a file or dataset, group by group under SPLIT FILE, as well as from numbers.
+- [GENLIN](docs/commands/genlin.md) writes the covariance or correlation matrix of its parameters, with the estimates, standard errors, significances and degrees of freedom, to a file or dataset (`/OUTFILE COVB=` or `CORB=`), and `/CRITERIA INITIAL=` reads start values from such a file or dataset, group by group under SPLIT FILE.
 - [STRING](docs/commands/string.md) also writes the custom currency formats CCA to CCE, as SET defines them.
-- CURVEFIT and WLS take /APPLY: the previous command's specifications run again on the same or new variables, with the changes the new command gives.
+- CURVEFIT and WLS take `/APPLY`: the previous command's specifications run again on the same or new variables, with the changes the new command gives.
 
 ## 0.40.0 (2026-11-25)
 
