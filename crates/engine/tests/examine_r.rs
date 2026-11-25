@@ -158,3 +158,128 @@ fn examine_agrees_with_r() {
 fn frequency_weights_give_the_results_of_the_repeated_values() {
     check(COUNTS);
 }
+
+/// Small samples, where the percentile definitions meet the ends of the data and the
+/// M-estimators run on a handful of values, with constants other than the defaults.
+/// Expected values from R: quantile() types 6, 4, 1, 2, fivenum(), and the manual's iteration
+/// written out (median start, median absolute deviation, relative step of 0.005, 30 steps).
+/// values, the three hinges, the four percentile rows, the five M-estimates, the
+/// trimmed mean.
+type Small = (&'static str, [f64; 3], [[f64; 7]; 4], [f64; 5], f64);
+
+const SMALL: [Small; 3] = [
+    (
+        "3.2 7.1 7.1 10.4 15.0 22.8",
+        [7.1, 8.75, 15.0],
+        [
+            [3.2, 3.2, 6.125, 8.75, 16.95, 22.8, 22.8],
+            [3.2, 3.2, 5.15, 7.1, 12.7, 18.12, 20.46],
+            [3.2, 3.2, 7.1, 7.1, 15.0, 22.8, 22.8],
+            [3.2, 3.2, 7.1, 8.75, 15.0, 22.8, 22.8],
+        ],
+        [
+            9.39216504288,
+            10.1422714665,
+            7.85289331795,
+            9.56977296296,
+            9.24120681544,
+        ],
+        10.7037037037,
+    ),
+    (
+        "2.5 4.0 9.5 31.0",
+        [3.25, 6.75, 20.25],
+        [
+            [2.5, 2.5, 2.875, 6.75, 25.625, 31.0, 31.0],
+            [2.5, 2.5, 2.5, 4.0, 9.5, 22.4, 26.7],
+            [2.5, 2.5, 2.5, 4.0, 9.5, 31.0, 31.0],
+            [2.5, 2.5, 3.25, 6.75, 20.25, 31.0, 31.0],
+        ],
+        [
+            6.75,
+            7.89890448413,
+            4.88521417796,
+            5.33333333333,
+            5.22696925321,
+        ],
+        11.1944444444,
+    ),
+    (
+        "1 2 3 4 5 6 7 8 9 40",
+        [3.0, 5.5, 8.0],
+        [
+            [1.0, 1.1, 2.75, 5.5, 8.25, 36.9, 40.0],
+            [1.0, 1.0, 2.5, 5.0, 7.5, 9.0, 24.5],
+            [1.0, 1.0, 3.0, 5.0, 8.0, 9.0, 40.0],
+            [1.0, 1.5, 3.0, 5.5, 8.0, 24.5, 40.0],
+        ],
+        [
+            5.5,
+            5.61107734654,
+            5.01218189108,
+            5.00336959225,
+            5.00194168488,
+        ],
+        7.16666666667,
+    ),
+];
+
+#[test]
+fn small_samples_agree_with_r() {
+    for (values, hinges, methods, mest, trimmed) in SMALL {
+        let data = format!("DATA LIST FREE /x.\nBEGIN DATA\n{values}\nEND DATA.\n");
+        let p = "Percentiles";
+        for (method, label, want) in [
+            ("HAVERAGE", "Weighted Average at (W+1)p", methods[0]),
+            ("WAVERAGE", "Weighted Average at Wp", methods[1]),
+            ("EMPIRICAL", "Empirical Distribution Function", methods[2]),
+            (
+                "AEMPIRICAL",
+                "Empirical Distribution Function with Averaging",
+                methods[3],
+            ),
+        ] {
+            let t = run(
+                &data,
+                &format!(
+                    "EXAMINE VARIABLES=x /PERCENTILES(5,10,25,50,75,90,95)={method} \
+                     /STATISTICS=NONE /PLOT=NONE."
+                ),
+            );
+            for (got, want) in numbers(&t, p, label).iter().zip(want) {
+                near(*got, want, &format!("{method} of {values}"));
+            }
+        }
+        // one constant per estimator: Huber with 2.2 here, with 1 in a run of its own
+        let t = run(
+            &data,
+            "EXAMINE VARIABLES=x /PERCENTILES(25,50,75)=HAVERAGE /STATISTICS=NONE \
+             /MESTIMATORS=HUBER(2.2) TUKEY(3) HAMPEL(1.5,3,6) ANDREW(1.5) /PLOT=NONE.",
+        );
+        for (got, want) in numbers(&t, p, "Tukey's Hinges").iter().zip(hinges) {
+            near(*got, want, "hinge");
+        }
+        let d = run(
+            &data,
+            "EXAMINE VARIABLES=x /STATISTICS=DESCRIPTIVES /PLOT=NONE.",
+        );
+        near(
+            numbers(&d, "Descriptives", "5% Trimmed Mean")[0],
+            trimmed,
+            &format!("trimmed mean of {values}"),
+        );
+        let one = run(
+            &data,
+            "EXAMINE VARIABLES=x /STATISTICS=NONE /MESTIMATORS=HUBER(1) /PLOT=NONE.",
+        );
+        near(
+            numbers(&one, "M-Estimators", "x")[0],
+            mest[0],
+            &format!("Huber(1) of {values}"),
+        );
+        let mest = &mest[1..];
+        for (got, want) in numbers(&t, "M-Estimators", "x").iter().zip(mest) {
+            near(*got, *want, &format!("M-estimator of {values}"));
+        }
+    }
+}
