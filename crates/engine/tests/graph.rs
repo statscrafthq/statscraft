@@ -9,6 +9,8 @@ use statscraft_syntax::parse;
 /// store (9 = unknown, user-missing; one case system-missing), time of day (m morning,
 /// e evening), the basket and the tip in euros (one tip missing), and a weight (0 for the
 /// last case).
+use statscraft_engine::picture::{Paper, chart_svg};
+
 const DATA: &str = "DATA LIST LIST /store (F1) daypart (A1) basket (F5.1) tip (F4.1) wt (F3.1).
 BEGIN DATA
 1 m 12 1 1
@@ -490,9 +492,69 @@ fn range_drop_difference_and_high_low_charts() {
         "GRAPH: LINE(DIFFERENCE) needs two series: two functions, or a second BY variable with \
          two values; this chart has 3"
     );
+}
+
+#[test]
+fn grouped_high_low_charts_draw_each_group_beside_the_next() {
+    // functions that repeat in one order make pairs; the case with no tip is left out
+    let chart = one("GRAPH /HILO(GROUPED)=MAX(basket) MIN(basket) MAX(tip) MIN(tip) BY store.");
     assert_eq!(
-        error("GRAPH /HILO=MAX(basket) MIN(basket) MAX(tip) MIN(tip) BY store."),
-        "GRAPH: HILO with 4 series (GROUPED) is not supported yet; give two or three"
+        (chart.kind, chart.group_size),
+        (ChartKind::HighLow, Some(2))
+    );
+    assert_eq!(chart.kind_text(), "Grouped high-low chart");
+    close(&chart.series[2].values, &[2.5, 4.0, 1.5]);
+    close(&chart.series[3].values, &[1.0, 0.5, 0.0]);
+    // a span per store and group, the groups offset side by side
+    let spec = chart.vega_lite();
+    let spans = &spec["layer"][0]["data"]["values"];
+    assert_eq!(spans.as_array().unwrap().len(), 6);
+    assert_eq!(
+        (&spans[1]["group"], &spans[1]["low"], &spans[1]["high"]),
+        (&1.into(), &1.0.into(), &2.5.into())
+    );
+    assert_eq!(spans[2]["high"], 30.0);
+    assert_eq!(spec["layer"][1]["encoding"]["xOffset"]["field"], "group");
+    assert_eq!(
+        spec["layer"][1]["transform"][0]["calculate"],
+        "floor(datum.series_order / 2)"
+    );
+    // the picture: twelve points at six places, two per store
+    let svg = chart_svg(&chart, Paper::Light).unwrap();
+    let places: std::collections::BTreeSet<&str> = svg
+        .split("<circle cx=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .collect();
+    assert_eq!(svg.matches("<circle").count(), 12);
+    assert_eq!(places.len(), 6);
+    // a function of three variables is a group: high, low and close
+    let chart = one("GRAPH /HILO=MEAN(basket tip wt) MEAN(wt tip basket) BY daypart.");
+    assert_eq!(chart.group_size, Some(3));
+    assert_eq!(chart.kind_text(), "Grouped high-low-close chart");
+    let chart = one(
+        "GRAPH /HILO=MAX(basket) MIN(basket) MEAN(basket) MAX(tip) MIN(tip) MEAN(tip) BY store.",
+    );
+    assert_eq!(chart.group_size, Some(3));
+    // six of one function could be pairs or triples, and four that do not repeat are neither
+    let unclear = "GRAPH: HILO with {n} series takes them in groups of two (high, low) or three \
+         (high, low, close): give each group as one function of two or three variables, such as \
+         MEAN(a b c) MEAN(d e f), or functions that repeat in one order, such as MAX(x) MIN(x) \
+         MAX(y) MIN(y)";
+    assert_eq!(
+        error(
+            "GRAPH /HILO=MEAN(basket) MEAN(tip) MEAN(wt) MEAN(basket) MEAN(tip) MEAN(wt) BY store."
+        ),
+        unclear.replace("{n}", "6")
+    );
+    assert_eq!(
+        error("GRAPH /HILO=MAX(basket) MIN(basket) MEAN(basket) MAX(tip) BY store."),
+        unclear.replace("{n}", "4")
+    );
+    assert_eq!(
+        error("GRAPH /HILO=SUM(tip) BY daypart BY basket."),
+        "GRAPH: HILO by a second BY variable takes two or three of its values (high, low and \
+         close); this one has 8"
     );
 }
 

@@ -108,6 +108,9 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
         (ChartKind::Area, ..) => ChartType::Area,
         // points without lines: with their error bars, with a line from the lowest to the
         // highest point, or with a bar between the two series
+        // shortcut: a grouped high-low chart has no office form here and goes out as a
+        // picture; office charts could offset each group's series for it.
+        (ChartKind::HighLow, ..) if chart.group_size.is_some() => return None,
         (ChartKind::ErrorBar | ChartKind::DropLine | ChartKind::HighLow, ..) => ChartType::Line,
         (ChartKind::RangeBar, ..) if chart.series.len() == 2 => ChartType::Line,
         // shortcut: several pairs of range bars and the difference area have no office form

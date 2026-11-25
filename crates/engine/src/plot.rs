@@ -179,6 +179,7 @@ impl Chart {
     /// A statistical plot with its data shape; the axes are horizontal and vertical.
     pub(crate) fn plot(kind: ChartKind, title: String, x: Axis, y: Axis, plot: Plot) -> Chart {
         Chart {
+            group_size: None,
             kind,
             tier: Tier::Statistical,
             orientation: None,
@@ -209,6 +210,7 @@ impl Chart {
         series: Vec<crate::chart::Series>,
     ) -> Chart {
         Chart {
+            group_size: None,
             kind: ChartKind::Line,
             tier: Tier::Presentation,
             orientation: Some(crate::chart::Orientation::Vertical),

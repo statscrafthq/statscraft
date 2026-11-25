@@ -5152,7 +5152,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  100; NOCUM leaves it off. BAR(RANGE) floats a bar between two series (two functions, or a second BY\n\
                  variable with two values). LINE(DROP) joins the lowest and highest series of each category,\n\
                  LINE(DIFFERENCE) shades between two series, and HILO takes high, low and an optional close as two or\n\
-                 three series.\n\
+                 three series. More series make a grouped chart, each group beside the next in a category: a function\n\
+                 of two or three variables is a group (MEAN(a b c) MEAN(d e f)), and functions of one variable group\n\
+                 by the order they repeat in (MAX(x) MIN(x) MAX(y) MIN(y)).\n\
                  HISTOGRAM bins the valid values as FREQUENCIES does; NORMAL adds the normal curve. SCATTERPLOT\n\
                  colors points by the BY group variable; BY id (NAME) labels them with the id values, (IDENTIFY) does\n\
                  not. Lists around WITH put every pair into one frame (with PAIR, first with first and so on, and no\n\

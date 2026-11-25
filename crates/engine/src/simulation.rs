@@ -2041,6 +2041,7 @@ impl Engine {
                         _ => vec![series_of(title, m)],
                     };
                     self.charts.push(Chart {
+                        group_size: None,
                         kind: ChartKind::Bar,
                         tier: Tier::Presentation,
                         orientation: Some(Orientation::Horizontal),

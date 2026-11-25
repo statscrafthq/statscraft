@@ -881,6 +881,7 @@ fn categorical(
     };
     let category_axis = axis(category);
     Ok(Chart {
+        group_size: None,
         kind: match mark {
             "bar" => ChartKind::Bar,
             "line" => ChartKind::Line,
@@ -946,6 +947,7 @@ fn pie(rows: &[&Row], channels: &HashMap<&str, Channel>) -> Result<Chart, String
     };
     let category_axis = axis(color);
     Ok(Chart {
+        group_size: None,
         kind: ChartKind::Pie,
         tier: Tier::Presentation,
         orientation: None,

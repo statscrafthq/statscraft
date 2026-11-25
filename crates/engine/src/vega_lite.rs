@@ -163,18 +163,32 @@ impl Chart {
             out.insert("encoding".into(), encoding);
             return out;
         }
+        // a grouped high-low chart has a span per group, side by side in the category
+        let group = self.group_size.unwrap_or(self.series.len()).max(1);
         let spans: Vec<Value> = (0..n)
-            .filter_map(|i| {
+            .flat_map(|i| {
                 let column: Vec<f64> = self.series.iter().map(|s| s.values[i]).collect();
-                let (lo, hi) = match self.kind {
-                    ChartKind::Difference => (column[0], column[1]),
-                    _ => (
-                        column.iter().copied().fold(f64::INFINITY, f64::min),
-                        column.iter().copied().fold(f64::NEG_INFINITY, f64::max),
-                    ),
-                };
-                (lo.is_finite() && hi.is_finite())
-                    .then(|| json!({ "category": self.categories[i].label, "low": lo, "high": hi }))
+                let groups: Vec<Vec<f64>> = column.chunks(group).map(<[f64]>::to_vec).collect();
+                groups
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(move |(k, column)| {
+                        let (lo, hi) = match self.kind {
+                            ChartKind::Difference => (column[0], column[1]),
+                            _ => (
+                                column.iter().copied().fold(f64::INFINITY, f64::min),
+                                column.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+                            ),
+                        };
+                        (lo.is_finite() && hi.is_finite()).then(|| {
+                            json!({
+                                "category": self.categories[i].label,
+                                "group": k,
+                                "low": lo,
+                                "high": hi,
+                            })
+                        })
+                    })
             })
             .collect();
         let span_mark = match self.kind {
@@ -191,29 +205,34 @@ impl Chart {
             "sort": self.series_names(),
         });
         color["title"] = self.legend.clone().map_or(Value::Null, Value::from);
-        out.insert(
-            "layer".into(),
-            json!([
-                {
-                    "data": { "values": spans },
-                    "mark": span_mark,
-                    "encoding": {
-                        "x": self.category_channel(),
-                        "y": low("low"),
-                        "y2": { "field": "high" },
-                    },
+        let mut layers = json!([
+            {
+                "data": { "values": spans },
+                "mark": span_mark,
+                "encoding": {
+                    "x": self.category_channel(),
+                    "y": low("low"),
+                    "y2": { "field": "high" },
                 },
-                {
-                    "data": { "values": self.rows() },
-                    "mark": points,
-                    "encoding": {
-                        "x": self.category_channel(),
-                        "y": self.value_channel(),
-                        "color": color,
-                    },
+            },
+            {
+                "data": { "values": self.rows() },
+                "mark": points,
+                "encoding": {
+                    "x": self.category_channel(),
+                    "y": self.value_channel(),
+                    "color": color,
                 },
-            ]),
-        );
+            },
+        ]);
+        if let Some(k) = self.group_size {
+            let offset = json!({ "field": "group", "type": "ordinal" });
+            layers[0]["encoding"]["xOffset"] = offset.clone();
+            layers[1]["encoding"]["xOffset"] = offset;
+            layers[1]["transform"] =
+                json!([{ "calculate": format!("floor(datum.series_order / {k})"), "as": "group" }]);
+        }
+        out.insert("layer".into(), layers);
         out
     }
 

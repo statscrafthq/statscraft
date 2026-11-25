@@ -833,6 +833,7 @@ impl Context<'_> {
             .collect::<Vec<_>>()
             .join(" by ");
         Ok(Chart {
+            group_size: None,
             kind: ChartKind::Bar,
             tier: Tier::Presentation,
             orientation: Some(Orientation::Vertical),
@@ -917,6 +918,7 @@ impl Context<'_> {
             None => Axis::titled("Case Number"),
         };
         Ok(Chart {
+            group_size: None,
             kind: ChartKind::Bar,
             tier: Tier::Presentation,
             orientation: Some(Orientation::Vertical),
@@ -1495,6 +1497,7 @@ impl Context<'_> {
     fn ranges(&self, data: &GraphData, kind: ChartKind) -> Result<Chart, Error> {
         let mut chart = self.categorical(data, None)?;
         let n = chart.series.len();
+        let mut group_size = None;
         let problem = match kind {
             ChartKind::RangeBar if n < 2 || n % 2 == 1 => Some(
                 "BAR(RANGE) takes its ends in pairs: an even number of functions or variables, \
@@ -1512,10 +1515,8 @@ impl Context<'_> {
                  variable with two or three values",
             ),
             ChartKind::HighLow if n > 3 => {
-                return Err(Error(format!(
-                    "GRAPH: HILO with {n} series (GROUPED) is not supported yet; give two or \
-                     three"
-                )));
+                group_size = Some(self.hilo_group(data, n)?);
+                None
             }
             _ => None,
         };
@@ -1524,7 +1525,55 @@ impl Context<'_> {
         }
         chart.kind = kind;
         chart.grouping = None;
+        chart.group_size = group_size;
         Ok(chart)
+    }
+
+    /// A grouped high-low chart: how many of its `n` series make one group, two (high, low) or
+    /// three (high, low, close). A function of two or three variables is a group; functions of
+    /// one variable group by the order they repeat in, such as MAX MIN MAX MIN.
+    fn hilo_group(&self, data: &GraphData, n: usize) -> Result<usize, Error> {
+        let unclear = || {
+            Error(format!(
+                "GRAPH: HILO with {n} series takes them in groups of two (high, low) or three \
+                 (high, low, close): give each group as one function of two or three variables, \
+                 such as MEAN(a b c) MEAN(d e f), or functions that repeat in one order, such as \
+                 MAX(x) MIN(x) MAX(y) MIN(y)"
+            ))
+        };
+        let GraphData::Summary { functions, by } = data else {
+            return Err(unclear());
+        };
+        if by.len() == 2 {
+            return Err(Error(format!(
+                "GRAPH: HILO by a second BY variable takes two or three of its values (high, \
+                 low and close); this one has {n}"
+            )));
+        }
+        let sizes = functions
+            .iter()
+            .map(|f| self.items(std::slice::from_ref(f)).map(|items| items.len()))
+            .collect::<Result<Vec<_>, _>>()?;
+        if functions.len() > 1 && sizes.iter().all(|&s| s == sizes[0] && (2..=3).contains(&s)) {
+            return Ok(sizes[0]);
+        }
+        if sizes.iter().all(|&s| s == 1) {
+            let repeats = |p: usize| {
+                n.is_multiple_of(p)
+                    && functions
+                        .iter()
+                        .enumerate()
+                        .all(|(i, f)| f.function == functions[i % p].function)
+            };
+            if let [p] = [2, 3]
+                .into_iter()
+                .filter(|&p| repeats(p))
+                .collect::<Vec<_>>()[..]
+            {
+                return Ok(p);
+            }
+        }
+        Err(unclear())
     }
 
     fn categorical(

@@ -435,6 +435,7 @@ fn bar_chart(
         false => v.format().to_string(),
     };
     Chart {
+        group_size: None,
         kind: ChartKind::Bar,
         tier: Tier::Presentation,
         orientation: Some(Orientation::Vertical),

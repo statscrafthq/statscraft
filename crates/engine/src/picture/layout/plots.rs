@@ -713,6 +713,7 @@ mod tests {
 
     fn plot_chart(kind: ChartKind, plot: Plot) -> Chart {
         Chart {
+            group_size: None,
             kind,
             tier: Tier::Statistical,
             orientation: None,

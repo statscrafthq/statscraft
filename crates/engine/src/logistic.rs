@@ -1428,6 +1428,7 @@ impl Context<'_> {
                 })
                 .collect();
             charts.push(crate::Chart {
+                group_size: None,
                 kind: ChartKind::Bar,
                 tier: crate::chart::Tier::Statistical,
                 orientation: Some(Orientation::Vertical),

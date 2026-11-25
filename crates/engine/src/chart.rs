@@ -58,6 +58,10 @@ pub struct Chart {
     /// Hidden by OUTPUT MODIFY, as a table can be.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    /// A grouped high-low chart: its series in groups of this many (high, low and maybe
+    /// close), each group drawn side by side in a category.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_size: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,8 +313,18 @@ impl Chart {
             (ChartKind::ErrorBar, _) => "Simple error bar chart".into(),
             (ChartKind::RangeBar, _) => "Range bar chart".into(),
             (ChartKind::DropLine, _) => "Drop-line chart".into(),
-            (ChartKind::HighLow, _) if self.series.len() > 2 => "High-low-close chart".into(),
-            (ChartKind::HighLow, _) => "High-low chart".into(),
+            (ChartKind::HighLow, _) => {
+                let close = self.group_size.unwrap_or(self.series.len()) > 2;
+                let grouped = if self.group_size.is_some() {
+                    "Grouped h"
+                } else {
+                    "H"
+                };
+                format!(
+                    "{grouped}igh-low{} chart",
+                    if close { "-close" } else { "" }
+                )
+            }
             (ChartKind::Difference, _) => "Difference area chart".into(),
             (ChartKind::Pie, _) => "Pie chart".into(),
             (ChartKind::Line, _) => "Line chart".into(),

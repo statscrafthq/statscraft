@@ -781,8 +781,10 @@ fn spans(d: &mut Draw, chart: &Chart, top: f32) -> f32 {
     let slots = match chart.kind {
         ChartKind::RangeBar => n / 2,
         ChartKind::ErrorBar => n,
-        _ => 1,
+        _ => chart.group_size.map_or(1, |k| n / k),
     };
+    // the series a line from lowest to highest joins: a group of a grouped high-low chart
+    let members = chart.group_size.unwrap_or(n).max(1);
     for i in 0..chart.categories.len() {
         let (b0, b1) = frame.band(i);
         let group = (b1 - b0) * if slots > 1 { 0.8 } else { 0.6 };
@@ -800,21 +802,23 @@ fn spans(d: &mut Draw, chart: &Chart, top: f32) -> f32 {
             continue;
         }
         if chart.kind != ChartKind::ErrorBar {
-            let finite: Vec<f64> = column.iter().copied().filter(|v| v.is_finite()).collect();
-            if finite.len() > 1 {
-                let lo = finite.iter().copied().fold(f64::INFINITY, f64::min);
-                let hi = finite.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-                d.line(
-                    vec![[at(0), frame.value(lo)], [at(0), frame.value(hi)]],
-                    1.5,
-                    ink,
-                );
+            for (k, joined) in column.chunks(members).enumerate() {
+                let finite: Vec<f64> = joined.iter().copied().filter(|v| v.is_finite()).collect();
+                if finite.len() > 1 {
+                    let lo = finite.iter().copied().fold(f64::INFINITY, f64::min);
+                    let hi = finite.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                    d.line(
+                        vec![[at(k), frame.value(lo)], [at(k), frame.value(hi)]],
+                        1.5,
+                        ink,
+                    );
+                }
             }
         }
         for (j, v) in column.iter().enumerate() {
             let x = match chart.kind {
                 ChartKind::ErrorBar => at(j),
-                _ => at(0),
+                _ => at(j / members),
             };
             if let Some(bar) = chart.error_bar(j, i) {
                 whisker(d, &frame, x, bar, (width * 0.4).min(12.0), colors[j]);
@@ -1087,6 +1091,7 @@ mod tests {
     pub(crate) fn chart(kind: ChartKind, grouping: Option<Grouping>, series: &[&[f64]]) -> Chart {
         let n = series[0].len();
         Chart {
+            group_size: None,
             kind,
             tier: Tier::Presentation,
             orientation: Some(Orientation::Vertical),

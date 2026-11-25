@@ -476,6 +476,7 @@ fn chart(
     };
     let top = values.iter().copied().fold(0.0, f64::max);
     Ok(Chart {
+        group_size: None,
         kind: match pie {
             true => chart::ChartKind::Pie,
             false => chart::ChartKind::Bar,
@@ -617,6 +618,7 @@ impl Histogram<'_> {
         );
         let top = counts.iter().copied().fold(0.0, f64::max);
         Ok(Chart {
+            group_size: None,
             kind: chart::ChartKind::Histogram,
             tier: Tier::Statistical,
             orientation: Some(Orientation::Vertical),

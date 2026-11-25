@@ -1645,6 +1645,7 @@ fn categorical(
         .collect::<Vec<_>>()
         .join(" by ");
     Ok(Chart {
+        group_size: None,
         kind: ChartKind::Bar,
         tier: Tier::Presentation,
         orientation: Some(Orientation::Vertical),

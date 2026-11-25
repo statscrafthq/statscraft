@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [GRAPH](docs/commands/graph.md) `/HILO` draws grouped high-low and high-low-close charts: with more than three series, each group of two or three stands beside the next in a category.
 - [CURVEFIT](docs/commands/curvefit.md) `/APPLY FIT` keeps the estimates of the earlier fit: the tables are the original ones, and the plot and the saved variables put its coefficients to use on the current data.
 
 ## 0.48.0 (2026-11-25)
