@@ -4450,8 +4450,14 @@ impl App {
             // the templates, the active one and the global values changed with OK
             let _ = self.settings.save();
             // with no data open only the values kept on the computer change
-            if !syntax.is_empty() && self.session.dataset().is_some() {
-                self.run(&syntax, None, After::Show);
+            match (syntax.is_empty(), self.session.dataset().is_some()) {
+                (false, true) => self.run(&syntax, None, After::Show),
+                (false, false) => {
+                    self.status = Ok("plugin settings: only those for all data files were kept; \
+                         the others need data open"
+                        .into())
+                }
+                (true, _) => {}
             }
             self.plugins.again();
         }
