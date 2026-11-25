@@ -1319,7 +1319,19 @@ impl Engine {
                 let spec = self.series_plot_spec(spec)?;
                 return self.procedure(&Command::SeriesPlot(Box::new(spec)));
             }
-            Command::Curvefit(_) | Command::Wls(_) => return self.with_current_names(command),
+            Command::Curvefit(spec) => {
+                let resolved = self.curvefit_spec(spec)?;
+                let tables =
+                    self.with_current_names(&Command::Curvefit(Box::new(resolved.clone())))?;
+                self.ts_models.curvefit = Some(Box::new(resolved));
+                return Ok(tables);
+            }
+            Command::Wls(spec) => {
+                let resolved = self.wls_spec(spec)?;
+                let tables = self.with_current_names(&Command::Wls(Box::new(resolved.clone())))?;
+                self.ts_models.wls = Some(Box::new(resolved));
+                return Ok(tables);
+            }
             Command::Tsmodel(_) | Command::Tsapply(_) => return self.with_current_names(command),
             Command::Regression(c) if c.matrix.output.is_some() => {
                 let target = c.matrix.output.clone().expect("checked");

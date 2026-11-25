@@ -851,3 +851,86 @@ fn wls_weight_variable_and_defaults() {
     let caption = find(&r.tables, "ANOVA", 0).caption.clone().unwrap();
     assert!(caption.contains("area to the power 0.5"), "{caption}");
 }
+
+/// Two runs' tables agree: the same titles and shapes, the words equal, the numbers to 1e-9.
+fn same_tables(got: &[Table], want: &[Table]) {
+    assert_eq!(got.len(), want.len(), "number of tables");
+    assert!(got.len() >= 2);
+    for (g, w) in got.iter().zip(want) {
+        assert_eq!((&g.title, &g.columns), (&w.title, &w.columns));
+        assert_eq!(g.rows.len(), w.rows.len(), "{}", g.title);
+        for (rg, rw) in g.rows.iter().zip(&w.rows) {
+            for (cg, cw) in rg.iter().zip(rw) {
+                match (cg, cw) {
+                    (Cell::Number(a), Cell::Number(b)) => {
+                        assert!((a - b).abs() <= 1e-9 * b.abs().max(1.0), "{}", g.title)
+                    }
+                    _ => assert_eq!(cg, cw, "{}", g.title),
+                }
+            }
+        }
+    }
+}
+
+/// APPLY runs the previous CURVEFIT's specifications again, those the command gives replacing
+/// theirs, on the variables it names or else the previous ones.
+#[test]
+fn curvefit_apply_reuses_the_previous_specifications() {
+    let first = "CURVEFIT y /MODEL=QUADRATIC COMPOUND /PRINT=ANOVA /PLOT=NONE.\n";
+    // other variables, the same models and options
+    let applied = run(SERIES, &format!("{first}CURVEFIT x /APPLY."));
+    let direct = run(
+        SERIES,
+        "CURVEFIT x /MODEL=QUADRATIC COMPOUND /PRINT=ANOVA /PLOT=NONE.",
+    );
+    same_tables(&applied.tables, &direct.tables);
+    // the same variables, another model, the rest as before
+    let applied = run(SERIES, &format!("{first}CURVEFIT APPLY /MODEL=CUBIC."));
+    let direct = run(SERIES, "CURVEFIT y /MODEL=CUBIC /PRINT=ANOVA /PLOT=NONE.");
+    same_tables(&applied.tables, &direct.tables);
+    // an independent variable and a changed option
+    let applied = run(
+        SERIES,
+        &format!("{first}CURVEFIT APPLY /NOCONSTANT /SAVE=PRED."),
+    );
+    let direct = run(
+        SERIES,
+        "CURVEFIT y /MODEL=QUADRATIC COMPOUND /PRINT=ANOVA /PLOT=NONE /NOCONSTANT /SAVE=PRED.",
+    );
+    same_tables(&applied.tables, &direct.tables);
+}
+
+#[test]
+fn curvefit_apply_is_checked() {
+    assert!(error(SERIES, "CURVEFIT APPLY.").contains("no earlier CURVEFIT"));
+    assert!(
+        error(SERIES, "CURVEFIT y /MODEL=LINEAR.\nCURVEFIT APPLY 'quad'.").contains("named model")
+    );
+    let (_, errors) = parse(&format!("{SERIES}CURVEFIT y /APPLY FIT."));
+    assert!(
+        errors[0]
+            .message
+            .contains("APPLY FIT of CURVEFIT is not supported yet"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn wls_apply_reuses_the_previous_specifications() {
+    let first = "WLS cost WITH area staff /SOURCE=area /DELTA=1.5.\n";
+    let applied = run(SHOPS, &format!("{first}WLS APPLY /DELTA=2."));
+    let direct = run(SHOPS, "WLS cost WITH area staff /SOURCE=area /DELTA=2.");
+    same_tables(&applied.tables, &direct.tables);
+    // a weight variable replaces the source and the power
+    let applied = run(
+        SHOPS,
+        &format!("{first}WLS APPLY /WEIGHT=staff /PRINT=ALL."),
+    );
+    let direct = run(SHOPS, "WLS cost WITH area staff /WEIGHT=staff /PRINT=ALL.");
+    same_tables(&applied.tables, &direct.tables);
+    // other variables, the same source and power
+    let applied = run(SHOPS, &format!("{first}WLS staff WITH area /APPLY."));
+    let direct = run(SHOPS, "WLS staff WITH area /SOURCE=area /DELTA=1.5.");
+    same_tables(&applied.tables, &direct.tables);
+    assert!(error(SHOPS, "WLS APPLY.").contains("no earlier WLS"));
+}

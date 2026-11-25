@@ -291,6 +291,51 @@ fn log_likelihood(ls: &LeastSquares, c: &[f64], g: &[f64]) -> f64 {
 const POWER_RANGE: (f64, f64) = (-6.5, 7.5);
 
 impl Engine {
+    /// The command with APPLY resolved: the previous WLS's specifications, those this one gives
+    /// replacing theirs (a WEIGHT replaces SOURCE and DELTA and the other way round), and the
+    /// variables of the previous one when this gives none.
+    pub(crate) fn wls_spec(&self, command: &Wls) -> Result<Wls, Error> {
+        let Some(apply) = &command.apply else {
+            return Ok(command.clone());
+        };
+        if let Some(model) = apply {
+            return Err(Error(format!(
+                "WLS APPLY of the named model '{model}' is not supported yet; APPLY without a \
+                 name uses the previous WLS"
+            )));
+        }
+        let Some(previous) = &self.ts_models.wls else {
+            return Err(Error("WLS APPLY: there is no earlier WLS to apply".into()));
+        };
+        let mut spec = (**previous).clone();
+        if !command.dependent.is_empty() {
+            spec.dependent.clone_from(&command.dependent);
+            spec.independents.clone_from(&command.independents);
+        }
+        if command.source.is_some() {
+            spec.source.clone_from(&command.source);
+            spec.weight = None;
+        }
+        if !command.deltas.is_empty() {
+            spec.deltas.clone_from(&command.deltas);
+            spec.weight = None;
+        }
+        if command.weight.is_some() {
+            spec.weight.clone_from(&command.weight);
+            spec.source = None;
+            spec.deltas.clear();
+        }
+        if command.constant.is_some() {
+            spec.constant = command.constant;
+        }
+        if command.print_all.is_some() {
+            spec.print_all = command.print_all;
+        }
+        spec.save_weight = command.save_weight;
+        spec.apply = None;
+        Ok(spec)
+    }
+
     pub(crate) fn wls(&mut self, command: &Wls) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();

@@ -3638,7 +3638,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/MODEL=[LINEAR] [LOGARITHMIC] [INVERSE] [QUADRATIC] [CUBIC] [COMPOUND] [POWER] [S]\n\
                  \x20         [GROWTH] [EXPONENTIAL] [LGSTIC] [ALL]]\n\
                  \x20  [/CONSTANT | /NOCONSTANT] [/UPPERBOUND=NO | n] [/CIN=95] [/PRINT=ANOVA]\n\
-                 \x20  [/SAVE=[PRED] [RESID] [CIN]] [/PLOT=FIT | NONE] [/ID=variable] [/TEMPLATE='file'].\n\
+                 \x20  [/SAVE=[PRED] [RESID] [CIN]] [/PLOT=FIT | NONE] [/ID=variable] [/TEMPLATE='file']\n\
+                 \x20  [/APPLY[=SPECIFICATIONS]].\n\
                  Model names may be cut to three letters. With x the independent (or 1, 2, 3, ... in case\n\
                  order when there is no WITH): LINEAR b0 + b1 x, LOGARITHMIC b0 + b1 ln x, INVERSE b0 + b1/x,\n\
                  QUADRATIC and CUBIC add x^2 and x^3, COMPOUND b0 b1^x, POWER b0 x^b1, S exp(b0 + b1/x),\n\
@@ -3660,7 +3661,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  and models and replacing variables of those names; ALL saves them under free numbers;\n\
                  NONE saves none. PLOT=FIT (the default) gives a\n\
                  chart of the observed values with every fitted curve; ID labels its points. Another\n\
-                 subcommand given twice keeps the last. TEMPLATE is ignored.",
+                 subcommand given twice keeps the last. TEMPLATE is ignored. APPLY runs the previous CURVEFIT's\n\
+                 specifications again: the dependents and the independent of the new command when it names\n\
+                 some, else the old ones, and any subcommand it gives replaces the old one (SAVE is not\n\
+                 carried over); a model named in quotes is not supported, and neither is APPLY FIT.",
         example: "CURVEFIT VARIABLES=visitors WITH week /MODEL=LINEAR QUADRATIC GROWTH /PRINT=ANOVA /SAVE=PRED CIN.",
         parse: regression_more::curvefit,
     },
@@ -3669,7 +3673,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Weighted least squares: weights from a power of a source variable, or a given weight.",
         syntax: "WLS [VARIABLES=] dependent WITH independents\n\
                  \x20  [/SOURCE=variable] [/DELTA=powers] [/WEIGHT=variable] [/CONSTANT | /NOCONSTANT]\n\
-                 \x20  [/PRINT=BEST | ALL] [/SAVE=WEIGHT].\n\
+                 \x20  [/PRINT=BEST | ALL] [/SAVE=WEIGHT] [/APPLY].\n\
                  Powers: numbers and grids first TO last BY step (or first BY step TO last), at most 150\n\
                  in all; POWER is another name for DELTA and every DELTA counts. A case's weight is its\n\
                  SOURCE value raised to minus the power. SOURCE defaults to the first independent and the\n\
@@ -3687,7 +3691,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  without PRINT, TSET PRINT=DETAILED does the same and BRIEF leaves out the log-likelihoods.\n\
                  SAVE=WEIGHT keeps the chosen weights as WGT_n, the first free n. Without SAVE, TSET NEWVAR\n\
                  decides: CURRENT (the default) saves WGT_1, replacing it, ALL the next free WGT_n, NONE\n\
-                 nothing. CONSTANT or NOCONSTANT defaults to TSET.",
+                 nothing. CONSTANT or NOCONSTANT defaults to TSET. APPLY runs the previous WLS's specifications\n\
+                 again: the variables of the new command when it names some, else the old ones, and any\n\
+                 subcommand it gives replaces the old one (a WEIGHT replaces SOURCE and DELTA and the other way\n\
+                 round; SAVE is not carried over); a model named in quotes is not supported.",
         example: "WLS rent WITH floor_area rooms /SOURCE=floor_area /POWER=-1 TO 3 BY 0.25 /PRINT=ALL.",
         parse: regression_more::wls,
     },

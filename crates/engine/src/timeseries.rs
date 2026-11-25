@@ -56,6 +56,9 @@ pub(crate) struct Models {
     /// The estimates APPLY INITIAL or FIT hands to the next AREG.
     pub(crate) areg_start: Option<crate::areg::Start>,
     pub(crate) two_stage: Option<Box<statscraft_syntax::TwoStage>>,
+    /// The last CURVEFIT and WLS, as they ran.
+    pub(crate) curvefit: Option<Box<statscraft_syntax::Curvefit>>,
+    pub(crate) wls: Option<Box<statscraft_syntax::Wls>>,
     /// The last TSPLOT and CASEPLOT.
     pub(crate) plots: [Option<Box<statscraft_syntax::SeriesPlot>>; 2],
 }

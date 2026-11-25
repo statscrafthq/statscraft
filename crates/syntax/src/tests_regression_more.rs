@@ -132,8 +132,7 @@ fn curvefit_errors() {
     assert!(err("CURVEFIT y /UPPERBOUND=-2.").contains("positive"));
     assert!(err("CURVEFIT y /MODEL=SPLINE.").contains("unexpected"));
     assert!(err("CURVEFIT y /SAVE.").contains("unexpected"));
-    assert!(err("CURVEFIT y /APPLY.").contains("not supported"));
-    assert!(err("CURVEFIT APPLY /MODEL=CUBIC.").contains("not supported"));
+    assert!(err("CURVEFIT y /APPLY FIT.").contains("APPLY FIT of CURVEFIT is not supported yet"));
     assert!(err("CURVEFIT /MODEL=CUBIC.").contains("VARIABLES"));
 }
 
@@ -163,5 +162,21 @@ fn wls_errors() {
     assert!(err("WLS rent WITH area /WEIGHT=w /SOURCE=area.").contains("not both"));
     assert!(err("WLS rent WITH area /DELTA=2 TO 1 BY 0.5.").contains("grid"));
     assert!(err("WLS rent WITH area /DELTA=0 TO 200 BY 1.").contains("150"));
-    assert!(err("WLS rent WITH area /APPLY.").contains("not supported"));
+}
+
+#[test]
+fn curvefit_and_wls_apply() {
+    let c = curvefit("CURVEFIT y /APPLY.");
+    assert_eq!(c.apply, Some(None));
+    assert!(!c.given.models);
+    let c = curvefit("CURVEFIT APPLY 'first' SPECIFICATIONS /MODEL=CUBIC /NOCONSTANT.");
+    assert_eq!(c.apply, Some(Some("first".into())));
+    assert!(c.dependents.is_empty());
+    assert!(c.given.models && c.given.constant && !c.given.cin);
+    let w = wls("WLS APPLY /DELTA=2.");
+    assert_eq!(w.apply, Some(None));
+    assert!(w.dependent.is_empty());
+    assert_eq!(w.deltas, [2.0]);
+    let w = wls("WLS rent WITH area /APPLY.");
+    assert_eq!(w.dependent, "rent");
 }

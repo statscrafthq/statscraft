@@ -115,6 +115,24 @@ pub struct Curvefit {
     pub save_resid: bool,
     pub save_cin: bool,
     pub template: bool,
+    /// `APPLY ['name']`: the previous CURVEFIT's specifications, but for those given here.
+    pub apply: Option<Option<String>>,
+    /// Which specifications this command gives itself, for APPLY to replace only those.
+    pub given: CurveGiven,
+}
+
+/// The specifications a CURVEFIT command states, as opposed to leaves at their defaults.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CurveGiven {
+    pub models: bool,
+    pub cin: bool,
+    pub upper_bound: bool,
+    pub constant: bool,
+    pub plot: bool,
+    pub id: bool,
+    pub anova: bool,
+    pub save: bool,
+    pub template: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,6 +148,8 @@ pub struct Wls {
     /// None: TSET PRINT (DETAILED shows every power).
     pub print_all: Option<bool>,
     pub save_weight: bool,
+    /// `APPLY ['name']`: the previous WLS's specifications, but for those given here.
+    pub apply: Option<Option<String>>,
 }
 
 /// The largest number of powers WLS takes.
@@ -389,13 +409,31 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
         save_resid: false,
         save_cin: false,
         template: false,
+        apply: None,
+        given: CurveGiven::default(),
     };
     // a leading slash is allowed when another subcommand comes before VARIABLES
     let mut first = !p.eat(Punct::Slash);
     loop {
         let start = p.pos;
-        if first && p.at_keyword("APPLY") || !first && p.eat_keyword("APPLY") {
-            return Err(error(p, start, "APPLY of CURVEFIT is not supported yet"));
+        if p.eat_keyword("APPLY") {
+            command.apply = Some(crate::ts_models::apply_name(p)?);
+            if p.eat_word("FIT") {
+                return Err(error(
+                    p,
+                    start,
+                    "APPLY FIT of CURVEFIT is not supported yet; APPLY SPECIFICATIONS is",
+                ));
+            }
+            p.eat_keyword("SPECIFICATIONS");
+            first = false;
+            if !at_end(p) {
+                return Err(p.unexpected(&["'/'", "end of command"]));
+            }
+            if !p.eat(Punct::Slash) {
+                break;
+            }
+            continue;
         }
         let variables_here = (first && !matches!(p.peek(), Some(TokenKind::Punct(_)) | None))
             || p.at_keyword("VARIABLES");
@@ -443,14 +481,19 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
             models.sort();
             models.dedup();
             command.models = models;
+            command.given.models = true;
         } else if p.eat_keyword("CIN") {
             p.eat(Punct::Eq);
             match p.number() {
-                Some(v) if v > 0.0 && v < 100.0 => command.cin = Some(v),
+                Some(v) if v > 0.0 && v < 100.0 => {
+                    command.cin = Some(v);
+                    command.given.cin = true;
+                }
                 Some(_) => return Err(error(p, start, "CIN is above 0 and below 100")),
                 None => return Err(p.unexpected(&["a percentage"])),
             }
         } else if p.eat_keyword("UPPERBOUND") {
+            command.given.upper_bound = true;
             p.eat(Punct::Eq);
             command.upper_bound = if p.eat_word("NO") {
                 None
@@ -463,9 +506,12 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
             };
         } else if p.eat_keyword("CONSTANT") {
             command.constant = Some(true);
+            command.given.constant = true;
         } else if p.eat_keyword("NOCONSTANT") {
             command.constant = Some(false);
+            command.given.constant = true;
         } else if p.eat_keyword("PLOT") {
+            command.given.plot = true;
             p.eat(Punct::Eq);
             command.plot = if p.eat_word("FIT") {
                 true
@@ -477,12 +523,14 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_word("ID") {
             p.eat(Punct::Eq);
             command.id = Some(p.name("a variable name")?);
+            command.given.id = true;
         } else if p.eat_keyword("PRINT") {
             p.eat(Punct::Eq);
             if !p.eat_keyword("ANOVA") {
                 return Err(p.unexpected(&["ANOVA"]));
             }
             command.anova = true;
+            command.given.anova = true;
         } else if p.eat_keyword("SAVE") {
             p.eat(Punct::Eq);
             let (mut pred, mut resid, mut cin) = (false, false, false);
@@ -502,10 +550,12 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
                 return Err(p.unexpected(&["PRED", "RESID", "CIN"]));
             }
             (command.save_pred, command.save_resid, command.save_cin) = (pred, resid, cin);
+            command.given.save = true;
         } else if p.eat_keyword("TEMPLATE") {
             p.eat(Punct::Eq);
             p.file("a template file")?;
             command.template = true;
+            command.given.template = true;
         } else {
             return Err(p.subcommand_error("CURVEFIT", &["APPLY"]));
         }
@@ -518,7 +568,7 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
         }
     }
     p.finish(&["'/'"])?;
-    if command.dependents.is_empty() {
+    if command.dependents.is_empty() && command.apply.is_none() {
         return Err(p.unexpected(&["VARIABLES"]));
     }
     Ok(Command::Curvefit(Box::new(command)))
@@ -586,13 +636,22 @@ pub(crate) fn wls(p: &mut Parser) -> PResult<Command> {
         constant: None,
         print_all: None,
         save_weight: false,
+        apply: None,
     };
     // a leading slash is allowed when another subcommand comes before VARIABLES
     let mut first = !p.eat(Punct::Slash);
     loop {
         let start = p.pos;
-        if first && p.at_keyword("APPLY") || !first && p.eat_keyword("APPLY") {
-            return Err(error(p, start, "APPLY of WLS is not supported yet"));
+        if p.eat_keyword("APPLY") {
+            command.apply = Some(crate::ts_models::apply_name(p)?);
+            first = false;
+            if !at_end(p) {
+                return Err(p.unexpected(&["'/'", "end of command"]));
+            }
+            if !p.eat(Punct::Slash) {
+                break;
+            }
+            continue;
         }
         let variables_here = (first && !matches!(p.peek(), Some(TokenKind::Punct(_)) | None))
             || p.at_keyword("VARIABLES");
@@ -650,7 +709,7 @@ pub(crate) fn wls(p: &mut Parser) -> PResult<Command> {
         }
     }
     p.finish(&["'/'"])?;
-    if command.dependent.is_empty() {
+    if command.dependent.is_empty() && command.apply.is_none() {
         return Err(p.unexpected(&["VARIABLES"]));
     }
     if command.weight.is_some() && (command.source.is_some() || !command.deltas.is_empty()) {

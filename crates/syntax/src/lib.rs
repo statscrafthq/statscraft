@@ -399,7 +399,9 @@ pub use regression::{
     RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionResiduals,
     RegressionSelect, RegressionStatistics, SelectValue, TempVar,
 };
-pub use regression_more::{CURVE_MODELS, CurveModel, Curvefit, NaturalResponse, Probit, Wls};
+pub use regression_more::{
+    CURVE_MODELS, CurveGiven, CurveModel, Curvefit, NaturalResponse, Probit, Wls,
+};
 pub use reliability::{
     AnovaTest, Icc, IccModel, Reliability, ReliabilityModel, ReliabilitySummary,
 };

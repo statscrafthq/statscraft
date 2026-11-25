@@ -140,6 +140,61 @@ impl Fitted {
 }
 
 impl Engine {
+    /// The command with APPLY resolved: the previous CURVEFIT's specifications, those this one
+    /// gives replacing theirs, and the variables of the previous one when this gives none.
+    pub(crate) fn curvefit_spec(&self, command: &Curvefit) -> Result<Curvefit, Error> {
+        let Some(apply) = &command.apply else {
+            return Ok(command.clone());
+        };
+        if let Some(model) = apply {
+            return Err(Error(format!(
+                "CURVEFIT APPLY of the named model '{model}' is not supported yet; APPLY \
+                 without a name uses the previous CURVEFIT"
+            )));
+        }
+        let Some(previous) = &self.ts_models.curvefit else {
+            return Err(Error(
+                "CURVEFIT APPLY: there is no earlier CURVEFIT to apply".into(),
+            ));
+        };
+        let mut spec = (**previous).clone();
+        if !command.dependents.is_empty() {
+            spec.dependents.clone_from(&command.dependents);
+            spec.independent.clone_from(&command.independent);
+        }
+        let given = command.given;
+        if given.models {
+            spec.models.clone_from(&command.models);
+        }
+        if given.cin {
+            spec.cin = command.cin;
+        }
+        if given.upper_bound {
+            spec.upper_bound = command.upper_bound;
+        }
+        if given.constant {
+            spec.constant = command.constant;
+        }
+        if given.plot {
+            spec.plot = command.plot;
+        }
+        if given.id {
+            spec.id.clone_from(&command.id);
+        }
+        if given.anova {
+            spec.anova = command.anova;
+        }
+        if given.template {
+            spec.template = command.template;
+        }
+        // new variables are saved only when this command says so
+        (spec.save_pred, spec.save_resid, spec.save_cin) =
+            (command.save_pred, command.save_resid, command.save_cin);
+        spec.apply = None;
+        spec.given = Default::default();
+        Ok(spec)
+    }
+
     pub(crate) fn curvefit(&mut self, command: &Curvefit) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();
