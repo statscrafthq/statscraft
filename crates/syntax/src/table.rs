@@ -1706,7 +1706,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20          FORWARD [varlist] | BACKWARD [varlist] | TEST(varlist)(varlist)... [/METHOD=...]\n\
                  \x20          [/RESIDUALS=[DEFAULTS DURBIN OUTLIERS(tempvars) ID(var) HISTOGRAM NORMPROB]]\n\
                  \x20          [/CASEWISE=[DEFAULTS OUTLIERS(3) | ALL PLOT(tempvar) DEPENDENT tempvars]]\n\
-                 \x20          [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT=(y, x) ...] [/PARTIALPLOT=[ALL | varlist]].\n\
+                 \x20          [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT=(y, x) ...] [/PARTIALPLOT=[ALL | varlist]]\n\
+                 \x20          [/OUTFILE=COVB('file' | dataset) | CORB('file' | dataset)].\n\
                  tempvar: PRED RESID ZPRED ZRESID SRESID DRESID SDRESID ADJPRED SEPRED MAHAL COOK LEVER DFBETA SDBETA\n\
                  DFFIT SDFIT COVRATIO MCIN ICIN. One equation per dependent; each METHOD works on the equation the\n\
                  ones before it left, and each step is a model. ENTER takes the variables in order of tolerance;\n\
@@ -1741,7 +1742,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  MATRIX must come first. OUT writes the records MEAN, STDDEV, N (one record, or a record per\n\
                  variable when pairwise counts differ) and CORR (OCORR with ORIGIN) of every variable on VARIABLES,\n\
                  per split group; * puts them in the active dataset. IN gives the equation from such records, which\n\
-                 have no cases: SAVE, RESIDUALS, CASEWISE, the plots, SELECT and REGWGT are errors then.",
+                 have no cases: SAVE, RESIDUALS, CASEWISE, the plots, SELECT and REGWGT are errors then.\n\
+                 OUTFILE (one dependent variable, not with MATRIX=OUT) writes a .sav file or a dataset made with\n\
+                 DATASET DECLARE for the last equation: COVB the covariance matrix of the coefficients, CORB their\n\
+                 correlation matrix, as RowType_ (COV or CORR), VarName_ and a column P1, P2, ... for the constant\n\
+                 (first, unless ORIGIN) and each independent in the order of the Coefficients table, with a record\n\
+                 per coefficient and then the records EST, SE, SIG (the significance of t) and DF (the residual\n\
+                 degrees of freedom), named by the dependent variable, per split group.",
         example: "GET FILE='survey.sav'.\n\
                  REGRESSION /DEPENDENT=satisfaction /METHOD=ENTER age spend contacted.\n\
                  REGRESSION /STATISTICS=COEFF R ANOVA CI(95) /DEPENDENT=spend /METHOD=ENTER age.\n\

@@ -34,6 +34,33 @@ fn reliability(source: &str) -> Reliability {
 }
 
 #[test]
+fn regression_outfile_covb_or_corb() {
+    let r = regression("REGRESSION /DEPENDENT=y /METHOD=ENTER a /OUTFILE COVB('c.sav').");
+    assert_eq!(
+        r.outfile,
+        Some(RegressionOutfile {
+            correlations: false,
+            target: "c.sav".into()
+        })
+    );
+    let r = regression("REGRESSION /DEPENDENT=y /METHOD=ENTER a /OUTFILE=CORB(corr).");
+    assert_eq!(
+        r.outfile,
+        Some(RegressionOutfile {
+            correlations: true,
+            target: "corr".into()
+        })
+    );
+    // the XML files are not written
+    assert!(
+        err("REGRESSION /DEPENDENT=y /METHOD=ENTER a /OUTFILE MODEL('m.xml').")
+            .expected
+            .iter()
+            .any(|e| e == "COVB")
+    );
+}
+
+#[test]
 fn regression_defaults_and_the_pasted_dialog_syntax() {
     let r = regression("REGRESSION /DEPENDENT=y /METHOD=ENTER a b.");
     assert_eq!(r.variables, None);

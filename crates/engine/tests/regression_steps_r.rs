@@ -518,3 +518,159 @@ fn blocks_backward_and_forward_selection_agree_with_r() {
     let summary = table(&t, "Model Summary");
     near(at(summary, 2, "", "R Square"), 0.665166733116, "R square");
 }
+
+/// OUTFILE writes the covariance (COVB) or correlation (CORB) matrix of the coefficients of the
+/// last equation (the constant first) with the estimates, standard errors, significances and
+/// degrees of freedom: R's `vcov`, `cov2cor` and the coefficient table of `lm`, with the
+/// constant and without it (ORIGIN).
+#[test]
+fn outfile_agrees_with_vcov_of_lm() {
+    use statscraft_data::Values;
+    let near_tol = |got: f64, want: f64, tolerance: f64, what: &str| {
+        assert!(
+            (got - want).abs() <= tolerance * want.abs().max(1e-12),
+            "{what}: {got} vs {want}"
+        );
+    };
+    let mut engine = Engine::default();
+    let go = |engine: &mut Engine, source: &str| {
+        let (commands, errors) = parse(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        for command in &commands {
+            engine.execute(&command.command).expect("runs");
+        }
+    };
+    go(
+        &mut engine,
+        &format!(
+            "{DATA}DATASET DECLARE covb.\nDATASET DECLARE corb.\nDATASET DECLARE origin.\n\
+             REGRESSION /DEPENDENT=y /METHOD=ENTER x1 x3 x5 /OUTFILE COVB(covb).\n\
+             REGRESSION /DEPENDENT=y /METHOD=ENTER x1 x3 x5 /OUTFILE CORB(corb).\n\
+             REGRESSION /ORIGIN /DEPENDENT=y /METHOD=ENTER x1 x3 /OUTFILE COVB(origin)."
+        ),
+    );
+    let read = |engine: &mut Engine, name: &str, columns: usize| -> (Vec<String>, Vec<Vec<f64>>) {
+        go(engine, &format!("DATASET ACTIVATE {name}."));
+        let data = engine.dataset().unwrap();
+        let kinds = match data.variable("ROWTYPE_").unwrap().values() {
+            Values::String(v) => (0..data.case_count())
+                .map(|k| v.get(k).trim_end().to_string())
+                .collect(),
+            Values::Numeric(_) => panic!("ROWTYPE_ is numeric"),
+        };
+        let values = (1..=columns)
+            .map(
+                |c| match data.variable(&format!("P{c}")).unwrap().values() {
+                    Values::Numeric(v) => (0..data.case_count())
+                        .map(|k| v.get(k).unwrap_or(f64::NAN))
+                        .collect(),
+                    Values::String(_) => panic!("P{c} is a string"),
+                },
+            )
+            .collect();
+        (kinds, values)
+    };
+    // the constant and three coefficients
+    let covariance = [
+        [
+            0.029289754327296,
+            -0.0025744209236872,
+            -0.002633471640886,
+            0.004370329122447,
+        ],
+        [
+            -0.002574420923687,
+            0.0338383785213051,
+            -0.003975992976671,
+            0.0004787966556614,
+        ],
+        [
+            -0.002633471640886,
+            -0.0039759929766705,
+            0.021467717789030,
+            -0.001515741886603,
+        ],
+        [
+            0.0043703291224474,
+            0.0004787966556614,
+            -0.001515741886603,
+            0.0217903061952888,
+        ],
+    ];
+    let (kinds, columns) = read(&mut engine, "covb", 4);
+    assert_eq!(
+        kinds,
+        ["COV", "COV", "COV", "COV", "EST", "SE", "SIG", "DF"]
+    );
+    for (i, row) in covariance.iter().enumerate() {
+        for (j, want) in row.iter().enumerate() {
+            near_tol(columns[j][i], *want, 1e-9, &format!("covariance {i} {j}"));
+        }
+    }
+    let estimate = [
+        1.7767646991190,
+        1.4151866190885,
+        0.9043422915404,
+        0.2007003711347,
+    ];
+    let error = [
+        0.1711424971399,
+        0.1839521093146,
+        0.1465186602076,
+        0.1476153995872,
+    ];
+    let significance = [
+        1.155603645809e-14,
+        2.476058609472e-10,
+        7.963719384171e-08,
+        0.1794007515237,
+    ];
+    for k in 0..4 {
+        near_tol(columns[k][4], estimate[k], 1e-9, "estimate");
+        near_tol(columns[k][5], error[k], 1e-9, "standard error");
+        near_tol(columns[k][6], significance[k], 1e-8, "significance");
+        near_tol(columns[k][7], 56.0, 1e-12, "degrees of freedom");
+    }
+    let (kinds, columns) = read(&mut engine, "corb", 4);
+    assert_eq!(kinds[..4], ["CORR"; 4]);
+    let correlation = [
+        [1.0, -0.08177431595481, -0.10502140950011, 0.1729914397797],
+        [-0.08177431595481, 1.0, -0.14751897893998, 0.01763253155284],
+        [-0.10502140950011, -0.14751897893998, 1.0, -0.07008105757241],
+        [0.1729914397797, 0.01763253155284, -0.07008105757241, 1.0],
+    ];
+    for (i, row) in correlation.iter().enumerate() {
+        for (j, want) in row.iter().enumerate() {
+            near_tol(columns[j][i], *want, 1e-9, &format!("correlation {i} {j}"));
+        }
+    }
+    // through the origin: two coefficients, no constant, 58 degrees of freedom
+    let (kinds, columns) = read(&mut engine, "origin", 2);
+    assert_eq!(kinds, ["COV", "COV", "EST", "SE", "SIG", "DF"]);
+    near_tol(columns[0][0], 0.09492861525803, 1e-9, "variance of x1");
+    near_tol(columns[1][0], -0.01176575792004, 1e-9, "covariance");
+    near_tol(columns[1][1], 0.05985554945061, 1e-9, "variance of x3");
+    near_tol(columns[0][2], 1.573984682742, 1e-9, "estimate");
+    near_tol(columns[1][3], 0.2446539381465, 1e-9, "standard error");
+    near_tol(columns[1][4], 5.869083754462e-05, 1e-8, "significance");
+    near_tol(columns[0][5], 58.0, 1e-12, "degrees of freedom");
+}
+
+#[test]
+fn outfile_is_for_one_dependent_and_not_with_matrix_out() {
+    let run_error = |tail: &str| {
+        let (commands, errors) = parse(&format!("{DATA}DATASET DECLARE c.\n{tail}"));
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut engine = Engine::default();
+        commands
+            .iter()
+            .find_map(|c| engine.execute(&c.command).err())
+            .expect("an error")
+            .0
+    };
+    let message = run_error("REGRESSION /DEPENDENT=y x6 /METHOD=ENTER x1 /OUTFILE COVB(c).");
+    assert!(message.contains("one dependent variable"), "{message}");
+    let message =
+        run_error("REGRESSION MATRIX=OUT(c) /DEPENDENT=y /METHOD=ENTER x1 /OUTFILE COVB('d.sav').");
+    assert!(message.contains("MATRIX=OUT"), "{message}");
+}

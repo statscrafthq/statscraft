@@ -55,6 +55,7 @@ pub struct Regression {
     pub partial: Option<Vec<VarItem>>,
     /// `/TEMPLATE` was given; it styles charts and is ignored.
     pub template: bool,
+    pub outfile: Option<RegressionOutfile>,
     /// `/SELECT=var relation value`: only the cases where it holds go into the correlation
     /// matrix and the tests; the others are still given residuals and predicted values.
     pub select: Option<RegressionSelect>,
@@ -67,6 +68,15 @@ pub struct Regression {
 pub enum PlotVariable {
     Temp(TempVar),
     Variable(String),
+}
+
+/// `/OUTFILE`: the covariance (COVB) or correlation (CORB) matrix of the coefficients of the
+/// last equation, with the estimates, standard errors, significances and degrees of freedom,
+/// into a file or dataset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegressionOutfile {
+    pub correlations: bool,
+    pub target: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -959,6 +969,7 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
         scatterplots: Vec::new(),
         partial: None,
         template: false,
+        outfile: None,
         select: None,
         matrix: MatrixIo::default(),
     };
@@ -1078,8 +1089,30 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
             }
             p.pos += 1;
             matrix_io(p, &mut command.matrix, "REGRESSION", false, false)?;
+        } else if p.eat_keyword("OUTFILE") {
+            p.eat(Punct::Eq);
+            let correlations = if p.eat_keyword("COVB") {
+                false
+            } else if p.eat_keyword("CORB") {
+                true
+            } else {
+                return Err(p.unexpected(&["COVB", "CORB"]));
+            };
+            // COVB('file') as the manual writes it, or COVB=file
+            let target = if p.eat(Punct::LParen) {
+                let target = crate::files::dataset_or_file(p)?;
+                p.expect(Punct::RParen)?;
+                target
+            } else {
+                p.eat(Punct::Eq);
+                crate::files::dataset_or_file(p)?
+            };
+            command.outfile = Some(RegressionOutfile {
+                correlations,
+                target,
+            });
         } else {
-            return Err(p.subcommand_error("REGRESSION", &["OUTFILE"]));
+            return Err(p.subcommand_error("REGRESSION", &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

@@ -1333,6 +1333,10 @@ impl Engine {
                 return Ok(tables);
             }
             Command::Tsmodel(_) | Command::Tsapply(_) => return self.with_current_names(command),
+            Command::Regression(c) if c.outfile.is_some() && c.matrix.output.is_none() => {
+                let target = Some(c.outfile.clone().expect("checked").target);
+                return self.procedure_with_matrix_out(command, &target);
+            }
             Command::Regression(c) if c.matrix.output.is_some() => {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);

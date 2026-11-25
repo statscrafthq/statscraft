@@ -17,7 +17,8 @@ REGRESSION [MATRIX=[IN(file | dataset | *)] [OUT(file | dataset | *)]]
            FORWARD [varlist] | BACKWARD [varlist] | TEST(varlist)(varlist)... [/METHOD=...]
            [/RESIDUALS=[DEFAULTS DURBIN OUTLIERS(tempvars) ID(var) HISTOGRAM NORMPROB]]
            [/CASEWISE=[DEFAULTS OUTLIERS(3) | ALL PLOT(tempvar) DEPENDENT tempvars]]
-           [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT=(y, x) ...] [/PARTIALPLOT=[ALL | varlist]].
+           [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT=(y, x) ...] [/PARTIALPLOT=[ALL | varlist]]
+           [/OUTFILE=COVB('file' | dataset) | CORB('file' | dataset)].
 ```
 
 tempvar: PRED RESID ZPRED ZRESID SRESID DRESID SDRESID ADJPRED SEPRED MAHAL COOK LEVER DFBETA SDBETA DFFIT SDFIT COVRATIO MCIN ICIN. One equation per dependent; each METHOD works on the equation the ones before it left, and each step is a model. ENTER takes the variables in order of tolerance; STEPWISE removes the weakest variable while its F-to-remove fails POUT, then enters the strongest that passes PIN; FORWARD only enters, BACKWARD only removes (entering its list first when the equation is empty). A variable enters only when it and the variables in the equation keep the TOLERANCE. Without keywords STATISTICS is R ANOVA COEFF OUTS and DESCRIPTIVES is MEAN STDDEV CORR.
@@ -31,6 +32,8 @@ PARTIALPLOT plots, for each independent (or those listed), the dependent's resid
 SELECT makes the correlation matrix, the equation and its tests from the cases where the condition holds (a missing value on the variable leaves the case out; the variable is not on VARIABLES, DEPENDENT or METHOD, and its value is quoted for a string variable). The other cases still get predictions, residuals, leverage, Mahalanobis and Cook's distance; the residual statistics, the outlier lists and the plots are of the selected and the unselected cases apart (SEPARATE, the default) or of all of them (POOLED), Casewise Diagnostics list both with a Selected Status, and SAVE fills every case.
 
 MATRIX must come first. OUT writes the records MEAN, STDDEV, N (one record, or a record per variable when pairwise counts differ) and CORR (OCORR with ORIGIN) of every variable on VARIABLES, per split group; \* puts them in the active dataset. IN gives the equation from such records, which have no cases: SAVE, RESIDUALS, CASEWISE, the plots, SELECT and REGWGT are errors then.
+
+OUTFILE (one dependent variable, not with MATRIX=OUT) writes a .sav file or a dataset made with DATASET DECLARE for the last equation: COVB the covariance matrix of the coefficients, CORB their correlation matrix, as RowType\_ (COV or CORR), VarName\_ and a column P1, P2, ... for the constant (first, unless ORIGIN) and each independent in the order of the Coefficients table, with a record per coefficient and then the records EST, SE, SIG (the significance of t) and DF (the residual degrees of freedom), named by the dependent variable, per split group.
 
 ## Example
 

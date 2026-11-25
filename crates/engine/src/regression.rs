@@ -1026,6 +1026,12 @@ impl Engine {
             out.matrix(if command.origin { "OCORR" } else { "CORR" }, &mo.corr);
             out
         });
+        if command.outfile.is_some() && command.matrix.output.is_some() {
+            return Err(Error(
+                "REGRESSION: OUTFILE and MATRIX=OUT cannot be used together".into(),
+            ));
+        }
+        let mut outfile: Option<MatrixRows> = None;
         let mut tables = Vec::new();
         if let Some(d) = command.descriptives {
             // the descriptive statistics use the cases valid on each variable unless LISTWISE
@@ -1147,6 +1153,14 @@ impl Engine {
                 .as_ref()
                 .and_then(|rows| durbin_watson(rows, &c, &g, &in_fit));
             tables.extend(equation_tables(command, &eq, &models, &fits, &criteria, dw));
+            if let Some(out) = &command.outfile {
+                if outfile.is_some() {
+                    return Err(Error(
+                        "REGRESSION: OUTFILE is for one dependent variable".into(),
+                    ));
+                }
+                outfile = Some(outfile_matrix(&eq, last, out.correlations));
+            }
             pool.extend(pool_items(&eq, &fits));
             if let Some(rows) = rows {
                 if charted {
@@ -1215,7 +1229,7 @@ impl Engine {
         for warning in warnings {
             self.warn(warning);
         }
-        if let Some(out) = matrix_out {
+        if let Some(out) = matrix_out.or(outfile) {
             let part = self.matrix_part("REGRESSION", &out)?;
             self.matrix_parts.1.push(part);
         }
@@ -1917,6 +1931,79 @@ struct PerCase {
     /// The names of the coefficients, the constant ("Intercept") first, for DFBETA and SDBETA.
     coefficients: Vec<String>,
     rows: Vec<Option<CaseValues>>,
+}
+
+/// OUTFILE: a COV (or CORR) record for each coefficient of the equation (the constant first),
+/// then the records EST, SE, SIG and DF. The covariance of the coefficients of the standardized
+/// equation is (1 - R square) / df times the inverse of the correlations of the independents; it
+/// is scaled to the unstandardized ones, and the constant b0 = mean y - sum b_j mean x_j follows.
+fn outfile_matrix(eq: &Equation, f: &Fit, correlations: bool) -> MatrixRows {
+    let y = eq.y();
+    let m = &f.swept;
+    let offset = usize::from(f.constant.is_some());
+    let size = offset + f.b.len();
+    let mut cov = vec![vec![0.0; size]; size];
+    for (a, &(ja, ..)) in f.b.iter().enumerate() {
+        for (b, &(jb, ..)) in f.b.iter().enumerate() {
+            let standardized = m[y][y] / f.df_res * m[ja][jb];
+            let scale = (eq.var[y] / eq.var[ja]).sqrt() * (eq.var[y] / eq.var[jb]).sqrt();
+            cov[offset + a][offset + b] = standardized * scale;
+        }
+    }
+    if let Some((_, se0)) = f.constant {
+        cov[0][0] = se0 * se0;
+        for b in 0..f.b.len() {
+            let c: f64 =
+                f.b.iter()
+                    .enumerate()
+                    .map(|(a, &(ja, ..))| -eq.mean[ja] * cov[offset + a][offset + b])
+                    .sum();
+            cov[0][offset + b] = c;
+            cov[offset + b][0] = c;
+        }
+    }
+    let mut names: Vec<String> = Vec::new();
+    let mut estimates: Vec<f64> = Vec::new();
+    let mut errors: Vec<f64> = Vec::new();
+    if let Some((b0, se0)) = f.constant {
+        names.push("(Constant)".into());
+        estimates.push(b0);
+        errors.push(se0);
+    }
+    for &(j, b, se) in &f.b {
+        names.push(eq.texts[j].clone());
+        estimates.push(b);
+        errors.push(se);
+    }
+    let columns = (1..=size).map(|k| format!("P{k}")).collect();
+    let labels = names.iter().cloned().map(Some).collect();
+    let mut out = MatrixRows::new(columns, labels);
+    for i in 0..size {
+        let row = (0..size)
+            .map(|j| {
+                if correlations {
+                    cov[i][j] / (cov[i][i] * cov[j][j]).sqrt()
+                } else {
+                    cov[i][j]
+                }
+            })
+            .collect();
+        out.push(if correlations { "CORR" } else { "COV" }, &names[i], row);
+    }
+    let dependent = &eq.texts[y];
+    out.push("EST", dependent, estimates.clone());
+    out.push("SE", dependent, errors.clone());
+    out.push(
+        "SIG",
+        dependent,
+        estimates
+            .iter()
+            .zip(&errors)
+            .map(|(b, se)| t_p(b / se, f.df_res))
+            .collect(),
+    );
+    out.push("DF", dependent, vec![f.df_res; size]);
+    out
 }
 
 fn coefficient_names(eq: &Equation, fit: &Fit) -> Vec<String> {

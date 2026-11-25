@@ -396,8 +396,8 @@ pub use quantile_regression::{QrMethod, QrSave, QuantileRegression};
 pub use ratio_statistics::{RatioOrder, RatioRequest, RatioStatistics};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,
-    RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionResiduals,
-    RegressionSelect, RegressionStatistics, SelectValue, TempVar,
+    RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionOutfile,
+    RegressionResiduals, RegressionSelect, RegressionStatistics, SelectValue, TempVar,
 };
 pub use regression_more::{
     CURVE_MODELS, CurveGiven, CurveModel, Curvefit, NaturalResponse, Probit, Wls,
