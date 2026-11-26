@@ -147,7 +147,7 @@ impl Quant {
 /// One step of the history: the fit, the loss of the centroids and the further loss of
 /// confining single variables to a vector.
 #[derive(Debug, Clone, Copy)]
-struct Step {
+pub(crate) struct Step {
     fit: f64,
     multiple_loss: f64,
     single_loss: f64,
@@ -453,6 +453,94 @@ fn fit_supplementary(v: &AVar, q: &mut Quant, x: &Matrix, w: &[f64], n_w: f64) {
 }
 
 /// A table with a row header column and numeric cells.
+/// Fits a bootstrap sample from the numeric start and summarizes it; None when it fails.
+pub(crate) fn fit_quants_for_sample(
+    engine: &Engine,
+    command: &Catpca,
+    prep: &Prepared,
+    p: usize,
+) -> Option<Solution> {
+    let mut quants: Vec<Quant> = prep
+        .avars
+        .iter()
+        .map(|v| Quant::new(v, command.analysis[v.list].1.level, prep.n_w))
+        .collect();
+    let (_, _, converged) = engine
+        .fit_quants(command, prep, &mut quants, p, &None)
+        .ok()?;
+    Some(summarize(command, prep, &quants, p, converged))
+}
+
+/// What the bootstrap compares between solutions.
+pub(crate) struct Solution {
+    pub(crate) eigen: Vec<f64>,
+    /// Per analysis variable the loadings as the Component Loadings table shows them (single
+    /// levels), else empty.
+    pub(crate) loadings: Vec<Vec<f64>>,
+    /// Per analysis variable the value of each of its categories (single levels), else empty.
+    pub(crate) values: Vec<Vec<f64>>,
+    pub(crate) converged: bool,
+}
+
+/// The eigenvalue of every dimension: the variance the active variables account for in it.
+pub(crate) fn eigen_values(prep: &Prepared, quants: &[Quant], p: usize) -> Vec<f64> {
+    (0..p)
+        .map(|s| {
+            prep.active_vars
+                .iter()
+                .map(|&j| {
+                    let (v, q) = (&prep.avars[j], &quants[j]);
+                    match q.single() {
+                        true => v.weight * q.a[s] * q.a[s],
+                        false => v.weight * centroid_fit(v, q, prep.n_w, p)[s],
+                    }
+                })
+                .sum()
+        })
+        .collect()
+}
+
+/// The eigenvalues, loadings and category values of a fitted solution.
+pub(crate) fn summarize(
+    command: &Catpca,
+    prep: &Prepared,
+    quants: &[Quant],
+    p: usize,
+    converged: bool,
+) -> Solution {
+    let eigen = eigen_values(prep, quants, p);
+    // the power of the root of each eigenvalue that scales the loadings, as in the tables
+    let b_pow = match command.common.normalization {
+        McaNormalization::Independent => 1.0,
+        McaNormalization::Q(q) => (1.0 - q) / 2.0,
+    };
+    let factor: Vec<f64> = eigen
+        .iter()
+        .map(|e| match b_pow == 1.0 {
+            true => 1.0,
+            false => e.max(0.0).sqrt().powf(b_pow - 1.0),
+        })
+        .collect();
+    Solution {
+        eigen,
+        loadings: quants
+            .iter()
+            .map(|q| match q.single() {
+                true => q.a.iter().zip(&factor).map(|(a, f)| a * f).collect(),
+                false => Vec::new(),
+            })
+            .collect(),
+        values: quants
+            .iter()
+            .map(|q| match q.single() {
+                true => q.y.clone(),
+                false => Vec::new(),
+            })
+            .collect(),
+        converged,
+    }
+}
+
 fn grid(title: impl Into<String>, columns: Vec<String>, rows: Vec<Vec<Cell>>) -> Table {
     Table {
         title: title.into(),
@@ -484,79 +572,25 @@ fn mat_vec(row: &[f64], m: &Matrix) -> Vec<f64> {
 }
 
 impl Engine {
-    pub(crate) fn catpca(&mut self, command: &Catpca) -> Result<Vec<Table>, Error> {
-        if command.resample.is_some() {
-            return Err(Error(format!(
-                "{WHO}: RESAMPLE=BOOTSTRAP is not supported yet; leave out RESAMPLE for the analysis without confidence regions"
-            )));
-        }
-        let lists: Vec<(&[VarItem], f64)> = command
-            .analysis
-            .iter()
-            .map(|(items, spec)| (items.as_slice(), spec.weight))
-            .collect();
-        let prep = self.prepare_scaling(WHO, &command.common, &lists)?;
-        let mut warnings = prep.warnings.clone();
-        for keyword in &command.ellipses {
-            warnings.push(format!(
-                "{WHO}: {keyword} needs bootstrap confidence regions, which RESAMPLE gives; it is ignored"
-            ));
-        }
-        let fixed = prep.fixed;
-        let (avars, coded) = (&prep.avars, &prep.coded);
-        let (w, n_w, m_w) = (&prep.w, prep.n_w, prep.m_w);
-        let n = prep.active.len();
-
-        // the quantification of every variable, at its numeric start
-        let mut quants: Vec<Quant> = avars
-            .iter()
-            .map(|v| Quant::new(v, command.analysis[v.list].1.level, n_w))
-            .collect();
+    /// The fit: alternating least squares from the start to convergence, then the principal axes
+    /// and the reflection rule. Returns the object scores, the steps and whether it converged.
+    pub(crate) fn fit_quants(
+        &self,
+        command: &Catpca,
+        prep: &Prepared,
+        quants: &mut [Quant],
+        p: usize,
+        configuration: &Option<(bool, String)>,
+    ) -> Result<(Matrix, Vec<Step>, bool), Error> {
+        let (avars, w, n_w, fixed) = (&prep.avars, &prep.w, prep.n_w, prep.fixed);
         let is_single: Vec<bool> = quants.iter().map(Quant::single).collect();
         let single = |j: usize| is_single[j];
-
-        // dimensions
-        let mut p = command.common.dimension;
-        if !fixed {
-            let act = &prep.active_vars;
-            let m2 = act.iter().filter(|&&j| single(j)).count();
-            let multiple: Vec<usize> = act.iter().copied().filter(|&j| !single(j)).collect();
-            let pmax = match multiple.is_empty() {
-                true => m2,
-                false => {
-                    let k: usize = multiple.iter().map(|&j| avars[j].cats.len()).sum();
-                    let complete = multiple
-                        .iter()
-                        .filter(|&&j| avars[j].h.iter().all(Option::is_some))
-                        .count();
-                    let less = match complete < multiple.len() {
-                        true => complete.max(1),
-                        false => multiple.len(),
-                    };
-                    (k + m2).saturating_sub(less)
-                }
-            }
-            .min(n - 1);
-            if pmax < 1 {
-                return Err(Error(format!(
-                    "{WHO}: the data leave no dimension to compute"
-                )));
-            }
-            if p > pmax {
-                warnings.push(format!(
-                    "{WHO}: DIMENSION is {p}, but these data allow at most {pmax}; {pmax} are computed"
-                ));
-                p = pmax;
-            }
-        }
-
-        // the fit
         let basis: Vec<Option<Vec<f64>>> = prep
             .active_vars
             .iter()
             .map(|&j| single(j).then(|| quants[j].y.clone()))
             .collect();
-        let mut x = prep.start(self, WHO, &command.common.configuration, &basis, p)?;
+        let mut x = prep.start(self, WHO, configuration, &basis, p)?;
         let mut history: Vec<Step> = Vec::new();
         let mut converged = true;
         if !fixed {
@@ -575,12 +609,12 @@ impl Engine {
                     })
                     .collect();
             }
-            quantify_active(&prep, &mut quants, &x, true);
-            let mut first = vec![step(&prep, &quants, p)];
+            quantify_active(prep, quants, &x, true);
+            let mut first = vec![step(prep, quants, p)];
             let max = command.common.max_iterations;
             iterate(
-                &prep,
-                &mut quants,
+                prep,
+                quants,
                 &mut x,
                 true,
                 max,
@@ -589,8 +623,8 @@ impl Engine {
             );
             history.push(*first.last().expect("a first step"));
             converged = iterate(
-                &prep,
-                &mut quants,
+                prep,
+                quants,
                 &mut x,
                 false,
                 max,
@@ -666,8 +700,85 @@ impl Engine {
                     }
                 }
             }
-            quantify_active(&prep, &mut quants, &x, false);
+            quantify_active(prep, quants, &x, false);
         }
+        Ok((x, history, converged))
+    }
+
+    pub(crate) fn catpca(&mut self, command: &Catpca) -> Result<Vec<Table>, Error> {
+        if command.resample.is_some() && matches!(command.common.configuration, Some((true, _))) {
+            return Err(Error(format!(
+                "{WHO}: RESAMPLE=BOOTSTRAP cannot be used with a FIXED configuration"
+            )));
+        }
+        let lists: Vec<(&[VarItem], f64)> = command
+            .analysis
+            .iter()
+            .map(|(items, spec)| (items.as_slice(), spec.weight))
+            .collect();
+        let prep = self.prepare_scaling(WHO, &command.common, &lists)?;
+        let mut warnings = prep.warnings.clone();
+        for keyword in &command.ellipses {
+            warnings.push(format!(
+                "{WHO}: {keyword} draws confidence ellipses, which are not drawn yet; it is ignored"
+            ));
+        }
+        let fixed = prep.fixed;
+        let (avars, coded) = (&prep.avars, &prep.coded);
+        let (w, n_w, m_w) = (&prep.w, prep.n_w, prep.m_w);
+        let n = prep.active.len();
+
+        // the quantification of every variable, at its numeric start
+        let mut quants: Vec<Quant> = avars
+            .iter()
+            .map(|v| Quant::new(v, command.analysis[v.list].1.level, n_w))
+            .collect();
+        let is_single: Vec<bool> = quants.iter().map(Quant::single).collect();
+        let single = |j: usize| is_single[j];
+
+        // dimensions
+        let mut p = command.common.dimension;
+        if !fixed {
+            let act = &prep.active_vars;
+            let m2 = act.iter().filter(|&&j| single(j)).count();
+            let multiple: Vec<usize> = act.iter().copied().filter(|&j| !single(j)).collect();
+            let pmax = match multiple.is_empty() {
+                true => m2,
+                false => {
+                    let k: usize = multiple.iter().map(|&j| avars[j].cats.len()).sum();
+                    let complete = multiple
+                        .iter()
+                        .filter(|&&j| avars[j].h.iter().all(Option::is_some))
+                        .count();
+                    let less = match complete < multiple.len() {
+                        true => complete.max(1),
+                        false => multiple.len(),
+                    };
+                    (k + m2).saturating_sub(less)
+                }
+            }
+            .min(n - 1);
+            if pmax < 1 {
+                return Err(Error(format!(
+                    "{WHO}: the data leave no dimension to compute"
+                )));
+            }
+            if p > pmax {
+                warnings.push(format!(
+                    "{WHO}: DIMENSION is {p}, but these data allow at most {pmax}; {pmax} are computed"
+                ));
+                p = pmax;
+            }
+        }
+
+        // the fit
+        let (x, history, converged) = self.fit_quants(
+            command,
+            &prep,
+            &mut quants,
+            p,
+            &command.common.configuration,
+        )?;
         if !converged {
             warnings.push(format!(
                 "{WHO}: the fit did not converge within {} iterations",
@@ -699,17 +810,7 @@ impl Engine {
                     .then(|| q.a.iter().map(|a| v.weight * a * a).collect())
             })
             .collect();
-        let eigen: Vec<f64> = (0..p)
-            .map(|s| {
-                prep.active_vars
-                    .iter()
-                    .map(|&j| match &vaf_vector[j] {
-                        Some(vec) => vec[s],
-                        None => vaf_centroid[j][s],
-                    })
-                    .sum()
-            })
-            .collect();
+        let eigen = eigen_values(&prep, &quants, p);
         let total_eigen: f64 = prep
             .active_vars
             .iter()
@@ -1340,6 +1441,11 @@ impl Engine {
             }
         }
 
+        if let Some(spec) = &command.resample {
+            let original = summarize(command, &prep, &quants, p, converged);
+            let more = self.catpca_bootstrap(command, spec, &prep, &original, p, &mut warnings)?;
+            tables.extend(more);
+        }
         // charts
         let data = self.active()?;
         let mut charts = Vec::new();

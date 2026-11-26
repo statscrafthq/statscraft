@@ -615,15 +615,172 @@ fn charts_projected_centroids_warnings_and_errors() {
     assert!(engine.warnings().iter().any(|w| w.contains("LDELLAREA")));
     assert!(
         run_error(&format!(
-            "{DATA}CATPCA taste price /ANALYSIS=taste price /RESAMPLE=BOOTSTRAP."
-        ))
-        .contains("not supported")
-    );
-    assert!(
-        run_error(&format!(
             "{DATA}CATPCA taste area /ANALYSIS=taste area (LEVEL=MNOM) /PLOT=PROJCENTR(taste, area)."
         ))
         .contains("multiple nominal")
     );
     assert!(run_error(&format!("{DATA}CATPCA taste /ANALYSIS=taste.")).contains("two variables"));
+}
+
+/// The numbers of row `row` of a bootstrap table, after its label columns.
+fn numbers_of(tables: &[Table], title: &str, row: usize, labels: usize) -> Vec<Option<f64>> {
+    table(tables, title).rows[row][labels..]
+        .iter()
+        .map(|c| match c {
+            Cell::Number(x) => Some(*x),
+            _ => None,
+        })
+        .collect()
+}
+
+const BOOT_COMMAND: &str =
+    "CATPCA taste price service noise /ANALYSIS=taste price service noise (LEVEL=NUME)
+     /PRINT=LOADING";
+
+#[test]
+fn bootstrap_tables_hold_the_data_and_intervals_around_it() {
+    let t = tables(&format!(
+        "SET SEED=11.\n{BOOT_COMMAND} /RESAMPLE=BOOTSTRAP(60, 90, UNBALANCED, REFLEC)."
+    ));
+    // the eigenvalues of the data come first, the intervals have the asked percent in the header
+    let eigen = table(&t, "Bootstrap Eigenvalues");
+    assert_eq!(eigen.rows.len(), 2);
+    assert_eq!(
+        eigen.column_titles(),
+        [
+            "Dimension",
+            "Data",
+            "Mean",
+            "Std. Deviation",
+            "90% Percentile Interval / Lower",
+            "90% Percentile Interval / Upper"
+        ]
+    );
+    let first = numbers_of(&t, "Bootstrap Eigenvalues", 0, 1);
+    let Cell::Number(model_eigen) = table(&t, "Model Summary").rows[0][2] else {
+        panic!("no eigenvalue")
+    };
+    assert!((model_eigen - first[0].unwrap()).abs() < 1e-9);
+    let (lower, upper) = (first[3].unwrap(), first[4].unwrap());
+    assert!(
+        lower < upper && lower > 2.0 && upper < 4.0,
+        "{lower} {upper}"
+    );
+    // the loadings of the data are those of the Component Loadings table
+    let loadings = table(&t, "Bootstrap Component Loadings");
+    assert_eq!(loadings.rows.len(), 8, "four variables in two dimensions");
+    for (v, name) in VARS.iter().enumerate() {
+        for s in 0..2 {
+            let row = numbers_of(&t, "Bootstrap Component Loadings", v * 2 + s, 2);
+            let shown = value(&t, "Component Loadings", name, [D1, D2][s]);
+            assert!((row[0].unwrap() - shown).abs() < 1e-9, "{name} {s}");
+            assert!(row[3].unwrap() <= row[4].unwrap());
+        }
+    }
+    // a category value: counted in at most the 60 samples
+    let q = table(&t, "Bootstrap Quantifications");
+    assert_eq!(
+        q.rows.len(),
+        19,
+        "the categories of the four variables (noise has four)"
+    );
+    for row in &q.rows {
+        let Cell::Number(count) = row[row.len() - 1] else {
+            panic!("no count")
+        };
+        assert!((1.0..=60.0).contains(&count));
+    }
+    assert!(
+        table(&t, "Bootstrap Eigenvalues")
+            .caption
+            .as_deref()
+            .unwrap()
+            .contains("60 bootstrap samples")
+    );
+}
+
+#[test]
+fn bootstrap_is_repeatable_under_a_seed_and_differs_without_it() {
+    let command = format!("{BOOT_COMMAND} /RESAMPLE=BOOTSTRAP(30).");
+    let run_with = |seed: u32| {
+        let t = tables(&format!("SET SEED={seed}.\n{command}"));
+        numbers_of(&t, "Bootstrap Component Loadings", 0, 2)
+    };
+    assert_eq!(run_with(5), run_with(5));
+    assert_ne!(run_with(5), run_with(6));
+    // unbalanced samples are another set of samples
+    let balanced = tables(&format!("SET SEED=5.\n{command}"));
+    let unbalanced = tables(&format!(
+        "SET SEED=5.\n{BOOT_COMMAND} /RESAMPLE=BOOTSTRAP(30, UNBALANCED)."
+    ));
+    assert_ne!(
+        numbers_of(&balanced, "Bootstrap Component Loadings", 0, 2),
+        numbers_of(&unbalanced, "Bootstrap Component Loadings", 0, 2)
+    );
+}
+
+/// Four variables that are one factor with a little noise: the solution hardly moves under
+/// resampling, so the intervals are narrow and lie around the data's loadings.
+#[test]
+fn bootstrap_intervals_are_narrow_for_nearly_noiseless_data() {
+    let mut rows = String::new();
+    for i in 0..40 {
+        let f = f64::from(i) / 4.0;
+        let noise = |k: u32| 0.002 * f64::from((i * 7 + k * 13) % 11) - 0.01;
+        rows += &format!(
+            "{:.4} {:.4} {:.4} {:.4}\n",
+            f + noise(1),
+            2.0 * f + 1.0 + noise(2),
+            -1.5 * f + noise(3),
+            0.5 * f + 3.0 + noise(4)
+        );
+    }
+    let data = format!("DATA LIST FREE / a b c d.\nBEGIN DATA\n{rows}END DATA.\n");
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{data}SET SEED=3.\nCATPCA a b c d /ANALYSIS=a b c d (LEVEL=NUME) /DIMENSION=1 /PRINT=LOADING
+             /RESAMPLE=BOOTSTRAP(80, 95, BALANCED, PROCRU)."
+        ),
+    );
+    let eigen = numbers_of(&t, "Bootstrap Eigenvalues", 0, 1);
+    assert!(eigen[0].unwrap() > 3.99);
+    assert!(eigen[4].unwrap() - eigen[3].unwrap() < 0.02, "{eigen:?}");
+    for v in 0..4 {
+        let row = numbers_of(&t, "Bootstrap Component Loadings", v, 2);
+        let (data_value, mean, lower, upper) = (
+            row[0].unwrap(),
+            row[1].unwrap(),
+            row[3].unwrap(),
+            row[4].unwrap(),
+        );
+        assert!(upper - lower < 0.01, "variable {v}: {lower} {upper}");
+        assert!((mean - data_value).abs() < 0.005, "variable {v}");
+        // the loading of a and c have opposite signs (c falls as a rises)
+        assert!(data_value.abs() > 0.99);
+    }
+    let sign = |v: usize| {
+        numbers_of(&t, "Bootstrap Component Loadings", v, 2)[0]
+            .unwrap()
+            .signum()
+    };
+    assert_ne!(sign(0), sign(2));
+}
+
+#[test]
+fn bootstrap_refusals() {
+    assert!(
+        run_error(&format!(
+            "{DATA}CATPCA taste area /ANALYSIS=taste area (LEVEL=MNOM) /RESAMPLE=BOOTSTRAP(5)."
+        ))
+        .contains("not multiple nominal")
+    );
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!("{DATA}SET SEED=2.\n{BOOT_COMMAND} /RESAMPLE=BOOTSTRAP(8) /PLOT=LDELLAREA."),
+    );
+    assert!(titles(&t).contains(&"Bootstrap Eigenvalues"));
+    assert!(engine.warnings().iter().any(|w| w.contains("LDELLAREA")));
 }

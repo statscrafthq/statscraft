@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [CATPCA](docs/commands/catpca.md) `/RESAMPLE=BOOTSTRAP` analyses balanced or unbalanced bootstrap samples of the cases, turns each solution to the data's by a Procrustes rotation or reflection, and gives percentile intervals for the eigenvalues, the component loadings and the category values in three tables.
+
 ## 0.52.0 (2026-11-26)
 
 ALSCAL scales asymmetric and rectangular data with all its models, PLS saves its datasets under SPLIT FILE, and TWOSTEP CLUSTER updates a saved model.

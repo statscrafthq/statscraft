@@ -4515,6 +4515,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20[/MAXITER=100 | n] [/CRITITER=.00001 | value]\n\
                  \x20\x20\x20[/ROTATION=[NOROTATE | VARIMAX | EQUAMAX | QUARTIMAX | PROMAX[(4 | kappa)] | OBLIMIN[(0 | delta)]]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[KAISER | NOKAISER]]\n\
+                 \x20\x20\x20[/RESAMPLE=NONE | BOOTSTRAP[(samples=1000, percent=95, BALANCED | UNBALANCED, PROCRU | REFLEC)]]\n\
                  \x20\x20\x20[/PRINT=[DESCRIP[(varlist)]] [LOADING[(SORT | NOSORT)]] [CORR] [VAF] [OCORR] [QUANT[(varlist)]]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[HISTORY] [OBJECT[([(labelvar)] varlist)]] [NONE]]\n\
                  \x20\x20\x20[/PLOT=[OBJECT[(varlist)][(len)]] [LOADING[(varlist [(CENTR[(varlist)])])][(len)]]\n\
@@ -4547,6 +4548,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  them evenly, and a number q from -1 to 1 lies between. INDEPENDENT scales the scores only. ROTATION\n\
                  turns the loadings of the variables that have them, and the scores and centroids with them, with\n\
                  Kaiser normalization unless NOKAISER.\n\
+                 RESAMPLE=BOOTSTRAP shows how stable the solution is: it analyses that many samples of the cases\n\
+                 drawn with replacement (BALANCED gives every case exactly as many appearances as there are samples;\n\
+                 UNBALANCED draws each case freely, from the generator SET SEED seeds), turns each sample's component\n\
+                 loadings to those of the data (PROCRU by the closest rotation, REFLEC by reflecting dimensions) and\n\
+                 gives, for the eigenvalues, the loadings and the category values of the variables that have a single\n\
+                 value, the value of the data, the mean and standard deviation of the samples and the percentile\n\
+                 interval at the percent: tables Bootstrap Eigenvalues, Bootstrap Component Loadings and Bootstrap\n\
+                 Quantifications. It cannot be combined with ROTATION or a FIXED configuration, and at least one\n\
+                 active variable must not be MNOM. Samples that cannot be analysed are left out and counted.\n\
                  Always shown: Case Processing Summary, Iteration History (iteration 0 and the last, or all with\n\
                  HISTORY) and Model Summary (Cronbach's alpha, eigenvalue and percent of variance per dimension and\n\
                  in total). PRINT adds: DESCRIP frequencies, missing count and mode; QUANT each variable's\n\

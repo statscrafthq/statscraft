@@ -12,6 +12,7 @@ mod autorecode;
 mod bayes;
 mod bootstrap;
 mod catpca;
+mod catpca_bootstrap;
 mod catreg;
 pub mod chart;
 mod chart_input;

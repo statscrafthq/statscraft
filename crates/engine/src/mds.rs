@@ -753,7 +753,7 @@ pub(crate) fn torgerson(problem: &Problem, dhat: &[Matrix], p: usize) -> Matrix 
 }
 
 /// The polar factor M (M'M)^-1/2 of an n x p matrix.
-fn polar(m: &Matrix) -> Matrix {
+pub(crate) fn polar(m: &Matrix) -> Matrix {
     let mtm = multiply(&transpose(m), m);
     let eigen = symmetric_eigen(&mtm);
     let p = mtm.len();

@@ -20,6 +20,7 @@ CATPCA [/VARIABLES=] varlist
    [/MAXITER=100 | n] [/CRITITER=.00001 | value]
    [/ROTATION=[NOROTATE | VARIMAX | EQUAMAX | QUARTIMAX | PROMAX[(4 | kappa)] | OBLIMIN[(0 | delta)]]
               [KAISER | NOKAISER]]
+   [/RESAMPLE=NONE | BOOTSTRAP[(samples=1000, percent=95, BALANCED | UNBALANCED, PROCRU | REFLEC)]]
    [/PRINT=[DESCRIP[(varlist)]] [LOADING[(SORT | NOSORT)]] [CORR] [VAF] [OCORR] [QUANT[(varlist)]]
           [HISTORY] [OBJECT[([(labelvar)] varlist)]] [NONE]]
    [/PLOT=[OBJECT[(varlist)][(len)]] [LOADING[(varlist [(CENTR[(varlist)])])][(len)]]
@@ -39,6 +40,8 @@ LEVEL says what the values must respect. NUME keeps equal steps between codes (a
 The fit starts from the numeric solution (iteration 0) and iterates until the variance accounted for gains less than CRITITER, at most MAXITER times. An extra category from ACTIVE EXTRACAT is free of the level's restriction after iteration 0. The components come out on principal axes, each signed so that its positive loadings have the larger mean square. Supplementary variables are fitted to the final scores.
 
 NORMALIZATION shares the eigenvalues between scores and loadings, so that scores times loadings stay the same. VPRINCIPAL (the default, q = -1) gives standard scores and loadings that are correlations. OPRINCIPAL (q = 1) puts the eigenvalues in the scores, SYMMETRICAL (q = 0) splits them evenly, and a number q from -1 to 1 lies between. INDEPENDENT scales the scores only. ROTATION turns the loadings of the variables that have them, and the scores and centroids with them, with Kaiser normalization unless NOKAISER.
+
+RESAMPLE=BOOTSTRAP shows how stable the solution is: it analyses that many samples of the cases drawn with replacement (BALANCED gives every case exactly as many appearances as there are samples; UNBALANCED draws each case freely, from the generator SET SEED seeds), turns each sample's component loadings to those of the data (PROCRU by the closest rotation, REFLEC by reflecting dimensions) and gives, for the eigenvalues, the loadings and the category values of the variables that have a single value, the value of the data, the mean and standard deviation of the samples and the percentile interval at the percent: tables Bootstrap Eigenvalues, Bootstrap Component Loadings and Bootstrap Quantifications. It cannot be combined with ROTATION or a FIXED configuration, and at least one active variable must not be MNOM. Samples that cannot be analysed are left out and counted.
 
 Always shown: Case Processing Summary, Iteration History (iteration 0 and the last, or all with HISTORY) and Model Summary (Cronbach's alpha, eigenvalue and percent of variance per dimension and in total). PRINT adds: DESCRIP frequencies, missing count and mode; QUANT each variable's quantifications, centroids and vector coordinates; VAF each variable's variance accounted for, by centroids and vectors; OCORR and CORR the correlations of the original and of the quantified variables with eigenvalues (one matrix per dimension when a variable is MNOM); OBJECT the component scores; LOADING the component loadings (SORT groups them by largest loading), with the rotated loadings, or pattern, structure and component correlations after an oblique rotation. Without PRINT, or with PRINT alone: DESCRIP LOADING CORR.
 
