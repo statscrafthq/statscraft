@@ -2,7 +2,9 @@
 //! symmetric. Checks that need no outside program: a symmetric matrix in both triangles gives
 //! the symmetric fit, the transposed matrix gives the same fit, and the S-stress and the fit
 //! tables agree with the formulas written out from the coordinates and the optimally scaled
-//! data the tables show.
+//! data the tables show. The last test compares the minimum of S-stress of noisy asymmetric
+//! distances with the one R finds (BFGS with the analytic gradient from 60 random starts per
+//! dimension).
 
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
@@ -444,4 +446,41 @@ fn the_header_names_the_conditionality_and_a_symmetric_matrix_has_no_rows() {
             .any(|e| e.message.contains("CONDITION=ROW needs SHAPE=ASYMMETRIC")),
         "{errors:?}"
     );
+}
+
+/// Seven points in a plane (R, seed 4021): the distances with independent multiplicative noise
+/// in each direction (lognormal, sigma 0.15), rounded to two decimals.
+const NOISY: &str = "DATA LIST FREE /s1 TO s7.
+BEGIN DATA
+0 7.29 12.16 5.64 13.02 8.87 4.47
+11.41 0 7.06 7.05 8.38 1.93 7.45
+13.87 7.16 0 9.89 0.76 8.48 6.7
+6.93 4.66 11.69 0 11.56 3.59 6.45
+15.41 9.77 0.95 9.76 0 8.35 6.61
+9.22 2.43 10.5 4.19 11.21 0 6.64
+5.32 5.98 8.44 6.58 9.57 7.82 0
+END DATA.
+";
+
+#[test]
+fn noisy_asymmetric_distances_reach_the_minimum_r_finds() {
+    // the root of the least one minus the squared cosine of the squared distances and the
+    // squared data over the 42 ordered pairs, for 1, 2 and 3 dimensions
+    for (dimensions, minimum) in [
+        (1, 0.349729010826),
+        (2, 0.213155706859),
+        (3, 0.202374449680),
+    ] {
+        let tables = run(
+            NOISY,
+            &format!(
+                "ALSCAL VARIABLES=s1 TO s7 /SHAPE=ASYMMETRIC /LEVEL=RATIO /CRITERIA=DIMENS({dimensions}) {TIGHT}."
+            ),
+        );
+        let got = final_sstress(&tables);
+        assert!(
+            (got - minimum).abs() < 1e-6,
+            "{dimensions} dimensions: {got} against {minimum}"
+        );
+    }
 }
