@@ -253,7 +253,10 @@ out. The output window ignores them.
   column, under the label row. When the first row of a run has no other row label, as the
   mean row of a table of means whose statistic label is empty, that row holds the text itself
   in the first column and no label row comes above it; the run's decoration of column 0 styles
-  it. Excel freezes only the header lines then, not the label columns.
+  it. Excel freezes only the header lines then, not the label columns. When the tables go to
+  one sheet, the stacked tables with fewer row label columns get empty columns before their
+  data, styled as their last row label column, so the data of every stacked table starts in
+  the same sheet column; a `column_widths` entry of a data column moves with it.
   Any other value is dropped, and a table with one row label column keeps its layout.
 - `column_widths`: Excel column widths in characters, kept within 1 to 255. A width for a
   column off the table is dropped. When two tables share a sheet, the wider need of a column

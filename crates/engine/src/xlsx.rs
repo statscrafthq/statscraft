@@ -39,8 +39,21 @@ pub fn write_xlsx_parts<'a>(
         // the widths a plugin gave, which win over what other tables' cells need
         let mut given: Vec<Option<f64>> = Vec::new();
         let mut freeze: Option<u16> = None;
+        let items: Vec<_> = items.into_iter().collect();
+        // the tables share their columns: in the stacked layout a plugin asks for, the data
+        // starts after the widest row labels of those tables in every one of them
+        let labels = |t: &Table| t.row_headers - 1;
+        let widest = items.iter().filter_map(|(item, _)| match item {
+            Item::Table(t) if t.stacked() => Some(labels(t)),
+            _ => None,
+        });
+        let widest = widest.max().unwrap_or(0);
         for (item, notes) in items {
+            let mut pad = 0;
             if let Item::Table(t) = item {
+                if t.stacked() {
+                    pad = widest - labels(t);
+                }
                 any_plain |= t.style.plain;
                 // the tables share their columns: the fewest any table asks for stay in view;
                 // a table without the setting (one no plugin decorated) does not mind
@@ -49,14 +62,17 @@ pub fn write_xlsx_parts<'a>(
                 }
                 let shift = usize::from(t.stacked());
                 for w in t.style.column_widths.iter().filter(|w| w.col >= shift) {
-                    let c = w.col - shift;
+                    let c = w.col - shift + if w.col >= t.row_headers { pad } else { 0 };
                     if given.len() <= c {
                         given.resize(c + 1, None);
                     }
                     given[c] = Some(given[c].map_or(w.width, |g: f64| g.max(w.width)));
                 }
             }
-            top = put_item(sheet, item, (top, 0), notes, &mut widths)? + 1;
+            top = match item {
+                Item::Table(t) => put_padded(sheet, t, (top, 0), notes, &mut widths, pad)?,
+                chart => put_item(sheet, chart, (top, 0), notes, &mut widths)?,
+            } + 1;
         }
         for (width, given) in widths.iter_mut().zip(&given) {
             if let Some(g) = given {
@@ -231,9 +247,22 @@ fn paint(format: Format, d: &Decoration) -> Format {
 pub(crate) fn put_table(
     sheet: &mut Worksheet,
     table: &Table,
+    at: (u32, u16),
+    notes: bool,
+    widths: &mut Vec<f64>,
+) -> Result<u32, XlsxError> {
+    put_padded(sheet, table, at, notes, widths, 0)
+}
+
+/// `put_table` with `pad` empty columns between the row labels and the data, styled as the
+/// last row label column, so the data lines up with tables that have more label columns.
+fn put_padded(
+    sheet: &mut Worksheet,
+    table: &Table,
     (top, left): (u32, u16),
     notes: bool,
     widths: &mut Vec<f64>,
+    pad: usize,
 ) -> Result<u32, XlsxError> {
     // the plugin's font, if any, for every cell of the table
     let font = |format: Format| {
@@ -273,13 +302,15 @@ pub(crate) fn put_table(
         bases: [header, row_header, text, border],
         made: HashMap::new(),
     };
-    // table column `c` from `shift` on goes to the sheet column `left + c - shift`
+    // table column `c` from `shift` on goes to the sheet column `left + c - shift`, a data
+    // column `pad` further
     let shift = usize::from(table.stacked());
-    let column_of = |c: usize| left + (c - shift) as u16;
-    // the characters each column of the table needs
-    let mut own = vec![0; table.columns.len() - shift];
+    let col = |c: usize| c - shift + if c >= table.row_headers { pad } else { 0 };
+    let column_of = |c: usize| left + col(c) as u16;
+    // the characters each sheet column of the table needs
+    let mut own = vec![0; table.columns.len() - shift + pad];
     let fit = |own: &mut Vec<usize>, c: usize, text: &str| {
-        own[c - shift] = own[c - shift].max(text.chars().count().min(MAX_WIDTH));
+        own[col(c)] = own[col(c)].max(text.chars().count().min(MAX_WIDTH));
     };
 
     if !table.title.is_empty() {
@@ -291,6 +322,7 @@ pub(crate) fn put_table(
         sheet.write_string_with_format(at, left, &table.title, &format)?;
     }
     let mut row = top + title_rows(table);
+    let head = row;
     let mut spans = Vec::new();
     let headers = header_rows(table);
     let style = |line: usize, c: usize| table.header_decoration(line, c);
@@ -411,6 +443,18 @@ pub(crate) fn put_table(
         }
     }
     put_row_labels(sheet, table, &body_rows, column_of, &mut formats)?;
+    // the padding takes the look of the last row label column, in the header and every row
+    let last = table.row_headers.saturating_sub(1);
+    for column in (0..pad).map(|p| left + (table.row_headers - shift + p) as u16) {
+        for line in 0..headers.len() {
+            let format = formats.get(HEADER, String::new(), style(line, last));
+            sheet.write_blank(head + line as u32, column, format)?;
+        }
+        for (r, &at) in body_rows.iter().enumerate() {
+            let format = formats.get(ROW_LABEL, String::new(), table.decoration(r, last));
+            sheet.write_blank(at, column, format)?;
+        }
+    }
     // a block label shown in its own first row, written over that row's empty label cell
     for r in table.inline_starts() {
         let decoration = table.decoration(r, 0);
@@ -420,7 +464,7 @@ pub(crate) fn put_table(
     }
     // a merged label longer than its columns widens each of them by an equal share
     for cell in spans {
-        let columns = cell.first - shift..cell.first - shift + cell.span;
+        let columns = col(cell.first)..col(cell.first) + cell.span;
         let room = own[columns.clone()].iter().sum::<usize>() + cell.span - 1;
         let need = cell.label.chars().count().min(MAX_WIDTH);
         let share = need.saturating_sub(room).div_ceil(cell.span);
@@ -434,7 +478,7 @@ pub(crate) fn put_table(
     let mut own: Vec<f64> = own.iter().map(|&chars| chars as f64 * 1.1 + 2.0).collect();
     // the plugin's widths win over what the cells need
     for w in table.style.column_widths.iter().filter(|w| w.col >= shift) {
-        own[w.col - shift] = w.width;
+        own[col(w.col)] = w.width;
     }
     for (c, width) in own.into_iter().enumerate() {
         widths[at + c] = widths[at + c].max(width);

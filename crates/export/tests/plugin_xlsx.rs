@@ -541,3 +541,74 @@ CTABLES /TABLE bike [S][MEAN '' F5.2, VALIDN 'arv' F5.0] + car [S][MEAN '' F5.2,
         "{html}"
     );
 }
+
+/// On one sheet the tables share their columns: a means table, with one row label column
+/// fewer than a table of percentages, gets an empty column before its data, styled as its
+/// labels, so both tables' totals stand in the same column.
+#[test]
+fn one_sheet_lines_up_the_data_of_tables_with_fewer_label_columns() {
+    let mut session = statscraft_engine::session::Session::default();
+    let source = "DATA LIST LIST /bike group (2F1).
+BEGIN DATA
+1 1
+3 1
+2 2
+4 2
+END DATA.
+CTABLES /TABLE bike [C][COLPCT.COUNT '%' F5.0] BY group [C] /SLABELS POSITION=ROW
+  /CATEGORIES VARIABLES=group TOTAL=YES POSITION=BEFORE.
+CTABLES /TABLE bike [S][MEAN '' F5.2, VALIDN 'arv' F5.0] BY group [C] /SLABELS POSITION=ROW
+  /CATEGORIES VARIABLES=group TOTAL=YES POSITION=BEFORE.";
+    session.run(source, None).unwrap();
+    let items = session.output_items("Document1").unwrap();
+    let leaves = statscraft_engine::output_file::leaves(items);
+    let stacked = |n: usize| {
+        let mut table = leaves[n].1.shown().0;
+        let look = Decoration {
+            row: 1,
+            col: 1,
+            fill: Some("#eefbfd".into()),
+            ..Decoration::default()
+        };
+        let style = TableStyle {
+            row_labels: Some("stacked".into()),
+            ..TableStyle::default()
+        };
+        table.set_decorations(vec![look], style);
+        table
+    };
+    let (percent, means) = (stacked(0), stacked(1));
+    assert_eq!(percent.row_headers, 3);
+    assert_eq!(means.row_headers, 2);
+    let parts = written_all("line-up", &[&percent, &means], true);
+    let sheet = &parts["xl/worksheets/sheet1.xml"];
+    let is = |place: &str, text: &str| {
+        assert_eq!(value(&parts, place).as_deref(), Some(text), "{place}")
+    };
+    let blank = |place: &str| {
+        assert!(
+            sheet.contains(&format!("<c r=\"{place}\" s="))
+                && !sheet.contains(&format!("<c r=\"{place}\" s=\"0\" t=")),
+            "{place}"
+        )
+    };
+    // the percentages: title, header, the label row of bike, its categories with the total in C
+    is("C3", "Total");
+    is("B5", "%");
+    is("C5", "25");
+    // a blank row, then the means: their total in C too, after an empty column B
+    is("C12", "Total");
+    is("A13", "bike");
+    blank("B13");
+    is("C13", "2.5");
+    is("D13", "2");
+    is("A14", "arv");
+    blank("B14");
+    is("C14", "4");
+    // the padding of the arv row keeps the label's fill
+    assert_eq!(xf(&parts, "B14"), xf(&parts, "A14"));
+    // each table on its own sheet keeps its own columns
+    let parts = written_all("line-up-sheets", &[&percent, &means], false);
+    let sheet = &parts["xl/worksheets/sheet2.xml"];
+    assert!(sheet.contains("<c r=\"B4\" s=\"7\"><v>2.5</v>"), "{sheet}");
+}
