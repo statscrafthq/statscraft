@@ -186,6 +186,7 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
                 spec.name,
                 "DATA LIST" | "PRINT" | "PRINT EJECT" | "WRITE" | "REPEATING DATA"
             );
+            lexer.period_words = spec.name == "AGGREGATE";
             lexer.colon = matches!(
                 spec.name,
                 "NOMREG"

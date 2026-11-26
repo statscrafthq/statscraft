@@ -699,7 +699,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  PGT PLT FGT FLT CGT CLT (varlist, value) and PIN POUT FIN FOUT CIN COUT (varlist, low, high): the\n\
                  percentage, fraction or count of the valid values above, below, inside (bounds included) or\n\
                  outside (bounds excluded); bounds the wrong way round are swapped, strings compare as text.\n\
-                 Missing values are skipped; with MISSING=COLUMNWISE a group with one missing value gets a missing\n\
+                 Missing values are skipped; a period after the function name (SUM.(x), PGT.(x, 30), N.(x)) counts\n\
+                 user-missing values as valid, so NMISS.(x) and NUMISS.(x) count the system-missing ones alone;\n\
+                 FIRST., LAST., MIN. and MAX. may pick a user-missing value, which keeps its status in the\n\
+                 target. On N or NU without a variable the period changes nothing, and a period that ends\n\
+                 the line ends the command. A weight variable's own user-missing values still weigh\n\
+                 nothing. With\n\
+                 MISSING=COLUMNWISE a group with one missing value gets a missing\n\
                  result (N, NU, NMISS and NUMISS still count). PRESORTED keeps the cases in file order and makes a\n\
                  group of each run of adjacent cases with the same break values. With a weight variable SUM,\n\
                  MEAN, SD, MEDIAN, N and NMISS are weighted.",

@@ -2,6 +2,7 @@
 //! linking after every engine edit and gigabytes of disk. A new test file needs a line here.
 
 mod adp;
+mod aggregate_functions_r;
 mod aggregate_r;
 mod agreement;
 mod agreement_r;

@@ -194,7 +194,10 @@ fn aggregation(p: &mut Parser) -> PResult<Aggregation> {
     }
     p.pos += 1;
     let start = p.pos;
-    let name = p.name("an aggregate function")?;
+    let written = p.name("an aggregate function")?;
+    // a period after the name asks for the user-missing values to count as valid
+    let include_missing = written.ends_with('.');
+    let name = written.strip_suffix('.').unwrap_or(&written).to_string();
     let known = AGGREGATE_FUNCTIONS
         .iter()
         .find(|(known, _)| known.eq_ignore_ascii_case(&name));
@@ -230,7 +233,15 @@ fn aggregation(p: &mut Parser) -> PResult<Aggregation> {
         function: *function,
         sources,
         values,
+        include_missing,
     })
+}
+
+/// Whether `name` is a function of AGGREGATE: only after one does a period belong to the name.
+pub(crate) fn is_aggregate_function(name: &str) -> bool {
+    AGGREGATE_FUNCTIONS
+        .iter()
+        .any(|(known, _)| known.eq_ignore_ascii_case(name))
 }
 
 pub(crate) fn aggregate(p: &mut Parser) -> PResult<Command> {

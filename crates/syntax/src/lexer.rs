@@ -114,6 +114,9 @@ pub(crate) struct Lexer<'a> {
     pub matrix: bool,
     /// `:` is a token, as in NOMREG's `ESTPROB(root:n)`.
     pub colon: bool,
+    /// A period that touches a word and is followed by `(` or by blanks and a `/` belongs to the
+    /// word, as in AGGREGATE's `SUM.(x)` and `N. /next`.
+    pub period_words: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -126,6 +129,7 @@ impl<'a> Lexer<'a> {
             glued_words: false,
             matrix: false,
             colon: false,
+            period_words: false,
         }
     }
 
@@ -273,6 +277,20 @@ impl<'a> Lexer<'a> {
         // a name cannot end with a period; the first character is never one, so this stops
         while self.chars[self.col - 1] == '.' {
             self.col -= 1;
+        }
+        // a period that goes with the word and not with the end of the command: AGGREGATE's
+        // `SUM.(x)` and `N. /next`, where it asks for the user-missing values to count
+        if self.period_words
+            && self.chars.get(self.col) == Some(&'.')
+            && crate::data_commands::is_aggregate_function(&self.text(start))
+        {
+            let mut after = self.col + 1;
+            while self.chars.get(after).is_some_and(|c| c.is_whitespace()) {
+                after += 1;
+            }
+            if matches!(self.chars.get(after), Some('(' | '/')) {
+                self.col += 1;
+            }
         }
         TokenKind::Word(self.text(start))
     }

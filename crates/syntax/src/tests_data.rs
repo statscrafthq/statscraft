@@ -170,24 +170,28 @@ fn aggregate() {
                     function: F::Mean,
                     sources: vec![var("income")],
                     values: vec![],
+                    include_missing: false,
                 },
                 Aggregation {
                     targets: targets(&["n"]),
                     function: F::N,
                     sources: vec![],
                     values: vec![],
+                    include_missing: false,
                 },
                 Aggregation {
                     targets: targets(&["lo", "hi"]),
                     function: F::Min,
                     sources: vec![var("age"), var("q1")],
                     values: vec![],
+                    include_missing: false,
                 },
                 Aggregation {
                     targets: vec![(range("m1", "m3"), None)],
                     function: F::Sum,
                     sources: vec![range("v1", "v3")],
                     values: vec![],
+                    include_missing: false,
                 },
             ],
         })
@@ -201,6 +205,54 @@ fn aggregate() {
     assert!(!to_file.add_variables && to_file.breaks.is_empty());
     assert_eq!(to_file.aggregations[1].targets, targets(&["missing"]));
     assert_eq!(to_file.aggregations[1].function, F::Nmiss);
+}
+
+#[test]
+fn aggregate_period_counts_user_missing_values() {
+    let Command::Aggregate(a) = one(
+        "AGGREGATE OUTFILE=* /BREAK=g /s = SUM.(x) /lo = PGT.(x, 30) /f = FIRST.(x) /n = N. /nm = NMISS. (x) /plain = MEAN(x).",
+    ) else {
+        panic!("not AGGREGATE");
+    };
+    let flags: Vec<bool> = a.aggregations.iter().map(|g| g.include_missing).collect();
+    assert_eq!(flags, [true, true, true, true, true, false]);
+    assert!(a.aggregations[3].sources.is_empty());
+    assert_eq!(a.aggregations[1].values.len(), 1);
+    // the period also goes with the name when a tab or nothing stands before the slash
+    let Command::Aggregate(b) = one("AGGREGATE OUTFILE=* /BREAK=g /n = N.\t/m = NU./k = N(x).")
+    else {
+        panic!("not AGGREGATE");
+    };
+    let flags: Vec<bool> = b.aggregations.iter().map(|g| g.include_missing).collect();
+    assert_eq!(flags, [true, true, false]);
+    // a period on a word that is no function of AGGREGATE stays an error, and so does one in
+    // another command
+    assert!(
+        err("AGGREGATE OUTFILE=* /BREAK=g /s = SUM..(x).")
+            .message
+            .contains("unexpected character")
+    );
+    // only the name of a function takes the period: a variable followed by one is an error
+    assert!(
+        err("AGGREGATE OUTFILE=* /BREAK=g. /n = N(x).")
+            .message
+            .contains("unexpected character")
+    );
+    assert!(
+        err("AGGREGATE OUTFILE=* /BREAK=g /n = SUM(x.).")
+            .message
+            .contains("unexpected character")
+    );
+    assert!(
+        err("FREQUENCIES VARIABLES=a b. /FORMAT=NOTABLE.")
+            .message
+            .contains("unexpected character")
+    );
+    assert!(
+        err("DESCRIPTIVES VARIABLES=a.(x) /STATISTICS=MEAN.")
+            .message
+            .contains("unexpected character")
+    );
 }
 
 #[test]
