@@ -770,7 +770,15 @@ fn alscal_errors() {
         "ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC /CONDITION=ROW /CONDITION=UNCONDITIONAL.",
     );
     assert!(!both.row && both.unconditional);
-    assert!(err("ALSCAL VARIABLES=a b c d /FILE=start CONFIG(FIXED).").contains("FIXED"));
+    let fixed =
+        alscal("ALSCAL VARIABLES=a b c d /FILE=start CON(FIXED) SUB(INITIAL) /MODEL=INDSCAL.");
+    let file = fixed.file.expect("file");
+    assert!(file.fixed_config && !file.fixed_weights && file.weights);
+    let both =
+        alscal("ALSCAL VARIABLES=a b c d /SHAPE=RECTANGULAR /FILE=start ROW(FIXED) COL(FIXED).");
+    let file = both.file.expect("file");
+    assert!(file.fixed_config && file.fixed_columns);
+    assert!(err("ALSCAL VARIABLES=a b c d /FILE=start CONFIG(SOLID).").contains("SOLID"));
     assert!(err("ALSCAL VARIABLES=a b c d /FILE=start STIMWGHT.").contains("STIMWGHT of FILE"));
     assert!(err("ALSCAL VARIABLES=a b c d /LEVEL=RATIO(5).").contains("1 to 4"));
     assert!(err("ALSCAL VARIABLES=a b c d /CRITERIA=DIMENS(7).").contains("1 to 6"));

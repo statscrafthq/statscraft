@@ -67,6 +67,22 @@ struct Data {
     /// matrices, or a row of a matrix.
     groups: Vec<Vec<(usize, usize)>>,
     asymmetric: bool,
+    fixed: Fixed,
+}
+
+/// What a configuration/weights file fixes (FIXED on /FILE): those coordinates and weights stay
+/// as the file gives them and the rest is solved for them.
+struct Fixed {
+    /// Per stimulus (the rows then the columns of a rectangular matrix) whether it stays.
+    points: Vec<bool>,
+    weights: bool,
+    stimuli: bool,
+}
+
+impl Fixed {
+    fn any(&self) -> bool {
+        self.weights || self.stimuli || self.points.iter().any(|&p| p)
+    }
 }
 
 /// A rectangular matrix of proximities as a square one over rows then columns: the proximity
@@ -459,7 +475,7 @@ fn update_coordinates(
         })
         .collect();
     let mut terms: Vec<(f64, f64, f64, f64)> = Vec::new();
-    for l in 0..n {
+    for l in (0..n).filter(|&l| !data.fixed.points[l]) {
         for _ in 0..20 {
             let mut change: f64 = 0.0;
             for a in 0..p {
@@ -666,12 +682,18 @@ fn iterate(data: &Data, command: &Alscal, x: Matrix, w: Vec<Vec<f64>>, v: Option
         {
             break;
         }
-        if command.indscal {
+        if command.indscal && !data.fixed.weights {
             w = update_weights(data, &x, v.as_ref(), &f, command.negative, &w);
         }
-        if let Some(weights) = &v {
+        if let Some(weights) = &v
+            && !data.fixed.stimuli
+        {
             let mut weights = update_stimulus_weights(data, &x, &w, &f, command.negative, weights);
-            normalize_stimulus_weights(&mut x, &mut w, &mut weights, command.indscal);
+            // the factor of the scale goes to the coordinates or the subject weights, which
+            // stay as the file gave them when it fixes anything
+            if !data.fixed.any() {
+                normalize_stimulus_weights(&mut x, &mut w, &mut weights, command.indscal);
+            }
             v = Some(weights);
         }
         update_coordinates(data, &mut x, &w, v.as_ref(), &f);
@@ -743,7 +765,7 @@ fn iterate_metrics(
         metrics = gem::update_metrics(data, &x, &f, q, command.negative, &metrics);
         gem::update_coordinates(data, &mut x, &metrics, &f);
     }
-    let solution = gem::finish(x, &metrics, q, command.negative);
+    let solution = gem::finish(x, &metrics, q, command.negative, data.fixed.any());
     Fit {
         x: solution.x,
         w: solution.weights,
@@ -755,7 +777,11 @@ fn iterate_metrics(
 }
 
 /// Centered, turned and scaled for output (see the help).
-fn finish(mut fit: Fit, indscal: bool) -> Fit {
+fn finish(mut fit: Fit, indscal: bool, fixed: &Fixed) -> Fit {
+    if fixed.any() {
+        // the coordinates and weights the file fixes are shown as they are
+        return fit;
+    }
     let n = fit.x.len();
     let p = fit.x.first().map_or(0, Vec::len);
     for a in 0..p {
@@ -1183,6 +1209,18 @@ impl Engine {
                 }
             },
             asymmetric: asymmetric || rectangle.is_some(),
+            fixed: Fixed {
+                points: (0..n)
+                    .map(|i| match (&command.file, &rectangle) {
+                        (Some(file), Some(r)) if i < r.rows => file.fixed_config,
+                        (Some(file), Some(_)) => file.fixed_columns,
+                        (Some(file), None) => file.fixed_config,
+                        _ => false,
+                    })
+                    .collect(),
+                weights: command.file.as_ref().is_some_and(|f| f.fixed_weights) && indscal,
+                stimuli: command.file.as_ref().is_some_and(|f| f.fixed_stimuli) && stimulus,
+            },
         };
         if data.cells.iter().all(Vec::is_empty) {
             return Err(Error("ALSCAL: every proximity is missing".into()));
@@ -1258,7 +1296,7 @@ impl Engine {
                     };
                     iterate_metrics(&data, &run, x, metrics, q)
                 }
-                false => finish(iterate(&data, &run, x, w, v), indscal),
+                false => finish(iterate(&data, &run, x, w, v), indscal, &data.fixed),
             };
             fits.push((p, fit));
         }

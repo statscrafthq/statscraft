@@ -150,7 +150,7 @@ pub(super) fn update_coordinates(data: &Data, x: &mut Matrix, metrics: &[Matrix]
         .collect();
     // (weight of the pair's subject, m, s, r - f, x_j)
     let mut terms: Vec<(f64, f64, f64, f64, f64)> = Vec::new();
-    for l in 0..n {
+    for l in (0..n).filter(|&l| !data.fixed.points[l]) {
         for _ in 0..20 {
             let mut change: f64 = 0.0;
             for a in 0..p {
@@ -216,17 +216,9 @@ pub(super) fn update_coordinates(data: &Data, x: &mut Matrix, metrics: &[Matrix]
     }
 }
 
-/// The solution in its output form: the coordinates turned, scaled and signed as the module
-/// notes say, and the directions and weights of every matrix.
-pub(super) struct Solution {
-    pub x: Matrix,
-    /// Per matrix its weights, largest first, q of them.
-    pub weights: Vec<Vec<f64>>,
-    /// Per matrix its directions as the columns of a p by q matrix.
-    pub directions: Vec<Matrix>,
-}
-
-pub(super) fn finish(mut x: Matrix, metrics: &[Matrix], q: usize, negative: bool) -> Solution {
+/// The coordinates centered, turned to principal axes, given a sum of squares of n per
+/// dimension and signed, with the metrics following.
+fn turned(mut x: Matrix, metrics: &[Matrix]) -> (Matrix, Vec<Matrix>) {
     let n = x.len();
     let p = x.first().map_or(0, Vec::len);
     for a in 0..p {
@@ -269,6 +261,31 @@ pub(super) fn finish(mut x: Matrix, metrics: &[Matrix], q: usize, negative: bool
                 m[a][b] *= signs[a] * signs[b];
             }
         }
+    }
+    (x, metrics)
+}
+
+/// The solution in its output form: the coordinates turned, scaled and signed as the module
+/// notes say, and the directions and weights of every matrix.
+pub(super) struct Solution {
+    pub x: Matrix,
+    /// Per matrix its weights, largest first, q of them.
+    pub weights: Vec<Vec<f64>>,
+    /// Per matrix its directions as the columns of a p by q matrix.
+    pub directions: Vec<Matrix>,
+}
+
+pub(super) fn finish(
+    mut x: Matrix,
+    metrics: &[Matrix],
+    q: usize,
+    negative: bool,
+    fixed: bool,
+) -> Solution {
+    let p = x.first().map_or(0, Vec::len);
+    let mut metrics: Vec<Matrix> = metrics.to_vec();
+    if !fixed {
+        (x, metrics) = turned(x, &metrics);
     }
     let mut weights = Vec::new();
     let mut directions = Vec::new();

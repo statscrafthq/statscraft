@@ -3064,8 +3064,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the columns as COL; COLCONF is accepted with it), and with MODEL=INDSCAL or GEMSCAL (as the diagonal of the metrics) the TYPE_ SUB rows, one for each\n\
                  matrix, the starting weights (they are read when SUBJWGHT is listed, or when nothing is listed); with\n\
                  MODEL=ASCAL or AINDS the TYPE_ STI rows, one for each stimulus, start the stimulus weights (STIMWGHT,\n\
-                 or when nothing is listed and the file has them). The words may be cut to three letters; only INITIAL\n\
-                 is supported, not FIXED.",
+                 or when nothing is listed and the file has them). Each part read takes INITIAL (the default: it only\n\
+                 starts the iterations) or FIXED in parentheses: CONFIG(FIXED) or ROWCONF(FIXED) keeps the\n\
+                 coordinates (of the rows of a rectangular matrix), COLCONF(FIXED) those of its columns,\n\
+                 SUBJWGHT(FIXED) the subject weights (INDSCAL and AINDS) and STIMWGHT(FIXED) the stimulus weights, and\n\
+                 the rest is solved for them. With anything fixed the coordinates and weights are shown as the file\n\
+                 gives them, with no centering, turning, scaling or ordering. The words may be cut to three letters.",
         example: "ALSCAL VARIABLES=s1 TO s9 /LEVEL=ORDINAL /CRITERIA=DIMENS(2,3) /PLOT.",
         parse: alscal::alscal,
     },
