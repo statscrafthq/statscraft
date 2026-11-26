@@ -101,7 +101,7 @@ pub struct Hiloglinear {
     pub include: bool,
 }
 
-fn value_in_parens(p: &mut Parser) -> PResult<f64> {
+pub(crate) fn value_in_parens(p: &mut Parser) -> PResult<f64> {
     p.expect(Punct::LParen)?;
     let Some(n) = p.number() else {
         return Err(p.unexpected(&["a number"]));
@@ -110,7 +110,7 @@ fn value_in_parens(p: &mut Parser) -> PResult<f64> {
     Ok(n)
 }
 
-fn check(p: &Parser, start: usize, ok: bool, what: &str) -> PResult<()> {
+pub(crate) fn check(p: &Parser, start: usize, ok: bool, what: &str) -> PResult<()> {
     if ok {
         Ok(())
     } else {
@@ -118,7 +118,7 @@ fn check(p: &Parser, start: usize, ok: bool, what: &str) -> PResult<()> {
     }
 }
 
-fn missing(p: &mut Parser) -> PResult<bool> {
+pub(crate) fn missing(p: &mut Parser) -> PResult<bool> {
     p.eat(Punct::Eq);
     if p.eat_keyword("INCLUDE") {
         Ok(true)
@@ -243,13 +243,18 @@ fn hilo_print(p: &mut Parser) -> PResult<Option<HiloPrint>> {
 }
 
 /// `(w w n*w ...)`
-fn weight_matrix(p: &mut Parser) -> PResult<Vec<f64>> {
+pub(crate) fn weight_matrix(p: &mut Parser) -> PResult<Vec<f64>> {
+    value_matrix(p, "cell weight", "CWEIGHT needs the cell weights")
+}
+
+/// `(v v n*v ...)`: numbers where `n*v` repeats v n times; `noun` names a value in messages.
+pub(crate) fn value_matrix(p: &mut Parser, noun: &str, empty: &str) -> PResult<Vec<f64>> {
     p.expect(Punct::LParen)?;
     let mut out = Vec::new();
     while !p.eat(Punct::RParen) {
         let start = p.pos;
         let Some(first) = p.number() else {
-            return Err(p.unexpected(&["a cell weight", "')'"]));
+            return Err(p.unexpected(&[&format!("a {noun}"), "')'"]));
         };
         if p.eat(Punct::Star) {
             check(
@@ -259,7 +264,7 @@ fn weight_matrix(p: &mut Parser) -> PResult<Vec<f64>> {
                 "the repeat count before * is a positive whole number",
             )?;
             let Some(w) = p.number() else {
-                return Err(p.unexpected(&["a cell weight"]));
+                return Err(p.unexpected(&[&format!("a {noun}")]));
             };
             out.extend(std::iter::repeat_n(w, first as usize));
         } else {
@@ -268,7 +273,7 @@ fn weight_matrix(p: &mut Parser) -> PResult<Vec<f64>> {
         p.eat(Punct::Comma);
     }
     if out.is_empty() {
-        return Err(SyntaxError::new(p.span(), "CWEIGHT needs the cell weights"));
+        return Err(SyntaxError::new(p.span(), empty));
     }
     Ok(out)
 }
@@ -775,7 +780,7 @@ fn genlog_save(p: &mut Parser) -> PResult<Vec<(GenlogSaveKind, Option<String>)>>
     Ok(out)
 }
 
-fn genlog_design(p: &mut Parser) -> PResult<Vec<Vec<GenlogPart>>> {
+pub(crate) fn genlog_design(p: &mut Parser) -> PResult<Vec<Vec<GenlogPart>>> {
     let part = |p: &mut Parser| -> PResult<GenlogPart> {
         let name = p.name("a factor or covariate")?;
         let mut category = None;

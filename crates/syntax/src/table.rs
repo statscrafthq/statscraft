@@ -40,6 +40,7 @@ use crate::knn;
 use crate::legacy_scaling;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
+use crate::loglin;
 use crate::loglinear;
 use crate::loops;
 use crate::manova;
@@ -3609,6 +3610,23 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  NORMPLOT); PLOT alone means both.",
         example: "HILOGLINEAR route(1,3) season(1,4) delay(0,1) /METHOD=BACKWARD /CRITERIA=P(0.01) /DESIGN.",
         parse: loglinear::hiloglinear,
+    },
+    CommandSpec {
+        name: "LOGLINEAR",
+        summary: "General loglinear and logit models of a table of counts, with contrasts, cell weights and generalized residuals.",
+        syntax: "LOGLINEAR varlist (min,max) [varlist (min,max) ...] [BY varlist (min,max) ...] [WITH covariates]\n\
+                 \x20  [/CWEIGHT=variable | (w n*w ...)] [/GRESID=variable | (c n*c ...)] [/GRESID ...]\n\
+                 \x20  [/CONTRAST(factor)=DEVIATION[(ref)] | DIFFERENCE | HELMERT | SIMPLE[(ref)] | REPEATED |\n\
+                 \x20     POLYNOMIAL[(metric)] | [BASIS] SPECIAL(matrix)]\n\
+                 \x20  [/CRITERIA=[CONVERGE(0.001)] [ITERATE(20)] [DELTA(0.5)] [DEFAULT]]\n\
+                 \x20  [/PRINT=[FREQ] [RESID] [DESIGN] [ESTIM] [COR] | DEFAULT | ALL | NONE]\n\
+                 \x20  [/PLOT=[RESID] [NORMPROB] | DEFAULT | ALL | NONE] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/DESIGN=effect [effect ...]] [/DESIGN ...].\n\
+                 effect: a factor, a covariate, factor(n) (the n-th contrast column of the factor) or effects joined\n\
+                 by BY.\n\
+                 TODO",
+        example: "LOGLINEAR shift(1,3) site(1,4) /DESIGN=shift site.",
+        parse: loglin::loglinear,
     },
     CommandSpec {
         name: "MANOVA",

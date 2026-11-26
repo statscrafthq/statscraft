@@ -92,6 +92,7 @@ pub enum Command {
     Neural(Box<crate::neural::Neural>),
     Mva(Box<crate::mva::Mva>),
     Hiloglinear(Box<crate::loglinear::Hiloglinear>),
+    Loglinear(Box<crate::loglin::Loglinear>),
     Genlog(Box<crate::loglinear::Genlog>),
     Probit(Box<crate::regression_more::Probit>),
     Curvefit(Box<crate::regression_more::Curvefit>),

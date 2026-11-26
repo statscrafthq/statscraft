@@ -98,6 +98,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Spchart(_)
         | Command::Mva(_)
         | Command::Hiloglinear(_)
+        | Command::Loglinear(_)
         | Command::Manova(_)
         | Command::Probit(_)
         | Command::Curvefit(_)

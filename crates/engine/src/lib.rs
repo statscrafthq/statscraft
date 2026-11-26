@@ -59,6 +59,7 @@ mod glm;
 mod glm_random;
 mod graph;
 mod hiloglinear;
+mod loglinear;
 mod html;
 mod input;
 mod km;
@@ -1516,6 +1517,7 @@ impl Engine {
             | Command::Neural(_)
             | Command::Mva(_)
             | Command::Hiloglinear(_)
+            | Command::Loglinear(_)
             | Command::Manova(_)
             | Command::Genlog(_)
             | Command::Probit(_)
@@ -1908,6 +1910,7 @@ impl Engine {
             Command::Neural(command) => self.neural(command),
             Command::Mva(command) => self.mva(command),
             Command::Hiloglinear(command) => self.hiloglinear(command),
+            Command::Loglinear(command) => self.loglinear(command),
             Command::Manova(command) => self.manova(command),
             Command::Genlog(command) => self.genlog(command),
             Command::Probit(command) => self.probit(command),

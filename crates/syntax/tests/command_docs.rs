@@ -190,6 +190,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "NOMREG",
             "MVA",
             "HILOGLINEAR",
+            "LOGLINEAR",
             "GENLOG",
             "PROBIT",
             "CURVEFIT",

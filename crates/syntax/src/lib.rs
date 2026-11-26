@@ -58,6 +58,7 @@ mod knn;
 mod legacy_scaling;
 mod lexer;
 mod logistic;
+mod loglin;
 mod loglinear;
 mod loops;
 mod macros;
@@ -158,6 +159,8 @@ mod tests_igraph;
 mod tests_input_program;
 #[cfg(test)]
 mod tests_knn;
+#[cfg(test)]
+mod tests_loglin;
 #[cfg(test)]
 mod tests_loglinear;
 #[cfg(test)]
@@ -324,6 +327,10 @@ pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
     Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,
     LogisticPrint, LogisticSelect, LogisticTemp, Removal, SelectRelation,
+};
+pub use loglin::{
+    Loglinear, LoglinearContrast, LoglinearContrastKind, LoglinearCriteria, LoglinearModel,
+    LoglinearPrint,
 };
 pub use loglinear::{
     CellWeights, Genlog, GenlogCriteria, GenlogPart, GenlogPlot, GenlogPrint, GenlogResiduals,
