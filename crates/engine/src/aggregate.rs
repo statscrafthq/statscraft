@@ -164,6 +164,7 @@ fn aggregated(
     weights: Option<&[f64]>,
     columnwise: bool,
     bounds: &[Value],
+    include_missing: bool,
 ) -> Result<(Column, Result<String, &'static str>), Error> {
     let weight = |case: usize| weights.map_or(1.0, |w| w[case]);
     let counting = matches!(function, F::N | F::Nu | F::Nmiss | F::Numiss);
@@ -194,7 +195,11 @@ fn aggregated(
             )));
         }
         Some((source, Values::Numeric(values))) => {
-            let valid = |case: usize| values.get(case).filter(|v| !source.is_user_missing(*v));
+            let valid = |case: usize| {
+                values
+                    .get(case)
+                    .filter(|v| include_missing || !source.is_user_missing(*v))
+            };
             numbers(&|group| {
                 // MISSING=COLUMNWISE: one missing value leaves the group without a result
                 if columnwise && !counting && group.iter().any(|&case| valid(case).is_none()) {
@@ -230,8 +235,9 @@ fn aggregated(
             })
         }
         Some((source, Values::String(values))) => {
-            let valid =
-                |case: usize| Some(values.get(case)).filter(|v| !source.is_user_missing_str(v));
+            let valid = |case: usize| {
+                Some(values.get(case)).filter(|v| include_missing || !source.is_user_missing_str(v))
+            };
             if ranging {
                 let text = |i: usize| match bounds.get(i).or(bounds.first()) {
                     Some(Value::String(s)) => Ok(s.trim_end().to_string()),
@@ -370,6 +376,7 @@ impl Engine {
                 weights,
                 columnwise,
                 &aggregation.values,
+                aggregation.include_missing,
             )?;
             targets.push(Target {
                 name,

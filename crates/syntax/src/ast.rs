@@ -2082,6 +2082,8 @@ pub struct Aggregation {
     pub sources: Vec<VarItem>,
     /// The values after the variables of the range functions (PGT ... COUT): one or two.
     pub values: Vec<Value>,
+    /// A period after the function name: user-missing values count as valid.
+    pub include_missing: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
