@@ -4574,7 +4574,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  mean area plus that many standard deviations (defaults: > AREA 0, > STDEV 2, > AREA 2); NELLPNT(n)\n\
                  sets the points of a contour (40). Each of those plots (loadings, objects, categories) also comes as a\n\
                  joint plot: the data's labelled points together with the points the samples gave for them (at most\n\
-                 about 200000 object points are kept, every k-th case). TRANS plots of variables with a single value\n\
+                 about 200000 points of the objects, and as many of the categories, are kept: every k-th one). TRANS plots of variables with a single value\n\
                  show the interval of each category's value as Lower and Upper.\n\
                  With a bootstrap of 2 dimensions, SAVE LDELLAREA, CTELLAREA and OBELLAREA (also ELLAREAOBJ) add the\n\
                  area of every confidence ellipse as a variable named LDELL_n, CTELL_n or OBELL_n: for the objects one\n\

@@ -564,13 +564,24 @@ impl Clouds {
     fn new(prep: &Prepared, original: &Solution, samples: usize) -> Clouds {
         // every k-th case keeps its points, so the plots hold at most about MAX_OBJECT_POINTS
         let stride = object_stride(prep.n_tot, samples);
+        // the same bound for the category points of all variables together
+        let total: usize = prep.avars.iter().map(|v| v.cats.len()).sum();
+        let category_stride = object_stride(total, samples);
+        let mut seen = 0;
         Clouds {
             eigen: Cloud::default(),
             loadings: vec![Cloud::keeping(true); original.loadings.len()],
             categories: prep
                 .avars
                 .iter()
-                .map(|v| vec![Cloud::keeping(true); v.cats.len()])
+                .map(|v| {
+                    (0..v.cats.len())
+                        .map(|_| {
+                            seen += 1;
+                            Cloud::keeping(seen % category_stride == 1 % category_stride)
+                        })
+                        .collect()
+                })
                 .collect(),
             objects: (0..prep.n_tot)
                 .map(|i| Cloud::keeping(i % stride == 0))
@@ -676,7 +687,7 @@ impl Clouds {
     }
 }
 
-/// The most object points the joint plots keep over all samples.
+/// The most points of objects, and of categories, the joint plots keep over all samples.
 const MAX_OBJECT_POINTS: usize = 200_000;
 
 /// Every how many cases the joint plots keep the points of: 1 while the points of all cases fit.
@@ -1072,9 +1083,10 @@ fn boot_table(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn the_object_points_kept_are_bounded() {
-        use super::{MAX_OBJECT_POINTS, object_stride};
+    fn the_points_kept_are_bounded() {
         assert_eq!(object_stride(20, 30), 1);
         assert_eq!(object_stride(1000, 200), 1);
         let (cases, samples) = (50_000, 1000);
@@ -1082,8 +1094,6 @@ mod tests {
         assert_eq!(stride, 250);
         assert!(cases.div_ceil(stride) * samples <= MAX_OBJECT_POINTS);
     }
-
-    use super::*;
 
     fn lcg(seed: u64) -> impl FnMut() -> f64 {
         let mut state = seed;
