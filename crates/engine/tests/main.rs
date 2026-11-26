@@ -140,6 +140,7 @@ mod rmv;
 mod robustness;
 mod roc_analysis;
 mod roc_r;
+mod save_codepage;
 mod save_dbf;
 mod save_sas;
 mod save_translate;

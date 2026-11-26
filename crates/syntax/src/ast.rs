@@ -273,6 +273,8 @@ pub enum Command {
     ApplyDictionary(ApplyDictionary),
     GetData(GetData),
     SaveTranslate(SaveTranslate),
+    /// SAVE CODEPAGE: a data file with its text in a code page.
+    SaveCodepage(SaveCodepage),
     /// EXPORT: the active dataset as a portable file.
     Export(Export),
     /// IMPORT: a portable file as the active dataset.
@@ -1752,6 +1754,20 @@ pub enum FileOption {
     /// `/MAP` of EXPORT, IMPORT and GET TRANSLATE: a table of the variables as the options
     /// before it leave them. Changes nothing.
     Map,
+}
+
+/// SAVE CODEPAGE.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaveCodepage {
+    pub outfile: String,
+    /// ENCODING='name'; None is LOCALE.
+    pub encoding: Option<String>,
+    /// UNSELECTED=DELETE
+    pub delete_unselected: bool,
+    /// `/KEEP` and `/DROP` in the order written; the active dataset stays.
+    pub options: Vec<FileOption>,
+    /// PASSPROTECT with a password (not supported).
+    pub password: bool,
 }
 
 /// EXPORT: the active dataset as a portable file.

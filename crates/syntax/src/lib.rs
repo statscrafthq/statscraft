@@ -108,6 +108,7 @@ mod report;
 mod response_rate;
 mod restructure;
 mod roc_analysis;
+mod save_codepage;
 mod save_translate;
 mod selection;
 mod session_commands;

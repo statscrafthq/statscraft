@@ -17,6 +17,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "SYSFILE INFO",
             "SAVE",
             "SAVE TRANSLATE",
+            "SAVE CODEPAGE",
             "EXPORT",
             "XSAVE",
             "NEW FILE",

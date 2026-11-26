@@ -145,6 +145,7 @@ mod rmv;
 mod roc;
 mod roc_analysis;
 mod rows;
+mod save_codepage;
 mod save_translate;
 mod selectpred;
 pub mod session;
@@ -1279,6 +1280,13 @@ impl Engine {
             Command::Import(command) => return self.import_portable(command),
             Command::GetTranslate(command) => return self.get_translate(command),
             Command::GetStata(command) => return self.get_stata(command),
+            Command::SaveCodepage(command) => {
+                self.begin_pass()?;
+                self.save_codepage(command)?;
+                let before = self.dataset.clone();
+                self.end_pass(before.as_ref());
+                return Ok(Vec::new());
+            }
             Command::SaveTranslate(command) => {
                 self.begin_pass()?;
                 let tables = self.save_translate(command)?;

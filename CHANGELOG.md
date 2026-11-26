@@ -11,6 +11,7 @@ no test or verification notes, no comparisons with other software, no internal h
 - [ALSCAL](docs/commands/alscal.md) `/FILE` takes `(FIXED)` after CONFIG, ROWCONF, COLCONF, SUBJWGHT and STIMWGHT: those coordinates and weights stay as the file gives them and the rest is solved for them.
 - [CATPCA](docs/commands/catpca.md) `/RESAMPLE=BOOTSTRAP` draws the eigenvalues with their bootstrap interval, shows the interval of each category value as Lower and Upper on the transformation plots, and for two dimensions draws confidence ellipses of the eigenvalues, loadings, object points and category points; `LDELLAREA`, `OBELLAREA`, `CTELLAREA` choose the ellipses by area and `NELLPNT` sets the contour points.
 - [CATPCA](docs/commands/catpca.md) `/SAVE` takes `LDELLAREA`, `CTELLAREA` and `OBELLAREA` (also `ELLAREAOBJ`) for the areas of the bootstrap's confidence ellipses, and `/OUTFILE` takes `ELLCOORD` for the coordinates of the ellipses drawn.
+- [SAVE CODEPAGE](docs/commands/save-codepage.md) writes a data file whose text (names, labels, string values, notes) is in a code page of your choice, such as `'1252'` or `'windows-1257'`, with `KEEP`, `DROP` and `UNSELECTED`.
 
 ## 0.52.0 (2026-11-26)
 

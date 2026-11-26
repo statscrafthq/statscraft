@@ -127,6 +127,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Execute
         | Command::Save { .. }
         | Command::SaveTranslate(_)
+        | Command::SaveCodepage(_)
         | Command::Export(_)
         | Command::Import(_)
         | Command::GetTranslate(_)

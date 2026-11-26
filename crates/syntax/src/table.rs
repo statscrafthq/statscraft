@@ -86,6 +86,7 @@ use crate::report;
 use crate::response_rate;
 use crate::restructure;
 use crate::roc_analysis;
+use crate::save_codepage;
 use crate::save_translate;
 use crate::selection;
 use crate::session_commands;
@@ -7106,6 +7107,24 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                   SAVE TRANSLATE OUTFILE='stock.dbf' /TYPE=DB4 /REPLACE.\n\
                   SAVE TRANSLATE OUTFILE='stock.xpt' /TYPE=SAS /VERSION=X /REPLACE.",
         parse: save_translate::save_translate,
+    },
+    CommandSpec {
+        name: "SAVE CODEPAGE",
+        summary: "Write the active dataset to a data file whose text is in a code page.",
+        syntax: "SAVE CODEPAGE OUTFILE='path' | handle [/ENCODING=LOCALE | 'encoding'] [/UNSELECTED=RETAIN | DELETE]\n\
+                 \x20    [/KEEP=varlist] [/DROP=varlist] [/PASSPROTECT PASSWORD=NONE].\n\
+                 The file is a data file like the one SAVE writes, but every piece of text in it (variable names\n\
+                 and labels, value labels, string values, the file label and the notes) is in the code page that\n\
+                 ENCODING names, for programs that do not read data files in UTF-8. A code page is a number such as\n\
+                 '1252', or a name such as 'windows-1257', 'iso-8859-1' or 'cp1252'; LOCALE, the default, is the\n\
+                 legacy code page of the system. The file says which code page it is in. If any text has a\n\
+                 character the code page lacks, nothing is written and the command stops with an error that names\n\
+                 the text. The active dataset stays as it is, in UTF-8. UNSELECTED=DELETE leaves out the cases FILTER\n\
+                 leaves out. KEEP and DROP shape the file only; the variables come in the order KEEP lists them. A\n\
+                 file named .zsav gets zlib blocks and any other the case by case form. PASSPROTECT takes only\n\
+                 PASSWORD=NONE: Statscraft does not encrypt files.",
+        example: "SAVE CODEPAGE OUTFILE='orders_latin.sav' /ENCODING='1252' /DROP=internal_note.",
+        parse: save_codepage::save_codepage,
     },
     CommandSpec {
         name: "EXPORT",
