@@ -45,6 +45,7 @@ mod expr;
 mod expr_functions;
 mod exsmooth;
 mod factor;
+mod fit;
 mod format;
 mod frequencies;
 mod genlin;
@@ -890,6 +891,8 @@ pub struct Engine {
     tset: statscraft_syntax::TimeSettings,
     /// The last ACF, PACF, CCF, SEASON, EXSMOOTH and ARIMA, for APPLY.
     ts_models: timeseries::Models,
+    /// The last ERR_n a procedure saved and the series it came from, for FIT without names.
+    last_error: Option<(String, Option<String>)>,
     /// The MOD_n names of those models, for APPLY 'name'.
     model_names: model_names::ModelNames,
     /// USE: the historical period of the time series procedures.
@@ -1503,6 +1506,7 @@ impl Engine {
             | Command::Catreg(_)
             | Command::Genlin(_)
             | Command::Pplot(_)
+            | Command::Fit(_)
             | Command::Roc(_)
             | Command::RocAnalysis(_)
             | Command::Spchart(_)
@@ -1911,6 +1915,7 @@ impl Engine {
             Command::Overals(command) => self.overals(command),
             Command::Genlin(command) => self.genlin(command),
             Command::Pplot(command) => self.pplot(command),
+            Command::Fit(command) => self.fit(command),
             Command::Roc(command) => self.roc(command),
             Command::RocAnalysis(command) => self.roc_analysis(command),
             Command::Spchart(command) => self.spchart(command),

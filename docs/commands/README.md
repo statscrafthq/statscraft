@@ -255,6 +255,7 @@ One page per supported command, generated from the same table that the parser an
 | [TSAPPLY](tsapply.md) | Forecasts from time series models that TSMODEL saved, as they are or estimated again. |
 | [TSPLOT](tsplot.md) | Chart of time series over the cases, as chart data. |
 | [CASEPLOT](caseplot.md) | Chart of time series with the cases down the vertical axis, as chart data. |
+| [FIT](fit.md) | Goodness-of-fit statistics of residual series from time series models. |
 
 ## Custom tables
 

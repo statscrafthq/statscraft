@@ -92,6 +92,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Igraph(_)
         | Command::Xgraph(_)
         | Command::Pplot(_)
+        | Command::Fit(_)
         | Command::Roc(_)
         | Command::RocAnalysis(_)
         | Command::Spchart(_)

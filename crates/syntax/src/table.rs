@@ -26,6 +26,7 @@ use crate::discriminant;
 use crate::examine;
 use crate::factor;
 use crate::files;
+use crate::fit;
 use crate::frequencies;
 use crate::genlin;
 use crate::genlinmixed;
@@ -7208,6 +7209,24 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  IN and OUT cannot name the same file.",
         example: "MCONVERT MATRIX=IN(*) OUT(correlations) /APPEND.",
         parse: mconvert::mconvert,
+    },
+    CommandSpec {
+        name: "FIT",
+        summary: "Goodness-of-fit statistics of residual series from time series models.",
+        syntax: "FIT [[ERRORS=] residual series] [/OBS=observed series] [/DFE=n ... | /DFH=n ...].\n\
+                 For each residual series e over n cases: the mean error, the mean absolute error, the sum of\n\
+                 squared errors, the mean square error (the sum over the error degrees of freedom), its square\n\
+                 root and the Durbin-Watson statistic. With OBS (one observed series per residual series, in\n\
+                 order, repeated where several residual series come from one) also the mean percent error and\n\
+                 the mean absolute percent error, 100 times the mean of e/x. Without any names it takes the\n\
+                 last ERR_n series a procedure saved, with the series it was made from. DFE gives the error\n\
+                 degrees of freedom of each residual series and DFH the model's parameters, which are taken\n\
+                 from the cases; with neither the cases count. A PREDICT period that starts inside the series\n\
+                 gets its own columns next to the USE period's. A case with a missing residual is left out; the\n\
+                 percent statistics also leave out a case whose observed value is missing or 0. With SPLIT\n\
+                 FILE each group is a block of rows in the one table.",
+        example: "FIT ERRORS=ERR_1 ERR_2 /OBS=sales sales /DFH=2 3.",
+        parse: fit::fit,
     },
     CommandSpec {
         name: "PRINT",

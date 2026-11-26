@@ -44,6 +44,7 @@ mod example_output;
 mod expr;
 mod factor;
 mod files;
+mod fit;
 mod frequencies;
 mod genlin;
 mod genlinmixed;
@@ -294,6 +295,7 @@ pub use factor::{
     ClusterMethod, ClusterSave, Extraction, Factor, FactorCriteria, FactorMatrixOut, FactorMissing,
     FactorPlot, FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
 };
+pub use fit::{Fit, FitFreedom};
 pub use genlin::{
     Genlin, GenlinAdjust, GenlinContrast, GenlinCorrelation, GenlinCriteria, GenlinDistribution,
     GenlinEmmeans, GenlinInitial, GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder,

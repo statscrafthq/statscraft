@@ -1400,6 +1400,7 @@ impl Engine {
             return Ok(());
         }
         self.all_or_nothing(|engine| {
+            let mut last = None;
             let data = engine.active_mut()?;
             for (i, (labels, columns)) in items.into_iter().enumerate() {
                 let names = |n: usize| roots.iter().map(move |r| format!("{r}_{n}"));
@@ -1414,8 +1415,12 @@ impl Engine {
                     data.set_variable_label(&name, Some(&label))?;
                     data.set_format(&name, "F11.5")?;
                     data.set_measure(&name, Measure::Scale)?;
+                    if name.starts_with("ERR_") {
+                        last = Some((name, crate::fit::observed_of(&label)));
+                    }
                 }
             }
+            engine.last_error = last.or(engine.last_error.take());
             Ok(())
         })
     }

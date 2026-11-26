@@ -10,6 +10,7 @@ no test or verification notes, no comparisons with other software, no internal h
 - [NLR](docs/commands/nlr.md) fits nonlinear models by least squares (Levenberg-Marquardt) to the model that [MODEL PROGRAM](docs/commands/model-program.md) and [DERIVATIVES](docs/commands/derivatives.md) define: iteration history, analysis of variance with R squared, estimates with asymptotic standard errors and 95% intervals, parameter correlations, FILE and OUTFILE for starting values, SAVE of predicted values, residuals and derivatives, and a check of the derivatives given against numerical ones. CLEAR MODEL PROGRAMS drops the programs.
 - [SHIFT VALUES](docs/commands/shift-values.md) adds a variable holding the value of another variable from an earlier or later case, within each split group, with the dictionary entry of the original.
 - [MCONVERT](docs/commands/mconvert.md) turns matrix data of covariances into correlations with standard deviations, and back, set by set, in the active dataset or a file.
+- [FIT](docs/commands/fit.md) gives goodness-of-fit statistics of residual series from the time series commands: mean, absolute and squared errors, the Durbin-Watson statistic, percent errors against the observed series, and separate columns for a PREDICT period inside the series.
 
 ## 0.49.0 (2026-11-25)
 

@@ -322,6 +322,7 @@ pub enum Command {
     Rmv(Vec<crate::timeseries::RmvEquation>),
     ShiftValues(Vec<crate::shift_values::ShiftSpec>),
     Mconvert(Box<crate::mconvert::Mconvert>),
+    Fit(Box<crate::fit::Fit>),
     /// ACF, PACF and CCF.
     Correlogram(Box<crate::timeseries::Correlogram>),
     Season(Box<crate::timeseries::Season>),

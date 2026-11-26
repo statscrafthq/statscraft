@@ -462,6 +462,7 @@ impl Engine {
             ));
         } else if !saves.is_empty() {
             self.all_or_nothing(|engine| {
+                let mut last = None;
                 let data = engine.active_mut()?;
                 for (dependent, model, number, values) in &saves {
                     let roots = ["FIT", "ERR", "LCL", "UCL"];
@@ -489,8 +490,12 @@ impl Engine {
                         data.set_variable_label(name, Some(&labels[i]))?;
                         data.set_format(name, "F11.5")?;
                         data.set_measure(name, Measure::Scale)?;
+                        if name.starts_with("ERR_") {
+                            last = Some((name.clone(), Some(dependent.clone())));
+                        }
                     }
                 }
+                engine.last_error = last.or(engine.last_error.take());
                 Ok(())
             })?;
         }

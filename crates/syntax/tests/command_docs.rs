@@ -240,7 +240,7 @@ const AREAS: &[(&str, &[&str])] = &[
         &[
             "TSET", "TSHOW", "CREATE", "RMV", "ACF", "PACF", "CCF", "SEASON", "PREDICT",
             "EXSMOOTH", "ARIMA", "AREG", "SPECTRA", "2SLS", "TSMODEL", "TSAPPLY", "TSPLOT",
-            "CASEPLOT",
+            "CASEPLOT", "FIT",
         ],
     ),
     ("Custom tables", &["CTABLES", "DMTABLES", "MRSETS"]),
