@@ -3871,6 +3871,36 @@ fn ordinal_multinomial_with_repeated_and_independent_correlation() {
     }
 }
 
+// A case left out for a missing response gives the results of a file without it: the rows of the
+// subjects and of the fit are the same ones.
+#[test]
+fn ordinal_multinomial_with_repeated_leaves_out_cases_consistently() {
+    let model = "GENLIN y BY g WITH x /MODEL g x DISTRIBUTION=MULTINOMIAL
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave /PRINT SOLUTION.";
+    let missing = tables_of(&format!(
+        "{ORDINAL_PANEL}IF (id = 3 AND wave = 2) y = $SYSMIS.\nIF (id = 8 AND wave = 1) x = $SYSMIS.\n{model}"
+    ));
+    let deleted = tables_of(&format!(
+        "{ORDINAL_PANEL}SELECT IF NOT ((id = 3 AND wave = 2) OR (id = 8 AND wave = 1)).\n{model}"
+    ));
+    for row in [
+        "Threshold [y = 1]",
+        "Threshold [y = 2]",
+        "Threshold [y = 3]",
+        "[g=0]",
+        "x",
+    ] {
+        for column in [B, SE] {
+            close(
+                get(&missing, PE, row, column),
+                get(&deleted, PE, row, column),
+                1e-9,
+                row,
+            );
+        }
+    }
+}
+
 #[test]
 fn ordinal_multinomial_with_repeated_refuses_what_it_cannot_do() {
     let e = run_error(&format!(
