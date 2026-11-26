@@ -93,6 +93,9 @@ fn nlr_subcommands() {
 fn nlr_checks_its_criteria() {
     assert!(err("NLR y /CRITERIA=ITER(0).").contains("whole number"));
     assert!(err("NLR y /CRITERIA=CKDER(2).").contains("0 to 1"));
+    assert!(err("NLR y /CRITERIA=CKDER(-1).").contains("not negative"));
+    assert!(err("CNLR y /CRITERIA=CRSHTOL(-5).").contains("not negative"));
+    assert!(err("CNLR y /CRITERIA=LSTOLERANCE(-0.5).").contains("not negative"));
     assert!(err("NLR y /CRITERIA=SSCON(-1).").contains("not negative"));
     assert!(err("NLR y /CRITERIA=BOGUS(1).").contains("expected"));
     assert!(err("NLR y /BOGUS.").contains("unknown subcommand"));
