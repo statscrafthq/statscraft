@@ -24,6 +24,13 @@ jobs:
         # Linux pinned: a newer runner links against a newer glibc than Ubuntu 24.04 has
         os: [windows-latest, ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Windows signing with Azure Artifact Signing, on once these exist in the repository:
+      # the secrets AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET, an app registration
+      # with the Artifact Signing Certificate Profile Signer role, and the variables
+      # SIGNING_ENDPOINT (the account's region, e.g. https://neu.codesigning.azure.net),
+      # SIGNING_ACCOUNT and SIGNING_PROFILE. Without them the Windows files stay unsigned.
+      SIGN_WINDOWS: ${{ matrix.os == 'windows-latest' && secrets.AZURE_CLIENT_ID != '' }}
     steps:
       - uses: actions/checkout@v7
       - if: runner.os != 'macOS'
@@ -38,9 +45,47 @@ jobs:
       # the workspace version in Cargo.toml is the package version
       - shell: bash
         run: echo "VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)" >> "$GITHUB_ENV"
-      # Inno Setup 6 is preinstalled on the Windows runners
+      # the signing client is a signtool plug-in that runs on .NET 10
+      - if: env.SIGN_WINDOWS == 'true'
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      # signs both programs in place, so the installer and the .zip carry the signed ones
+      - if: env.SIGN_WINDOWS == 'true'
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SIGNING_ENDPOINT: ${{ vars.SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT: ${{ vars.SIGNING_ACCOUNT }}
+          SIGNING_PROFILE: ${{ vars.SIGNING_PROFILE }}
+        run: |
+          $dir = "$env:RUNNER_TEMP\signing"
+          Invoke-WebRequest https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.151/microsoft.artifactsigning.client.1.0.151.nupkg -OutFile "$dir.zip"
+          if ((Get-FileHash "$dir.zip").Hash -ne '35375A4BC4E1102DA729FC3D8D9925F774C3BAAE6B8B7FF6398D948CA9AB0D8A') { throw 'signing client checksum differs' }
+          Expand-Archive "$dir.zip" $dir
+          @{ Endpoint = $env:SIGNING_ENDPOINT; CodeSigningAccountName = $env:SIGNING_ACCOUNT; CertificateProfileName = $env:SIGNING_PROFILE } | ConvertTo-Json | Set-Content "$dir\metadata.json"
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1).FullName
+          "SIGNTOOL=$signtool" >> $env:GITHUB_ENV
+          "SIGNING_DIR=$dir" >> $env:GITHUB_ENV
+          & $signtool sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib "$dir\bin\x64\Azure.CodeSigning.Dlib.dll" /dmdf "$dir\metadata.json" target\release\statscraft.exe target\release\statscraft-gui.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      # Inno Setup 6 is preinstalled on the Windows runners. When signing, Inno Setup signs the
+      # installer, the setup.tmp it runs from the temporary folder and the uninstaller itself,
+      # with the command given as /Sazure ($q is a quote and $f the file for Inno Setup).
       - if: runner.os == 'Windows'
-        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" packaging\windows\statscraft.iss'
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          $options = @("/DAppVersion=$env:VERSION")
+          if ($env:SIGN_WINDOWS -eq 'true') {
+            $q = '$q'
+            $options += '/DSign', "/Sazure=$q$env:SIGNTOOL$q sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib $q$env:SIGNING_DIR\bin\x64\Azure.CodeSigning.Dlib.dll$q /dmdf $q$env:SIGNING_DIR\metadata.json$q `$f"
+          }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" @options packaging\windows\statscraft.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       # the portable .zip: the installer's files in one folder, without the installer. The
       # updater knows it by LICENSE.txt next to the programs.
       - if: runner.os == 'Windows'

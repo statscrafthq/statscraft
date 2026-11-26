@@ -46,6 +46,10 @@ UsePreviousAppDir=yes
 ; that registered with it, which the window does not, so [Run] starts it again on /RELAUNCH=1.
 CloseApplications=yes
 RestartApplications=no
+#ifdef Sign
+; the release workflow passes the signing command as /Sazure=...
+SignTool=azure
+#endif
 
 [Files]
 Source: "target\release\statscraft.exe"; DestDir: "{app}"; Flags: ignoreversion
