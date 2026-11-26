@@ -8,6 +8,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 - [ALSCAL](docs/commands/alscal.md) `/SHAPE=ASYMMETRIC` scales matrices whose two triangles differ: both are data for symmetric distances, with the Euclidean and the individual differences model.
 - [ALSCAL](docs/commands/alscal.md) `/CONDITION=ROW` fits the disparities of each row of an asymmetric matrix on its own, for data whose rows are measured on scales of their own.
+- [PLS](docs/commands/pls.md) `/OUTDATASET` works under SPLIT FILE: every group is fitted and the CASES, LATENTFACTORS and PREDICTORS datasets hold the groups one after the other, the split variables in front.
 
 ## 0.51.0 (2026-11-26)
 
@@ -19,7 +20,6 @@ LOGLINEAR fits general loglinear and logit models, SAVE TRANSLATE writes SAS tra
 - [LOGLINEAR](docs/commands/loglinear.md) fits general loglinear and logit models of a table of counts with contrasts for every factor (DEVIATION, SIMPLE, DIFFERENCE, HELMERT, REPEATED, POLYNOMIAL, SPECIAL and BASIS SPECIAL), cell covariates, cell weights and structural zeros, several DESIGNs with settings that carry over, and generalized residuals: cell counts with raw, standardized and adjusted residuals, the likelihood-ratio and Pearson tests, the design matrix, parameter estimates with z values and intervals and their correlation, the analysis of dispersion for a logit model, and residual plots.
 - [GRAPH](docs/commands/graph.md) accepts `/TEMPLATE`: it is read and ignored with a note, since charts come as data.
 - [CLUSTER](docs/commands/cluster.md) `/SAVE` works with `/MATRIX=IN`: the matrix of the active dataset's cases gives the membership variables.
-- [PLS](docs/commands/pls.md) `/OUTDATASET` works under SPLIT FILE: every group is fitted and the CASES, LATENTFACTORS and PREDICTORS datasets hold the groups one after the other, the split variables in front.
 
 ## 0.50.0 (2026-11-26)
 
