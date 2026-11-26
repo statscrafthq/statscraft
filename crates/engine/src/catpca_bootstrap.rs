@@ -540,6 +540,9 @@ pub(crate) struct Clouds {
     categories: Vec<Vec<Cloud>>,
     /// Per case of the data.
     objects: Vec<Cloud>,
+    /// The sample that last added a point of each case, so a case drawn twice counts once.
+    added_in: Vec<usize>,
+    samples: usize,
 }
 
 impl Clouds {
@@ -553,6 +556,8 @@ impl Clouds {
                 .map(|v| vec![Cloud::default(); v.cats.len()])
                 .collect(),
             objects: vec![Cloud::default(); prep.n_tot],
+            added_in: vec![0; prep.n_tot],
+            samples: 0,
         }
     }
 
@@ -566,6 +571,7 @@ impl Clouds {
         turn: &Matrix,
         aligned: &Matrix,
     ) {
+        self.samples += 1;
         self.eigen.add(&solution.eigen);
         for (row, &j) in aligned.iter().zip(run.singles) {
             self.loadings[j].add(row);
@@ -587,14 +593,13 @@ impl Clouds {
                 }
             }
         }
-        let mut last = usize::MAX;
         for (i, &row) in sample_prep.active.iter().enumerate() {
             // a case drawn twice has the same scores both times: once is enough
             let case = cases[row];
-            if case == last {
+            if self.added_in[case] == self.samples {
                 continue;
             }
-            last = case;
+            self.added_in[case] = self.samples;
             self.objects[case].add(&turned(&solution.scores[i], &solution.score_factor));
         }
     }
@@ -673,6 +678,9 @@ pub(crate) struct Ellipses {
 /// points; `points` contour points. None when there are too few samples.
 fn ellipse(center: [f64; 2], cloud: &Cloud, percent: f64, points: usize) -> Option<Ellipse> {
     let [a, b, c] = cloud.covariance()?;
+    if !(percent > 0.0 && percent < 100.0) {
+        return None;
+    }
     let k = -2.0 * (1.0 - percent / 100.0).ln();
     let mean = (a + c) / 2.0;
     let half = (((a - c) / 2.0).powi(2) + b * b).sqrt();
