@@ -1278,6 +1278,9 @@ impl Context<'_> {
 
 impl Engine {
     pub(crate) fn graph(&mut self, command: &Graph) -> Result<Vec<Table>, Error> {
+        if command.template {
+            self.warn("GRAPH: TEMPLATE is ignored; charts come as data");
+        }
         let data = self.active()?;
         let mut context = Context {
             data,

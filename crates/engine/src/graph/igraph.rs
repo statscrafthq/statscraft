@@ -320,6 +320,7 @@ fn plan(c: &Igraph, data: &Dataset, ignored: &mut Vec<String>) -> Result<Option<
         listwise: c.listwise,
         report: c.report,
         include: c.include,
+        template: false,
         panel: (!panel.columns.is_empty() || !panel.rows.is_empty()).then_some(panel),
         interval,
     };

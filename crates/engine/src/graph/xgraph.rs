@@ -318,6 +318,7 @@ fn plan(c: &Xgraph, data: &Dataset, warnings: &mut Vec<String>) -> Result<Plan, 
         listwise: c.listwise,
         report: c.report,
         include: false,
+        template: false,
         panel: (!panel.columns.is_empty() || !panel.rows.is_empty()).then_some(panel),
         interval: c.interval,
     };

@@ -5289,6 +5289,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20| varlist | x WITH y WITH z, then [BY group] [BY id (NAME | IDENTIFY)]\n\
                  \x20\x20\x20\x20\x20\x20[/INTERVAL CI[(95)] | SE[(2)] | STDDEV[(2)]]\n\
                  \x20\x20\x20\x20\x20\x20[/PANEL [COLVAR=varlist [COLOP=CROSS | NEST]] [ROWVAR=varlist [ROWOP=CROSS | NEST]]]\n\
+                 \x20\x20\x20\x20\x20\x20[/TEMPLATE='file']\n\
                  \x20\x20\x20\x20\x20\x20[/MISSING=[LISTWISE | VARIABLE] [NOREPORT | REPORT] [EXCLUDE | INCLUDE]].\n\
                  The command draws one chart. The first subcommand needs no slash, and keywords may be cut to three\n\
                  letters (MIN, MAX, ERR, STE). A spec is COUNT, PCT, CUFREQ or CUPCT BY var [BY var]; a bare variable\n\
@@ -5334,7 +5335,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  in its title. Empty combinations get no chart, so COLOP and ROWOP change nothing. A case missing on\n\
                  a panel variable is left out unless REPORT. TITLE names the chart (by default after its content),\n\
                  SUBTITLE goes under it and FOOTNOTE below. TITLE and FOOTNOTE take up to two lines, SUBTITLE one,\n\
-                 each at most 72 characters.",
+                 each at most 72 characters. TEMPLATE is ignored; charts come as data.",
         example: "GRAPH /TITLE='Visits per store' /BAR(STACKED)=COUNT BY store BY daypart.",
         parse: graph::graph,
     },

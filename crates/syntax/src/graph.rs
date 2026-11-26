@@ -234,6 +234,8 @@ pub struct Graph {
     pub panel: Option<GraphPanel>,
     /// INTERVAL: error bars around the values of a bar or line chart.
     pub interval: Option<GraphInterval>,
+    /// TEMPLATE was given; it is not applied.
+    pub template: bool,
 }
 
 const CHARTS: [&str; 8] = [
@@ -264,8 +266,6 @@ const SUBCOMMANDS: [&str; 15] = [
     "TEMPLATE",
     "MISSING",
 ];
-
-const NOT_YET: [&str; 1] = ["TEMPLATE"];
 
 const COUNTS: [(&str, GraphFunction); 4] = [
     ("COUNT", GraphFunction::Count),
@@ -713,6 +713,7 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
     let mut footnote = Vec::new();
     let mut chart: Option<GraphChart> = None;
     let mut panel_given = None;
+    let mut template = false;
     let mut bars = None;
     let (mut listwise, mut report, mut include) = (true, false, false);
     p.eat(Punct::Slash);
@@ -724,9 +725,6 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
         let Some(name) = SUBCOMMANDS.iter().find(|k| matches_keyword(w, k)) else {
             return Err(p.subcommand_error("GRAPH", &[]));
         };
-        if NOT_YET.contains(name) {
-            return Err(not_yet(p, &format!("subcommand {name}")));
-        }
         p.pos += 1;
         let made = match *name {
             "TITLE" => {
@@ -761,6 +759,12 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
                     }
                     p.eat(Punct::Comma);
                 }
+                None
+            }
+            "TEMPLATE" => {
+                p.eat(Punct::Eq);
+                p.file("a template file")?;
+                template = true;
                 None
             }
             "PANEL" => {
@@ -871,5 +875,6 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
         include,
         panel: panel_given,
         interval: bars,
+        template,
     })))
 }

@@ -17,6 +17,7 @@ GRAPH [/TITLE='line' ['line']] [/SUBTITLE='line'] [/FOOTNOTE='line' ['line']]
           | varlist | x WITH y WITH z, then [BY group] [BY id (NAME | IDENTIFY)]
       [/INTERVAL CI[(95)] | SE[(2)] | STDDEV[(2)]]
       [/PANEL [COLVAR=varlist [COLOP=CROSS | NEST]] [ROWVAR=varlist [ROWOP=CROSS | NEST]]]
+      [/TEMPLATE='file']
       [/MISSING=[LISTWISE | VARIABLE] [NOREPORT | REPORT] [EXCLUDE | INCLUDE]].
 ```
 
@@ -34,7 +35,7 @@ PARETO counts or sums (COUNT, a bare variable, SUM or VALUE), largest category f
 
 HISTOGRAM bins the valid values as FREQUENCIES does; NORMAL adds the normal curve. SCATTERPLOT colors points by the BY group variable; BY id (NAME) labels them with the id values, (IDENTIFY) does not. Lists around WITH put every pair into one frame (with PAIR, first with first and so on, and no BY group), the variable before WITH across. A list without WITH draws a matrix with the names on the diagonal. x WITH y WITH z has a third axis and shows as a table of its points. LISTWISE needs a case valid on all variables; VARIABLE needs it valid on the pair.
 
-PANEL repeats the chart for each combination of ROWVAR and COLVAR categories, rows first, each named in its title. Empty combinations get no chart, so COLOP and ROWOP change nothing. A case missing on a panel variable is left out unless REPORT. TITLE names the chart (by default after its content), SUBTITLE goes under it and FOOTNOTE below. TITLE and FOOTNOTE take up to two lines, SUBTITLE one, each at most 72 characters.
+PANEL repeats the chart for each combination of ROWVAR and COLVAR categories, rows first, each named in its title. Empty combinations get no chart, so COLOP and ROWOP change nothing. A case missing on a panel variable is left out unless REPORT. TITLE names the chart (by default after its content), SUBTITLE goes under it and FOOTNOTE below. TITLE and FOOTNOTE take up to two lines, SUBTITLE one, each at most 72 characters. TEMPLATE is ignored; charts come as data.
 
 ## Example
 

@@ -427,6 +427,13 @@ fn a_chart_template_is_ignored_with_a_warning() {
             .any(|w| w == "SPCHART: TEMPLATE is ignored; charts come as data"),
         "{warnings:?}"
     );
+    let warnings = run(&format!("{data}GRAPH /BAR=MEAN(x) BY g /TEMPLATE='t.sgt'."));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w == "GRAPH: TEMPLATE is ignored; charts come as data"),
+        "{warnings:?}"
+    );
     assert!(
         run(&format!("{data}PPLOT x."))
             .iter()

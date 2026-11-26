@@ -448,10 +448,13 @@ fn panels_by_column_and_row_variables() {
 }
 
 #[test]
-fn unsupported_parts_name_themselves() {
+fn a_template_is_read_and_not_applied() {
+    assert!(graph("GRAPH /BAR=store /TEMPLATE='old.sgt'.").template);
+    assert!(graph("GRAPH /TEMPLATE='old.sgt' /TITLE='t' /BAR=store.").template);
+    assert!(!graph("GRAPH /BAR=store.").template);
     assert_eq!(
-        err("GRAPH /BAR=store /TEMPLATE='old.sgt'.").message,
-        "subcommand TEMPLATE of GRAPH is not supported yet"
+        err("GRAPH /BAR=store /TEMPLATE.").expected,
+        ["a template file"]
     );
 }
 
