@@ -79,24 +79,28 @@ fn print_and_plot_keywords() {
 #[test]
 fn partitions_and_contrasts() {
     let l = ll(
-        "LOGLINEAR a b (1,4) /CONTRAST(b)=POLYNOMIAL /DESIGN=a a BY b(1) \
-                /CONTRAST(b)=SIMPLE(2) /CONTRAST(a)=BASIS SPECIAL(4*1, 1 -1 0 0, 0 1 -1 0, 0 0 1 -1) /DESIGN=a b.",
+        "LOGLINEAR row col (1,4) /CONTRAST(row)=REPEATED /DESIGN=col row BY col(3) \
+                /CONTRAST(row)=SIMPLE(2) /CONTRAST(col)=BASIS SPECIAL(4*1, 1 -1 0 0, 0 1 -1 0, 0 0 1 -1) /DESIGN=row col.",
     );
     let first = &l.models[0];
     assert_eq!(first.contrasts.len(), 1);
     let term = &first.terms.as_ref().unwrap()[1];
-    assert_eq!(term[1].category, Some(1));
+    assert_eq!(term[1].category, Some(3));
     let second = &l.models[1];
     assert_eq!(second.contrasts.len(), 2);
-    let b = second.contrasts.iter().find(|c| c.variable == "b").unwrap();
+    let row = second
+        .contrasts
+        .iter()
+        .find(|c| c.variable == "row")
+        .unwrap();
     assert_eq!(
-        b.kind,
+        row.kind,
         LoglinearContrastKind::Named(Contrast::Simple(Some(2)))
     );
     match &second
         .contrasts
         .iter()
-        .find(|c| c.variable == "a")
+        .find(|c| c.variable == "col")
         .unwrap()
         .kind
     {
