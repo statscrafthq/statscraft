@@ -4572,8 +4572,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the data's point c, S the covariance of the aligned points of the samples. LDELLAREA, OBELLAREA and\n\
                  CTELLAREA(GT|LT AREA|STDEV value) keep the ellipses whose area is above or below the value, or the\n\
                  mean area plus that many standard deviations (defaults: > AREA 0, > STDEV 2, > AREA 2); NELLPNT(n)\n\
-                 sets the points of a contour (40). TRANS plots of variables with a single value show the interval of\n\
-                 each category's value as Lower and Upper.\n\
+                 sets the points of a contour (40). Each of those plots (loadings, objects, categories) also comes as a\n\
+                 joint plot: the data's labelled points together with the points the samples gave for them (at most\n\
+                 about 200000 points of the objects, and as many of the categories, are kept: every k-th one). TRANS plots of variables with a single value\n\
+                 show the interval of each category's value as Lower and Upper.\n\
                  With a bootstrap of 2 dimensions, SAVE LDELLAREA, CTELLAREA and OBELLAREA (also ELLAREAOBJ) add the\n\
                  area of every confidence ellipse as a variable named LDELL_n, CTELL_n or OBELL_n: for the objects one\n\
                  area per case, for the loadings the area of the k-th analysis variable in case k, for the categories\n\

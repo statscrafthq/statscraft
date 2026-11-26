@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- CATPCA with `/RESAMPLE=BOOTSTRAP` also draws joint plots of the data's points together with the points the bootstrap samples gave for the loadings, objects and categories.
+
 ## 0.53.0 (2026-11-26)
 
 The window starts new data and takes new variables and cases where you type them, CATPCA gives bootstrap intervals and confidence ellipses, and SAVE CODEPAGE writes data files in a code page.
