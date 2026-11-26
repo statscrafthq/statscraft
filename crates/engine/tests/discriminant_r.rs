@@ -5,6 +5,14 @@
 //! matrix, the group centroids and Fisher's classification functions; and the classification
 //! table against `MASS::lda` with equal priors, whose rule is the same (its own scalings use
 //! prior-weighted means, so its coefficients differ when the groups are of unequal size).
+//!
+//! The second part runs the classification rule of every kind the first leaves out on the same
+//! 60 cases against R: the groups' own sizes as priors (`MASS::lda`), the separate covariance
+//! matrices of the groups (the manual's rule on the canonical functions, written out in base R),
+//! and leave-one-out (`MASS::lda` with `CV = TRUE`). The saved
+//! predicted groups of all 60 cases and the saved posterior probabilities of six of them are
+//! compared, to 1e-9. The manual says cross-validation applies to linear discrimination only, so
+//! with SEPARATE the cross-validated table is that of the pooled rule, as `lda` gives it.
 
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
@@ -227,4 +235,156 @@ fn the_classification_functions_and_table_agree_with_r() {
             vec![2.0, 4.0, 14.0, 20.0]
         ]
     );
+}
+
+// ---------------------------------------------------------------- the other classification rules
+
+fn run_engine(options: &str) -> (Vec<Table>, Engine) {
+    let syntax = format!("DISCRIMINANT /GROUPS=g(1,3) /VARIABLES=x1 x2 x3 x4 {options}.");
+    let (commands, errors) = parse(&format!("{DATA}{syntax}"));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut tables = Vec::new();
+    for command in &commands {
+        tables.extend(engine.execute(&command.command).expect("runs"));
+    }
+    (tables, engine)
+}
+
+type Posteriors = [(usize, [f64; 3]); 6];
+
+/// The saved groups of all cases and the saved probabilities of the six cases R gives.
+fn check_saved(options: &str, classes: &str, posteriors: &Posteriors) {
+    let (_, engine) = run_engine(options);
+    let data = engine.dataset().unwrap();
+    let column = |name: &str| -> Vec<f64> {
+        let v = data.variable(name).unwrap().numeric().unwrap();
+        (0..data.case_count()).map(|k| v.get(k).unwrap()).collect()
+    };
+    let predicted: String = column("DSC_1")
+        .iter()
+        .map(|g| char::from(b'0' + *g as u8))
+        .collect();
+    assert_eq!(predicted, classes, "{options}");
+    let probabilities = [column("DSC1_1"), column("DSC2_1"), column("DSC3_1")];
+    for (case, want) in posteriors {
+        for j in 0..3 {
+            near(
+                probabilities[j][case - 1],
+                want[j],
+                &format!("{options} case {case} group {}", j + 1),
+            );
+        }
+    }
+}
+
+#[test]
+fn priors_from_the_group_sizes_agree_with_r() {
+    check_saved(
+        "/PRIORS=EQUAL /SAVE=CLASS PROBS",
+        "111111122111111211332123221132322223122233332332333333122331",
+        &[
+            (1, [0.968861894445, 0.030325748219, 0.000812357336]),
+            (2, [0.629153362873, 0.347478362354, 0.023368274773]),
+            (25, [0.145056417120, 0.807010918162, 0.047932664719]),
+            (41, [0.039253459055, 0.026843582528, 0.933902958417]),
+            (50, [0.014928727921, 0.148990862233, 0.836080409846]),
+            (60, [0.622568115100, 0.310788944608, 0.066642940292]),
+        ],
+    );
+    // 18, 22 and 20 cases: the priors 0.3, 0.3667 and 0.3333
+    check_saved(
+        "/PRIORS=SIZE /SAVE=CLASS PROBS",
+        "111111122111121211332123221132322223122233332332333333122331",
+        &[
+            (1, [0.962290110154, 0.036813393044, 0.000896496801]),
+            (2, [0.582649815288, 0.393304606102, 0.024045578610]),
+            (25, [0.122445444121, 0.832597822370, 0.044956733509]),
+            (41, [0.035372009377, 0.029564630122, 0.935063360501]),
+            (50, [0.013258114023, 0.161721870543, 0.825020015434]),
+            (60, [0.578342828318, 0.352869577485, 0.068787594198]),
+        ],
+    );
+}
+
+#[test]
+fn separate_group_covariances_follow_the_manuals_rule_in_r() {
+    // The manual classifies from the canonical functions, with each group's own covariance
+    // matrix of the function values (a quadratic rule in the two-dimensional function space),
+    // not from all four variables as MASS::qda does, so qda is no oracle here: its groups
+    // differ in 5 of the 60 cases. The rule is written out in base R: the functions from
+    // W^-1 B scaled to V'WV = I, the group covariance of their values, the chi-square distance,
+    // and the posterior proportional to prior |S_j|^(-1/2) exp(-d/2).
+    check_saved(
+        "/PRIORS=EQUAL /SAVE=CLASS PROBS /CLASSIFY=SEPARATE",
+        "111111122111111111332123221132322223122233332333233333122331",
+        &[
+            (1, [0.790861651613, 0.201554999716, 0.007583348671]),
+            (2, [0.733367924888, 0.232801149987, 0.033830925125]),
+            (25, [0.037100276254, 0.859709806106, 0.103189917640]),
+            (41, [0.001305239135, 0.039444199952, 0.959250560913]),
+            (50, [0.001414203375, 0.158712378004, 0.839873418621]),
+            (60, [0.739322028989, 0.201737352433, 0.058940618577]),
+        ],
+    );
+    check_saved(
+        "/PRIORS=SIZE /SAVE=CLASS PROBS /CLASSIFY=SEPARATE",
+        "111111122111111111332123221132322223122233332332233333122331",
+        &[
+            (1, [0.756347550731, 0.235594224024, 0.008058225245]),
+            (2, [0.694811065838, 0.269575309303, 0.035613624859]),
+            (25, [0.030852308343, 0.873801077373, 0.095346614285]),
+            (41, [0.001170252002, 0.043223768984, 0.955605979014]),
+            (50, [0.001253072437, 0.171879975170, 0.826866952393]),
+            (60, [0.703192370390, 0.234518439628, 0.062289189982]),
+        ],
+    );
+}
+
+#[test]
+fn leave_one_out_tables_agree_with_lda_in_r() {
+    let cross = |options: &str| -> Vec<Vec<f64>> {
+        let (tables, _) = run_engine(&format!("{options} /STATISTICS=TABLE CROSSVALID"));
+        table(&tables, "Classification Results")
+            .rows
+            .iter()
+            .skip(6)
+            .take(3)
+            .map(|r| r[3..].iter().map(number).collect())
+            .collect()
+    };
+    let equal = [
+        vec![15.0, 3.0, 0.0, 18.0],
+        vec![5.0, 11.0, 6.0, 22.0],
+        vec![2.0, 5.0, 13.0, 20.0],
+    ];
+    let size = [
+        vec![13.0, 5.0, 0.0, 18.0],
+        vec![4.0, 12.0, 6.0, 22.0],
+        vec![2.0, 5.0, 13.0, 20.0],
+    ];
+    assert_eq!(cross("/PRIORS=EQUAL"), equal);
+    assert_eq!(cross("/PRIORS=SIZE"), size);
+    // cross-validation is linear discrimination only: SEPARATE leaves it as it is
+    assert_eq!(cross("/PRIORS=EQUAL /CLASSIFY=SEPARATE"), equal);
+    assert_eq!(cross("/PRIORS=SIZE /CLASSIFY=SEPARATE"), size);
+}
+
+#[test]
+fn a_block_subcommand_after_a_global_one_is_ignored_with_a_warning() {
+    // found by this audit: SAVE written after CLASSIFY was dropped without a word
+    let (_, engine) = run_engine("/CLASSIFY=SEPARATE /SAVE=CLASS PROBS /PRIORS=SIZE");
+    assert!(engine.dataset().unwrap().variable("DSC_1").is_err());
+    let warnings = engine.warnings();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("SAVE comes after a global subcommand")),
+        "{warnings:?}"
+    );
+    assert!(warnings.iter().any(|w| w.contains("PRIORS comes after")));
+    // in the order the manual gives, nothing is ignored
+    let (_, engine) = run_engine("/PRIORS=SIZE /SAVE=CLASS PROBS /CLASSIFY=SEPARATE");
+    assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+    assert!(engine.dataset().unwrap().variable("DSC_1").is_ok());
 }

@@ -913,6 +913,13 @@ struct Classified {
 
 impl Engine {
     pub(crate) fn discriminant(&mut self, command: &Discriminant) -> Result<Vec<Table>, Error> {
+        for name in &command.ignored {
+            self.warn(format!(
+                "DISCRIMINANT: {name} comes after a global subcommand (MISSING, MATRIX, HISTORY, \
+                 ROTATE, CLASSIFY, STATISTICS or PLOT) and is ignored; analysis block subcommands \
+                 come before them"
+            ));
+        }
         // the matrix materials the analysis is read from; the cases of the active dataset, if
         // they are not the matrix itself, are only classified by them
         let matrix = match &command.matrix.input {
