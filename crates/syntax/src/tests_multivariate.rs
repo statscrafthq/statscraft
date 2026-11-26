@@ -744,6 +744,16 @@ fn alscal_errors() {
     assert!(!alscal("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC /SHAPE=SYMMETRIC.").asymmetric);
     assert!(!alscal("ALSCAL VARIABLES=a b c d.").asymmetric);
     assert!(err("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /MODEL=ASCAL.").contains("needs SHAPE=ASYMMETRIC"));
+    let ascal = alscal("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC /MODEL=ASCAL.");
+    assert!(ascal.stimulus_weights && !ascal.indscal);
+    let ainds =
+        alscal("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC /METHOD=AINDS /FILE=f STIMWGHT.");
+    assert!(ainds.stimulus_weights && ainds.indscal && ainds.file.expect("file").stimuli);
+    assert!(
+        !alscal("ALSCAL VARIABLES=a b c d /MODEL=ASCAL /MODEL=EUCLID /SHAPE=ASYMMETRIC.")
+            .stimulus_weights
+    );
     assert!(err("ALSCAL VARIABLES=a b c d /CONDITION=ROW.").contains("needs SHAPE=ASYMMETRIC"));
     assert!(alscal("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC /CONDITION=ROW.").row);
     let both = alscal(
@@ -751,7 +761,7 @@ fn alscal_errors() {
     );
     assert!(!both.row && both.unconditional);
     assert!(err("ALSCAL VARIABLES=a b c d /FILE=start CONFIG(FIXED).").contains("FIXED"));
-    assert!(err("ALSCAL VARIABLES=a b c d /FILE=start STIMWGHT.").contains("STIMWGHT"));
+    assert!(err("ALSCAL VARIABLES=a b c d /FILE=start STIMWGHT.").contains("STIMWGHT of FILE"));
     assert!(err("ALSCAL VARIABLES=a b c d /LEVEL=RATIO(5).").contains("1 to 4"));
     assert!(err("ALSCAL VARIABLES=a b c d /CRITERIA=DIMENS(7).").contains("1 to 6"));
     assert!(

@@ -9,6 +9,7 @@ mod aim_selectpred;
 mod alscal;
 mod alscal_asymmetric;
 mod alscal_rectangular;
+mod alscal_stimulus_weights;
 mod anova;
 mod autorecode;
 mod bayes;

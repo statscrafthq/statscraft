@@ -448,10 +448,10 @@ fn the_header_names_the_conditionality_and_a_symmetric_matrix_has_no_rows() {
 
 #[test]
 fn the_models_not_yet_known_are_still_refused() {
-    let syntax = "ALSCAL VARIABLES=s1 TO s7 /SHAPE=ASYMMETRIC /MODEL=ASCAL.";
+    let syntax = "ALSCAL VARIABLES=s1 TO s7 /SHAPE=ASYMMETRIC /MODEL=GEMSCAL.";
     let (_, errors) = parse(&format!("{SYM}{syntax}"));
     assert!(
-        errors.iter().any(|e| e.message.contains("MODEL=ASCAL")),
+        errors.iter().any(|e| e.message.contains("MODEL=GEMSCAL")),
         "{errors:?}"
     );
 }

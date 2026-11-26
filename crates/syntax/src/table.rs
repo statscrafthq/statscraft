@@ -3002,10 +3002,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "ALSCAL VARIABLES=varlist | /MATRIX=IN('file' | dataset | *)\n\
                  \x20  [/INPUT=ROWS(ALL | n)] [/SHAPE=SYMMETRIC | ASYMMETRIC | RECTANGULAR]\n\
                  \x20  [/LEVEL=ORDINAL[([UNTIE] [SIMILAR])] | INTERVAL[(1..4)] | RATIO[(1..4)] | NOMINAL]\n\
-                 \x20  [/CONDITION=MATRIX | ROW | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL]\n\
+                 \x20  [/CONDITION=MATRIX | ROW | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL | ASCAL | AINDS]\n\
                  \x20  [/CRITERIA=[NEGATIVE] [CUTOFF(0)] [CONVERGE(.001)] [ITER(30)] [STRESSMIN(.005)] [DIMENS(2[,max])]]\n\
                  \x20  [/PRINT=[DATA] [HEADER]] [/PLOT[=DEFAULT | ALL]] [/OUTFILE='file' | dataset]\n\
-                 \x20  [/FILE='file' | dataset [CONFIG | ROWCONF | COLCONF] [SUBJWGHT] [(INITIAL)]].\n\
+                 \x20  [/FILE='file' | dataset [CONFIG | ROWCONF | COLCONF] [SUBJWGHT] [STIMWGHT] [(INITIAL)]].\n\
                  Each case is a row of a square matrix of dissimilarities and each variable a column; only the\n\
                  triangle below the diagonal is read (SHAPE=ASYMMETRIC reads both), and more cases than variables hold\n\
                  one matrix per subject. With SHAPE=ASYMMETRIC the distances stay symmetric and each ordered pair of\n\
@@ -3029,28 +3029,35 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  squared data, with and without an intercept. CONDITION=MATRIX fits each matrix on its own,\n\
                  UNCONDITIONAL all at once, ROW (asymmetric or rectangular data) each row of each matrix on its own,\n\
                  the first stimulus of an ordered pair, or the row of the data, naming its row. MODEL=INDSCAL weights the dimensions per matrix (no negative weights\n\
-                 unless NEGATIVE). The start is classical scaling of the mean scalar products of all matrices, after\n\
+                 unless NEGATIVE). MODEL=ASCAL (SHAPE=ASYMMETRIC, 2 or more dimensions) gives every stimulus weights of\n\
+                 the dimensions that count when it is the first of a pair, d(i,j)^2 = sum of v(i,a) (x(i,a) - x(j,a))^2,\n\
+                 which makes the distance from i to j differ from the way back; the weights of a dimension average 1\n\
+                 over the stimuli, which fixes the scale of its coordinates, and the axes are not turned. MODEL=AINDS\n\
+                 adds the subject weights of INDSCAL (more than one matrix; one matrix is fitted as ASCAL):\n\
+                 d(i,j,k)^2 = sum of w(k,a) v(i,a) (x(i,a) - x(j,a))^2. Neither goes with CONDITION=ROW. The start is classical scaling of the mean scalar products of all matrices, after\n\
                  each got the smallest constant that makes it a metric. Iterations stop when S-stress improves by less\n\
                  than CONVERGE, falls to STRESSMIN or after ITER; DIMENS(min,max) solves from max down to min (1 only\n\
                  for EUCLID), each smaller solution from the first dimensions of the one before.\n\
                  Tables per dimensionality: Iteration History (S-stress and its improvement), Stress and Squared\n\
                  Correlation (RSQ) in Distances per matrix (Kruskal's stress formula 1 and the squared correlation of\n\
-                 disparities and distances, with their average), Stimulus Coordinates and for INDSCAL Subject Weights;\n\
+                 disparities and distances, with their average), Stimulus Coordinates, for INDSCAL and AINDS Subject Weights and for ASCAL and AINDS Stimulus Weights;\n\
                  PRINT=DATA adds the data and the optimally scaled data, HEADER the options. The coordinates are\n\
                  centered; EUCLID turns them to principal axes with a mean square of 1, INDSCAL scales each dimension\n\
                  to a sum of squares equal to the number of stimuli (the weights the other way) and orders the\n\
                  dimensions by their weights; every dimension is signed so that the first stimulus is positive. PLOT\n\
-                 gives the configuration, the subject weights, the linear fit (disparities against distances), the\n\
+                 gives the configuration, the subject weights, the stimulus weights, the linear fit (disparities against distances), the\n\
                  nonlinear fit (data against distances) for ORDINAL and NOMINAL and the transformation (data against\n\
                  disparities), with ALL one per matrix. OUTFILE writes TYPE_ (CON for coordinates, SUB for subject\n\
-                 weights; ROW and COL for the two sets of a rectangular matrix), DIMENS, MATNUM (0 for\n\
+                 weights, STI for stimulus weights; ROW and COL for the two sets of a rectangular matrix), DIMENS, MATNUM (0 for\n\
                  coordinates) and DIM1, DIM2, ... for every dimensionality. FILE\n\
                  reads such a file (or any with TYPE_, DIM1, DIM2, ...) to start the iterations from: the first rows\n\
                  of TYPE_ CON or ROW with a value in the last dimension, one for each stimulus, are the starting\n\
                  coordinates of the largest dimensionality (for a rectangular matrix the rows come as ROW or CON and\n\
                  the columns as COL; COLCONF is accepted with it), and with MODEL=INDSCAL the TYPE_ SUB rows, one for each\n\
-                 matrix, the starting weights (they are read when SUBJWGHT is listed, or when nothing is listed). The\n\
-                 words may be cut to three letters; only INITIAL is supported, not FIXED.",
+                 matrix, the starting weights (they are read when SUBJWGHT is listed, or when nothing is listed); with\n\
+                 MODEL=ASCAL or AINDS the TYPE_ STI rows, one for each stimulus, start the stimulus weights (STIMWGHT,\n\
+                 or when nothing is listed and the file has them). The words may be cut to three letters; only INITIAL\n\
+                 is supported, not FIXED.",
         example: "ALSCAL VARIABLES=s1 TO s9 /LEVEL=ORDINAL /CRITERIA=DIMENS(2,3) /PLOT.",
         parse: alscal::alscal,
     },

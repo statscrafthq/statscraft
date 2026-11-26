@@ -598,8 +598,56 @@ fn update_weights(
         .collect()
 }
 
+/// Least squares dimension weights of every stimulus as the first of a pair, from every pair
+/// it opens in every matrix; the weights stay where there are too few pairs.
+fn update_stimulus_weights(
+    data: &Data,
+    x: &Matrix,
+    w: &[Vec<f64>],
+    f: &[Vec<f64>],
+    negative: bool,
+    old: &Matrix,
+) -> Matrix {
+    let p = x.first().map_or(0, Vec::len);
+    (0..data.n)
+        .map(|i| {
+            let mut rows: Vec<(Vec<f64>, f64)> = Vec::new();
+            for (k, list) in data.cells.iter().enumerate() {
+                for (c, cell) in list.iter().enumerate().filter(|(_, c)| c.a == i) {
+                    rows.push((
+                        (0..p)
+                            .map(|a| w[k][a] * (x[i][a] - x[cell.b][a]).powi(2))
+                            .collect(),
+                        f[k][c],
+                    ));
+                }
+            }
+            solve_weights(&rows, p, negative, &old[i])
+        })
+        .collect()
+}
+
+/// The stimulus weights of every dimension get a mean of 1 over the stimuli: the factor goes
+/// to the subject weights where there are some, else to the coordinates of the dimension, so
+/// that no distance changes.
+fn normalize_stimulus_weights(x: &mut Matrix, w: &mut [Vec<f64>], v: &mut Matrix, subjects: bool) {
+    let n = v.len() as f64;
+    let p = v.first().map_or(0, Vec::len);
+    for a in 0..p {
+        let mean = v.iter().map(|r| r[a]).sum::<f64>() / n;
+        if mean <= 0.0 || !mean.is_finite() {
+            continue;
+        }
+        v.iter_mut().for_each(|r| r[a] /= mean);
+        match subjects {
+            true => w.iter_mut().for_each(|r| r[a] *= mean),
+            false => x.iter_mut().for_each(|r| r[a] *= mean.sqrt()),
+        }
+    }
+}
+
 fn iterate(data: &Data, command: &Alscal, x: Matrix, w: Vec<Vec<f64>>, v: Option<Matrix>) -> Fit {
-    let (mut x, mut w) = (x, w);
+    let (mut x, mut w, mut v) = (x, w, v);
     let mut history: Vec<f64> = Vec::new();
     let mut f;
     loop {
@@ -616,6 +664,11 @@ fn iterate(data: &Data, command: &Alscal, x: Matrix, w: Vec<Vec<f64>>, v: Option
         }
         if command.indscal {
             w = update_weights(data, &x, v.as_ref(), &f, command.negative, &w);
+        }
+        if let Some(weights) = &v {
+            let mut weights = update_stimulus_weights(data, &x, &w, &f, command.negative, weights);
+            normalize_stimulus_weights(&mut x, &mut w, &mut weights, command.indscal);
+            v = Some(weights);
         }
         update_coordinates(data, &mut x, &w, v.as_ref(), &f);
     }
@@ -660,6 +713,13 @@ fn finish(mut fit: Fit, indscal: bool) -> Fit {
             .iter()
             .map(|w| order.iter().map(|&a| w[a]).collect())
             .collect();
+        fit.v = fit.v.map(|v| {
+            v.iter()
+                .map(|r| order.iter().map(|&a| r[a]).collect())
+                .collect()
+        });
+    } else if fit.v.is_some() {
+        // the stimulus weights tie the axes down: no turning, and the scale is theirs
     } else {
         fit.x = principal_axes(&fit.x);
         let ss: f64 = fit.x.iter().flatten().map(|v| v * v).sum();
@@ -673,8 +733,9 @@ fn finish(mut fit: Fit, indscal: bool) -> Fit {
     fit
 }
 
-/// The coordinates (n by p) and subject weights (m by p) a configuration/weights file gives.
-type FileStart = (Option<Matrix>, Option<Matrix>);
+/// The coordinates (n by p), subject weights (m by p) and stimulus weights (n by p) a
+/// configuration/weights file gives.
+type FileStart = (Option<Matrix>, Option<Matrix>, Option<Matrix>);
 
 impl Engine {
     /// The data of SHAPE=RECTANGULAR: every case is a row of a matrix of the variables'
@@ -750,7 +811,7 @@ impl Engine {
         &self,
         file: &statscraft_syntax::AlscalFile,
         (n, m, p): (usize, usize, usize),
-        indscal: bool,
+        (indscal, stimulus): (bool, bool),
         rect: Option<&Rectangle>,
         warnings: &mut Vec<String>,
     ) -> Result<FileStart, Error> {
@@ -835,7 +896,23 @@ impl Engine {
             }
             None
         };
-        Ok((config, weights))
+        let stimuli = if file.stimuli && stimulus {
+            let rows = rows_of(&["STI"]);
+            if rows.len() < n {
+                return Err(Error(format!(
+                    "{who}: the file has {} stimulus weight rows (TYPE_ STI) with {p} dimensions, and {n} stimuli are scaled",
+                    rows.len()
+                )));
+            }
+            Some(rows[..n].to_vec())
+        } else if stimulus && !file.listed {
+            // the model's default list names the stimulus weights: read them when there
+            let rows = rows_of(&["STI"]);
+            (rows.len() >= n).then(|| rows[..n].to_vec())
+        } else {
+            None
+        };
+        Ok((config, weights, stimuli))
     }
 
     pub(crate) fn alscal(&mut self, command: &Alscal) -> Result<Vec<Table>, Error> {
@@ -885,9 +962,14 @@ impl Engine {
             )));
         }
         let mut indscal = command.indscal;
+        let stimulus = command.stimulus_weights;
         if indscal && m < 2 {
             warnings.push(
-                "ALSCAL: INDSCAL needs more than one matrix; the Euclidean model is used".into(),
+                match stimulus {
+                    true => "ALSCAL: AINDS needs more than one matrix; the asymmetric Euclidean model (ASCAL) is used",
+                    false => "ALSCAL: INDSCAL needs more than one matrix; the Euclidean model is used",
+                }
+                .into(),
             );
             indscal = false;
         }
@@ -1035,7 +1117,7 @@ impl Engine {
             Some(file) => Some(self.alscal_file(
                 file,
                 (n, m, max_dim),
-                indscal,
+                (indscal, stimulus),
                 rectangle.as_ref(),
                 &mut warnings,
             )?),
@@ -1043,7 +1125,7 @@ impl Engine {
         };
         for p in (min_dim..=max_dim).rev() {
             let x = match (fits.last(), &given) {
-                (None, Some((Some(x), _))) => x.clone(),
+                (None, Some((Some(x), ..))) => x.clone(),
                 (None, _) => start(&data, p),
                 (Some((_, previous)), _) => previous.x.iter().map(|r| r[..p].to_vec()).collect(),
             };
@@ -1051,10 +1133,19 @@ impl Engine {
                 (Some((_, previous)), _) if indscal => {
                     previous.w.iter().map(|w| w[..p].to_vec()).collect()
                 }
-                (None, Some((_, Some(w)))) => w.clone(),
+                (None, Some((_, Some(w), _))) => w.clone(),
                 _ => vec![vec![1.0; p]; m],
             };
-            let fit = finish(iterate(&data, &run, x, w, None), indscal);
+            let v = match (stimulus, fits.last(), &given) {
+                (false, ..) => None,
+                (true, Some((_, previous)), _) => previous
+                    .v
+                    .as_ref()
+                    .map(|v| v.iter().map(|r| r[..p].to_vec()).collect()),
+                (true, None, Some((_, _, Some(v)))) => Some(v.clone()),
+                (true, None, _) => Some(vec![vec![1.0; p]; n]),
+            };
+            let fit = finish(iterate(&data, &run, x, w, v), indscal);
             fits.push((p, fit));
         }
         let several = fits.len() > 1;
@@ -1095,10 +1186,11 @@ impl Engine {
                 ),
                 (
                     "Model",
-                    if indscal {
-                        "Individual differences (INDSCAL)"
-                    } else {
-                        "Euclidean"
+                    match (stimulus, indscal) {
+                        (true, true) => "Asymmetric individual differences (AINDS)",
+                        (true, false) => "Asymmetric Euclidean (ASCAL)",
+                        (false, true) => "Individual differences (INDSCAL)",
+                        (false, false) => "Euclidean",
                     }
                     .to_string(),
                 ),
@@ -1235,6 +1327,14 @@ impl Engine {
                     ..Table::default()
                 });
             }
+            if let Some(v) = &fit.v {
+                tables.push(coordinates(
+                    suffix("Stimulus Weights"),
+                    &input.objects,
+                    v,
+                    &dims,
+                ));
+            }
             if command.print_data {
                 for k in 0..m {
                     let scaled: Matrix = data
@@ -1279,6 +1379,28 @@ impl Engine {
                     "Dimension 2",
                     vec![PointGroup {
                         name: "Matrices".into(),
+                        points,
+                    }],
+                ));
+            }
+            if let Some(v) = fit.v.as_ref().filter(|_| *p >= 2) {
+                let points = input
+                    .objects
+                    .iter()
+                    .zip(v)
+                    .map(|(name, r)| Point {
+                        x: r[0],
+                        y: r[1],
+                        z: None,
+                        label: Some(name.clone()),
+                    })
+                    .collect();
+                charts.push(points_chart(
+                    "Derived Stimulus Weights",
+                    "Dimension 1",
+                    "Dimension 2",
+                    vec![PointGroup {
+                        name: "Stimuli".into(),
                         points,
                     }],
                 ));
@@ -1377,6 +1499,12 @@ impl Engine {
                         matnum.push(Some((k + 1) as f64));
                         values.push(w.clone());
                     }
+                }
+                for r in fit.v.iter().flatten() {
+                    kinds.push("STI".to_string());
+                    dimens.push(Some(*p as f64));
+                    matnum.push(Some(0.0));
+                    values.push(r.clone());
                 }
             }
             let mut out = Dataset::new(kinds.len());

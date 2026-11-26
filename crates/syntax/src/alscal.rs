@@ -47,6 +47,8 @@ pub struct Alscal {
     pub rectangular: bool,
     /// MODEL=INDSCAL.
     pub indscal: bool,
+    /// MODEL=ASCAL or AINDS: every stimulus has weights of the dimensions of its own.
+    pub stimulus_weights: bool,
     pub negative: bool,
     pub cutoff: f64,
     pub converge: f64,
@@ -71,6 +73,8 @@ pub struct AlscalFile {
     pub config: bool,
     /// The subject weights (TYPE_ SUB) start the weights of MODEL=INDSCAL.
     pub weights: bool,
+    /// The stimulus weights (TYPE_ STI) start the stimulus weights of MODEL=ASCAL or AINDS.
+    pub stimuli: bool,
     /// What to read was listed; if not, the model's default: the configuration and, for
     /// INDSCAL, the subject weights.
     pub listed: bool,
@@ -103,6 +107,7 @@ fn not_yet(p: &Parser, what: &str) -> SyntaxError {
 
 pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
     let mut colconf = false;
+    let mut stimwght = false;
     let mut command = Alscal {
         variables: Vec::new(),
         rows: None,
@@ -115,6 +120,7 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
         asymmetric: false,
         rectangular: false,
         indscal: false,
+        stimulus_weights: false,
         negative: false,
         cutoff: 0.0,
         converge: 0.001,
@@ -213,12 +219,19 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             };
         } else if p.eat_keyword("MODEL") || p.eat_keyword("METHOD") {
             p.eat(Punct::Eq);
-            if p.at_keyword("ASCAL") || p.at_keyword("AINDS") || p.at_keyword("GEMSCAL") {
-                return Err(not_yet(p, "MODEL=ASCAL, AINDS or GEMSCAL"));
+            if p.at_keyword("GEMSCAL") {
+                return Err(not_yet(p, "MODEL=GEMSCAL"));
             }
+            command.stimulus_weights = false;
             command.indscal = if p.eat_keyword("EUCLID") {
                 false
             } else if p.eat_keyword("INDSCAL") {
+                true
+            } else if p.eat_keyword("ASCAL") {
+                command.stimulus_weights = true;
+                false
+            } else if p.eat_keyword("AINDS") {
+                command.stimulus_weights = true;
                 true
             } else {
                 return Err(p.unexpected(&["EUCLID", "INDSCAL", "ASCAL", "AINDS", "GEMSCAL"]));
@@ -330,6 +343,7 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             let name = crate::files::dataset_or_file(p)?;
             let (mut config, mut weights, mut given) = (false, false, false);
             colconf = false;
+            stimwght = false;
             while !at_end(p) {
                 let start = p.pos;
                 if p.eat_keyword("CONFIG") || p.eat_keyword("ROWCONF") {
@@ -339,8 +353,12 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
                     colconf = true;
                 } else if p.eat_keyword("SUBJWGHT") {
                     weights = true;
+                } else if p.eat_keyword("STIMWGHT") {
+                    stimwght = true;
                 } else {
-                    return Err(p.unexpected(&["CONFIG", "ROWCONF", "COLCONF", "SUBJWGHT"]));
+                    return Err(
+                        p.unexpected(&["CONFIG", "ROWCONF", "COLCONF", "SUBJWGHT", "STIMWGHT"])
+                    );
                 }
                 given = true;
                 if p.eat(Punct::LParen) {
@@ -361,6 +379,7 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
                 name,
                 config: config || !given,
                 weights,
+                stimuli: stimwght,
                 listed: given,
             });
         } else if matches!(p.peek(), Some(TokenKind::Word(_))) {
@@ -397,10 +416,34 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             "COLCONF of FILE needs SHAPE=RECTANGULAR: only then are there columns of stimuli of their own",
         ));
     }
-    if command.indscal && command.dimensions.0 < 2 {
+    if command.indscal && !command.stimulus_weights && command.dimensions.0 < 2 {
         return Err(SyntaxError::new(
             p.span(),
             "MODEL=INDSCAL needs at least 2 dimensions",
+        ));
+    }
+    if command.stimulus_weights {
+        let model = if command.indscal { "AINDS" } else { "ASCAL" };
+        let problem = if !command.asymmetric {
+            Some("needs SHAPE=ASYMMETRIC")
+        } else if command.dimensions.0 < 2 {
+            Some("needs at least 2 dimensions")
+        } else if command.row {
+            Some("cannot be used with CONDITION=ROW")
+        } else {
+            None
+        };
+        if let Some(problem) = problem {
+            return Err(SyntaxError::new(
+                p.span(),
+                format!("MODEL={model} {problem}"),
+            ));
+        }
+    }
+    if stimwght && !command.stimulus_weights {
+        return Err(SyntaxError::new(
+            p.span(),
+            "STIMWGHT of FILE is used by MODEL=ASCAL and AINDS only",
         ));
     }
     Ok(Command::Alscal(Box::new(command)))
