@@ -368,9 +368,14 @@ pub(crate) fn read(
     }
     let decimals = if fixed { format.decimals } else { 0 };
     let result = match format.kind {
-        FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
-            date(text, format.kind, reading.epoch)
-        }
+        FormatType::Date
+        | FormatType::Adate
+        | FormatType::Edate
+        | FormatType::Sdate
+        | FormatType::Jdate
+        | FormatType::Qyr
+        | FormatType::Moyr
+        | FormatType::Wkyr => date(text, format.kind, reading.epoch),
         // a date with a time of day, or a time, read as GET DATA reads them
         FormatType::Datetime | FormatType::Ymdhms | FormatType::Time | FormatType::Mtime => {
             crate::get_data::number(text, format, false, reading.epoch)
@@ -476,7 +481,7 @@ pub(crate) fn number(
 
 /// The month of a date field: a number, a Roman numeral or at least three letters of its
 /// English name.
-fn month(text: &str) -> Option<f64> {
+pub(crate) fn month(text: &str) -> Option<f64> {
     const NAMES: [&str; 12] = [
         "JANUARY",
         "FEBRUARY",
@@ -506,40 +511,14 @@ fn month(text: &str) -> Option<f64> {
     position.map(|i| i as f64 + 1.0)
 }
 
-/// A date in DATE (day month year), ADATE (month day year), EDATE (day month year) or SDATE
-/// (year month day) form. Blanks, dashes, slashes, periods and commas separate the parts. A
-/// two-digit year falls in the window that starts at `epoch` (None: AUTOMATIC).
+/// A date by one of the date formats (DATE, ADATE, EDATE, SDATE, JDATE, QYR, MOYR, WKYR); see
+/// `date_input` for the forms each reads.
 pub(crate) fn date(
     text: &str,
     kind: FormatType,
     epoch: Option<f64>,
 ) -> Result<Option<f64>, &'static str> {
-    let parts: Vec<&str> = text
-        .split([' ', '-', '/', '.', ','])
-        .filter(|p| !p.is_empty())
-        .collect();
-    if parts.is_empty() {
-        return Ok(None);
-    }
-    let [a, b, c] = parts[..] else {
-        return Err("is not a date: it needs a day, a month and a year");
-    };
-    let (day, month_text, year) = match kind {
-        FormatType::Adate => (b, a, c),
-        FormatType::Sdate => (c, b, a),
-        _ => (a, b, c),
-    };
-    let whole = |text: &str| text.parse::<u32>().ok().map(f64::from);
-    let (Some(day), Some(month), Some(year)) = (whole(day), month(month_text), whole(year)) else {
-        return Err("is not a date");
-    };
-    let year = full_year(year, epoch);
-    if !(1.0..=31.0).contains(&day) || !(1.0..=12.0).contains(&month) {
-        return Err("is not a date: the day or the month is out of range");
-    }
-    crate::expr_functions::date(day, month, year)
-        .map(Some)
-        .ok_or("is not a date the calendar holds")
+    crate::date_input::date(text, kind, epoch)
 }
 
 /// The year a whole year from 0 to 99 stands for: the one in the 100 years from `epoch`, or

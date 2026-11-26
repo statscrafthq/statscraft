@@ -100,47 +100,6 @@ pub fn delimited(
     records
 }
 
-/// Seconds of a time of day h:m[:s].
-fn time_of_day(text: &str) -> Option<f64> {
-    // one leading minus sign makes the whole time negative; no other sign is allowed
-    let text = text.trim();
-    let (sign, text) = match text.strip_prefix('-') {
-        Some(rest) => (-1.0, rest),
-        None => (1.0, text),
-    };
-    if text.contains(['-', '+']) {
-        return None;
-    }
-    let parts: Vec<&str> = text.split(':').collect();
-    if !(2..=3).contains(&parts.len()) {
-        return None;
-    }
-    let number = |s: &str| s.trim().parse::<f64>().ok();
-    let (h, m) = (number(parts[0])?, number(parts[1])?);
-    let s = match parts.get(2) {
-        Some(s) => number(s)?,
-        None => 0.0,
-    };
-    Some(sign * (h * 3600.0 + m * 60.0 + s))
-}
-
-/// A date in any of the usual orders: year first, day first with a month name or number,
-/// or month/day/year.
-fn any_date(text: &str, epoch: Option<f64>) -> Result<Option<f64>, &'static str> {
-    let year_first = text
-        .trim()
-        .split(['-', '/', '.'])
-        .next()
-        .is_some_and(|p| p.len() == 4 && p.bytes().all(|b| b.is_ascii_digit()));
-    if year_first {
-        return crate::data_list::date(text, FormatType::Sdate, epoch);
-    }
-    if text.contains('/') {
-        return crate::data_list::date(text, FormatType::Adate, epoch);
-    }
-    crate::data_list::date(text, FormatType::Date, epoch)
-}
-
 /// One value in a numeric input format; a two-digit year falls in the window from `epoch`
 /// (SET EPOCH, None: AUTOMATIC).
 pub(crate) fn number(
@@ -155,42 +114,19 @@ pub(crate) fn number(
     }
     match format.kind {
         FormatType::Datetime | FormatType::Ymdhms => {
-            let (date, time) = match text.find([' ', 'T']) {
-                Some(at) => (&text[..at], text[at + 1..].trim()),
-                None => (text, ""),
-            };
-            // YMDHMS is year, month, day by definition; DATETIME takes the usual orders
-            let day = match format.kind {
-                FormatType::Ymdhms => crate::data_list::date(date, FormatType::Sdate, epoch)?,
-                _ => any_date(date, epoch)?,
-            }
-            .ok_or("is not a date")?;
-            let time = if time.is_empty() {
-                0.0
-            } else {
-                time_of_day(time).ok_or("is not a time of day")?
-            };
-            Ok(Some(day + time))
+            crate::date_input::datetime(text, format.kind == FormatType::Ymdhms, epoch)
         }
-        FormatType::Time => time_of_day(text).map(Some).ok_or("is not a time"),
+        FormatType::Time => crate::date_input::clock(text, false).map(Some),
         // MTIME is minutes and seconds
-        FormatType::Mtime => {
-            let (sign, text) = match text.strip_prefix('-') {
-                Some(rest) => (-1.0, rest.trim()),
-                None => (1.0, text),
-            };
-            if text.contains(['-', '+']) {
-                return Err("is not a time in minutes and seconds");
-            }
-            let (minutes, seconds) = text.split_once(':').unwrap_or((text, "0"));
-            match (minutes.trim().parse::<f64>(), seconds.trim().parse::<f64>()) {
-                (Ok(m), Ok(s)) => Ok(Some(sign * (m * 60.0 + s))),
-                _ => Err("is not a time in minutes and seconds"),
-            }
-        }
-        FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
-            crate::data_list::date(text, format.kind, epoch)
-        }
+        FormatType::Mtime => crate::date_input::clock(text, true).map(Some),
+        FormatType::Date
+        | FormatType::Adate
+        | FormatType::Edate
+        | FormatType::Sdate
+        | FormatType::Jdate
+        | FormatType::Qyr
+        | FormatType::Moyr
+        | FormatType::Wkyr => crate::data_list::date(text, format.kind, epoch),
         FormatType::F | FormatType::N | FormatType::E if comma_decimal => {
             crate::data_list::number(&text.replace('.', "").replace(',', "."), FormatType::F, 0)
         }

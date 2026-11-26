@@ -252,8 +252,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  between. Inside INPUT PROGRAM each run reads the next case's records into the case being\n\
                  built; without variables it passes over a record. END (fixed data in an input program\n\
                  only) names a variable that is 0, and 1 once the data are used up.\n\
-                 Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE, DATETIME,\n\
-                 YMDHMS (year first), TIME (hours:minutes:seconds), MTIME (minutes:seconds), DTIME (days, then time).\n\
+                 Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE, JDATE (yyddd or\n\
+                 yyyyddd), QYR (4Q90, Q4 1990), MOYR (Oct-1990), WKYR (43WK90, 43 1990), DATETIME, YMDHMS (year\n\
+                 first), TIME (hours:minutes:seconds), MTIME (minutes:seconds), DTIME (days, then time). A date\n\
+                 may be written with blanks, dashes, slashes, periods or commas between its parts, a month as a\n\
+                 number, a Roman numeral or a name, or with no delimiter at all (28OCT1990, 10281990); a two-digit\n\
+                 year falls in the 100 years from SET EPOCH; a time with no colons is hhmm or hhmmss.\n\
                  A value that cannot be read is system-missing, with a warning naming its line.",
         example: "DATA LIST LIST /id (F3) name (A12) score.",
         parse: data_list::data_list,
@@ -703,9 +707,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  user-missing values as valid, so NMISS.(x) and NUMISS.(x) count the system-missing ones alone;\n\
                  FIRST., LAST., MIN. and MAX. may pick a user-missing value, which keeps its status in the\n\
                  target. On N or NU without a variable the period changes nothing, and a period that ends\n\
-                 the line ends the command. A weight variable's own user-missing values still weigh\n\
-                 nothing. With\n\
-                 MISSING=COLUMNWISE a group with one missing value gets a missing\n\
+                 the line ends the command. A weight variable's own user-missing values still weigh nothing.\n\
+                 With MISSING=COLUMNWISE a group with one missing value gets a missing\n\
                  result (N, NU, NMISS and NUMISS still count). PRESORTED keeps the cases in file order and makes a\n\
                  group of each run of adjacent cases with the same break values. With a weight variable SUM,\n\
                  MEAN, SD, MEDIAN, N and NMISS are weighted.",
@@ -7018,7 +7021,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  A string variable may get another width (A20); values longer than it are cut. A numeric\n\
                  variable may get another numeric format, or become a string holding its formatted\n\
                  values; a string may become numeric with an F, COMMA, DOT, E, DOLLAR, PCT or N format, or a\n\
-                 date with a DATE, ADATE, EDATE or SDATE format (ALTER TYPE visit (A12 = ADATE12)), read in the width\n\
+                 date or time with a DATE, ADATE, EDATE, SDATE, JDATE, QYR, MOYR, WKYR, DATETIME, YMDHMS, TIME or MTIME\n\
+                 format (ALTER TYPE visit (A12 = ADATE12)), read in the width\n\
                  of the format as DATA LIST reads it; a value that does not fit the format becomes\n\
                  system-missing. A type change drops value labels and missing values.\n\
                  input = (A=, F=, A10=) limits the change to variables of that type and width.\n\

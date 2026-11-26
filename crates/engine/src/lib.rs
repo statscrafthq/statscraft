@@ -32,6 +32,7 @@ mod ctables;
 mod curvefit;
 mod data_list;
 mod date;
+mod date_input;
 mod descriptives;
 mod detectanomaly;
 mod dictionary;

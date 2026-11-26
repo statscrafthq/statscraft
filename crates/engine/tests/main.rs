@@ -47,6 +47,7 @@ mod ctables_sigtest;
 mod data_checks;
 mod data_commands;
 mod date_formats;
+mod date_formats_r;
 mod dictionary;
 mod discriminant;
 mod discriminant_r;
