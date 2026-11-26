@@ -621,6 +621,7 @@ pub(crate) fn princals(p: &mut Parser) -> PResult<Command> {
         save_trdata: None,
         save_object: legacy.save_root("PRI"),
         save_approx: None,
+        save_areas: Default::default(),
         ellipses: Vec::new(),
         outfile_discrdata: None,
         outfile_trdata: None,

@@ -736,11 +736,6 @@ impl Engine {
             .collect();
         let prep = self.prepare_scaling(WHO, &command.common, &lists)?;
         let mut warnings = prep.warnings.clone();
-        for keyword in &command.ellipses {
-            warnings.push(format!(
-                "{WHO}: {keyword} draws confidence ellipses, which are not drawn yet; it is ignored"
-            ));
-        }
         let fixed = prep.fixed;
         let (avars, coded) = (&prep.avars, &prep.coded);
         let (w, n_w, m_w) = (&prep.w, prep.n_w, prep.m_w);
@@ -1461,6 +1456,7 @@ impl Engine {
 
         // the bootstrap: its tables here, its charts with the others below
         let mut bootstrap_charts: Vec<Chart> = Vec::new();
+        let mut ellipse_set: Option<crate::catpca_bootstrap::Ellipses> = None;
         let mut bootstrap_bands: Option<Vec<Vec<crate::catpca_bootstrap::Band>>> = None;
         if let Some(spec) = &command.resample {
             let original = summarize(command, &prep, &quants, &x, p, converged);
@@ -1471,6 +1467,15 @@ impl Engine {
                 self.catpca_bootstrap_charts(command, &prep, &result, &original, &labels)?;
             tables.extend(result.tables);
             bootstrap_bands = Some(result.value_bands);
+            ellipse_set = result.ellipses;
+        }
+        // the ellipse keywords need the bootstrap of a two-dimensional solution
+        if ellipse_set.is_none() {
+            for keyword in &command.ellipses {
+                warnings.push(format!(
+                    "{WHO}: {keyword} needs RESAMPLE=BOOTSTRAP and DIMENSION=2; it is ignored"
+                ));
+            }
         }
         // charts
         let data = self.active()?;
@@ -2041,7 +2046,101 @@ impl Engine {
                 ));
             }
         }
+        if let Some(set_of_ellipses) = &ellipse_set {
+            let area_of = |e: &Option<crate::catpca_bootstrap::Ellipse>| e.as_ref().map(|e| e.area);
+            let mut asked: Vec<(&str, &str, Vec<Option<f64>>)> = Vec::new();
+            if command.save_areas.loadings {
+                asked.push((
+                    "LDELL",
+                    "Confidence ellipse area of the loadings: case k holds the k-th analysis variable",
+                    set_of_ellipses.loadings.iter().map(area_of).collect(),
+                ));
+            }
+            if command.save_areas.categories {
+                asked.push((
+                    "CTELL",
+                    "Confidence ellipse area of the category points: case k holds the k-th category, variable by variable",
+                    set_of_ellipses
+                        .categories
+                        .iter()
+                        .flat_map(|v| v.iter().map(area_of))
+                        .collect(),
+                ));
+            }
+            if command.save_areas.objects {
+                asked.push((
+                    "OBELL",
+                    "Confidence ellipse area of the object point",
+                    set_of_ellipses.objects.iter().map(area_of).collect(),
+                ));
+            }
+            for (root, what, areas) in asked {
+                if areas.len() > prep.n_tot {
+                    warnings.push(format!(
+                        "{WHO}: SAVE has {} areas for {} cases; the {root} variable holds the first {}",
+                        areas.len(),
+                        prep.n_tot,
+                        prep.n_tot
+                    ));
+                }
+                // the areas run down the cases from the first
+                let mut column: Vec<Option<f64>> = vec![None; prep.n_tot];
+                for (slot, area) in column.iter_mut().zip(&areas) {
+                    *slot = *area;
+                }
+                let names = |set: usize| vec![format!("{root}_{set}")];
+                let set = free_set(data, &names);
+                saves.push((
+                    format!("{root}_{set}"),
+                    format!("{what} ({WHO} {set})"),
+                    column,
+                ));
+            }
+        }
         let mut files: Vec<(String, Dataset)> = Vec::new();
+        if let (Some(file), true) = (&command.outfile_ellcoord, ellipse_set.is_some()) {
+            // every plotted ellipse: its point as point 0, then the closed contour
+            let (mut plots, mut entities) = (Vec::new(), Vec::new());
+            let (mut points, mut xs, mut ys) = (Vec::new(), Vec::new(), Vec::new());
+            for chart in bootstrap_charts
+                .iter()
+                .filter(|c| c.kind == ChartKind::ConfidenceEllipse)
+            {
+                let Some(crate::plot::Plot::Points { groups, .. }) = &chart.plot else {
+                    continue;
+                };
+                for group in groups {
+                    for (k, point) in group.points.iter().enumerate() {
+                        plots.push(chart.title.clone());
+                        entities.push(group.name.clone());
+                        points.push(Some(k as f64));
+                        xs.push(Some(point.x));
+                        ys.push(Some(point.y));
+                    }
+                }
+            }
+            if plots.is_empty() {
+                warnings.push(format!(
+                    "{WHO}: no ellipse is drawn, so OUTFILE ELLCOORD has nothing to write"
+                ));
+            }
+            let mut out = Dataset::new(plots.len());
+            for (name, values) in [("Plot", plots), ("Entity", entities)] {
+                let width = values
+                    .iter()
+                    .map(String::len)
+                    .max()
+                    .unwrap_or(1)
+                    .clamp(8, 32767);
+                out.set_string_values(name, width, values)?;
+            }
+            out.set_numeric_values("Point", points)?;
+            out.set_numeric_values("Dimension1", xs)?;
+            out.set_numeric_values("Dimension2", ys)?;
+            if out.case_count() > 0 {
+                files.push((file.clone(), out));
+            }
+        }
         if let Some(file) = &command.outfile_discrdata {
             let mut out = Dataset::new(prep.n_tot);
             for v in avars {

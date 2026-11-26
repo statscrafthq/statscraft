@@ -4528,9 +4528,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20[RESID(var[(n)] ...)[(len)]] [BIPLOT[(LOADING | CENTR[(varlist)])][(varlist)][(len)]]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20[TRIPLOT[(varlist[(varlist)])][(len)]] [PROJCENTR(var, varlist)[(len)]] [VAF]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20[NDIM(first, last)] [NONE]]\n\
-                 \x20\x20\x20[/SAVE=[TRDATA[(root[(n)])]] [OBJECT[(root[(n)])]] [APPROX[(root)]]]\n\
+                 \x20\x20\x20[/SAVE=[TRDATA[(root[(n)])]] [OBJECT[(root[(n)])]] [APPROX[(root)]] [LDELLAREA] [CTELLAREA]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20[OBELLAREA | ELLAREAOBJ]]\n\
                  \x20\x20\x20[/OUTFILE=[DISCRDATA('file' | dataset)] [TRDATA('file' | dataset)] [OBJECT('file' | dataset)]\n\
-                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[APPROX('file' | dataset)]].\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[APPROX('file' | dataset)] [ELLCOORD('file' | dataset)]].\n\
                  The command gives each category of each variable a value (its quantification) so that a few\n\
                  principal components explain the quantified variables as well as they can. ANALYSIS is required and\n\
                  names the active variables with their options. Variables are coded as for MULTIPLE CORRESPONDENCE:\n\
@@ -4572,6 +4573,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  mean area plus that many standard deviations (defaults: > AREA 0, > STDEV 2, > AREA 2); NELLPNT(n)\n\
                  sets the points of a contour (40). TRANS plots of variables with a single value show the interval of\n\
                  each category's value as Lower and Upper.\n\
+                 With a bootstrap of 2 dimensions, SAVE LDELLAREA, CTELLAREA and OBELLAREA (also ELLAREAOBJ) add the\n\
+                 area of every confidence ellipse as a variable named LDELL_n, CTELL_n or OBELL_n: for the objects one\n\
+                 area per case, for the loadings the area of the k-th analysis variable in case k, for the categories\n\
+                 the area of the k-th category (variable by variable) in case k, the other cases blank. OUTFILE\n\
+                 ELLCOORD writes the coordinates of the ellipses drawn: Plot, Entity, Point (0 is the point of the\n\
+                 data, then the closed contour), Dimension1 and Dimension2. Without the bootstrap the keywords warn.\n\
                  Always shown: Case Processing Summary, Iteration History (iteration 0 and the last, or all with\n\
                  HISTORY) and Model Summary (Cronbach's alpha, eigenvalue and percent of variance per dimension and\n\
                  in total). PRINT adds: DESCRIP frequencies, missing count and mode; QUANT each variable's\n\

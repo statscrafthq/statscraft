@@ -291,8 +291,10 @@ impl Engine {
             p,
         };
         // the points of a two-dimensional solution, for the ellipses
-        let mut clouds =
-            (p == 2 && !command.plot.charts.is_empty()).then(|| Clouds::new(prep, original));
+        let wanted = !command.plot.charts.is_empty()
+            || command.save_areas != Default::default()
+            || command.outfile_ellcoord.is_some();
+        let mut clouds = (p == 2 && wanted).then(|| Clouds::new(prep, original));
         let pool = spec
             .balanced
             .then(|| balanced_pool(n, spec.samples, || self.random()));

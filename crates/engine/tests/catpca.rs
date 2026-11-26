@@ -896,3 +896,118 @@ fn ellipses_need_a_two_dimensional_solution() {
     assert!(titles.iter().any(|t| t == "Bootstrap Eigenvalues"));
     assert!(!titles.iter().any(|t| t.starts_with("Confidence Ellipse")));
 }
+
+/// The values of variable `name` of the active dataset.
+fn active_column(engine: &Engine, name: &str) -> Vec<Option<f64>> {
+    let data = engine.dataset().unwrap();
+    let Values::Numeric(values) = data.variable(name).unwrap().values() else {
+        panic!("{name} is not numeric")
+    };
+    (0..data.case_count()).map(|c| values.get(c)).collect()
+}
+
+/// The area of the polygon through the contour points (the first point is the data's point).
+fn polygon_area(points: &[statscraft_engine::plot::Point]) -> f64 {
+    let ring = &points[1..];
+    let mut twice = 0.0;
+    for k in 0..ring.len() - 1 {
+        twice += ring[k].x * ring[k + 1].y - ring[k + 1].x * ring[k].y;
+    }
+    twice.abs() / 2.0
+}
+
+#[test]
+fn saved_ellipse_areas_are_those_of_the_plotted_ellipses() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DATA}SET SEED=4.\n{BOOT_COMMAND} /RESAMPLE=BOOTSTRAP(40) /PLOT=LOADING OBJECT OBELLAREA(> AREA 0) NELLPNT(60)
+             /SAVE=LDELLAREA CTELLAREA OBELLAREA."
+        ),
+    );
+    let charts = engine.take_charts();
+    let groups_of = |title: &str| match charts
+        .iter()
+        .find(|c| c.title == title)
+        .and_then(|c| c.plot.as_ref())
+    {
+        Some(statscraft_engine::plot::Plot::Points { groups, .. }) => groups.clone(),
+        _ => panic!("no {title}"),
+    };
+    // a polygon of 60 corners on an ellipse has the share 60 sin(2 pi / 60) / (2 pi) of its area
+    let share = 60.0 * (std::f64::consts::TAU / 60.0).sin() / std::f64::consts::TAU;
+    let loadings = active_column(&engine, "LDELL_1");
+    let plotted = groups_of("Confidence Ellipses of the Component Loadings");
+    assert_eq!(plotted.len(), 4);
+    for (k, group) in plotted.iter().enumerate() {
+        let saved = loadings[k].expect("an area for each analysis variable");
+        assert!((polygon_area(&group.points) / share - saved).abs() < 1e-9 * saved.max(1.0));
+    }
+    assert!(
+        loadings[4..].iter().all(Option::is_none),
+        "the rest of the cases are blank"
+    );
+    let objects = active_column(&engine, "OBELL_1");
+    let plotted = groups_of("Confidence Ellipses of the Object Points");
+    assert_eq!(objects.len(), 20);
+    for (case, group) in plotted.iter().enumerate() {
+        let saved = objects[case].expect("an area for each object");
+        assert!((polygon_area(&group.points) / share - saved).abs() < 1e-9 * saved.max(1.0));
+    }
+    // the categories: 19 of the four variables, in the order of the variables
+    let categories = active_column(&engine, "CTELL_1");
+    assert_eq!(categories.iter().flatten().count(), 19);
+    assert!(categories.iter().flatten().all(|a| *a > 0.0));
+    // a name taken makes the next number
+    run(
+        &mut engine,
+        &format!(
+            "SET SEED=4.\n{BOOT_COMMAND} /RESAMPLE=BOOTSTRAP(10) /PLOT=NONE /SAVE=ELLAREAOBJ."
+        ),
+    );
+    assert_eq!(active_column(&engine, "OBELL_2").len(), 20);
+}
+
+#[test]
+fn ellipse_coordinates_go_to_a_dataset_and_the_keywords_need_a_bootstrap() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DATA}DATASET NAME visits.\nDATASET DECLARE ell.\nSET SEED=4.\n{BOOT_COMMAND}
+             /RESAMPLE=BOOTSTRAP(30) /PLOT=LOADING NELLPNT(10) /OUTFILE=ELLCOORD(ell)."
+        ),
+    );
+    let (sets, _) = engine.named_datasets();
+    let ell = sets
+        .iter()
+        .find(|(n, _)| n == "ell")
+        .and_then(|(_, d)| d.as_ref())
+        .expect("the coordinates");
+    // the eigenvalue ellipse and the four loadings: five ellipses, a point and 11 contour points
+    assert_eq!(ell.case_count(), 5 * 12);
+    let Values::Numeric(points) = ell.variable("Point").unwrap().values() else {
+        panic!("Point is numeric")
+    };
+    assert_eq!(points.get(0), Some(0.0));
+    assert_eq!(points.get(11), Some(11.0));
+    assert_eq!(points.get(12), Some(0.0));
+    // without a bootstrap the keywords are ignored with a warning
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!("{DATA}{BOOT_COMMAND} /SAVE=OBELLAREA /PLOT=LDELLAREA."),
+    );
+    let warnings = engine.warnings();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("SAVE OBELLAREA needs RESAMPLE=BOOTSTRAP"))
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("PLOT LDELLAREA needs RESAMPLE=BOOTSTRAP"))
+    );
+}

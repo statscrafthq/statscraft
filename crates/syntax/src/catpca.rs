@@ -189,6 +189,14 @@ impl Default for EllipseSettings {
     }
 }
 
+/// SAVE's LDELLAREA, CTELLAREA and OBELLAREA (ELLAREAOBJ is the last's other name).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EllipseAreaSave {
+    pub loadings: bool,
+    pub categories: bool,
+    pub objects: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Catpca {
     /// VARIABLES, DISCRETIZATION, MISSING, SUPPLEMENTARY, CONFIGURATION, DIMENSION,
@@ -204,6 +212,7 @@ pub struct Catpca {
     pub save_trdata: Option<(String, Option<usize>)>,
     pub save_object: Option<(String, Option<usize>)>,
     pub save_approx: Option<String>,
+    pub save_areas: EllipseAreaSave,
     /// The confidence ellipse keywords named on PLOT, SAVE or OUTFILE, which only
     /// bootstrapping gives.
     pub ellipses: Vec<String>,
@@ -688,6 +697,7 @@ pub(crate) fn catpca(p: &mut Parser) -> PResult<Command> {
     let mut plot_spec = CatpcaPlots::default();
     let (mut save_trdata, mut save_object, mut save_approx) = (None, None, None);
     let mut ellipses = Vec::new();
+    let mut save_areas = EllipseAreaSave::default();
     let (mut discrdata, mut trdata, mut object, mut approx, mut ellcoord) =
         (None, None, None, None, None);
     let common = scaling_command(
@@ -735,6 +745,11 @@ pub(crate) fn catpca(p: &mut Parser) -> PResult<Command> {
                                 .find(|k| p.at_keyword(k))
                         {
                             p.pos += 1;
+                            match k {
+                                "LDELLAREA" => save_areas.loadings = true,
+                                "CTELLAREA" => save_areas.categories = true,
+                                _ => save_areas.objects = true,
+                            }
                             ellipses.push(format!("SAVE {k}"));
                         } else {
                             return Err(p.unexpected(&[
@@ -812,6 +827,7 @@ pub(crate) fn catpca(p: &mut Parser) -> PResult<Command> {
         save_trdata,
         save_object,
         save_approx,
+        save_areas,
         ellipses,
         outfile_discrdata: discrdata,
         outfile_trdata: trdata,

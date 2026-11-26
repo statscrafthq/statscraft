@@ -249,8 +249,8 @@ pub use bayes::{
 };
 pub use bootstrap::{Bootstrap, ResidualSampling};
 pub use catpca::{
-    Catpca, CatpcaBootstrap, CatpcaPlot, CatpcaPlots, CatpcaPrint, CatpcaVariable, EllipseLimit,
-    EllipseSettings, ScalingLevel,
+    Catpca, CatpcaBootstrap, CatpcaPlot, CatpcaPlots, CatpcaPrint, CatpcaVariable, EllipseAreaSave,
+    EllipseLimit, EllipseSettings, ScalingLevel,
 };
 pub use catreg::{
     Catreg, CatregInitial, CatregPenalty, CatregPlot, CatregPrint, CatregResample, PenaltyRange,

@@ -1062,6 +1062,7 @@ fn catpca_subcommands_and_abbreviations() {
     assert_eq!(c.save_trdata, Some(("QUANT".into(), Some(2))));
     assert_eq!(c.save_approx.as_deref(), Some("FIT"));
     assert_eq!(c.ellipses, vec!["PLOT OBELLAREA", "SAVE LDELLAREA"]);
+    assert!(c.save_areas.loadings && !c.save_areas.objects && !c.save_areas.categories);
     // no values given: the defaults of the manual
     assert_eq!(c.plot.ellipse, EllipseSettings::default());
     assert_eq!(c.outfile_trdata.as_deref(), Some("trans.sav"));
@@ -1160,4 +1161,24 @@ fn catpca_ellipse_limits_and_points() {
     assert!(!errors.is_empty());
     let (_, errors) = parse("CATPCA a b /ANALYSIS=a b /PLOT=CTELLAREA(GT AREA -1).");
     assert!(!errors.is_empty());
+}
+
+#[test]
+fn catpca_save_ellipse_areas() {
+    let one = |source: &str| match parse(source).0.remove(0).command {
+        Command::Catpca(c) => *c,
+        other => panic!("{other:?}"),
+    };
+    let c = one(
+        "CATPCA a b /ANALYSIS=a b /RESAMPLE=BOOTSTRAP /SAVE=CTELLAREA ELLAREAOBJ /OUTFILE=ELLCOORD('e.sav').",
+    );
+    assert_eq!(
+        c.save_areas,
+        EllipseAreaSave {
+            loadings: false,
+            categories: true,
+            objects: true
+        }
+    );
+    assert_eq!(c.outfile_ellcoord.as_deref(), Some("e.sav"));
 }
