@@ -130,18 +130,34 @@ pub(crate) fn sign_exact(n1: f64, n2: f64) -> [f64; 3] {
 }
 
 /// The two-tailed significance of a Kolmogorov-Smirnov Z by the first terms of Smirnov's formula.
-pub(crate) fn smirnov_p(z: f64) -> f64 {
+/// `first` is pi squared over eight and `root` the square root of two pi: NPAR TESTS uses the
+/// seven-digit values its manual prints, NPTESTS the formula with pi itself.
+fn smirnov_terms(z: f64, first: f64, root: f64) -> f64 {
     if z < 0.27 {
         1.0
     } else if z < 1.0 {
-        let q = (-1.233701 / (z * z)).exp();
-        1.0 - 2.506628 / z * (q + q.powi(9) + q.powi(25))
+        let q = (-first / (z * z)).exp();
+        1.0 - root / z * (q + q.powi(9) + q.powi(25))
     } else if z < 3.1 {
         let q = (-2.0 * z * z).exp();
         2.0 * (q - q.powi(4) + q.powi(9) - q.powi(16))
     } else {
         0.0
     }
+}
+
+/// NPAR TESTS: Smirnov's significance with the manual's rounded constants.
+pub(crate) fn smirnov_p(z: f64) -> f64 {
+    smirnov_terms(z, 1.233701, 2.506628)
+}
+
+/// NPTESTS: the manual's formula written with pi itself.
+pub(crate) fn smirnov_p_pi(z: f64) -> f64 {
+    smirnov_terms(
+        z,
+        std::f64::consts::PI.powi(2) / 8.0,
+        (2.0 * std::f64::consts::PI).sqrt(),
+    )
 }
 
 /// Average ranks of weighted values and the sum of t^3 - t over the groups of t tied cases.
@@ -1865,5 +1881,9 @@ mod tests {
         assert_eq!(smirnov_p(0.2), 1.0);
         assert!((smirnov_p(0.999_999) - smirnov_p(1.0)).abs() < 1e-4);
         assert!((smirnov_p(1.36) - 0.0494).abs() < 1e-3);
+        // the two sets of constants agree to the seven digits the NPAR TESTS manual prints
+        for z in [0.3, 0.55, 0.8, 0.99] {
+            assert!((smirnov_p(z) - smirnov_p_pi(z)).abs() < 2e-6);
+        }
     }
 }

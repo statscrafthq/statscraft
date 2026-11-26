@@ -41,7 +41,7 @@ use crate::means::is_valid;
 use crate::npar_groups::{Grouped, moses_p, run_bounds};
 use crate::npar_tests::{
     SignedRanks, cochran, friedman, ks_cdf, ks_extremes, ks_problem, marginal_statistic, middle,
-    runs_exact, runs_z, sign_exact, smirnov_p, tally, text,
+    runs_exact, runs_z, sign_exact, smirnov_p_pi, tally, text,
 };
 use crate::random::{Random, time_seed};
 use crate::shown::Shown;
@@ -915,7 +915,7 @@ impl<'d> Np<'d> {
                     "NPTESTS: {name} has too many cases to simulate; Smirnov's significance is shown"
                 ));
             }
-            let p = smirnov_p(n.sqrt() * absolute);
+            let p = smirnov_p_pi(n.sqrt() * absolute);
             rows.push(("Asymptotic Sig. (2-sided test)", Cell::Number(p)));
             Sig::new(Some(p), "Asymptotic")
         };
@@ -1240,7 +1240,8 @@ impl<'d> Np<'d> {
 
     fn smirnov(&mut self, s: &Sample) {
         let n = s.grouped.sizes();
-        let [absolute, positive, negative, z, p] = s.grouped.smirnov();
+        let [absolute, positive, negative, z, _] = s.grouped.smirnov();
+        let p = smirnov_p_pi(z);
         self.summarize(
             s.same("distribution"),
             "Independent-Samples Kolmogorov-Smirnov Test",
