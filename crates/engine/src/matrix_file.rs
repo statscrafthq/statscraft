@@ -421,29 +421,7 @@ impl Engine {
             self.warn("MATRIX=OUT: the procedure left no matrix, so none was written".to_string());
             return Ok(());
         };
-        let mut template = widest.slice(0, 0);
-        // the variables of every group, in case groups have items of different names
-        for part in &parts {
-            for name in part.variable_names() {
-                if template.variable_index(name).is_none() {
-                    template.copy_variable(part, name, &[])?;
-                }
-            }
-        }
-        let strings: Vec<String> = template
-            .variables()
-            .filter(|v| v.is_string())
-            .map(|v| v.name().to_string())
-            .collect();
-        for name in strings {
-            let width = parts
-                .iter()
-                .filter_map(|p| p.variable(&name).ok()?.string_width())
-                .max()
-                .unwrap_or(1);
-            template.set_string_width(&name, width)?;
-        }
-        let mut out = Dataset::from_parts(&template, &parts)?;
+        let mut out = join_parts(widest, &parts)?;
         match target {
             None => {
                 // the matrix keeps the split, so MATRIX=IN(*) reads it group by group
@@ -461,6 +439,18 @@ impl Engine {
     /// `part` with the split variables of the running group (the values of its first case)
     /// in front.
     fn after_split_values(&self, who: &str, part: Dataset) -> Result<Dataset, Error> {
+        self.with_split_variables(who, "/MATRIX=OUT", "of the matrix file", part)
+    }
+
+    /// `part` with the split variables of the running group in front; `subcommand` and
+    /// `what` name the output in the message about a clash of names.
+    pub(crate) fn with_split_variables(
+        &self,
+        who: &str,
+        subcommand: &str,
+        what: &str,
+        part: Dataset,
+    ) -> Result<Dataset, Error> {
         let Some(split) = &self.matrix_parts.0 else {
             return Ok(part);
         };
@@ -471,7 +461,7 @@ impl Engine {
             .find(|name| part.variable_index(name).is_some())
         {
             return Err(Error(format!(
-                "{who} /MATRIX=OUT: the split variable {name} has the name of a variable of the matrix file"
+                "{who} {subcommand}: the split variable {name} has the name of a variable {what}"
             )));
         }
         let n = part.case_count();
@@ -485,4 +475,60 @@ impl Engine {
         }
         Ok(joined)
     }
+
+    /// Stores the datasets the groups of a procedure left, the parts of one name joined in the
+    /// order of the groups.
+    pub(crate) fn store_named_parts(&mut self, parts: Vec<(String, Dataset)>) -> Result<(), Error> {
+        let mut names: Vec<String> = Vec::new();
+        for (name, _) in &parts {
+            if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+                names.push(name.clone());
+            }
+        }
+        let mut made = Vec::new();
+        for name in names {
+            let mine: Vec<Dataset> = parts
+                .iter()
+                .filter(|(n, _)| n.eq_ignore_ascii_case(&name))
+                .map(|(_, d)| d.clone())
+                .collect();
+            let Some(widest) = mine.iter().max_by_key(|d| d.variable_count()) else {
+                continue;
+            };
+            let joined = join_parts(widest, &mine)?;
+            made.push((name, joined));
+        }
+        for (name, out) in made {
+            self.store_dataset(name, Some(out));
+        }
+        Ok(())
+    }
+}
+
+/// The parts of the split groups one after the other: a group with fewer variables has the
+/// others blank, strings take the widest. `widest` is the part with the most variables.
+pub(crate) fn join_parts(widest: &Dataset, parts: &[Dataset]) -> Result<Dataset, Error> {
+    let mut template = widest.slice(0, 0);
+    // the variables of every group, in case groups have items of different names
+    for part in parts {
+        for name in part.variable_names() {
+            if template.variable_index(name).is_none() {
+                template.copy_variable(part, name, &[])?;
+            }
+        }
+    }
+    let strings: Vec<String> = template
+        .variables()
+        .filter(|v| v.is_string())
+        .map(|v| v.name().to_string())
+        .collect();
+    for name in strings {
+        let width = parts
+            .iter()
+            .filter_map(|p| p.variable(&name).ok()?.string_width())
+            .max()
+            .unwrap_or(1);
+        template.set_string_width(&name, width)?;
+    }
+    Ok(Dataset::from_parts(&template, parts)?)
 }

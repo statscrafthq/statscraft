@@ -4348,7 +4348,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Weights and Loadings. OUTDATASET writes named datasets: CASES (ID or case number,\n\
                  predicted values and residuals, the distance to the X model, the X and Y scores) for every\n\
                  case with valid predictors, LATENTFACTORS (loadings and weights of each variable) and\n\
-                 PREDICTORS (coefficients and VIP of each predictor column). No plots.",
+                 PREDICTORS (coefficients and VIP of each predictor column). Under SPLIT FILE every group is fitted\n\
+                 and the datasets hold the groups one after the other, with the split variables in front (the\n\
+                 case number is that of the whole file). No plots.",
         example: "PLS yield MLEVEL=S quality MLEVEL=N REFERENCE=FIRST BY plot WITH rain sun soil_ph /CRITERIA LATENTFACTORS=3 /OUTDATASET CASES=plsCases.",
         parse: pls::pls,
     },

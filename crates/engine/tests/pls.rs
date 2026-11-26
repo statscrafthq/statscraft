@@ -915,3 +915,84 @@ const D: Expected = Expected {
     dmodx: &[],
     predicted: &[],
 };
+
+const SPLIT_DATA: &str = "DATA LIST FREE /grp y x1 x2 x3.
+BEGIN DATA
+1 5.1 2.0 11 0.3  1 7.4 3.1 9 0.8  1 4.2 1.2 14 0.1  1 9.3 4.4 8 0.9
+1 6.0 2.6 12 0.4  1 8.1 3.9 10 0.2  1 5.5 1.9 13 0.7  1 10.2 4.8 7 0.6
+1 6.8 3.3 11 0.5  1 7.9 3.0 9 0.1
+2 12.1 5.0 20 1.1  2 9.6 3.8 22 1.9  2 14.3 6.2 18 1.2  2 8.8 3.1 25 2.4
+2 11.0 4.4 21 1.6  2 13.2 5.9 19 1.4  2 10.4 4.0 23 2.2  2 15.0 6.8 17 1.0
+2 9.9 3.6 24 2.0  2 12.7 5.4 20 1.7
+END DATA.
+";
+
+/// SPLIT FILE gives one fit per group; the output datasets hold the parts of every group, in
+/// order, with the split variable in front, and each part equals the fit of the group alone.
+#[test]
+fn pls_outdataset_under_split_file_joins_the_groups() {
+    let model = "PLS y WITH x1 x2 x3 /CRITERIA LATENTFACTORS=2 \
+                 /OUTDATASET CASES=cases LATENTFACTORS=factors PREDICTORS=coefficients.";
+    let mut both = Engine::default();
+    run(
+        &mut both,
+        &format!("{SPLIT_DATA}SORT CASES BY grp.\nSPLIT FILE BY grp.\n{model}"),
+    );
+    let cases = named(&both, "cases");
+    assert_eq!(cases.case_count(), 20);
+    let split_values = numbers(cases, "grp");
+    assert!(split_values[..10].iter().all(|v| *v == Some(1.0)));
+    assert!(split_values[10..].iter().all(|v| *v == Some(2.0)));
+    let numbered: Vec<Option<f64>> = (1..=20).map(|k| Some(f64::from(k))).collect();
+    assert_eq!(numbers(cases, "CaseNumber"), numbered);
+    let factors = named(&both, "factors");
+    let coefficients = named(&both, "coefficients");
+    assert_eq!(factors.case_count(), 2 * 4, "four variables per group");
+    assert_eq!(
+        coefficients.case_count(),
+        2 * 4,
+        "constant and three predictors per group"
+    );
+    assert_eq!(numbers(factors, "grp")[3], Some(1.0));
+    assert_eq!(numbers(coefficients, "grp")[4], Some(2.0));
+    for (group, lo) in [(1.0, 0), (2.0, 10)] {
+        let mut alone = Engine::default();
+        run(
+            &mut alone,
+            &format!("{SPLIT_DATA}SELECT IF (grp = {group}).\nEXECUTE.\n{model}"),
+        );
+        for (name, rows, per_group) in [
+            ("cases", 10, lo),
+            ("factors", 4, lo / 10 * 4),
+            ("coefficients", 4, lo / 10 * 4),
+        ] {
+            let joined = named(&both, name);
+            let single = named(&alone, name);
+            assert_eq!(single.case_count(), rows);
+            // the case numbers are those of the whole file, checked below
+            for variable in single
+                .variables()
+                .filter(|v| !v.is_string() && v.name() != "CaseNumber")
+            {
+                let want = numbers(single, variable.name());
+                let got = numbers(joined, variable.name());
+                for k in 0..rows {
+                    match (got[per_group + k], want[k]) {
+                        (Some(g), Some(w)) => close(g, w, &format!("{name} {}", variable.name())),
+                        (None, None) => {}
+                        other => panic!("{name} {}: {other:?}", variable.name()),
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn pls_outdataset_split_variable_cannot_share_a_name_with_an_output_variable() {
+    let source = format!(
+        "{SPLIT_DATA}COMPUTE DModX = grp.\nSORT CASES BY DModX.\nSPLIT FILE BY DModX.\n\
+         PLS y WITH x1 x2 x3 /OUTDATASET CASES=cases."
+    );
+    assert!(run_error(&source).contains("split variable DModX"));
+}

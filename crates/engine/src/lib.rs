@@ -875,6 +875,8 @@ pub struct Engine {
     split_group: Option<Vec<(String, Option<crosstabs::Key>)>>,
     /// PROXIMITIES /MATRIX=OUT: the split variables and the matrix of every split group.
     matrix_parts: (Option<statscraft_data::SplitFile>, Vec<Dataset>),
+    /// PLS /OUTDATASET: the part every split group left for each dataset name, in order.
+    named_parts: Vec<(String, Dataset)>,
     /// MATRIX=OUT(*) of the older optimal scaling commands: the matrix that replaces the
     /// active dataset when the procedure is done.
     replacement: Option<Dataset>,
@@ -1484,6 +1486,17 @@ impl Engine {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);
             }
+            Command::Pls(_) => {
+                let split = self.active()?.split_file().cloned();
+                self.matrix_parts = (split, Vec::new());
+                self.named_parts.clear();
+                let tables = self.procedure(command);
+                self.matrix_parts = (None, Vec::new());
+                let parts = std::mem::take(&mut self.named_parts);
+                let tables = tables?;
+                self.store_named_parts(parts)?;
+                return Ok(tables);
+            }
             Command::Frequencies(_)
             | Command::Descriptives(_)
             | Command::Crosstabs(_)
@@ -1523,7 +1536,6 @@ impl Engine {
             | Command::Probit(_)
             | Command::Plum(_)
             | Command::QuantileRegression(_)
-            | Command::Pls(_)
             | Command::Correspondence(_)
             | Command::MultipleCorrespondence(_)
             | Command::Catpca(_)

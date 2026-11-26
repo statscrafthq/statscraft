@@ -19,6 +19,7 @@ LOGLINEAR fits general loglinear and logit models, SAVE TRANSLATE writes SAS tra
 - [LOGLINEAR](docs/commands/loglinear.md) fits general loglinear and logit models of a table of counts with contrasts for every factor (DEVIATION, SIMPLE, DIFFERENCE, HELMERT, REPEATED, POLYNOMIAL, SPECIAL and BASIS SPECIAL), cell covariates, cell weights and structural zeros, several DESIGNs with settings that carry over, and generalized residuals: cell counts with raw, standardized and adjusted residuals, the likelihood-ratio and Pearson tests, the design matrix, parameter estimates with z values and intervals and their correlation, the analysis of dispersion for a logit model, and residual plots.
 - [GRAPH](docs/commands/graph.md) accepts `/TEMPLATE`: it is read and ignored with a note, since charts come as data.
 - [CLUSTER](docs/commands/cluster.md) `/SAVE` works with `/MATRIX=IN`: the matrix of the active dataset's cases gives the membership variables.
+- [PLS](docs/commands/pls.md) `/OUTDATASET` works under SPLIT FILE: every group is fitted and the CASES, LATENTFACTORS and PREDICTORS datasets hold the groups one after the other, the split variables in front.
 
 ## 0.50.0 (2026-11-26)
 

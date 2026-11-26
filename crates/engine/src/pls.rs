@@ -706,11 +706,6 @@ impl Engine {
             warnings.into_iter().for_each(|w| self.warn(w));
             return Ok(tables);
         }
-        if self.split_group.is_some() {
-            return Err(Error(
-                "PLS: OUTDATASET with SPLIT FILE is not supported yet".into(),
-            ));
-        }
         if let Some(name) = wanted
             .iter()
             .copied()
@@ -873,7 +868,8 @@ impl Engine {
             made.push((name.clone(), out));
         }
         for (name, out) in made {
-            self.store_dataset(name, Some(out));
+            let part = self.with_split_variables("PLS", "OUTDATASET", "of the output", out)?;
+            self.named_parts.push((name, part));
         }
         warnings.into_iter().for_each(|w| self.warn(w));
         Ok(tables)
