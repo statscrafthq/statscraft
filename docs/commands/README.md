@@ -189,6 +189,7 @@ One page per supported command, generated from the same table that the parser an
 | [NOMREG](nomreg.md) | Multinomial logistic regression: a nominal dependent variable on factors and covariates. |
 | [MVA](mva.md) | Missing value analysis: where values are missing, how that relates to the other variables, and estimates that allow for it. |
 | [HILOGLINEAR](hiloglinear.md) | Hierarchical loglinear models of a multiway table of counts, with backward elimination. |
+| [LOGLINEAR](loglinear.md) | General loglinear and logit models of a table of counts, with contrasts, cell weights and generalized residuals. |
 | [GENLOG](genlog.md) | General loglinear and logit models of a table of counts, with cell weights, covariates and contrasts. |
 | [PROBIT](probit.md) | Probit and logit models of response counts out of subject counts, with effective levels. |
 | [CURVEFIT](curvefit.md) | Fit up to eleven curves of one independent variable, or of time, by least squares. |

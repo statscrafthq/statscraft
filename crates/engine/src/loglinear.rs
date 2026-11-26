@@ -629,17 +629,18 @@ impl Setup {
                 columns[j - rows_count].values[i]
             }
         };
-        let mut gram = vec![vec![0.0; total_cols]; total_cols];
-        for a in 0..total_cols {
-            for b in a..total_cols {
-                let s: f64 = (0..cells)
-                    .filter(|&i| in_use[i])
-                    .map(|i| value_of(a, i) * value_of(b, i))
-                    .sum();
-                gram[a][b] = s;
-                gram[b][a] = s;
-            }
-        }
+        let gram: Matrix = (0..total_cols)
+            .map(|a| {
+                (0..total_cols)
+                    .map(|b| {
+                        (0..cells)
+                            .filter(|&i| in_use[i])
+                            .map(|i| value_of(a, i) * value_of(b, i))
+                            .sum()
+                    })
+                    .collect()
+            })
+            .collect();
         let order: Vec<usize> = (0..total_cols).collect();
         let (_, swept) = sweep_in_order(&gram, &order, 1e-8);
         let kept: Vec<usize> = (0..total_cols).filter(|&j| swept[j]).collect();
@@ -751,10 +752,11 @@ impl Setup {
             )
         });
         if print.freq || print.resid {
-            let mut columns = vec![(String::new(), String::new()); 0];
-            for h in &self.headers {
-                columns.push((String::new(), h.clone()));
-            }
+            let mut columns: Vec<(String, String)> = self
+                .headers
+                .iter()
+                .map(|h| (String::new(), h.clone()))
+                .collect();
             if print.freq {
                 for s in [
                     "Observed Count",
@@ -773,7 +775,7 @@ impl Setup {
             let rows = (0..cells)
                 .filter(|&i| in_use[i])
                 .map(|i| {
-                    let mut row: Vec<Cell> = self.cell_text(i).iter().map(|s| text(s)).collect();
+                    let mut row: Vec<Cell> = self.cell_text(i).iter().map(text).collect();
                     if print.freq {
                         row.push(Cell::Number(n_fit[i]));
                         row.push(Cell::Number(100.0 * n_fit[i] / total_fit));
@@ -823,14 +825,14 @@ impl Setup {
                 .iter()
                 .map(|h| (String::new(), h.clone()))
                 .collect();
-            for k in 0..ncol {
-                head.push((columns[k].effect.clone(), format!("Parameter {}", k + 1)));
+            for (k, column) in columns.iter().enumerate() {
+                head.push((column.effect.clone(), format!("Parameter {}", k + 1)));
             }
             let rows = (0..cells)
                 .filter(|&i| in_use[i])
                 .map(|i| {
-                    let mut row: Vec<Cell> = self.cell_text(i).iter().map(|s| text(s)).collect();
-                    row.extend((0..ncol).map(|k| Cell::Number(columns[k].values[i])));
+                    let mut row: Vec<Cell> = self.cell_text(i).iter().map(text).collect();
+                    row.extend(columns.iter().map(|c| Cell::Number(c.values[i])));
                     row
                 })
                 .collect();
