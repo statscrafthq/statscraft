@@ -616,6 +616,7 @@ pub(crate) fn princals(p: &mut Parser) -> PResult<Command> {
         plot: CatpcaPlots {
             charts,
             ndim: legacy.ndim(),
+            ellipse: Default::default(),
         },
         save_trdata: None,
         save_object: legacy.save_root("PRI"),

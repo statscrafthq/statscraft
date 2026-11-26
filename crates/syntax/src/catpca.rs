@@ -138,6 +138,7 @@ pub struct CatpcaPlots {
     /// Each chart with its label length (None for labels in full).
     pub charts: Vec<(CatpcaPlot, Option<usize>)>,
     pub ndim: Option<(usize, usize)>,
+    pub ellipse: EllipseSettings,
 }
 
 impl Default for CatpcaPlots {
@@ -148,6 +149,42 @@ impl Default for CatpcaPlots {
                 (CatpcaPlot::Loading(Vec::new(), None), None),
             ],
             ndim: None,
+            ellipse: EllipseSettings::default(),
+        }
+    }
+}
+
+/// Which ellipses a confidence-ellipse plot draws: those whose area is above or below a value,
+/// given directly (AREA) or as the mean area plus a number of standard deviations (STDEV).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EllipseLimit {
+    pub greater: bool,
+    pub stdev: bool,
+    pub value: f64,
+}
+
+/// LDELLAREA, OBELLAREA, CTELLAREA and NELLPNT of PLOT, with the defaults of the manual.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EllipseSettings {
+    pub loadings: EllipseLimit,
+    pub objects: EllipseLimit,
+    pub categories: EllipseLimit,
+    /// The points of an ellipse's contour.
+    pub points: usize,
+}
+
+impl Default for EllipseSettings {
+    fn default() -> Self {
+        let limit = |stdev, value| EllipseLimit {
+            greater: true,
+            stdev,
+            value,
+        };
+        EllipseSettings {
+            loadings: limit(false, 0.0),
+            objects: limit(true, 2.0),
+            categories: limit(false, 2.0),
+            points: 40,
         }
     }
 }
@@ -429,17 +466,41 @@ fn print(p: &mut Parser) -> PResult<CatpcaPrint> {
 }
 
 /// Skips an optional parenthesized specification of a confidence ellipse keyword.
-fn skip_parenthesis(p: &mut Parser) -> PResult<()> {
+/// `[(GT|LT|>|< STDEV|AREA value)]` after LDELLAREA, OBELLAREA or CTELLAREA.
+fn ellipse_limit(p: &mut Parser) -> PResult<Option<EllipseLimit>> {
     if !p.eat(Punct::LParen) {
-        return Ok(());
+        return Ok(None);
     }
-    while !p.eat(Punct::RParen) {
-        if p.peek().is_none() || p.at(Punct::Slash) || p.at(Punct::LParen) {
-            return Err(p.unexpected(&["')'"]));
-        }
-        p.pos += 1;
+    let start = p.pos;
+    let greater = if p.eat_keyword("GT") || p.eat(Punct::Gt) {
+        true
+    } else if p.eat_keyword("LT") || p.eat(Punct::Lt) {
+        false
+    } else {
+        return Err(p.unexpected(&["GT", "LT", "'>'", "'<'"]));
+    };
+    let stdev = if p.eat_keyword("STDEV") {
+        true
+    } else if p.eat_keyword("AREA") {
+        false
+    } else {
+        return Err(p.unexpected(&["STDEV", "AREA"]));
+    };
+    let Some(value) = p.number() else {
+        return Err(p.unexpected(&["a number"]));
+    };
+    if !stdev && value < 0.0 {
+        return Err(SyntaxError::new(
+            p.span_from(start),
+            "an ellipse area is not negative",
+        ));
     }
-    Ok(())
+    p.expect(Punct::RParen)?;
+    Ok(Some(EllipseLimit {
+        greater,
+        stdev,
+        value,
+    }))
 }
 
 /// A word that names a keyword, not a variable: `(CENTR`.
@@ -487,6 +548,7 @@ fn plot(p: &mut Parser, ellipses: &mut Vec<String>) -> PResult<CatpcaPlots> {
     let mut out = CatpcaPlots {
         charts: Vec::new(),
         ndim: None,
+        ellipse: EllipseSettings::default(),
     };
     const KEYWORDS: [&str; 17] = [
         "OBJECT",
@@ -536,8 +598,23 @@ fn plot(p: &mut Parser, ellipses: &mut Vec<String>) -> PResult<CatpcaPlots> {
                 p.eat(Punct::Comma);
                 continue;
             }
-            "LDELLAREA" | "OBELLAREA" | "CTELLAREA" | "NELLPNT" => {
-                skip_parenthesis(p)?;
+            "LDELLAREA" | "OBELLAREA" | "CTELLAREA" => {
+                let limit = ellipse_limit(p)?;
+                match (name, limit) {
+                    ("LDELLAREA", Some(l)) => out.ellipse.loadings = l,
+                    ("OBELLAREA", Some(l)) => out.ellipse.objects = l,
+                    ("CTELLAREA", Some(l)) => out.ellipse.categories = l,
+                    _ => {}
+                }
+                ellipses.push(format!("PLOT {name}"));
+                p.eat(Punct::Comma);
+                continue;
+            }
+            "NELLPNT" => {
+                if p.eat(Punct::LParen) {
+                    out.ellipse.points = whole(p, "the number of ellipse points", 4)?;
+                    p.expect(Punct::RParen)?;
+                }
                 ellipses.push(format!("PLOT {name}"));
                 p.eat(Punct::Comma);
                 continue;

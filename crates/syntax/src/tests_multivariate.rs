@@ -1062,6 +1062,8 @@ fn catpca_subcommands_and_abbreviations() {
     assert_eq!(c.save_trdata, Some(("QUANT".into(), Some(2))));
     assert_eq!(c.save_approx.as_deref(), Some("FIT"));
     assert_eq!(c.ellipses, vec!["PLOT OBELLAREA", "SAVE LDELLAREA"]);
+    // no values given: the defaults of the manual
+    assert_eq!(c.plot.ellipse, EllipseSettings::default());
     assert_eq!(c.outfile_trdata.as_deref(), Some("trans.sav"));
     assert_eq!(c.outfile_object.as_deref(), Some("scores"));
 }
@@ -1111,4 +1113,51 @@ fn catpca_errors() {
     assert!(err("CATPCA a b /ANALYSIS=a b /PLOT=CATEGORY.").contains("unexpected"));
     assert!(err("CATPCA a b /ANALYSIS=a b /OUTFILE=OBJECT('x') APPROX('X').").contains("its own"));
     assert!(err("CATPCA a b /ANALYSIS=a b /DIM=2 /DIMENSION=3.").contains("twice"));
+}
+
+#[test]
+fn catpca_ellipse_limits_and_points() {
+    let one = |source: &str| match parse(source).0.remove(0).command {
+        Command::Catpca(c) => *c,
+        other => panic!("{other:?}"),
+    };
+    let c = one(
+        "CATPCA a b /ANALYSIS=a b /RESAMPLE=BOOTSTRAP(50) /PLOT=LDELLAREA(LT AREA 0.5) \
+                 OBELLAREA(> STDEV 1.5) CTELLAREA(GT AREA 3) NELLPNT(60).",
+    );
+    let e = c.plot.ellipse;
+    assert_eq!(
+        e.loadings,
+        EllipseLimit {
+            greater: false,
+            stdev: false,
+            value: 0.5
+        }
+    );
+    assert_eq!(
+        e.objects,
+        EllipseLimit {
+            greater: true,
+            stdev: true,
+            value: 1.5
+        }
+    );
+    assert_eq!(
+        e.categories,
+        EllipseLimit {
+            greater: true,
+            stdev: false,
+            value: 3.0
+        }
+    );
+    assert_eq!(e.points, 60);
+    // the keywords alone keep the defaults
+    let c = one("CATPCA a b /ANALYSIS=a b /PLOT=LDELLAREA OBELLAREA NELLPNT.");
+    assert_eq!(c.plot.ellipse, EllipseSettings::default());
+    let (_, errors) = parse("CATPCA a b /ANALYSIS=a b /PLOT=LDELLAREA(AREA 1).");
+    assert!(!errors.is_empty());
+    let (_, errors) = parse("CATPCA a b /ANALYSIS=a b /PLOT=NELLPNT(2).");
+    assert!(!errors.is_empty());
+    let (_, errors) = parse("CATPCA a b /ANALYSIS=a b /PLOT=CTELLAREA(GT AREA -1).");
+    assert!(!errors.is_empty());
 }
