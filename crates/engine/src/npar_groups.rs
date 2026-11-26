@@ -1073,6 +1073,72 @@ mod tests {
         assert_eq!(run_bounds(&[(2.0, 2.0)]), (2.0, 4.0));
     }
 
+    /// Every arrangement of `a` first-group and `b` second-group records as 0s and 1s.
+    fn arrangements(a: usize, b: usize) -> Vec<Vec<u8>> {
+        if a == 0 {
+            return vec![vec![1; b]];
+        }
+        if b == 0 {
+            return vec![vec![0; a]];
+        }
+        let mut out = Vec::new();
+        for mut rest in arrangements(a - 1, b) {
+            rest.insert(0, 0);
+            out.push(rest);
+        }
+        for mut rest in arrangements(a, b - 1) {
+            rest.insert(0, 1);
+            out.push(rest);
+        }
+        out
+    }
+
+    #[test]
+    fn run_bounds_equal_the_enumeration_of_every_arrangement() {
+        // random tie patterns of up to five blocks, checked against every way to order the
+        // records inside each block
+        let mut state: u64 = 12345;
+        let mut next = |bound: u64| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (state >> 33) % bound
+        };
+        let mut checked = 0;
+        while checked < 300 {
+            let blocks: Vec<(usize, usize)> = (0..1 + next(5))
+                .map(|_| (next(4) as usize, next(4) as usize))
+                .filter(|&(a, b)| a + b > 0)
+                .collect();
+            let arranged: Vec<Vec<Vec<u8>>> =
+                blocks.iter().map(|&(a, b)| arrangements(a, b)).collect();
+            let total: usize = arranged.iter().map(Vec::len).product();
+            if blocks.is_empty() || total > 5000 {
+                continue;
+            }
+            // every sequence: one arrangement per block
+            let (mut fewest, mut most) = (usize::MAX, 0);
+            for mut index in 0..total {
+                let mut sequence: Vec<u8> = Vec::new();
+                for options in &arranged {
+                    sequence.extend(&options[index % options.len()]);
+                    index /= options.len();
+                }
+                let runs = 1 + sequence.windows(2).filter(|w| w[0] != w[1]).count();
+                fewest = fewest.min(runs);
+                most = most.max(runs);
+            }
+            let given: Vec<(f64, f64)> =
+                blocks.iter().map(|&(a, b)| (a as f64, b as f64)).collect();
+            assert_eq!(
+                run_bounds(&given),
+                (fewest as f64, most as f64),
+                "blocks {blocks:?}"
+            );
+            checked += 1;
+        }
+    }
+
     #[test]
     fn moses_distribution_sums_to_one() {
         // spans of 3 control cases among 7: from 3 to 7
