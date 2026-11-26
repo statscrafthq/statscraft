@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- MEAN and MEDIAN in COMPUTE no longer give system-missing for values near the largest number a computer holds, whose sum overflows but whose mean does not.
 - The distribution functions of COMPUTE keep their digits far into the tails: CDF.GAMMA, CDF.CHISQ and the noncentral chi-square no longer lose the lower tail, SIG.F no longer gives 0 far out, and IDF.EXP, IDF.GAMMA, IDF.CHISQ, IDF.F, IDF.T, IDF.CAUCHY, IDF.WEIBULL and IDF.HALFNRM are exact for probabilities near 0 and 1.
 - DISCRIMINANT says so when it ignores a subcommand of an analysis block that is written after a global one (CLASSIFY, STATISTICS and the others); before, a SAVE written after CLASSIFY was dropped without a message.
 - [VERIFY](docs/commands/verify.md) reports the first and last case of the file and of the USE and PREDICT periods, flags date variables that are missing, out of range, not nested or stepping oddly, and lists one numeric series at those cases with its missing count.
