@@ -107,6 +107,7 @@ mod npar;
 mod npar_r;
 mod nptests;
 mod nptests_r;
+mod nptests_r1;
 mod numeric_functions_r;
 mod office;
 mod olap_cubes;
