@@ -4,7 +4,9 @@
 //! values, and the pairwise comparisons with LSD, Bonferroni and Sidak adjustments (adjusted
 //! significance and the confidence interval at the adjusted level), the univariate tests of
 //! COMPARE, simple effects with COMPARE(factor), and a model whose slopes differ by a, where the
-//! covariate value moves the means and the differences. The script is lab/oracles/glm-emmeans-r.
+//! covariate value moves the means and the differences, and a GLM with two dependents (the four
+//! multivariate tests of the compared differences written out from the hypothesis and error
+//! matrices of `lm` on a matrix response). The scripts are in lab/oracles/glm-emmeans-r.
 
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
@@ -843,5 +845,137 @@ fn slopes_that_differ_by_a_make_the_means_and_differences_depend_on_the_value_he
             ],
         ],
         Some([55.97289755, 2.0, 27.98644877, 10.66956147, 0.0001186003473]),
+    );
+}
+
+/// Two dependents in one GLM: each has its own means and comparisons, and the comparisons of a
+/// factor come with the four multivariate tests of the differences (p = 2 dependents).
+#[test]
+fn glm_with_two_dependents_gives_each_its_comparisons_and_the_multivariate_tests() {
+    let t = run(
+        "GLM y x2 BY a b WITH x /DESIGN=x a b a*b /EMMEANS=TABLES(a) COMPARE ADJ(SIDAK) \
+         /EMMEANS=TABLES(a*b) COMPARE(b) ADJ(SIDAK).",
+    );
+    let means_of = [
+        [9.322891711, 10.25142382, 13.43648748],
+        [3.094893716, 3.201090455, 2.621583029],
+    ];
+    let se_of = [
+        [0.360464217, 0.3606454237, 0.4447785091],
+        [0.3573172079, 0.3574968326, 0.4408953997],
+    ];
+    let pairs_of: [Pairs; 2] = [
+        [
+            [
+                -0.9285321135,
+                0.510252402,
+                0.2056460158,
+                -2.18243223,
+                0.325368003,
+            ],
+            [
+                -4.113595773,
+                0.5724109438,
+                3.922931646e-09,
+                -5.520245004,
+                -2.706946541,
+            ],
+            [
+                -3.185063659,
+                0.572754366,
+                2.049578023e-06,
+                -4.59255682,
+                -1.777570498,
+            ],
+        ],
+        [
+            [
+                -0.106196739,
+                0.505797677,
+                0.9954605908,
+                -1.349149763,
+                1.136756285,
+            ],
+            [
+                0.4733106878,
+                0.5674135478,
+                0.792060768,
+                -0.9210578853,
+                1.867679261,
+            ],
+            [
+                0.5795074268,
+                0.5677539718,
+                0.6737183573,
+                -0.8156977083,
+                1.974712562,
+            ],
+        ],
+    ];
+    for dep in 0..2 {
+        for (a, row) in ["1", "2", "3"].iter().enumerate() {
+            near(
+                value(&t, "Estimated Marginal Means: a", dep, row, "Mean"),
+                means_of[dep][a],
+                row,
+            );
+            near(
+                value(&t, "Estimated Marginal Means: a", dep, row, "Std. Error"),
+                se_of[dep][a],
+                row,
+            );
+        }
+        for ((i, j), want) in [(1, 2), (1, 3), (2, 3)].into_iter().zip(pairs_of[dep]) {
+            pair(&t, 2 * dep, "", i, j, want, &format!("dependent {dep}"));
+        }
+    }
+    let multivariate = |title: &str, row: &str, want: [f64; 5]| {
+        for (c, w) in ["Value", "F", "Hypothesis df", "Error df", "Sig."]
+            .iter()
+            .zip(want)
+        {
+            near(
+                value(&t, title, 0, row, c),
+                w,
+                &format!("{title} {row} {c}"),
+            );
+        }
+    };
+    let title = "Multivariate Tests of Comparisons: a";
+    multivariate(
+        title,
+        "Pillai's Trace",
+        [0.5084469191, 10.0560847, 4.0, 118.0, 4.875421732e-07],
+    );
+    multivariate(
+        title,
+        "Wilks' Lambda",
+        [0.4935423937, 12.27962719, 4.0, 116.0, 2.332146188e-08],
+    );
+    multivariate(
+        title,
+        "Hotelling's Trace",
+        [1.022137713, 14.56546241, 4.0, 114.0, 1.224137618e-09],
+    );
+    multivariate(
+        title,
+        "Roy's Largest Root",
+        [1.018178996, 30.03628037, 2.0, 59.0, 1.008531306e-09],
+    );
+    let title = "Multivariate Tests of Comparisons: a * b";
+    multivariate(
+        title,
+        "a = 1 / Pillai's Trace",
+        [0.03176580612, 0.9514313617, 2.0, 58.0, 0.3921318008],
+    );
+    multivariate(
+        title,
+        "a = 2 / Pillai's Trace",
+        [0.03711931921, 1.117958101, 2.0, 58.0, 0.3338886995],
+    );
+    multivariate(
+        title,
+        "a = 3 / Pillai's Trace",
+        [0.1797675998, 6.35583329, 2.0, 58.0, 0.003192792489],
     );
 }
