@@ -327,6 +327,8 @@ pub enum Command {
     Date(crate::output::DateSpec),
     Tset(Vec<crate::timeseries::TsetItem>),
     Tshow,
+    /// VERIFY: the report on the DATE, USE and PREDICT state, with one optional numeric series.
+    Verify(Option<String>),
     Create(Vec<crate::timeseries::CreateEquation>),
     Rmv(Vec<crate::timeseries::RmvEquation>),
     ShiftValues(Vec<crate::shift_values::ShiftSpec>),

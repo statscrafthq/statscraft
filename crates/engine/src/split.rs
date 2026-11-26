@@ -312,6 +312,7 @@ impl Engine {
                 | Command::Cstabulate(_)
                 | Command::CsModel(_)
                 | Command::CsCox(_)
+                | Command::Verify(_)
         );
         let result = self.in_view(command, use_split);
         // also after an early error inside a group
@@ -329,7 +330,7 @@ impl Engine {
 
     fn in_view(&mut self, command: &Command, use_split: bool) -> Result<Vec<Table>, Error> {
         // EXSMOOTH, ARIMA, AREG, TSMODEL, TSAPPLY and FIT apply USE themselves, as they also
-        // use the PREDICT period after it
+        // use the PREDICT period after it; VERIFY reports the USE period of the whole file
         let use_range = !matches!(
             command,
             Command::Exsmooth(_)
@@ -338,6 +339,7 @@ impl Engine {
                 | Command::Tsmodel(_)
                 | Command::Tsapply(_)
                 | Command::Fit(_)
+                | Command::Verify(_)
         );
         let Some(groups) = self.groups(use_split, use_range)? else {
             return self.run_procedure(command);

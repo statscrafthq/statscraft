@@ -427,6 +427,17 @@ pub(crate) fn tshow(p: &mut Parser) -> PResult<Command> {
     Ok(Command::Tshow)
 }
 
+pub(crate) fn verify(p: &mut Parser) -> PResult<Command> {
+    let named = p.at_keyword("VARIABLES") && p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq));
+    p.pos += 2 * usize::from(named);
+    let series = match p.peek() {
+        None if !named => None,
+        _ => Some(p.name("a series name")?),
+    };
+    p.finish(&[])?;
+    Ok(Command::Verify(series))
+}
+
 pub(crate) fn create(p: &mut Parser) -> PResult<Command> {
     let mut equations = Vec::new();
     loop {

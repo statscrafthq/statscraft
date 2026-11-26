@@ -57,6 +57,24 @@ fn tset_items_with_and_without_slashes() {
 }
 
 #[test]
+fn verify_forms() {
+    assert!(matches!(command("VERIFY."), Command::Verify(None)));
+    for source in [
+        "VERIFY stock.",
+        "VERIFY VARIABLES=stock.",
+        "VERIFY VARIABLE=stock.",
+        "VERIFY VAR=stock.",
+    ] {
+        assert!(
+            matches!(command(source), Command::Verify(Some(ref v)) if v == "stock"),
+            "{source}"
+        );
+    }
+    assert!(err("VERIFY a b.").contains("unexpected word b"));
+    assert!(err("VERIFY VARIABLES=.").contains("unexpected end"));
+}
+
+#[test]
 fn create_equations() {
     let Command::Create(eq) = command(
         "CREATE lag2 TO lag4 = LAG(price, 2, 4) /sm = MA(price cost, 5 1) /c = CSUM(price).",

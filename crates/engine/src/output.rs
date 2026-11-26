@@ -105,6 +105,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Wls(_)
         | Command::Correlogram(_)
         | Command::Season(_)
+        | Command::Verify(_)
         | Command::Exsmooth(_)
         | Command::Arima(_)
         | Command::Areg(_)
