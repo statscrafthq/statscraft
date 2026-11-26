@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- DATA LIST, GET DATA and ALTER TYPE read the date formats JDATE, QYR, MOYR and WKYR; DATE, ADATE, EDATE and SDATE dates and TIME, MTIME and YMDHMS values with no delimiters (28OCT1990, 10281990, 0530, 20110317140645); a plus sign on a time; a month spelled out or in Roman numerals after any delimiter in DATETIME, which reads a slash date with a first number above 12 day first; and they refuse minutes of 60 or more and seconds of 60 or more in a time. A bare four-digit MTIME value is now minutes and seconds (0719 is 7:19), as the format's form without a colon; other bare numbers stay minutes.
 - AGGREGATE accepts a period after a function name (`SUM.(x)`, `PGT.(x, 30)`, `FIRST.(x)`, `N.(x)`, `NMISS.(x)`), which counts user-missing values as valid; before, such a call was refused with an unexpected character.
 - MEAN and MEDIAN in COMPUTE no longer give system-missing for values near the largest number a computer holds, whose sum overflows but whose mean does not.
 - The distribution functions of COMPUTE keep their digits far into the tails: CDF.GAMMA, CDF.CHISQ and the noncentral chi-square no longer lose the lower tail, SIG.F no longer gives 0 far out, and IDF.EXP, IDF.GAMMA, IDF.CHISQ, IDF.F, IDF.T, IDF.CAUCHY, IDF.WEIBULL and IDF.HALFNRM are exact for probabilities near 0 and 1.

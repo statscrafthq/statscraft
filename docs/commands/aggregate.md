@@ -22,7 +22,9 @@ functions: SUM MEAN SD MEDIAN MIN MAX FIRST LAST N NU NMISS NUMISS; N and NU als
 
 PGT PLT FGT FLT CGT CLT (varlist, value) and PIN POUT FIN FOUT CIN COUT (varlist, low, high): the percentage, fraction or count of the valid values above, below, inside (bounds included) or outside (bounds excluded); bounds the wrong way round are swapped, strings compare as text.
 
-Missing values are skipped; a period after the function name (SUM.(x), PGT.(x, 30), N.(x)) counts user-missing values as valid, so NMISS.(x) and NUMISS.(x) count the system-missing ones alone; FIRST., LAST., MIN. and MAX. may pick a user-missing value, which keeps its status in the target. On N or NU without a variable the period changes nothing, and a period that ends the line ends the command. A weight variable's own user-missing values still weigh nothing. With MISSING=COLUMNWISE a group with one missing value gets a missing result (N, NU, NMISS and NUMISS still count). PRESORTED keeps the cases in file order and makes a group of each run of adjacent cases with the same break values. With a weight variable SUM, MEAN, SD, MEDIAN, N and NMISS are weighted.
+Missing values are skipped; a period after the function name (SUM.(x), PGT.(x, 30), N.(x)) counts user-missing values as valid, so NMISS.(x) and NUMISS.(x) count the system-missing ones alone; FIRST., LAST., MIN. and MAX. may pick a user-missing value, which keeps its status in the target. On N or NU without a variable the period changes nothing, and a period that ends the line ends the command. A weight variable's own user-missing values still weigh nothing.
+
+With MISSING=COLUMNWISE a group with one missing value gets a missing result (N, NU, NMISS and NUMISS still count). PRESORTED keeps the cases in file order and makes a group of each run of adjacent cases with the same break values. With a weight variable SUM, MEAN, SD, MEDIAN, N and NMISS are weighted.
 
 ## Example
 

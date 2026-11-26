@@ -89,8 +89,16 @@ fn read_formatted(
         return None;
     }
     let read = match format.kind {
-        FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
-            crate::data_list::date(&field, format.kind, epoch)
+        FormatType::Date
+        | FormatType::Adate
+        | FormatType::Edate
+        | FormatType::Sdate
+        | FormatType::Jdate
+        | FormatType::Qyr
+        | FormatType::Moyr
+        | FormatType::Wkyr => crate::data_list::date(&field, format.kind, epoch),
+        FormatType::Datetime | FormatType::Ymdhms | FormatType::Time | FormatType::Mtime => {
+            crate::get_data::number(&field, format, false, epoch)
         }
         _ => crate::data_list::number(&field, format.kind, format.decimals),
     };
@@ -296,13 +304,21 @@ impl Engine {
                         | FormatType::Date
                         | FormatType::Adate
                         | FormatType::Edate
-                        | FormatType::Sdate => values
+                        | FormatType::Sdate
+                        | FormatType::Jdate
+                        | FormatType::Qyr
+                        | FormatType::Moyr
+                        | FormatType::Wkyr
+                        | FormatType::Datetime
+                        | FormatType::Ymdhms
+                        | FormatType::Time
+                        | FormatType::Mtime => values
                             .iter()
                             .map(|s| read_formatted(s, format, epoch))
                             .collect(),
                         other => {
                             return Err(Error(format!(
-                                "ALTER TYPE from string to {} is not supported yet; use F, COMMA, DOT, E, DOLLAR, PCT, N, DATE, ADATE, EDATE or SDATE",
+                                "ALTER TYPE from string to {} is not supported yet; use F, COMMA, DOT, E, DOLLAR, PCT, N, DATE, ADATE, EDATE, SDATE, JDATE, QYR, MOYR, WKYR, DATETIME, YMDHMS, TIME or MTIME",
                                 other.name()
                             )));
                         }
