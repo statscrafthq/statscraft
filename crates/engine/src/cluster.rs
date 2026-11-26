@@ -730,20 +730,20 @@ impl Engine {
     }
 
     pub(crate) fn cluster(&mut self, command: &Cluster) -> Result<Vec<Table>, Error> {
-        let items = match &command.matrix_in {
-            Some(source) => {
-                if command.save.is_some() {
-                    return Err(Error(
-                        "CLUSTER: SAVE with MATRIX=IN is not supported yet".into(),
-                    ));
-                }
-                self.proximity_matrix(
-                    "CLUSTER",
-                    &command.variables,
-                    command.id.as_ref(),
-                    source.as_ref(),
-                )?
-            }
+        if command.matrix_in == Some(None) && command.save.is_some() {
+            return Err(Error(
+                "CLUSTER /SAVE with MATRIX=IN(*): the matrix is the active dataset; read it from a \
+                 file or a dataset, with the cases it was made from active"
+                    .into(),
+            ));
+        }
+        let mut items = match &command.matrix_in {
+            Some(source) => self.proximity_matrix(
+                "CLUSTER",
+                &command.variables,
+                command.id.as_ref(),
+                source.as_ref(),
+            )?,
             None => {
                 if self.active()?.weight_variable().is_some() {
                     self.warn("CLUSTER does not use the weight variable");
@@ -756,6 +756,17 @@ impl Engine {
             return Err(Error(format!(
                 "CLUSTER needs at least 2 items to cluster, but there are {n}"
             )));
+        }
+        if command.matrix_in.is_some() && command.save.is_some() {
+            // the matrix is that of the cases of the active dataset, item by case in its order
+            let cases = self.active()?.case_count();
+            if cases != n {
+                return Err(Error(format!(
+                    "CLUSTER /SAVE with MATRIX=IN: the matrix has {n} items but the active dataset has \
+                     {cases} cases; the matrix must hold the proximities of the active dataset's cases"
+                )));
+            }
+            items.cases = (0..n).collect();
         }
         let mut tables = Vec::new();
         let mut charts = Vec::new();

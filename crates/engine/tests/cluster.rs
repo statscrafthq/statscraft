@@ -599,3 +599,51 @@ fn matrix_out_without_an_id_labels_the_items_by_case() {
         Some("CASE 4")
     );
 }
+
+/// R: cutree(hclust(dist(cbind(x, y)), "single"), 3) on the twelve cases.
+const SINGLE_3: [f64; 12] = [1.0, 1.0, 2.0, 2.0, 1.0, 3.0, 3.0, 2.0, 1.0, 3.0, 2.0, 3.0];
+
+fn saved(engine: &Engine, name: &str) -> Vec<Option<f64>> {
+    match engine.dataset().unwrap().variable(name).unwrap().values() {
+        Values::Numeric(v) => v.iter().collect(),
+        Values::String(_) => panic!("{name} is a string"),
+    }
+}
+
+#[test]
+fn saved_clusters_from_a_matrix_of_the_active_datasets_cases() {
+    let mut engine = Engine::default();
+    // the matrix goes to a dataset and the cases stay active
+    run_on(
+        &mut engine,
+        &format!(
+            "{DATA}DATASET DECLARE prox.\nCLUSTER x y /METHOD=SINGLE /MATRIX=OUT(prox).\n\
+             CLUSTER /MATRIX=IN(prox) /METHOD=SINGLE /SAVE=CLUSTER(2,3)."
+        ),
+    );
+    let three: Vec<Option<f64>> = SINGLE_3.iter().map(|v| Some(*v)).collect();
+    assert_eq!(saved(&engine, "CLU3_1"), three);
+    let two = saved(&engine, "CLU2_1");
+    assert_eq!(two.iter().filter(|v| **v == Some(2.0)).count(), 4);
+    // the same as clustering the cases themselves
+    run_on(
+        &mut engine,
+        "CLUSTER x y /METHOD=SINGLE /SAVE=CLUSTER(2,3).",
+    );
+    assert_eq!(saved(&engine, "CLU3_2"), three);
+    assert_eq!(saved(&engine, "CLU2_2"), two);
+}
+
+#[test]
+fn saved_clusters_need_the_cases_the_matrix_was_made_from() {
+    let e = error(
+        "DATASET DECLARE prox.\nCLUSTER x y z /METHOD=SINGLE /MATRIX=OUT(prox).\n\
+         CLUSTER /MATRIX=IN(prox) /METHOD=SINGLE /SAVE=CLUSTER(2).",
+    );
+    assert!(
+        e.contains("the matrix has 11 items but the active dataset has 12 cases"),
+        "{e}"
+    );
+    let e = error("CLUSTER x y /MATRIX=OUT(*).\nCLUSTER /MATRIX=IN(*) /SAVE=CLUSTER(2).");
+    assert!(e.contains("the matrix is the active dataset"), "{e}");
+}

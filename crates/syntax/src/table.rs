@@ -2811,7 +2811,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  squares) and Cluster Membership (CLUSTER), the clusters of a solution numbered in the order of their\n\
                  first case. ID labels the cases. SAVE adds the membership of each solution, named rootname plus the\n\
                  number of clusters, or CLUn_m. MATRIX=IN reads the rows of type PROX of a matrix file, a dissimilarity\n\
-                 matrix unless the value label of PROX says SIMILARITY. Plots come as chart data for each method; a\n\
+                 matrix unless the value label of PROX says SIMILARITY. SAVE with MATRIX=IN\n\
+                 needs the matrix of the active dataset's cases (one item per case, in its order), read from a file or\n\
+                 a dataset, not *. Plots come as chart data for each method; a\n\
                  vertical icicle plot unless PLOT names others. The icicle plot shows the cluster of every case at\n\
                  each number of clusters, from min to max by inc (default 1 to the number of cases minus 1). The\n\
                  dendrogram holds every join with its coefficient, rescaled from 1 at the first join to 25 at\n\
