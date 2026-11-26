@@ -673,6 +673,13 @@ pub(super) fn quasi(family: Family, y: f64, mu: f64, k: f64, full: bool) -> f64 
         Family::InverseGaussian => -(y / (2.0 * m * m) - 1.0 / m),
         Family::NegBin if k > 0.0 => ylog(k * m) - (y + 1.0 / k) * (k * m).ln_1p(),
         Family::NegBin | Family::Poisson => ylog(m) - m,
+        Family::Tweedie(q) => {
+            (if y == 0.0 {
+                0.0
+            } else {
+                y * m.powf(1.0 - q) / (1.0 - q)
+            }) - m.powf(2.0 - q) / (2.0 - q)
+        }
     };
     if full && family != Family::Normal {
         kernel(mu) - kernel(y)

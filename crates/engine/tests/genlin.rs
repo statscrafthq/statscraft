@@ -3564,3 +3564,155 @@ fn generalized_score_tests_under_repeated() {
         }
     }
 }
+
+// Tweedie (1 < q < 2) against an independent R computation: Fisher scoring of the means, the
+// scale by maximum likelihood from the density of Dunn and Smyth (mgcv's ldTweedie), the
+// standard errors from the observed information, and the Lagrange statistic from the density's
+// derivatives in ln(scale). Two of the 36 responses are 0.
+const TWEEDIE_DATA: &str = "DATA LIST FREE /y g x.
+BEGIN DATA.
+0.611 1 0.55
+0.17 2 0
+2.288 3 1.02
+0 1 0.03
+1.148 2 0.13
+0.648 3 1.91
+0.899 1 0.17
+4.756 2 0.58
+2.019 3 1.76
+1.159 1 0.25
+1.143 2 0.35
+0 3 0.88
+2.081 1 1.81
+8.465 2 1.7
+1.716 3 1.47
+3.161 1 1.15
+7.296 2 0.96
+1.247 3 0.66
+0.366 1 0.32
+2.466 2 0.96
+0.465 3 0.41
+5.572 1 1.36
+1.37 2 0.73
+2.655 3 0.7
+0.594 1 0.12
+4.955 2 0.97
+0.509 3 0.8
+1.709 1 0.03
+4.083 2 0.25
+0.448 3 0.8
+0.02 1 1.01
+4.197 2 0.66
+0.262 3 0.82
+0.782 1 0.4
+10.117 2 1.63
+0.428 3 1.28
+END DATA.
+";
+
+#[test]
+fn tweedie_default_and_log_links_with_the_scale_by_maximum_likelihood() {
+    let t = tables_of(&format!(
+        "{TWEEDIE_DATA}GENLIN y BY g WITH x /MODEL g x DISTRIBUTION=TWEEDIE(1.5)."
+    ));
+    for (row, b, se) in [
+        ("(Intercept)", 1.2794217300, 0.1419137228),
+        ("[g=1]", -0.2260615618, 0.1503268575),
+        ("[g=2]", -0.5208117647, 0.1238533976),
+        ("x", -0.2706272948, 0.0646160048),
+    ] {
+        close(get(&t, PE, row, B), b, 1e-6, row);
+        close(get(&t, PE, row, SE), se, 1e-5, row);
+    }
+    close(get(&t, PE, "(Scale)", B), 0.7400269452, 1e-6, "scale");
+    close(get(&t, PE, "(Scale)", SE), 0.1470308452, 1e-5, "scale se");
+    close(
+        get(&t, FIT, "Deviance", "Value"),
+        30.8380299006,
+        1e-6,
+        "deviance",
+    );
+    close(
+        get(&t, FIT, "Pearson Chi-Square", "Value"),
+        24.6135018999,
+        1e-6,
+        "pearson",
+    );
+    close(
+        get(&t, FIT, "Log Likelihood", "Value"),
+        -56.7543615953,
+        1e-6,
+        "ll",
+    );
+    let t = tables_of(&format!(
+        "{TWEEDIE_DATA}GENLIN y BY g WITH x /MODEL g x DISTRIBUTION=TWEEDIE(1.5) LINK=LOG."
+    ));
+    for (row, b, se) in [
+        ("(Intercept)", -0.9751032527, 0.3462690126),
+        ("[g=1]", 0.5750360513, 0.3433627522),
+        ("[g=2]", 1.5408567215, 0.3034171506),
+        ("x", 0.9575557018, 0.2283176016),
+    ] {
+        close(get(&t, PE, row, B), b, 1e-6, row);
+        close(get(&t, PE, row, SE), se, 1e-5, row);
+    }
+    close(get(&t, PE, "(Scale)", B), 0.7352135589, 1e-6, "log scale");
+    close(
+        get(&t, PE, "(Scale)", SE),
+        0.1462677981,
+        1e-5,
+        "log scale se",
+    );
+    close(
+        get(&t, FIT, "Deviance", "Value"),
+        30.5944818290,
+        1e-6,
+        "log deviance",
+    );
+    close(
+        get(&t, FIT, "Log Likelihood", "Value"),
+        -56.5892708321,
+        1e-6,
+        "log ll",
+    );
+}
+
+#[test]
+fn tweedie_lagrange_test_and_the_other_scale_methods() {
+    let lm = "Lagrange Multiplier Test";
+    let run = |criteria: &str| {
+        tables_of(&format!(
+            "{TWEEDIE_DATA}GENLIN y BY g WITH x /MODEL g x DISTRIBUTION=TWEEDIE(1.5) LINK=LOG {criteria} /PRINT LAGRANGE SOLUTION."
+        ))
+    };
+    for (criteria, scale, statistic) in [
+        ("/CRITERIA SCALE=0.3", 0.3, 20.2401999022),
+        ("/CRITERIA SCALE=1", 1.0, 2.3630173195),
+        ("/CRITERIA SCALE=DEVIANCE", 0.9560775572, 1.7289716313),
+        ("/CRITERIA SCALE=PEARSON", 0.7708569693, 0.0566134039),
+    ] {
+        let t = run(criteria);
+        close(get(&t, PE, "(Scale)", B), scale, 1e-6, criteria);
+        close(
+            get(&t, lm, "Scale parameter", "Lagrange Multiplier"),
+            statistic,
+            1e-4,
+            criteria,
+        );
+    }
+}
+
+#[test]
+fn tweedie_parameter_is_between_one_and_two_and_the_response_not_negative() {
+    for q in ["1", "2", "0.5", "3"] {
+        let message = run_error(&format!(
+            "{TWEEDIE_DATA}GENLIN y BY g WITH x /MODEL g x DISTRIBUTION=TWEEDIE({q})."
+        ));
+        assert!(message.contains("above 1 and below 2"), "{q}: {message}");
+    }
+    // a negative response is not used, as the manual says
+    let t = tables_of(&format!(
+        "{TWEEDIE_DATA}COMPUTE y = y - 1.5 * (x > 1.5).\nGENLIN y BY g WITH x /MODEL g x DISTRIBUTION=TWEEDIE(1.5) LINK=LOG."
+    ));
+    assert!(get(&t, "Case Processing Summary", "Included", "N") < 36.0);
+}
