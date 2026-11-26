@@ -158,11 +158,10 @@ fn resolve_bounds(
             }
         }
     }
-    for j in 0..p {
+    for (j, name) in parameters.iter().enumerate() {
         if out.lo[j] > out.hi[j] {
             return Err(Error(format!(
-                "CNLR /BOUNDS: the bounds of {} exclude every value",
-                parameters[j]
+                "CNLR /BOUNDS: the bounds of {name} exclude every value"
             )));
         }
     }
@@ -794,10 +793,10 @@ fn solve(
     let p = start.len();
     // a starting value close to a bound is put on it
     let mut x0 = start.to_vec();
-    for j in 0..p {
+    for (j, x) in x0.iter_mut().enumerate() {
         for edge in [bounds.lo[j], bounds.hi[j]] {
-            if edge.is_finite() && (x0[j] - edge).abs() <= settings.crshtol * (1.0 + edge.abs()) {
-                x0[j] = edge;
+            if edge.is_finite() && (*x - edge).abs() <= settings.crshtol * (1.0 + edge.abs()) {
+                *x = edge;
             }
         }
     }
@@ -953,7 +952,6 @@ impl Engine {
             names,
             theta,
             start,
-            pred_name,
             weights_vary,
             n,
         } = self.prepare("CNLR", &setup)?;
@@ -1122,15 +1120,7 @@ impl Engine {
         if command.outfile.is_some() {
             self.outfile_cases(&names, &samples)?;
         }
-        self.save_variables(
-            "CNLR",
-            &command.save,
-            &mut runner,
-            &pred_name,
-            &theta,
-            &y,
-            &current,
-        )?;
+        self.save_variables("CNLR", &command.save, &mut runner, &theta, &y, &current)?;
         if command.save.loss
             && let (Some(name), Some(loss)) = (&command.loss, &current.loss)
         {

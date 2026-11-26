@@ -11,6 +11,7 @@ no test or verification notes, no comparisons with other software, no internal h
 - [SHIFT VALUES](docs/commands/shift-values.md) adds a variable holding the value of another variable from an earlier or later case, within each split group, with the dictionary entry of the original.
 - [MCONVERT](docs/commands/mconvert.md) turns matrix data of covariances into correlations with standard deviations, and back, set by set, in the active dataset or a file.
 - [FIT](docs/commands/fit.md) gives goodness-of-fit statistics of residual series from the time series commands: mean, absolute and squared errors, the Durbin-Watson statistic, percent errors against the observed series, and separate columns for a PREDICT period inside the series.
+- [CNLR](docs/commands/cnlr.md) fits the same model under constraints: simple bounds, linear constraints and bounds on [CONSTRAINED FUNCTIONS](docs/commands/constrained-functions.md) computed from the parameters, with an optional LOSS function to minimize instead of the squared residuals and BOOTSTRAP for standard errors, correlations and 95% trimmed ranges. It gives the iteration history and, for squared residuals, the tables of NLR; FILE, OUTFILE and SAVE work as in NLR.
 
 ## 0.49.0 (2026-11-25)
 

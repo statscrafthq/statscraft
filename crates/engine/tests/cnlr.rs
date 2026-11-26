@@ -183,3 +183,92 @@ fn misuse_is_refused() {
     );
     assert!(fails(&format!("{MODEL}CNLR y /LOSS=nothing.")).contains("does not compute nothing"));
 }
+
+/// The cases of a dataset written by OUTFILE, read back through LIST (twelve decimals).
+fn listed(tables: &[Table]) -> Vec<Vec<f64>> {
+    let t = tables.iter().rfind(|t| t.title == "List").expect("list");
+    t.rows
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|c| match c {
+                    Cell::Number(n) => *n,
+                    Cell::Text(s) => s.trim().parse().expect("number"),
+                    other => panic!("{other:?}"),
+                })
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn a_bootstrap_reports_what_its_samples_hold() {
+    let m = 40;
+    let t = run(&format!(
+        "SET SEED=7.\nDATASET NAME data.\nDATASET DECLARE boot.\n{MODEL}\
+         CNLR y /BOUNDS a >= 0; b >= 0 /OUTFILE=boot /BOOTSTRAP={m} {TIGHT}.\n\
+         DATASET ACTIVATE boot.\nFORMATS a b SSE NCASES (F20.12).\nLIST a b SSE NCASES."
+    ));
+    let rows = listed(&t);
+    assert_eq!(rows.len(), m + 1);
+    // the first case holds the estimates of the data, the others one resample each
+    near(rows[0][0], 10.2670933528832, "a of the first case");
+    near(rows[0][1], 2.9314961966467, "b of the first case");
+    near(rows[0][2], 0.87838497382554, "SSE of the first case");
+    assert_eq!(rows[0][3], 12.0);
+    assert!(rows[1..].iter().all(|r| r[3] >= 4.0 && r[3] <= 12.0));
+    assert!(
+        rows[1..].iter().any(|r| r[3] < 12.0),
+        "samples repeat cases"
+    );
+    // the tables restate the samples: s_jj / (m - 1), correlation, trimmed range
+    let s: Vec<&Vec<f64>> = rows[1..].iter().collect();
+    let mean = |j: usize| s.iter().map(|r| r[j]).sum::<f64>() / m as f64;
+    let cov = |i: usize, j: usize| {
+        s.iter()
+            .map(|r| (r[i] - mean(i)) * (r[j] - mean(j)))
+            .sum::<f64>()
+            / (m as f64 - 1.0)
+    };
+    let estimates = t
+        .iter()
+        .find(|t| t.title == "Bootstrap Parameter Estimates")
+        .expect("bootstrap table");
+    let cells = |row: usize| -> Vec<f64> {
+        estimates.rows[row]
+            .iter()
+            .filter_map(|c| match c {
+                Cell::Number(n) => Some(*n),
+                _ => None,
+            })
+            .collect()
+    };
+    for (j, name) in [(0, "a"), (1, "b")] {
+        let c = cells(j);
+        near(c[1], cov(j, j).sqrt(), &format!("standard error of {name}"));
+        let mut v: Vec<f64> = s.iter().map(|r| r[j]).collect();
+        v.sort_by(f64::total_cmp);
+        // m = 40: g = floor(0.025 * 40) = 1 value is dropped at each end
+        near(c[2], v[1], &format!("lower end of {name}"));
+        near(c[3], v[m - 2], &format!("upper end of {name}"));
+    }
+    let corr = t
+        .iter()
+        .find(|t| t.title.starts_with("Bootstrap Correlation"))
+        .expect("correlations");
+    match corr.rows[0][2] {
+        Cell::Number(r) => near(r, cov(0, 1) / (cov(0, 0) * cov(1, 1)).sqrt(), "correlation"),
+        _ => panic!("no number"),
+    }
+}
+
+#[test]
+fn a_model_that_fails_outside_a_bound_is_kept_inside_it() {
+    // a LN(x + b) is undefined for b <= -0.5; the bound keeps every trial point defined, and
+    // starting at the bound itself (CRSHTOL) works too
+    let t = run(&format!(
+        "MODEL PROGRAM a=3 b=-0.45.\nCOMPUTE pred = a * LN(x + b).\nCNLR y /BOUNDS b >= -0.4 {TIGHT}."
+    ));
+    near(estimate(&t, "a"), 3.27355897107, "a");
+    near(estimate(&t, "b"), 1.44461087127, "b");
+}

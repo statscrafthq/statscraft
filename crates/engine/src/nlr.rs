@@ -367,7 +367,6 @@ pub(super) struct Prepared {
     pub names: Vec<String>,
     pub theta: Vec<f64>,
     pub start: Eval,
-    pub pred_name: String,
     pub weights_vary: bool,
     pub n: usize,
 }
@@ -577,7 +576,7 @@ impl Engine {
             parameters: names.clone(),
             model: program.model.clone(),
             derivatives: program.derivatives.clone(),
-            pred: pred_name.clone(),
+            pred: pred_name,
             loss: setup.loss.map(str::to_string),
             constraint_program: program.constraints.clone(),
             constraint_names: setup.constraint_names.to_vec(),
@@ -651,7 +650,6 @@ impl Engine {
             names,
             theta,
             start,
-            pred_name,
             weights_vary,
             n,
         })
@@ -684,7 +682,6 @@ impl Engine {
             names,
             mut theta,
             start,
-            pred_name,
             weights_vary,
             n,
         } = self.prepare("NLR", &setup)?;
@@ -790,15 +787,7 @@ impl Engine {
         if command.outfile.is_some() {
             self.outfile_cases(&names, &[(theta.clone(), ss, n as f64)])?;
         }
-        self.save_variables(
-            "NLR",
-            &command.save,
-            &mut runner,
-            &pred_name,
-            &theta,
-            &y,
-            &current,
-        )?;
+        self.save_variables("NLR", &command.save, &mut runner, &theta, &y, &current)?;
         Ok(tables)
     }
 
@@ -1004,7 +993,6 @@ impl Engine {
         who: &str,
         save: &NlrSave,
         runner: &mut Runner,
-        pred_name: &str,
         theta: &[f64],
         y: &[f64],
         current: &Eval,
@@ -1012,12 +1000,13 @@ impl Engine {
         let p = theta.len();
         let cases = y.len();
         let names = runner.parameters.clone();
+        let pred_name = runner.pred.clone();
         // SAVE
         let mut saved: Vec<(String, Vec<Option<f64>>, bool)> = Vec::new();
         let opt = |v: f64| Some(v).filter(|v| v.is_finite());
         if save.pred {
             saved.push((
-                pred_name.to_string(),
+                pred_name.clone(),
                 current.pred.iter().map(|v| opt(*v)).collect(),
                 true,
             ));
