@@ -275,6 +275,8 @@ pub enum Command {
     SaveTranslate(SaveTranslate),
     /// SAVE CODEPAGE: a data file with its text in a code page.
     SaveCodepage(SaveCodepage),
+    /// KEYED DATA LIST: variables read from the record of a file that a key picks.
+    KeyedDataList(KeyedDataList),
     /// EXPORT: the active dataset as a portable file.
     Export(Export),
     /// IMPORT: a portable file as the active dataset.
@@ -1756,6 +1758,22 @@ pub enum FileOption {
     /// `/MAP` of EXPORT, IMPORT and GET TRANSLATE: a table of the variables as the options
     /// before it leave them. Changes nothing.
     Map,
+}
+
+/// KEYED DATA LIST.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyedDataList {
+    /// FILE: a file handle or a path.
+    pub file: String,
+    /// KEY: the variable that names the record: a number for a direct-access file, a string
+    /// for a keyed one.
+    pub key: String,
+    /// IN: the variable that is 1 when the record was read and 0 when there was none.
+    pub found: String,
+    /// ENCODING of the file.
+    pub encoding: Option<String>,
+    /// The variables, in fixed columns of the one record.
+    pub fields: Vec<DataField>,
 }
 
 /// SAVE CODEPAGE.

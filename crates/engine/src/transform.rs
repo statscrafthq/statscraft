@@ -160,7 +160,8 @@ impl Engine {
                 | Command::EndFile
                 | Command::Reread { .. }
                 | Command::RepeatingData(_)
-        ) || (self.input.is_some() && matches!(command, Command::DataList(_)));
+        ) || (self.input.is_some()
+            && matches!(command, Command::DataList(_) | Command::KeyedDataList(_)));
         let open = match self.pending {
             Some(_) => self.pending_depth > 0,
             None => !self.blocks.is_empty(),
@@ -171,7 +172,7 @@ impl Engine {
         Err(Error(
             "this command cannot be used inside DO IF or LOOP; only COMPUTE, IF, RECODE, COUNT, \
              SAMPLE, VECTOR, DO REPEAT, BREAK, PRINT, PRINT SPACE, WRITE, XSAVE, nested DO IF \
-             and LOOP, and in an input program DATA LIST, END CASE, END FILE, REREAD and \
+             and LOOP, and in an input program DATA LIST, KEYED DATA LIST, END CASE, END FILE, REREAD and \
              REPEATING DATA can"
                 .into(),
         ))

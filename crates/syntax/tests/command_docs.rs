@@ -57,6 +57,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "ALTER TYPE",
             "APPLY DICTIONARY",
             "DATA LIST",
+            "KEYED DATA LIST",
             "BEGIN DATA",
             "MATRIX DATA",
             "MCONVERT",

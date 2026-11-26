@@ -62,6 +62,7 @@ mod graph;
 mod hiloglinear;
 mod html;
 mod input;
+mod keyed_data_list;
 mod km;
 mod knn;
 mod legacy_scaling;
@@ -1768,6 +1769,7 @@ impl Engine {
             Command::Flip(flip) => return self.flip(flip),
             Command::VarsToCases(command) => self.vars_to_cases(command)?,
             Command::CasesToVars(command) => self.cases_to_vars(command)?,
+            Command::KeyedDataList(command) => self.keyed_data_list(command)?,
             Command::DataList(list) if self.input.is_some() => self.program_data_list(list)?,
             Command::DataList(list) => {
                 self.leave.clear();

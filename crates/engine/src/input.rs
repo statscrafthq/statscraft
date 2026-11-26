@@ -98,6 +98,17 @@ impl Program {
         }
         files
     }
+
+    /// The files of KEYED DATA LIST, each with its ENCODING.
+    fn keyed_files(&self) -> Vec<(String, Option<String>)> {
+        self.body
+            .iter()
+            .filter_map(|command| match command {
+                Command::KeyedDataList(keyed) => Some((keyed.file.clone(), keyed.encoding.clone())),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 /// The records of one data source, and how far reading has come.
@@ -159,6 +170,11 @@ fn source_key(file: Option<&str>) -> String {
     file.map_or(String::new(), str::to_lowercase)
 }
 
+/// The key of the records of a file that KEYED DATA LIST reads.
+fn keyed_key(file: &str) -> String {
+    format!("{}\u{0}keyed", file.to_lowercase())
+}
+
 /// The error that unwinds the commands at END FILE or at the end of the data;
 /// `InputState::end_file` tells it from a real error.
 fn stop() -> Error {
@@ -195,7 +211,7 @@ fn refused(program: &Program, command: &Command) -> Option<&'static str> {
         Command::EndCase if !input => {
             "END CASE is for INPUT PROGRAM; in FILE TYPE the record types build the cases"
         }
-        Command::DataList(_) => return None,
+        Command::DataList(_) | Command::KeyedDataList(_) => return None,
         c if crate::output::stage(c) == crate::output::Stage::Pass => {
             "this command reads or replaces the data and cannot stand inside an input program"
         }
@@ -369,6 +385,13 @@ impl Engine {
                 entry.insert(Source::new(self.file_records(&file)?));
             }
         }
+        // the records a KEYED DATA LIST picks from, read here where the file handles are known
+        for (file, encoding) in program.keyed_files() {
+            let key = keyed_key(&file);
+            if let std::collections::hash_map::Entry::Vacant(entry) = sources.entry(key) {
+                entry.insert(Source::new(self.keyed_records(&file, encoding.as_deref())?));
+            }
+        }
         let file_type = match &program.kind {
             Kind::FileType(file_type) => Some(source_key(file_type.file.as_deref())),
             Kind::Input => None,
@@ -421,6 +444,22 @@ impl Engine {
             self.warn(format!("{hidden} more warnings while reading the data"));
         }
         Ok(tables)
+    }
+
+    /// The records of the file of a KEYED DATA LIST inside an input program, read before it ran.
+    pub(crate) fn program_keyed_records(&self, file: &str) -> Option<Vec<Record>> {
+        let state = self.input.as_ref()?;
+        state
+            .sources
+            .get(&keyed_key(file))
+            .map(|s| s.records.clone())
+    }
+
+    /// A record was read inside an input program, whatever came of it.
+    pub(crate) fn count_read(&mut self) {
+        if let Some(state) = self.input.as_mut() {
+            state.read += 1;
+        }
     }
 
     fn state(&mut self) -> &mut InputState {
@@ -613,7 +652,11 @@ impl Engine {
     }
 
     /// The variables of a DATA LIST or REPEATING DATA, on the pass on no case.
-    fn declare_fields(&mut self, fields: &[DataField], end: Option<&str>) -> Result<(), Error> {
+    pub(crate) fn declare_fields(
+        &mut self,
+        fields: &[DataField],
+        end: Option<&str>,
+    ) -> Result<(), Error> {
         let data = self.active_mut()?;
         for field in fields {
             let string = field.format.kind == FormatType::A;

@@ -56,6 +56,7 @@ One page per supported command, generated from the same table that the parser an
 | [ALTER TYPE](alter-type.md) | Change the type, string width or format of variables. |
 | [APPLY DICTIONARY](apply-dictionary.md) | Copy dictionary information from a data file or dataset to the active dataset. |
 | [DATA LIST](data-list.md) | Define text data, inline or in a file, and read it as the new active dataset. |
+| [KEYED DATA LIST](keyed-data-list.md) | Read variables from the record of a text file that a key variable picks, for each case. |
 | [BEGIN DATA](begin-data.md) | Inline data for the DATA LIST before it, up to a line that holds END DATA. |
 | [MATRIX DATA](matrix-data.md) | Read matrix materials (correlations, means, counts) as a matrix data file. |
 | [MCONVERT](mconvert.md) | Matrix data between covariances and correlations with standard deviations. |
