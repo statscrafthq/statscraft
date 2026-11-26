@@ -5,7 +5,9 @@ then at most five one-line bullets of the main visible changes. No option-by-opt
 no test or verification notes, no comparisons with other software, no internal history. -->
 
 ## Unreleased
+
 - [SAVE TRANSLATE](docs/commands/save-translate.md) writes SAS transport files with `/TYPE=SAS /VERSION=X`: labels, date, time and datetime formats, and one missing value.
+- [LOGLINEAR](docs/commands/loglinear.md) fits general loglinear and logit models of a table of counts with contrasts for every factor (DEVIATION, SIMPLE, DIFFERENCE, HELMERT, REPEATED, POLYNOMIAL, SPECIAL and BASIS SPECIAL), cell covariates, cell weights and structural zeros, several DESIGNs with settings that carry over, and generalized residuals: cell counts with raw, standardized and adjusted residuals, the likelihood-ratio and Pearson tests, the design matrix, parameter estimates with z values and intervals and their correlation, the analysis of dispersion for a logit model, and residual plots.
 
 ## 0.50.0 (2026-11-26)
 
