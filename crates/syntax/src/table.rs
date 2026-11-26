@@ -1479,13 +1479,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20      [/MATRIX=IN(file | dataset | *) | OUT(file | dataset | *) | NONE].\n\
                  test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GT2 GABRIEL GH T2 T3 C (pairwise comparisons),\n\
                  DUNNETT DUNNETTL DUNNETTR [(refcat)] (each group against the reference group, by default the last;\n\
-                 L: smaller, R: larger), SNK BTUKEY DUNCAN FREGW QREGW (homogeneous subsets only); TUKEY SCHEFFE\n\
+                 L: smaller, R: larger), SNK BTUKEY DUNCAN FREGW QREGW WALLER[(kratio)] (homogeneous subsets only); TUKEY SCHEFFE\n\
                  GT2 GABRIEL give both. DUNCAN and the Dunnett keywords are written in full. Every value of the\n\
                  factor is a group. CONTRAST gives one coefficient per group in ascending order (n*c repeats c n\n\
                  times); it is tested with pooled and separate variances. HOMOGENEITY gives Levene's test four ways, one row\n\
                  each under Based on Mean, Median, Median and with adjusted df, and trimmed mean. Multiple Comparisons show every ordered pair of groups (Dunnett C has no significance).\n\
                  Homogeneous subsets use the harmonic mean of the group sizes (the R-E-G-W tests the sizes\n\
-                 themselves); Tukey B shows no significance. Weighted when a weight variable is set. PLOT MEANS\n\
+                 themselves); Tukey B and WALLER show no significance. WALLER, the Waller-Duncan t test, takes the ratio\n\
+                 of the seriousness of a Type 1 to a Type 2 error as a whole number above 1 (100 by default); it\n\
+                 calls two means different when they are t_B s sqrt(2/n) apart, t_B the Bayesian t value from the\n\
+                 k-ratio, the F ratio of the analysis of variance and its df, n the harmonic mean of the group\n\
+                 sizes. Weighted when a weight variable is set. PLOT MEANS\n\
                  gives each dependent a line chart through the mean of every group, as chart data.\n\
                  POLYNOMIAL (1 to 5, the last one given counts; lowered with a warning to the groups minus 1)\n\
                  splits the between-groups sum of squares into trend terms in the ANOVA table, with the group\n\

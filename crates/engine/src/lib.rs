@@ -177,6 +177,7 @@ mod varcomp;
 mod variables;
 pub mod vega_lite;
 mod verify;
+mod waller;
 mod wls;
 pub mod workbook;
 pub mod xlsx;

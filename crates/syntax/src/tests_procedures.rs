@@ -678,10 +678,32 @@ fn oneway() {
             .message
             .contains("reference category")
     );
+    let tests = |text: &str| {
+        let Command::Oneway(o) = one(text) else {
+            panic!()
+        };
+        o.posthoc
+    };
+    assert_eq!(
+        tests("ONEWAY a BY g /POSTHOC=WALLER."),
+        [Posthoc::Waller(100)]
+    );
+    assert_eq!(
+        tests("ONEWAY a BY g /POSTHOC=WALLER(500) LSD."),
+        [Posthoc::Waller(500), Posthoc::Lsd]
+    );
+    for bad in ["WALLER(1)", "WALLER(0)", "WALLER(2.5)", "WALLER()"] {
+        assert!(
+            !err(&format!("ONEWAY a BY g /POSTHOC={bad}."))
+                .message
+                .is_empty(),
+            "{bad}"
+        );
+    }
     assert!(
-        err("ONEWAY a BY g /POSTHOC=WALLER(100).")
+        err("ONEWAY a BY g /POSTHOC=WALLER(1).")
             .message
-            .contains("WALLER in ONEWAY /POSTHOC is not supported yet")
+            .contains("whole number above 1")
     );
     let polynomial = |text: &str| {
         let Command::Oneway(o) = one(text) else {

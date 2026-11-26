@@ -416,7 +416,7 @@ pub(crate) fn t_test(p: &mut Parser) -> PResult<Command> {
 
 const ONEWAY_UNSUPPORTED: [&str; 1] = ["ES"];
 
-const POSTHOCS: [(&str, &[Posthoc]); 19] = [
+const POSTHOCS: [(&str, &[Posthoc]); 20] = [
     ("LSD", &[Posthoc::Lsd]),
     ("BONFERRONI", &[Posthoc::Bonferroni]),
     ("SIDAK", &[Posthoc::Sidak]),
@@ -436,12 +436,13 @@ const POSTHOCS: [(&str, &[Posthoc]); 19] = [
     ("DUNNETT", &[Posthoc::Dunnett(None, DunnettSide::Both)]),
     ("DUNNETTL", &[Posthoc::Dunnett(None, DunnettSide::Less)]),
     ("DUNNETTR", &[Posthoc::Dunnett(None, DunnettSide::Greater)]),
+    ("WALLER", &[Posthoc::Waller(100)]),
 ];
 
 /// Post hoc keywords that may not be shortened.
 const FULL_POSTHOCS: [&str; 4] = ["DUNCAN", "DUNNETT", "DUNNETTL", "DUNNETTR"];
 
-const UNSUPPORTED_POSTHOCS: [&str; 1] = ["WALLER"];
+const UNSUPPORTED_POSTHOCS: [&str; 0] = [];
 
 /// The tests of ONEWAY /RANGES. MODLSD, and LSDMOD as its alias, is Bonferroni.
 const RANGE_TESTS: [(&str, Posthoc); 8] = [
@@ -485,6 +486,19 @@ pub(crate) fn posthoc_test(p: &mut Parser, place: &str, more: &[&str]) -> PResul
         };
         p.expect(Punct::RParen)?;
         test = Posthoc::Dunnett(Some(category as u32), side);
+    }
+    if test == Posthoc::Waller(100) && p.eat(Punct::LParen) {
+        let start = p.pos;
+        let ratio = p
+            .number()
+            .filter(|n| *n > 1.0 && n.fract() == 0.0 && *n <= f64::from(u32::MAX));
+        let Some(ratio) = ratio else {
+            let message =
+                "the Type 1/Type 2 error seriousness ratio of WALLER is a whole number above 1";
+            return Err(SyntaxError::new(p.span_from(start), message));
+        };
+        p.expect(Punct::RParen)?;
+        test = Posthoc::Waller(ratio as u32);
     }
     Ok(test)
 }
