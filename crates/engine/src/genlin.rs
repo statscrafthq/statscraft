@@ -68,6 +68,8 @@ pub(crate) enum Family {
     InverseGaussian,
     NegBin,
     Poisson,
+    /// The compound Poisson-gamma distribution of the power q, 1 < q < 2.
+    Tweedie(f64),
 }
 
 fn digamma(mut x: f64) -> f64 {
@@ -222,6 +224,7 @@ pub(crate) fn variance(family: Family, mu: f64, k: f64) -> f64 {
         Family::InverseGaussian => mu * mu * mu,
         Family::NegBin => mu + k * mu * mu,
         Family::Poisson => mu,
+        Family::Tweedie(q) => mu.powf(q),
     }
 }
 
@@ -233,6 +236,7 @@ fn variance_d1(family: Family, mu: f64, k: f64) -> f64 {
         Family::InverseGaussian => 3.0 * mu * mu,
         Family::NegBin => 1.0 + 2.0 * k * mu,
         Family::Poisson => 1.0,
+        Family::Tweedie(q) => q * mu.powf(q - 1.0),
     }
 }
 
@@ -261,6 +265,85 @@ fn unit_deviance(family: Family, y: f64, mu: f64, k: f64) -> f64 {
         }
         Family::NegBin | Family::Poisson => 2.0 * (xlog(y, mu) - (y - mu)),
         Family::Binomial => 2.0 * (xlog(y, mu) + xlog(1.0 - y, 1.0 - mu)),
+        Family::Tweedie(q) => {
+            let y_term = if y == 0.0 {
+                0.0
+            } else {
+                y.powf(2.0 - q) / ((1.0 - q) * (2.0 - q)) - y * mu.powf(1.0 - q) / (1.0 - q)
+            };
+            2.0 * (y_term + mu.powf(2.0 - q) / (2.0 - q))
+        }
+    }
+}
+
+/// The log of the density of a Tweedie variable (1 < q < 2) at `y` with mean `mu` and scale
+/// `phi` (variance phi mu^q), split in its parts: the kernel, and ln a(y, phi) of the series of
+/// Dunn and Smyth (2005, the terms around the largest one are summed); then the derivatives
+/// of the whole in tau = ln phi, the first and the second.
+struct TweedieTerms {
+    kernel: f64,
+    log_a: f64,
+    score: f64,
+    second: f64,
+}
+
+fn tweedie_terms(y: f64, mu: f64, phi: f64, q: f64) -> TweedieTerms {
+    let kernel = (if y == 0.0 {
+        0.0
+    } else {
+        y * mu.powf(1.0 - q) / (1.0 - q)
+    } - mu.powf(2.0 - q) / (2.0 - q))
+        / phi;
+    if y == 0.0 {
+        return TweedieTerms {
+            kernel,
+            log_a: 0.0,
+            score: -kernel,
+            second: kernel,
+        };
+    }
+    let alpha = (2.0 - q) / (1.0 - q);
+    let log_term = |j: f64| {
+        -j * alpha * y.ln() + j * alpha * (q - 1.0).ln()
+            - j * (1.0 - alpha) * phi.ln()
+            - j * (2.0 - q).ln()
+            - ln_gamma(j + 1.0)
+            - ln_gamma(-j * alpha)
+    };
+    // the series peaks near y^(2-q) / (phi (2-q)); walk out of it until the terms are negligible
+    let peak = (y.powf(2.0 - q) / (phi * (2.0 - q))).round().max(1.0);
+    let top = log_term(peak);
+    let mut terms = vec![(peak, top)];
+    let mut j = peak + 1.0;
+    loop {
+        let t = log_term(j);
+        terms.push((j, t));
+        if t < top - 40.0 {
+            break;
+        }
+        j += 1.0;
+    }
+    let mut j = peak - 1.0;
+    while j >= 1.0 {
+        let t = log_term(j);
+        terms.push((j, t));
+        if t < top - 40.0 {
+            break;
+        }
+        j -= 1.0;
+    }
+    let sum: f64 = terms.iter().map(|(_, t)| (t - top).exp()).sum();
+    let mean = terms.iter().map(|(j, t)| j * (t - top).exp()).sum::<f64>() / sum;
+    let variance = terms
+        .iter()
+        .map(|(j, t)| (j - mean).powi(2) * (t - top).exp())
+        .sum::<f64>()
+        / sum;
+    TweedieTerms {
+        kernel,
+        log_a: top + sum.ln() - y.ln(),
+        score: -kernel - (1.0 - alpha) * mean,
+        second: kernel + (1.0 - alpha).powi(2) * variance,
     }
 }
 
@@ -304,6 +387,11 @@ fn case_loglik(
         Family::NegBin | Family::Poisson => {
             let kernel = if y == 0.0 { -mu } else { y * mu.ln() - mu };
             a / phi * (kernel - full * ln_gamma(y + 1.0))
+        }
+        Family::Tweedie(q) => {
+            // the scale of one case is phi over its prior weight
+            let t = tweedie_terms(y, mu, phi / a, q);
+            t.kernel + full * t.log_a
         }
         Family::Binomial => {
             let kernel = a / phi
@@ -774,7 +862,11 @@ fn lagrange_test(
         let (mut s, mut d2) = (0.0, 0.0);
         for (i, &m) in mu.iter().enumerate().take(n) {
             let y = c.y[i];
-            if spec.family == Family::Gamma {
+            if let Family::Tweedie(q) = spec.family {
+                let t = tweedie_terms(y, m, phi / c.a(i), q);
+                s += c.f[i] * t.score;
+                d2 += c.f[i] * t.second;
+            } else if spec.family == Family::Gamma {
                 let nu = c.a(i) / phi;
                 let g = (nu * y / m).ln() + 1.0 - y / m - digamma(nu);
                 s -= c.f[i] * nu * g;
@@ -875,6 +967,11 @@ fn scale_score(c: &Cases, family: Family, mu: &[f64], phi: f64) -> (f64, f64) {
                 s -= f * t * g;
                 h += f * (t * g + t - t * t * trigamma(t));
             }
+            Family::Tweedie(q) => {
+                let t = tweedie_terms(y, m, phi / a, q);
+                s += f * t.score;
+                h += f * t.second;
+            }
             _ => {
                 let d = a * unit_deviance(family, y, m, 0.0) / phi;
                 s += 0.5 * f * (d - 1.0);
@@ -970,7 +1067,7 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
     if spec.scale == ScaleMode::Mle {
         phi = scale_estimate(c, spec.family, &bf.mu);
         // a perfect fit has scale 0 and nothing to iterate on
-        if spec.family == Family::Gamma && phi > 0.0 {
+        if matches!(spec.family, Family::Gamma | Family::Tweedie(_)) && phi > 0.0 {
             let mut tau = phi.ln();
             for _ in 0..100 {
                 let (s, h) = scale_score(c, spec.family, &bf.mu, tau.exp());
@@ -1575,6 +1672,7 @@ pub(crate) fn distribution_name(d: GenlinDistribution, k: Option<f64>) -> String
         },
         GenlinDistribution::Poisson => "Poisson".into(),
         GenlinDistribution::Multinomial => "Ordinal Multinomial".into(),
+        GenlinDistribution::Tweedie(q) => format!("Tweedie ({q})"),
     }
 }
 
@@ -1740,6 +1838,7 @@ impl Engine {
             GenlinDistribution::InverseGaussian => Family::InverseGaussian,
             GenlinDistribution::NegativeBinomial(_) => Family::NegBin,
             GenlinDistribution::Poisson | GenlinDistribution::Multinomial => Family::Poisson,
+            GenlinDistribution::Tweedie(q) => Family::Tweedie(q),
         };
         let fixed_k = match distribution {
             GenlinDistribution::NegativeBinomial(k) => k,
@@ -1747,7 +1846,7 @@ impl Engine {
         };
         let continuous = matches!(
             family,
-            Family::Normal | Family::Gamma | Family::InverseGaussian
+            Family::Normal | Family::Gamma | Family::InverseGaussian | Family::Tweedie(_)
         ) && !multinomial;
         let scale = match crit.scale {
             Some(GenlinScale::Mle) => ScaleMode::Mle,
@@ -1929,6 +2028,7 @@ impl Engine {
                     let ok = match family {
                         Family::Gamma | Family::InverseGaussian => y > 0.0,
                         Family::Poisson | Family::NegBin => y >= 0.0 && whole(y),
+                        Family::Tweedie(_) => y >= 0.0,
                         _ => true,
                     };
                     ok.then_some((y, 1.0))
@@ -3065,9 +3165,10 @@ impl Engine {
         if print.lagrange && repeated.is_none() {
             let honored = !multinomial
                 && match family {
-                    Family::Normal | Family::Gamma | Family::InverseGaussian => {
-                        !matches!(scale, ScaleMode::Mle)
-                    }
+                    Family::Normal
+                    | Family::Gamma
+                    | Family::InverseGaussian
+                    | Family::Tweedie(_) => !matches!(scale, ScaleMode::Mle),
                     Family::NegBin => fixed_k.is_some(),
                     _ => false,
                 };

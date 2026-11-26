@@ -85,6 +85,9 @@ pub enum GenlinDistribution {
     NegativeBinomial(Option<f64>),
     Poisson,
     Multinomial,
+    /// The compound Poisson-gamma distribution with the power q of the variance function
+    /// V(mu) = mu^q, 1 < q < 2.
+    Tweedie(f64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -399,6 +402,7 @@ pub fn default_link(distribution: GenlinDistribution) -> GenlinLink {
         GenlinDistribution::InverseGaussian => GenlinLink::Power(-2.0),
         GenlinDistribution::NegativeBinomial(_) | GenlinDistribution::Poisson => GenlinLink::Log,
         GenlinDistribution::Multinomial => GenlinLink::CumLogit,
+        GenlinDistribution::Tweedie(q) => GenlinLink::Power(1.0 - q),
     }
 }
 
@@ -1236,11 +1240,18 @@ fn model(p: &mut Parser) -> PResult<ModelSpec> {
                         p.expect(Punct::RParen)?;
                     }
                     GenlinDistribution::NegativeBinomial(k)
-                } else if word_is(p, "TWEEDIE") {
-                    return Err(SyntaxError::new(
-                        p.span(),
-                        "DISTRIBUTION=TWEEDIE of GENLIN is not supported yet",
-                    ));
+                } else if p.eat_word("TWEEDIE") {
+                    p.expect(Punct::LParen)?;
+                    let at = p.pos;
+                    let q = number(p, "the power of the Tweedie distribution")?;
+                    if !(q > 1.0 && q < 2.0) {
+                        return Err(SyntaxError::new(
+                            p.span_from(at),
+                            "the TWEEDIE parameter is above 1 and below 2",
+                        ));
+                    }
+                    p.expect(Punct::RParen)?;
+                    GenlinDistribution::Tweedie(q)
                 } else {
                     choice(
                         p,
@@ -1451,10 +1462,11 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
         GenlinDistribution::Normal
             | GenlinDistribution::Gamma
             | GenlinDistribution::InverseGaussian
+            | GenlinDistribution::Tweedie(_)
     );
     if criteria_spec.scale == Some(GenlinScale::Mle) && !continuous {
         return model_error(format!(
-            "SCALE=MLE is for the NORMAL, GAMMA and IGAUSS distributions, not {}",
+            "SCALE=MLE is for the NORMAL, GAMMA, IGAUSS and TWEEDIE distributions, not {}",
             distribution_keyword(distribution)
         ));
     }
@@ -1495,6 +1507,7 @@ pub fn distribution_keyword(d: GenlinDistribution) -> &'static str {
         GenlinDistribution::NegativeBinomial(_) => "NEGBIN",
         GenlinDistribution::Poisson => "POISSON",
         GenlinDistribution::Multinomial => "MULTINOMIAL",
+        GenlinDistribution::Tweedie(_) => "TWEEDIE",
     }
 }
 

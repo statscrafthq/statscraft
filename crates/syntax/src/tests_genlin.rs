@@ -123,7 +123,21 @@ fn genlin_default_links_and_allowed_pairs() {
     assert!(err("GENLIN y /MODEL DISTRIBUTION=BINOMIAL LINK=CUMLOGIT.").contains("cannot be used"));
     let g = genlin("GENLIN y /MODEL DISTRIBUTION=BINOMIAL LINK=ODDSPOWER(0.5).");
     assert_eq!(g.link, GenlinLink::OddsPower(0.5));
-    assert!(err("GENLIN y /MODEL DISTRIBUTION=TWEEDIE(1.5).").contains("not supported yet"));
+    let g = genlin("GENLIN y /MODEL DISTRIBUTION=TWEEDIE(1.5).");
+    assert_eq!(g.distribution, GenlinDistribution::Tweedie(1.5));
+    assert_eq!(g.link, GenlinLink::Power(-0.5));
+    let g = genlin("GENLIN y /MODEL DISTRIBUTION=TWEEDIE(1.2) LINK=LOG /CRITERIA SCALE=MLE.");
+    assert_eq!(g.link, GenlinLink::Log);
+    for q in ["1", "2", "0", "2.5"] {
+        assert!(
+            err(&format!("GENLIN y /MODEL DISTRIBUTION=TWEEDIE({q})."))
+                .contains("above 1 and below 2")
+        );
+    }
+    assert!(err("GENLIN y /MODEL DISTRIBUTION=TWEEDIE.").contains("expected"));
+    assert!(
+        err("GENLIN y /MODEL DISTRIBUTION=TWEEDIE(1.5) LINK=LOGIT.").contains("cannot be used")
+    );
 }
 
 #[test]

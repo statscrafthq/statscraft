@@ -853,6 +853,7 @@ impl Glmm<'_> {
             Family::InverseGaussian => GenlinDistribution::InverseGaussian,
             Family::Poisson => GenlinDistribution::Poisson,
             Family::NegBin => GenlinDistribution::NegativeBinomial(Some(self.k.get())),
+            Family::Tweedie(q) => GenlinDistribution::Tweedie(q),
         }
     }
 

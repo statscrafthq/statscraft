@@ -4833,7 +4833,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20| events OF trials-variable | n\n\
                  \x20\x20\x20[BY factors [(ORDER=ASCENDING | DESCENDING | DATA)]] [WITH covariates]\n\
                  \x20\x20\x20[/MODEL [effects] [INTERCEPT=YES | NO] [OFFSET=variable | value] [SCALEWEIGHT=variable]\n\
-                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | IGAUSS | POISSON | NEGBIN[(k | MLE)] | MULTINOMIAL]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | IGAUSS | POISSON | NEGBIN[(k | MLE)] | TWEEDIE(q) | MULTINOMIAL]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[LINK=IDENTITY | LOG | LOGIT | PROBIT | CLOGLOG | NLOGLOG | LOGC | NEGBIN | POWER(a) |\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20ODDSPOWER(a) | CUMLOGIT | CUMPROBIT | CUMCLOGLOG | CUMNLOGLOG | CUMCAUCHIT]]\n\
                  \x20\x20\x20[/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD | PROFILE[(1E-4)]] [INITIAL=numbers | 'file' | dataset]\n\
@@ -4863,16 +4863,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  every subcommand but EMMEANS appears at most once. Effects are written as in UNIANOVA.\n\
                  Without DISTRIBUTION, events/trials is BINOMIAL (the only one it allows) and any other response\n\
                  NORMAL. The default LINK is IDENTITY for NORMAL, LOGIT for BINOMIAL, POWER(-1) for GAMMA, POWER(-2)\n\
-                 for IGAUSS, LOG for POISSON and NEGBIN, CUMLOGIT for MULTINOMIAL. MULTINOMIAL (an ordinal response)\n\
+                 for IGAUSS, LOG for POISSON and NEGBIN, POWER(1-q) for TWEEDIE, CUMLOGIT for MULTINOMIAL. MULTINOMIAL (an ordinal response)\n\
                  allows only the CUM links, BINOMIAL every other link but NEGBIN, NEGBIN also its own link unless k\n\
                  is 0, and the rest IDENTITY, LOG or POWER; another pair is an error. NEGBIN alone fixes k at 1,\n\
-                 NEGBIN(MLE) estimates it.\n\
+                 NEGBIN(MLE) estimates it. TWEEDIE(q), q above 1 and below 2, is the compound Poisson-gamma\n\
+                 distribution with the variance function mu^q (zero or positive responses, the scale as for GAMMA).\n\
                  A binary dependent must have two values; the model gives the probability of the one that is not the\n\
                  REFERENCE (LAST by default, in the ORDER given). A factor has one column per level, and the column\n\
                  of its last level is redundant and shown as 0. The ordinal model has thresholds instead of an\n\
                  intercept.\n\
                  A case is left out when its rounded weight is below 1, a variable is missing, the scale weight is\n\
-                 not positive, or the response is out of range: not above 0 for GAMMA and IGAUSS, not a whole number\n\
+                 not positive, or the response is out of range: not above 0 for GAMMA and IGAUSS, below 0 for TWEEDIE, not a whole number\n\
                  of 0 or more for POISSON and NEGBIN, or events above trials. CLASSMISSING=INCLUDE keeps user-missing\n\
                  factor values.\n\
                  Without PRINT the output is MODELINFO, CPS, DESCRIPTIVES, FIT, SUMMARY and SOLUTION; a PRINT list\n\
@@ -4884,8 +4885,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  METHOD=FISHER(n) uses Fisher scoring for the first n iterations and Newton-Raphson after:\n\
                  FISHER(1) is the default, FISHER alone scores throughout. A step is halved, at most\n\
                  MAXSTEPHALVING times, while the log likelihood falls. At least one of HCONVERGE, LCONVERGE and\n\
-                 PCONVERGE must be above 0. SCALE=MLE estimates the scale; it is the default for NORMAL, GAMMA and\n\
-                 IGAUSS and an error for the others, which fix it at 1. DEVIANCE or PEARSON set it to that\n\
+                 PCONVERGE must be above 0. SCALE=MLE estimates the scale; it is the default for NORMAL, GAMMA, IGAUSS\n\
+                 and TWEEDIE and an error for the others, which fix it at 1. DEVIANCE or PEARSON set it to that\n\
                  chi-square over its df, then divide the likelihood ratio statistics by it and add an F test. A\n\
                  number fixes the scale. COVB=ROBUST gives the sandwich covariance.\n\
                  EMMEANS gives the estimated marginal means of the TABLES cells, covariates at their means or the\n\
