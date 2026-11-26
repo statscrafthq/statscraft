@@ -211,7 +211,11 @@ fn points(
     let (y_lo, y_hi) = range(all().map(|p| p.y))?;
     let colors = d.pal.series(groups.len());
     let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
-    let top = d.swatches(chart.legend.as_deref(), &names, &colors, top);
+    // confidence ellipses are named on the plot, not in a legend
+    let top = match chart.kind {
+        ChartKind::ConfidenceEllipse => top,
+        _ => d.swatches(chart.legend.as_deref(), &names, &colors, top),
+    };
     let x_axis = Axis::new(x_lo, x_hi, None, Unit::Plain);
     let y_axis = Axis::new(y_lo, y_hi, chart.value_axis.maximum, Unit::Plain);
     let (frame, bottom) = Frame::new(d, chart, top, Along::Numbers(x_axis), y_axis, false);
@@ -236,6 +240,36 @@ fn points(
     // order, and only a labelled point, such as a censored time, gets a mark, an upright tick
     let curve = chart.kind == ChartKind::Line;
     for (group, &color) in groups.iter().zip(&colors) {
+        if chart.kind == ChartKind::ConfidenceEllipse {
+            // the contour as a path, its point marked and named
+            let path = group
+                .points
+                .iter()
+                .skip(1)
+                .map(|p| at([p.x, p.y]))
+                .collect();
+            d.line(path, 1.5, color);
+            if let Some(first) = group.points.first() {
+                let center = at([first.x, first.y]);
+                d.shapes.push(Shape::Circle {
+                    center,
+                    radius: 3.0,
+                    fill: color.alpha(220),
+                });
+                if let Some(label) = first.label.clone().filter(|_| labelled) {
+                    let muted = d.pal.muted;
+                    d.text(
+                        center[0] + 6.0,
+                        center[1],
+                        label,
+                        SMALL,
+                        muted,
+                        Anchor::Start,
+                    );
+                }
+            }
+            continue;
+        }
         if matches!(chart.kind, ChartKind::Roc | ChartKind::Line) {
             let path = group.points.iter().map(|p| at([p.x, p.y])).collect();
             d.line(path, 2.0, color);

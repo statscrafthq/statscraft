@@ -464,8 +464,8 @@ pub(crate) fn fit_quants_for_sample(
         .iter()
         .map(|v| Quant::new(v, command.analysis[v.list].1.level, prep.n_w))
         .collect();
-    let (_, _, converged) = engine.fit_quants(command, prep, &mut quants, p, &None)?;
-    Ok(summarize(command, prep, &quants, p, converged))
+    let (x, _, converged) = engine.fit_quants(command, prep, &mut quants, p, &None)?;
+    Ok(summarize(command, prep, &quants, &x, p, converged))
 }
 
 /// What the bootstrap compares between solutions.
@@ -477,6 +477,14 @@ pub(crate) struct Solution {
     /// Per analysis variable the value of each of its categories (single levels), else empty.
     pub(crate) values: Vec<Vec<f64>>,
     pub(crate) converged: bool,
+    /// The object scores of the active objects, as the fit leaves them (before NORMALIZATION).
+    pub(crate) scores: Matrix,
+    /// Per analysis variable the weighted mean object of each category (categories by dimensions).
+    pub(crate) centroids: Vec<Matrix>,
+    /// The factors that NORMALIZATION puts on scores and centroids of single variables, and on
+    /// the loadings and the centroids of multiple nominal variables.
+    pub(crate) score_factor: Vec<f64>,
+    pub(crate) vector_factor: Vec<f64>,
 }
 
 /// The eigenvalue of every dimension: the variance the active variables account for in it.
@@ -502,15 +510,23 @@ pub(crate) fn summarize(
     command: &Catpca,
     prep: &Prepared,
     quants: &[Quant],
+    x: &Matrix,
     p: usize,
     converged: bool,
 ) -> Solution {
     let eigen = eigen_values(prep, quants, p);
-    // the power of the root of each eigenvalue that scales the loadings, as in the tables
-    let b_pow = match command.common.normalization {
-        McaNormalization::Independent => 1.0,
-        McaNormalization::Q(q) => (1.0 - q) / 2.0,
+    // the powers of the root of each eigenvalue that scale scores and loadings, as in the tables
+    let (a_pow, b_pow) = match command.common.normalization {
+        McaNormalization::Independent => (1.0, 1.0),
+        McaNormalization::Q(q) => ((1.0 + q) / 2.0, (1.0 - q) / 2.0),
     };
+    let score_factor: Vec<f64> = eigen
+        .iter()
+        .map(|e| match a_pow == 0.0 {
+            true => 1.0,
+            false => e.max(0.0).sqrt().powf(a_pow),
+        })
+        .collect();
     let factor: Vec<f64> = eigen
         .iter()
         .map(|e| match b_pow == 1.0 {
@@ -535,6 +551,10 @@ pub(crate) fn summarize(
             })
             .collect(),
         converged,
+        scores: x.clone(),
+        centroids: quants.iter().map(|q| q.centroids.clone()).collect(),
+        score_factor,
+        vector_factor: factor,
     }
 }
 
@@ -1439,10 +1459,18 @@ impl Engine {
             }
         }
 
+        // the bootstrap: its tables here, its charts with the others below
+        let mut bootstrap_charts: Vec<Chart> = Vec::new();
+        let mut bootstrap_bands: Option<Vec<Vec<Option<(f64, f64)>>>> = None;
         if let Some(spec) = &command.resample {
-            let original = summarize(command, &prep, &quants, p, converged);
-            let more = self.catpca_bootstrap(command, spec, &prep, &original, p, &mut warnings)?;
-            tables.extend(more);
+            let original = summarize(command, &prep, &quants, &x, p, converged);
+            let result =
+                self.catpca_bootstrap(command, spec, &prep, &original, p, &mut warnings)?;
+            let labels: Vec<String> = (0..prep.n_tot).map(|c| format!("{}", c + 1)).collect();
+            bootstrap_charts =
+                self.catpca_bootstrap_charts(command, &prep, &result, &original, &labels)?;
+            tables.extend(result.tables);
+            bootstrap_bands = Some(result.value_bands);
         }
         // charts
         let data = self.active()?;
@@ -1655,9 +1683,32 @@ impl Engine {
                                         true => "Quantification".to_string(),
                                         false => format!("Dimension {}", s + 1),
                                     };
-                                    charts.push(transformation_chart(
-                                        title, c, &v.cats, &series, values,
-                                    ));
+                                    let mut chart =
+                                        transformation_chart(title, c, &v.cats, &series, values);
+                                    // the bootstrap's percentile interval of each value
+                                    if let (true, Some(bands)) = (q.single(), &bootstrap_bands)
+                                        && bands[j].len() == v.cats.len()
+                                    {
+                                        for (name, pick) in [
+                                            (
+                                                "Lower",
+                                                (|b: &(f64, f64)| b.0) as fn(&(f64, f64)) -> f64,
+                                            ),
+                                            ("Upper", |b: &(f64, f64)| b.1),
+                                        ] {
+                                            chart.series.push(Series {
+                                                name: name.to_string(),
+                                                statistic: Statistic::Value,
+                                                variable: None,
+                                                value: Cell::Empty,
+                                                values: bands[j]
+                                                    .iter()
+                                                    .map(|b| b.as_ref().map_or(f64::NAN, pick))
+                                                    .collect(),
+                                            });
+                                        }
+                                    }
+                                    charts.push(chart);
                                 } else {
                                     let points = prep
                                         .active
@@ -2096,6 +2147,7 @@ impl Engine {
         for warning in warnings {
             self.warn(warning);
         }
+        charts.extend(bootstrap_charts);
         self.charts.extend(charts);
         Ok(tables)
     }

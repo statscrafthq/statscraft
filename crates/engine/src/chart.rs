@@ -114,6 +114,9 @@ pub enum ChartKind {
     DetrendedPp,
     /// Points joined in order, one line per group: sensitivity against 1 - specificity.
     Roc,
+    /// Confidence ellipses: every group is one entity, its point first (labelled) and then the
+    /// closed contour of its ellipse, drawn as a path.
+    ConfidenceEllipse,
     /// Points: the spread of every cell against its level, with the regression line.
     SpreadLevel,
     /// Merges: the clustering as a tree with heights.
@@ -343,6 +346,7 @@ impl Chart {
             (ChartKind::Pp, _) => "P-P plot".into(),
             (ChartKind::DetrendedPp, _) => "Detrended P-P plot".into(),
             (ChartKind::Roc, _) => "ROC curve".into(),
+            (ChartKind::ConfidenceEllipse, _) => "Confidence ellipses".into(),
             (ChartKind::SpreadLevel, _) => "Spread-versus-level plot".into(),
             (ChartKind::Dendrogram, _) => "Dendrogram".into(),
             (ChartKind::Icicle, _) => "Icicle plot".into(),

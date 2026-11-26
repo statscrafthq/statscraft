@@ -620,7 +620,11 @@ impl Plot {
                 // a ROC curve and a line chart of points (survival curves) join their points in
                 // order; the curves' doubled corners already make the steps, so no step
                 // interpolation is added
-                let joined = matches!(chart.kind, ChartKind::Roc | ChartKind::Line);
+                let ellipses = chart.kind == ChartKind::ConfidenceEllipse;
+                let joined = matches!(
+                    chart.kind,
+                    ChartKind::Roc | ChartKind::Line | ChartKind::ConfidenceEllipse
+                );
                 let curve = chart.kind == ChartKind::Line;
                 let rows: Vec<Value> = groups
                     .iter()
@@ -644,11 +648,16 @@ impl Plot {
                 let y = json!({ "field": "y", "type": "quantitative", "title": yt, "scale": { "zero": false } });
                 let mark = match chart.kind {
                     ChartKind::Roc => json!({ "type": "line", "point": true }),
-                    ChartKind::Line => json!({ "type": "line" }),
+                    ChartKind::Line | ChartKind::ConfidenceEllipse => json!({ "type": "line" }),
                     _ => json!({ "type": "point" }),
                 };
+                // an ellipse's path leaves out its point (the first), which is marked apart
+                let path_rows: Vec<&Value> = rows
+                    .iter()
+                    .filter(|r| !ellipses || r["order"] != 0)
+                    .collect();
                 let mut points = json!({
-                    "data": { "values": rows },
+                    "data": { "values": path_rows },
                     "mark": mark,
                     "encoding": { "x": x, "y": y },
                 });
@@ -666,6 +675,18 @@ impl Plot {
                 }
                 let marks = points["encoding"]["color"].clone();
                 let mut layers = vec![points];
+                if ellipses {
+                    let centers: Vec<&Value> = rows.iter().filter(|r| r["order"] == 0).collect();
+                    let mut dots = json!({
+                        "data": { "values": centers },
+                        "mark": { "type": "point", "filled": true },
+                        "encoding": { "x": x, "y": y },
+                    });
+                    if !marks.is_null() {
+                        dots["encoding"]["color"] = marks.clone();
+                    }
+                    layers.push(dots);
+                }
                 let any_label = groups
                     .iter()
                     .flat_map(|g| &g.points)

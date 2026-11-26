@@ -26,13 +26,15 @@
 //!   variables have no single value and no loadings and are left out of the tables.
 
 use crate::catpca::{Solution, fit_quants_for_sample};
+use crate::chart::{Axis, Category, ChartKind, Series, Statistic};
 use crate::matrix::{Matrix, multiply, transpose};
 use crate::mds::polar;
 use crate::npar_tests::text;
 use crate::optimal_scaling::Prepared;
-use crate::{Cell, Engine, Error, Table};
+use crate::plot::{Plot, Point, PointGroup};
+use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::Dataset;
-use statscraft_syntax::{Catpca, CatpcaBootstrap, VarItem};
+use statscraft_syntax::{Catpca, CatpcaBootstrap, CatpcaPlot, EllipseLimit, VarItem};
 
 /// The pool of a balanced bootstrap: each of the `n` cases `samples` times, shuffled; sample `b`
 /// is the `b`-th run of `n` entries.
@@ -150,18 +152,22 @@ struct Aligned {
 }
 
 impl Engine {
-    /// Analyses one resample of the active dataset; None when it cannot be analysed.
-    #[allow(clippy::too_many_arguments)]
+    /// Analyses one resample of the active dataset; Err inside when it cannot be analysed. The
+    /// aligned points of a two-dimensional solution go into `clouds`.
     fn bootstrap_sample(
         &mut self,
-        command: &Catpca,
-        spec: &CatpcaBootstrap,
+        run: &Run,
         cases: &[usize],
-        original: &Solution,
-        prep: &Prepared,
-        singles: &[usize],
-        p: usize,
+        clouds: &mut Option<Clouds>,
     ) -> Result<Result<Aligned, String>, Error> {
+        let Run {
+            command,
+            spec,
+            original,
+            prep,
+            singles,
+            p,
+        } = *run;
         let data = self.active()?;
         let mut sample: Dataset = data.clone();
         let picked: Vec<Option<usize>> = cases.iter().map(|&c| Some(c)).collect();
@@ -172,7 +178,7 @@ impl Engine {
             .iter()
             .map(|(items, s)| (items.as_slice(), s.weight))
             .collect();
-        let run = (|| -> Result<(Solution, Prepared), Error> {
+        let fitted = (|| -> Result<(Solution, Prepared), Error> {
             let sample_prep = self.prepare_scaling("CATPCA", &command.common, &lists)?;
             if sample_prep.active.len() <= p {
                 return Err(Error(format!(
@@ -184,7 +190,7 @@ impl Engine {
             Ok((solution, sample_prep))
         })();
         self.dataset = held;
-        let (solution, sample_prep) = match run {
+        let (solution, sample_prep) = match fitted {
             Ok(done) => done,
             Err(e) => return Ok(Err(e.0)),
         };
@@ -207,6 +213,9 @@ impl Engine {
             .collect();
         let turn = alignment(&target, &found, spec.procrustes);
         let aligned = multiply(&found, &turn);
+        if let Some(clouds) = clouds {
+            clouds.add_sample(run, &solution, &sample_prep, cases, &turn, &aligned);
+        }
         let mut loadings = vec![Vec::new(); original.loadings.len()];
         for (row, &j) in aligned.into_iter().zip(singles) {
             loadings[j] = row;
@@ -254,7 +263,7 @@ impl Engine {
         original: &Solution,
         p: usize,
         warnings: &mut Vec<String>,
-    ) -> Result<Vec<Table>, Error> {
+    ) -> Result<BootResult, Error> {
         let singles: Vec<usize> = prep
             .active_vars
             .iter()
@@ -273,6 +282,17 @@ impl Engine {
                 spec.samples
             )));
         }
+        let run = Run {
+            command,
+            spec,
+            original,
+            prep,
+            singles: &singles,
+            p,
+        };
+        // the points of a two-dimensional solution, for the ellipses
+        let mut clouds =
+            (p == 2 && !command.plot.charts.is_empty()).then(|| Clouds::new(prep, original));
         let pool = spec
             .balanced
             .then(|| balanced_pool(n, spec.samples, || self.random()));
@@ -283,7 +303,7 @@ impl Engine {
                 Some(pool) => balanced_sample(pool, n, b),
                 None => unbalanced_sample(n, || self.random()),
             };
-            match self.bootstrap_sample(command, spec, &cases, original, prep, &singles, p)? {
+            match self.bootstrap_sample(&run, &cases, &mut clouds)? {
                 Ok(a) => kept.push(a),
                 Err(reason) => {
                     first_reason.get_or_insert(reason);
@@ -347,10 +367,12 @@ impl Engine {
         let mut tables = Vec::new();
 
         // eigenvalues
+        let mut eigen_bands: Vec<Option<(f64, f64)>> = Vec::new();
         let rows: Vec<Vec<Cell>> = (0..p)
             .map(|s| {
                 let values: Vec<f64> = kept.iter().map(|a| a.eigen[s]).collect();
                 let sp = spread(values, spec.percent);
+                eigen_bands.push(sp.as_ref().map(|s| (s.lower, s.upper)));
                 let mut row = vec![Cell::Number((s + 1) as f64)];
                 let mut rest = spread_cells(original.eigen[s], sp.as_ref());
                 // the value of the data comes first, then the statistics of the samples
@@ -391,6 +413,7 @@ impl Engine {
         ));
 
         // category values
+        let mut value_bands: Vec<Vec<Option<(f64, f64)>>> = vec![Vec::new(); original.values.len()];
         let mut rows = Vec::new();
         for j in prep
             .active_vars
@@ -411,6 +434,7 @@ impl Engine {
                     .collect();
                 let count = values.len();
                 let sp = spread(values, spec.percent);
+                value_bands[j].push(sp.as_ref().map(|s| (s.lower, s.upper)));
                 let mut row = vec![
                     text(shown.variable(&var)),
                     text(shown.number(&var, code as f64)),
@@ -431,7 +455,484 @@ impl Engine {
             rows,
             &note,
         ));
-        Ok(tables)
+        let ellipses =
+            clouds.map(|c| c.ellipses(original, prep, spec.percent, command.plot.ellipse.points));
+        Ok(BootResult {
+            tables,
+            eigen_bands,
+            value_bands,
+            ellipses,
+        })
+    }
+}
+
+/// What the bootstrap hands to the charts of the analysis.
+pub(crate) struct BootResult {
+    pub(crate) tables: Vec<Table>,
+    /// The percentile interval of each eigenvalue.
+    pub(crate) eigen_bands: Vec<Option<(f64, f64)>>,
+    /// Per analysis variable the interval of each category's value (single levels).
+    pub(crate) value_bands: Vec<Vec<Option<(f64, f64)>>>,
+    /// The confidence ellipses of a two-dimensional solution.
+    pub(crate) ellipses: Option<Ellipses>,
+}
+
+/// The inputs every sample needs.
+pub(crate) struct Run<'a> {
+    command: &'a Catpca,
+    spec: &'a CatpcaBootstrap,
+    original: &'a Solution,
+    prep: &'a Prepared,
+    singles: &'a [usize],
+    p: usize,
+}
+
+impl Clone for Run<'_> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl Copy for Run<'_> {}
+
+/// Running sums of the aligned two-dimensional points of one entity over the samples.
+#[derive(Clone, Default)]
+pub(crate) struct Cloud {
+    n: f64,
+    sx: f64,
+    sy: f64,
+    sxx: f64,
+    sxy: f64,
+    syy: f64,
+}
+
+impl Cloud {
+    fn add(&mut self, point: &[f64]) {
+        let (x, y) = (point[0], point[1]);
+        self.n += 1.0;
+        self.sx += x;
+        self.sy += y;
+        self.sxx += x * x;
+        self.sxy += x * y;
+        self.syy += y * y;
+    }
+
+    /// Variances and covariance (n - 1); None with fewer than three points.
+    fn covariance(&self) -> Option<[f64; 3]> {
+        (self.n >= 3.0).then(|| {
+            let d = self.n - 1.0;
+            [
+                (self.sxx - self.sx * self.sx / self.n) / d,
+                (self.sxy - self.sx * self.sy / self.n) / d,
+                (self.syy - self.sy * self.sy / self.n) / d,
+            ]
+        })
+    }
+}
+
+/// The points of the samples, per entity.
+pub(crate) struct Clouds {
+    eigen: Cloud,
+    loadings: Vec<Cloud>,
+    /// Per analysis variable the clouds of the categories of the data.
+    categories: Vec<Vec<Cloud>>,
+    /// Per case of the data.
+    objects: Vec<Cloud>,
+}
+
+impl Clouds {
+    fn new(prep: &Prepared, original: &Solution) -> Clouds {
+        Clouds {
+            eigen: Cloud::default(),
+            loadings: vec![Cloud::default(); original.loadings.len()],
+            categories: prep
+                .avars
+                .iter()
+                .map(|v| vec![Cloud::default(); v.cats.len()])
+                .collect(),
+            objects: vec![Cloud::default(); prep.n_tot],
+        }
+    }
+
+    /// Adds a sample's points, turned by `turn` as its loadings were.
+    fn add_sample(
+        &mut self,
+        run: &Run,
+        solution: &Solution,
+        sample_prep: &Prepared,
+        cases: &[usize],
+        turn: &Matrix,
+        aligned: &Matrix,
+    ) {
+        self.eigen.add(&solution.eigen);
+        for (row, &j) in aligned.iter().zip(run.singles) {
+            self.loadings[j].add(row);
+        }
+        let turned = |point: &[f64], factor: &[f64]| -> Vec<f64> {
+            let scaled: Vec<f64> = point.iter().zip(factor).map(|(a, f)| a * f).collect();
+            (0..run.p)
+                .map(|s| scaled.iter().enumerate().map(|(r, v)| v * turn[r][s]).sum())
+                .collect()
+        };
+        for &j in &run.prep.active_vars {
+            let factor = match solution.loadings[j].is_empty() {
+                true => &solution.vector_factor,
+                false => &solution.score_factor,
+            };
+            for (r, code) in sample_prep.avars[j].cats.iter().enumerate() {
+                if let Ok(at) = run.prep.avars[j].cats.binary_search(code) {
+                    self.categories[j][at].add(&turned(&solution.centroids[j][r], factor));
+                }
+            }
+        }
+        let mut last = usize::MAX;
+        for (i, &row) in sample_prep.active.iter().enumerate() {
+            // a case drawn twice has the same scores both times: once is enough
+            let case = cases[row];
+            if case == last {
+                continue;
+            }
+            last = case;
+            self.objects[case].add(&turned(&solution.scores[i], &solution.score_factor));
+        }
+    }
+
+    /// The confidence ellipses around the points of the data.
+    fn ellipses(
+        &self,
+        original: &Solution,
+        prep: &Prepared,
+        percent: f64,
+        points: usize,
+    ) -> Ellipses {
+        let make = |center: [f64; 2], cloud: &Cloud| ellipse(center, cloud, percent, points);
+        let scaled = |point: &[f64], factor: &[f64]| -> [f64; 2] {
+            [point[0] * factor[0], point[1] * factor[1]]
+        };
+        Ellipses {
+            eigen: make([original.eigen[0], original.eigen[1]], &self.eigen),
+            loadings: self
+                .loadings
+                .iter()
+                .enumerate()
+                .map(|(j, c)| {
+                    let l = &original.loadings[j];
+                    (!l.is_empty()).then(|| make([l[0], l[1]], c)).flatten()
+                })
+                .collect(),
+            categories: self
+                .categories
+                .iter()
+                .enumerate()
+                .map(|(j, clouds)| {
+                    let factor = match original.loadings[j].is_empty() {
+                        true => &original.vector_factor,
+                        false => &original.score_factor,
+                    };
+                    clouds
+                        .iter()
+                        .enumerate()
+                        .map(|(r, c)| make(scaled(&original.centroids[j][r], factor), c))
+                        .collect()
+                })
+                .collect(),
+            objects: {
+                let mut out: Vec<Option<Ellipse>> = vec![None; self.objects.len()];
+                for (i, &case) in prep.active.iter().enumerate() {
+                    out[case] = make(
+                        scaled(&original.scores[i], &original.score_factor),
+                        &self.objects[case],
+                    );
+                }
+                out
+            },
+        }
+    }
+}
+
+/// A confidence ellipse: its center (the data's point), its contour and its area.
+#[derive(Clone)]
+pub(crate) struct Ellipse {
+    pub(crate) center: [f64; 2],
+    pub(crate) contour: Vec<[f64; 2]>,
+    pub(crate) area: f64,
+}
+
+/// The ellipses of every entity of a two-dimensional solution.
+pub(crate) struct Ellipses {
+    pub(crate) eigen: Option<Ellipse>,
+    pub(crate) loadings: Vec<Option<Ellipse>>,
+    pub(crate) categories: Vec<Vec<Option<Ellipse>>>,
+    pub(crate) objects: Vec<Option<Ellipse>>,
+}
+
+/// The normal-theory region (x - c)' S^-1 (x - c) <= k around `center`, k the chi-square
+/// quantile of two degrees of freedom, -2 ln(1 - percent / 100), with S the covariance of the
+/// points; `points` contour points. None when there are too few samples.
+fn ellipse(center: [f64; 2], cloud: &Cloud, percent: f64, points: usize) -> Option<Ellipse> {
+    let [a, b, c] = cloud.covariance()?;
+    let k = -2.0 * (1.0 - percent / 100.0).ln();
+    let mean = (a + c) / 2.0;
+    let half = (((a - c) / 2.0).powi(2) + b * b).sqrt();
+    let (l1, l2) = ((mean + half).max(0.0), (mean - half).max(0.0));
+    // the unit vector of the larger eigenvalue
+    let axis = if b != 0.0 {
+        let v = [l1 - c, b];
+        let norm = (v[0] * v[0] + v[1] * v[1]).sqrt();
+        [v[0] / norm, v[1] / norm]
+    } else if a >= c {
+        [1.0, 0.0]
+    } else {
+        [0.0, 1.0]
+    };
+    let (r1, r2) = ((k * l1).sqrt(), (k * l2).sqrt());
+    let contour = (0..=points)
+        .map(|t| {
+            let angle = std::f64::consts::TAU * t as f64 / points as f64;
+            let (u, v) = (r1 * angle.cos(), r2 * angle.sin());
+            [
+                center[0] + u * axis[0] - v * axis[1],
+                center[1] + u * axis[1] + v * axis[0],
+            ]
+        })
+        .collect();
+    Some(Ellipse {
+        center,
+        contour,
+        area: std::f64::consts::PI * k * (l1 * l2).sqrt(),
+    })
+}
+
+/// The entities whose ellipse area passes the limit: above or below the area given, or the mean
+/// area plus that many standard deviations of the areas.
+fn passing(ellipses: &[Option<&Ellipse>], limit: &EllipseLimit) -> Vec<bool> {
+    let areas: Vec<f64> = ellipses.iter().flatten().map(|e| e.area).collect();
+    let threshold = match limit.stdev {
+        false => limit.value,
+        true => {
+            let n = areas.len() as f64;
+            let mean = areas.iter().sum::<f64>() / n.max(1.0);
+            let sd = match areas.len() > 1 {
+                true => (areas.iter().map(|a| (a - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt(),
+                false => 0.0,
+            };
+            mean + limit.value * sd
+        }
+    };
+    ellipses
+        .iter()
+        .map(|e| {
+            e.is_some_and(|e| match limit.greater {
+                true => e.area > threshold,
+                false => e.area < threshold,
+            })
+        })
+        .collect()
+}
+
+/// A chart of confidence ellipses: one group per entity, its point first and then its closed
+/// contour.
+fn ellipse_chart(title: String, shown: &[(String, &Ellipse)]) -> Option<Chart> {
+    if shown.is_empty() {
+        return None;
+    }
+    let groups = shown
+        .iter()
+        .map(|(name, e)| {
+            let mut points = vec![Point {
+                x: e.center[0],
+                y: e.center[1],
+                z: None,
+                label: Some(name.clone()),
+            }];
+            points.extend(e.contour.iter().map(|c| Point {
+                x: c[0],
+                y: c[1],
+                z: None,
+                label: None,
+            }));
+            PointGroup {
+                name: name.clone(),
+                points,
+            }
+        })
+        .collect();
+    Some(Chart::plot(
+        ChartKind::ConfidenceEllipse,
+        title,
+        Axis::titled("Dimension 1"),
+        Axis::titled("Dimension 2"),
+        Plot::Points {
+            groups,
+            lines: Vec::new(),
+            z_axis: None,
+        },
+    ))
+}
+
+impl Engine {
+    /// The charts of the bootstrap of a two-dimensional solution: the eigenvalues with their
+    /// intervals, and the confidence ellipses of the loadings, the categories and the objects
+    /// as the plots of the command ask for them.
+    pub(crate) fn catpca_bootstrap_charts(
+        &self,
+        command: &Catpca,
+        prep: &Prepared,
+        result: &BootResult,
+        original: &Solution,
+        object_labels: &[String],
+    ) -> Result<Vec<Chart>, Error> {
+        let mut charts = Vec::new();
+        if command.plot.charts.is_empty() {
+            return Ok(charts);
+        }
+        let p = original.eigen.len();
+        // the eigenvalues of the data with the interval of the samples
+        let categories = (0..p)
+            .map(|s| Category {
+                label: format!("Dimension {}", s + 1),
+                value: Cell::Number((s + 1) as f64),
+                missing: false,
+                bin: None,
+            })
+            .collect();
+        let series = |name: &str, values: Vec<f64>| Series {
+            name: name.to_string(),
+            statistic: Statistic::Value,
+            variable: None,
+            value: Cell::Empty,
+            values,
+        };
+        let band = |pick: fn(&(f64, f64)) -> f64| -> Vec<f64> {
+            result
+                .eigen_bands
+                .iter()
+                .map(|b| b.as_ref().map_or(f64::NAN, pick))
+                .collect()
+        };
+        charts.push(Chart::lines(
+            "Bootstrap Eigenvalues".into(),
+            Axis::titled("Dimension"),
+            Axis::titled("Eigenvalue"),
+            categories,
+            vec![
+                series("Data", original.eigen.clone()),
+                series("Lower", band(|b| b.0)),
+                series("Upper", band(|b| b.1)),
+            ],
+        ));
+        let Some(e) = &result.ellipses else {
+            return Ok(charts);
+        };
+        let data = self.active()?;
+        let shown = self.shown();
+        let limits = &command.plot.ellipse;
+        let wants = |is: fn(&CatpcaPlot) -> bool| command.plot.charts.iter().any(|(c, _)| is(c));
+        if let Some(ellipse) = &e.eigen {
+            charts.extend(ellipse_chart(
+                "Confidence Ellipse of the Eigenvalues".into(),
+                &[("Eigenvalues".to_string(), ellipse)],
+            ));
+        }
+        let name_of = |j: usize| -> Result<String, Error> {
+            Ok(shown.variable(&data.variable(&prep.analysis_names[j])?))
+        };
+        if wants(|c| matches!(c, CatpcaPlot::Loading(..))) {
+            let all: Vec<Option<&Ellipse>> = e.loadings.iter().map(Option::as_ref).collect();
+            let keep = passing(&all, &limits.loadings);
+            let mut picked = Vec::new();
+            for (j, ellipse) in all.iter().enumerate() {
+                if let (true, Some(ellipse)) = (keep[j], ellipse) {
+                    picked.push((name_of(j)?, *ellipse));
+                }
+            }
+            charts.extend(ellipse_chart(
+                "Confidence Ellipses of the Component Loadings".into(),
+                &picked,
+            ));
+        }
+        if wants(|c| matches!(c, CatpcaPlot::Object(..))) {
+            let all: Vec<Option<&Ellipse>> = e.objects.iter().map(Option::as_ref).collect();
+            let keep = passing(&all, &limits.objects);
+            let picked: Vec<(String, &Ellipse)> = all
+                .iter()
+                .enumerate()
+                .filter_map(|(c, ellipse)| {
+                    ellipse
+                        .filter(|_| keep[c])
+                        .map(|el| (object_labels[c].clone(), el))
+                })
+                .collect();
+            charts.extend(ellipse_chart(
+                "Confidence Ellipses of the Object Points".into(),
+                &picked,
+            ));
+        }
+        // the category points of the variables a CATEGORY plot names, and of all of them together
+        // for JOINTCAT
+        let analysis_of = |name: &str| {
+            prep.analysis_names
+                .iter()
+                .position(|a| a.eq_ignore_ascii_case(name))
+        };
+        let mut requested: Vec<usize> = Vec::new();
+        let mut joint = false;
+        for (chart, _) in &command.plot.charts {
+            match chart {
+                CatpcaPlot::Category(items) | CatpcaPlot::Jointcat(items) => {
+                    joint |= matches!(chart, CatpcaPlot::Jointcat(_));
+                    let names = match items.is_empty() {
+                        true => prep.analysis_names.clone(),
+                        false => crate::optimal_scaling::resolve(
+                            "CATPCA",
+                            items,
+                            &prep.analysis_names,
+                            &prep.analysis_names,
+                        )?,
+                    };
+                    for name in names {
+                        if let Some(j) = analysis_of(&name)
+                            && !requested.contains(&j)
+                        {
+                            requested.push(j);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let category_label = |j: usize, r: usize| -> Result<String, Error> {
+            let var = data.variable(&prep.analysis_names[j])?;
+            Ok(shown.number(&var, prep.avars[j].cats[r] as f64))
+        };
+        let mut joint_picked: Vec<(String, &Ellipse)> = Vec::new();
+        for &j in &requested {
+            let all: Vec<Option<&Ellipse>> = e.categories[j].iter().map(Option::as_ref).collect();
+            let keep = passing(&all, &limits.categories);
+            let mut picked = Vec::new();
+            for (r, ellipse) in all.iter().enumerate() {
+                if let (true, Some(ellipse)) = (keep[r], ellipse) {
+                    picked.push((category_label(j, r)?, *ellipse));
+                    joint_picked.push((
+                        format!("{}: {}", name_of(j)?, category_label(j, r)?),
+                        *ellipse,
+                    ));
+                }
+            }
+            charts.extend(ellipse_chart(
+                format!(
+                    "Confidence Ellipses of the Category Points: {}",
+                    name_of(j)?
+                ),
+                &picked,
+            ));
+        }
+        if joint {
+            charts.extend(ellipse_chart(
+                "Confidence Ellipses of the Category Points".into(),
+                &joint_picked,
+            ));
+        }
+        Ok(charts)
     }
 }
 

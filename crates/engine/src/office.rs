@@ -131,6 +131,7 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
             | ChartKind::Pp
             | ChartKind::DetrendedPp
             | ChartKind::Roc
+            | ChartKind::ConfidenceEllipse
             | ChartKind::SpreadLevel
             | ChartKind::Dendrogram
             | ChartKind::Icicle
