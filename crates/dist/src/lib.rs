@@ -35,8 +35,6 @@ pub fn ln_gamma(x: f64) -> f64 {
 /// The regularized upper incomplete gamma function Q(a, x) = Γ(a, x) / Γ(a): a power series
 /// below x = a + 1, a continued fraction above.
 pub fn gamma_q(a: f64, x: f64) -> f64 {
-    const EPSILON: f64 = 1e-16;
-    const TINY: f64 = 1e-300;
     if x.is_nan() || a <= 0.0 {
         return f64::NAN;
     }
@@ -45,18 +43,46 @@ pub fn gamma_q(a: f64, x: f64) -> f64 {
     }
     let front = (-x + a * x.ln() - ln_gamma(a)).exp();
     if x < a + 1.0 {
-        let (mut term, mut sum, mut ap) = (1.0 / a, 1.0 / a, a);
-        for _ in 0..10_000 {
-            ap += 1.0;
-            term *= x / ap;
-            sum += term;
-            if term.abs() < sum.abs() * EPSILON {
-                break;
-            }
-        }
-        return (1.0 - sum * front).max(0.0);
+        return (1.0 - gamma_series(a, x) * front).max(0.0);
     }
-    // modified Lentz evaluation
+    (front * gamma_fraction(a, x)).min(1.0)
+}
+
+/// The regularized lower incomplete gamma function P(a, x) = 1 - Q(a, x), kept accurate far in
+/// the lower tail, where 1 - Q has lost every digit.
+pub fn gamma_p(a: f64, x: f64) -> f64 {
+    if x.is_nan() || a <= 0.0 {
+        return f64::NAN;
+    }
+    if x <= 0.0 {
+        return 0.0;
+    }
+    let front = (-x + a * x.ln() - ln_gamma(a)).exp();
+    if x < a + 1.0 {
+        return (gamma_series(a, x) * front).min(1.0);
+    }
+    (1.0 - front * gamma_fraction(a, x)).max(0.0)
+}
+
+/// The power series of P(a, x) without its front factor.
+fn gamma_series(a: f64, x: f64) -> f64 {
+    const EPSILON: f64 = 1e-16;
+    let (mut term, mut sum, mut ap) = (1.0 / a, 1.0 / a, a);
+    for _ in 0..10_000 {
+        ap += 1.0;
+        term *= x / ap;
+        sum += term;
+        if term.abs() < sum.abs() * EPSILON {
+            break;
+        }
+    }
+    sum
+}
+
+/// The continued fraction of Q(a, x) without its front factor, by the modified Lentz method.
+fn gamma_fraction(a: f64, x: f64) -> f64 {
+    const EPSILON: f64 = 1e-16;
+    const TINY: f64 = 1e-300;
     let mut b = x + 1.0 - a;
     let mut c = 1.0 / TINY;
     let mut d = 1.0 / b;
@@ -79,7 +105,7 @@ pub fn gamma_q(a: f64, x: f64) -> f64 {
             break;
         }
     }
-    (front * h).min(1.0)
+    h
 }
 
 /// The complementary error function: erfc(x) = Q(1/2, x^2) for x >= 0.
