@@ -78,6 +78,7 @@ fn test_name(test: Posthoc) -> &'static str {
         Posthoc::Snk => "Student-Newman-Keuls",
         Posthoc::TukeyB => "Tukey B",
         Posthoc::Duncan => "Duncan",
+        Posthoc::Waller(_) => "Waller-Duncan",
         Posthoc::Gt2 => "Hochberg",
         Posthoc::Gabriel => "Gabriel",
         Posthoc::Fregw => "Ryan-Einot-Gabriel-Welsch F",
@@ -94,7 +95,12 @@ fn test_name(test: Posthoc) -> &'static str {
 fn range_only(test: Posthoc) -> bool {
     matches!(
         test,
-        Posthoc::Snk | Posthoc::TukeyB | Posthoc::Duncan | Posthoc::Fregw | Posthoc::Qregw
+        Posthoc::Snk
+            | Posthoc::TukeyB
+            | Posthoc::Duncan
+            | Posthoc::Fregw
+            | Posthoc::Qregw
+            | Posthoc::Waller(_)
     )
 }
 
@@ -130,8 +136,22 @@ fn subsets(test: Posthoc, sorted: &[Group], within: f64, df: f64, alpha: f64) ->
             }
         })
         .collect();
-    // the significance of the range of means i..=j, None for Tukey's b, and whether the range
-    // is significant
+    // the Waller-Duncan critical difference, the same for every range: t_B s sqrt(2/n) with the
+    // F ratio of the one-way analysis
+    let waller = match test {
+        Posthoc::Waller(ratio) => {
+            let w: f64 = sorted.iter().map(|g| g.w).sum();
+            let grand = sorted.iter().map(|g| g.w * g.mean).sum::<f64>() / w;
+            let between: f64 = sorted.iter().map(|g| g.w * (g.mean - grand).powi(2)).sum();
+            let f_ratio = between / (kf - 1.0) / within;
+            crate::waller::waller_t(f64::from(ratio), f_ratio, kf - 1.0, df)
+                * s
+                * (2.0 / harmonic).sqrt()
+        }
+        _ => f64::NAN,
+    };
+    // the significance of the range of means i..=j, None for Tukey's b and Waller-Duncan, and
+    // whether the range is significant
     let test_range = |i: usize, j: usize| -> (Option<f64>, bool) {
         let r = (j - i + 1) as f64;
         let range = sorted[j].mean - sorted[i].mean;
@@ -180,6 +200,7 @@ fn subsets(test: Posthoc, sorted: &[Group], within: f64, df: f64, alpha: f64) ->
                 let critical = (quantiles[j - i + 1] + quantiles[k]) / 2.0;
                 return (None, q > critical);
             }
+            Posthoc::Waller(_) => return (None, range >= waller),
             _ => unreachable!("not a range test"),
         };
         let sig = sig.clamp(0.0, 1.0);
@@ -203,7 +224,7 @@ fn subsets(test: Posthoc, sorted: &[Group], within: f64, df: f64, alpha: f64) ->
         }
     }
     // a mean that differs from all others is a subset of its own
-    let alone = test != Posthoc::TukeyB;
+    let alone = !matches!(test, Posthoc::TukeyB | Posthoc::Waller(_));
     for i in 0..k {
         if !found.iter().any(|&(a, b, _)| a <= i && i <= b) {
             found.push((i, i, alone.then_some(1.0)));
@@ -529,7 +550,14 @@ pub(crate) fn posthoc_tables(
         let mut columns = vec![String::new(), factor.to_string(), "N".into()];
         columns.extend((1..=width).map(|s| s.to_string()));
         let mut column_groups = vec![Vec::new(); 3];
-        column_groups.extend(vec![vec![format!("Subset for alpha = {}", alpha)]; width]);
+        // the Waller-Duncan test has no alpha: it works from the k-ratio
+        let only_waller = found.iter().all(|(t, _)| matches!(t, Posthoc::Waller(_)));
+        let heading = if only_waller {
+            "Subset".to_string()
+        } else {
+            format!("Subset for alpha = {alpha}")
+        };
+        column_groups.extend(vec![vec![heading]; width]);
         let harmonic = k / groups.iter().map(|g| 1.0 / g.w).sum::<f64>();
         let mut caption = String::from("Means for groups in homogeneous subsets are displayed.");
         if groups.iter().any(|g| g.w != groups[0].w) {
@@ -537,6 +565,13 @@ pub(crate) fn posthoc_tables(
                 " The group sizes are unequal, so their harmonic mean, {}, stands in for them, except in the Ryan-Einot-Gabriel-Welsch tests.",
                 (harmonic * 1000.0).round() / 1000.0
             ));
+        }
+        for (test, _) in &found {
+            if let Posthoc::Waller(ratio) = test {
+                caption.push_str(&format!(
+                    " Waller-Duncan: the ratio of the seriousness of a Type 1 to a Type 2 error is {ratio}."
+                ));
+            }
         }
         subset = Some(Table {
             title: format!("Homogeneous Subsets: {title}"),

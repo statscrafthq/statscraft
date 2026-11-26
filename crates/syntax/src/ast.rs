@@ -1335,6 +1335,9 @@ pub enum Posthoc {
     /// `DUNNETT(refcat)`, `DUNNETTL` and `DUNNETTR`: each group against the reference group,
     /// the 1-based position among the groups in ascending order (None: the last).
     Dunnett(Option<u32>, DunnettSide),
+    /// `WALLER(kratio)`: the Waller-Duncan t test, with the ratio of the seriousness of a Type 1
+    /// to a Type 2 error (a whole number above 1, 100 by default). Homogeneous subsets only.
+    Waller(u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

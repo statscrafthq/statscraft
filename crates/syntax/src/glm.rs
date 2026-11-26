@@ -1426,7 +1426,15 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
             p.expect(Punct::LParen)?;
             let mut tests = Vec::new();
             while !p.at(Punct::RParen) {
+                let at = p.pos;
                 let test = posthoc_test(p, "POSTHOC", &[])?;
+                if matches!(test, Posthoc::Waller(_)) {
+                    // its F is that of the factor in the model, not yet taken from the fit
+                    return Err(SyntaxError::new(
+                        p.span_from(at),
+                        "WALLER in POSTHOC is not supported yet",
+                    ));
+                }
                 if !tests.contains(&test) {
                     tests.push(test);
                 }

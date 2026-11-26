@@ -1293,3 +1293,72 @@ fn oneway_homogeneity_gives_the_levene_tests_on_mean_median_and_trimmed_mean() {
         near(number(&row[5]), p, 9);
     }
 }
+
+// Waller-Duncan: the subsets are the runs of means whose range stays below the critical
+// difference t_B s sqrt(2/n_h). The expected critical differences (1.0996 for four groups of 5,
+// error mean square 0.765, F 15.556; 1.1049 for sizes 5, 4, 5, 4, harmonic mean 4.444, error mean
+// square 0.6582, F 14.319) come from an independent computation of the Bayesian t value
+// (1.98778 and 2.03022); the pairs lie 9% or more away from them. The value itself is checked
+// against published tables in the unit tests of the module.
+#[test]
+fn oneway_waller_duncan_subsets() {
+    let data = |sizes: [usize; 4]| -> String {
+        let deviations = [-1.2, -0.4, 0.0, 0.5, 1.1];
+        let means = [10.0, 10.9, 11.9, 13.6];
+        let mut rows = String::new();
+        for (g, mean) in means.iter().enumerate() {
+            for d in &deviations[..sizes[g]] {
+                rows.push_str(&format!("{:.1} {}\n", mean + d, g + 1));
+            }
+        }
+        format!("DATA LIST FREE /y g.\nBEGIN DATA.\n{rows}END DATA.\n")
+    };
+    let subsets = |sizes: [usize; 4], test: &str| {
+        let mut engine = Engine::default();
+        let tables = run(
+            &mut engine,
+            &format!("{}ONEWAY y BY g /POSTHOC={test}.", data(sizes)),
+        );
+        titled(&tables, "Homogeneous Subsets: y").clone()
+    };
+    // balanced: {1, 2}, {2, 3}, {4}
+    let table = subsets([5, 5, 5, 5], "WALLER");
+    assert_eq!(table.rows.len(), 5);
+    assert_eq!(text(&table.rows[0][0]), "Waller-Duncan");
+    assert_eq!(table.columns[2..], ["N", "1", "2", "3"]);
+    assert_eq!(table.column_groups[3], ["Subset"]);
+    let members = |table: &Table, row: usize| -> Vec<bool> {
+        (3..table.columns.len())
+            .map(|c| matches!(table.rows[row][c], Cell::Number(_)))
+            .collect()
+    };
+    assert_eq!(members(&table, 0), [true, false, false]);
+    assert_eq!(members(&table, 1), [true, true, false]);
+    assert_eq!(members(&table, 2), [false, true, false]);
+    assert_eq!(members(&table, 3), [false, false, true]);
+    // no significance is given
+    assert!(table.rows[4][2..].iter().all(|c| *c == Cell::Empty));
+    assert!(
+        table
+            .caption
+            .as_deref()
+            .unwrap()
+            .contains("Type 1 to a Type 2 error is 100")
+    );
+    // unequal sizes use the harmonic mean: {1, 2}, {3}, {4}
+    let table = subsets([5, 4, 5, 4], "WALLER(100)");
+    assert!(table.caption.as_deref().unwrap().contains("4.444"));
+    assert_eq!(table.columns[2..], ["N", "1", "2", "3"]);
+    assert_eq!(members(&table, 0), [true, false, false]);
+    assert_eq!(members(&table, 1), [true, false, false]);
+    assert_eq!(members(&table, 2), [false, true, false]);
+    assert_eq!(members(&table, 3), [false, false, true]);
+    // with another test the heading is the alpha one, and the k-ratio goes in the note
+    let table = subsets([5, 5, 5, 5], "WALLER(500) DUNCAN");
+    assert_eq!(table.column_groups[3], ["Subset for alpha = 0.05"]);
+    assert!(table.caption.as_deref().unwrap().contains("error is 500"));
+    // a larger k-ratio makes the test more conservative: the same or fewer subsets
+    let first = subsets([5, 5, 5, 5], "WALLER(100)");
+    let wide = subsets([5, 5, 5, 5], "WALLER(500)");
+    assert!(wide.columns.len() <= first.columns.len());
+}

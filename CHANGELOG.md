@@ -12,6 +12,7 @@ no test or verification notes, no comparisons with other software, no internal h
 - [KEYED DATA LIST](docs/commands/keyed-data-list.md) reads variables from the record of a text file that a key variable picks for each case: the record number for a number, the record that begins with the key for a string, with a variable that says whether a record was found, also inside an input program.
 - UNIANOVA and GLM `/OUTFILE` also works under `SPLIT FILE`: each file holds the groups one after the other, the split variables in front.
 - [GENLIN](docs/commands/genlin.md) `/MODEL DISTRIBUTION=TWEEDIE(q)` fits the compound Poisson-gamma distribution (q above 1 and below 2) for zero or positive responses, with the scale by maximum likelihood, deviance, Pearson or a fixed number and the Lagrange test.
+- [ONEWAY](docs/commands/oneway.md) `/POSTHOC=WALLER(kratio)` gives the homogeneous subsets of the Waller-Duncan t test.
 
 ## 0.53.0 (2026-11-26)
 
