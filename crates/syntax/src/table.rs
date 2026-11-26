@@ -2993,16 +2993,19 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "ALSCAL",
-        summary: "Multidimensional scaling of symmetric proximity matrices by alternating least squares on squared distances.",
+        summary: "Multidimensional scaling of proximity matrices, symmetric or asymmetric, by alternating least squares on squared distances.",
         syntax: "ALSCAL VARIABLES=varlist | /MATRIX=IN('file' | dataset | *)\n\
-                 \x20  [/INPUT=ROWS(ALL | n)] [/SHAPE=SYMMETRIC]\n\
+                 \x20  [/INPUT=ROWS(ALL | n)] [/SHAPE=SYMMETRIC | ASYMMETRIC]\n\
                  \x20  [/LEVEL=ORDINAL[([UNTIE] [SIMILAR])] | INTERVAL[(1..4)] | RATIO[(1..4)] | NOMINAL]\n\
                  \x20  [/CONDITION=MATRIX | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL]\n\
                  \x20  [/CRITERIA=[NEGATIVE] [CUTOFF(0)] [CONVERGE(.001)] [ITER(30)] [STRESSMIN(.005)] [DIMENS(2[,max])]]\n\
                  \x20  [/PRINT=[DATA] [HEADER]] [/PLOT[=DEFAULT | ALL]] [/OUTFILE='file' | dataset]\n\
                  \x20  [/FILE='file' | dataset [CONFIG | ROWCONF] [SUBJWGHT] [(INITIAL)]].\n\
                  Each case is a row of a square matrix of dissimilarities and each variable a column; only the\n\
-                 triangle below the diagonal is read, and more cases than variables hold one matrix per subject.\n\
+                 triangle below the diagonal is read (SHAPE=ASYMMETRIC reads both), and more cases than variables hold\n\
+                 one matrix per subject. With SHAPE=ASYMMETRIC the distances stay symmetric and each ordered pair of\n\
+                 stimuli is a datum of its own: the disparities, S-stress, stress and RSQ run over all of them, a\n\
+                 pair given in one triangle only counts once, and the start averages the two triangles.\n\
                  MATRIX=IN reads a matrix file of PROXIMITIES or CLUSTER instead, VARIABLES picking its items; a\n\
                  similarity file is scaled as SIMILAR, or turned into dissimilarities from its largest value for\n\
                  INTERVAL and RATIO. A missing value or one below CUTOFF is left out; the weight variable is not used. The\n\

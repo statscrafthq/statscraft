@@ -39,6 +39,8 @@ pub enum ProxShape {
     Lower,
     Upper,
     Both,
+    /// ALSCAL SHAPE=ASYMMETRIC: the two triangles stay apart, as two proximities of a pair.
+    Full,
 }
 
 #[derive(Debug, Clone, PartialEq)]

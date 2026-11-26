@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- [ALSCAL](docs/commands/alscal.md) `/SHAPE=ASYMMETRIC` scales matrices whose two triangles differ: both are data for symmetric distances, with the Euclidean and the individual differences model.
+
 ## 0.51.0 (2026-11-26)
 
 LOGLINEAR fits general loglinear and logit models, SAVE TRANSLATE writes SAS transport files, and stacked plugin tables line up their columns on one Excel sheet.

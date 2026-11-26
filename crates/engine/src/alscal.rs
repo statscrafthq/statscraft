@@ -675,7 +675,10 @@ impl Engine {
             variables: &command.variables,
             weights: &[],
             table: None,
-            shape: ProxShape::Lower,
+            shape: match command.asymmetric {
+                true => ProxShape::Full,
+                false => ProxShape::Lower,
+            },
             matrix_in: &command.matrix_in,
             matrix_items: true,
         })?;
@@ -731,7 +734,7 @@ impl Engine {
                     .collect()
             })
             .collect();
-        let asymmetric = false;
+        let asymmetric = command.asymmetric;
         let mut o = input.delta.clone();
         if input.similarity && matches!(level, AlscalLevel::Interval(_) | AlscalLevel::Ratio(_)) {
             // the metric levels need dissimilarities: each from the largest similarity
@@ -740,8 +743,9 @@ impl Engine {
                     .into(),
             );
             for (ok, pk) in o.iter_mut().zip(&present) {
-                let top = pairs(n)
-                    .filter(|&(i, j)| pk[i][j])
+                let top = (0..n)
+                    .flat_map(|i| (0..n).map(move |j| (i, j)))
+                    .filter(|&(i, j)| i != j && pk[i][j])
                     .map(|(i, j)| ok[i][j])
                     .fold(f64::NEG_INFINITY, f64::max);
                 ok.iter_mut().flatten().for_each(|v| *v = top - *v);
@@ -860,6 +864,15 @@ impl Engine {
                 ("Stimuli", n.to_string()),
                 ("Matrices", m.to_string()),
                 ("Level of measurement", level_name.to_string()),
+                (
+                    "Shape",
+                    if asymmetric {
+                        "Asymmetric"
+                    } else {
+                        "Symmetric"
+                    }
+                    .to_string(),
+                ),
                 (
                     "Conditionality",
                     if command.unconditional {

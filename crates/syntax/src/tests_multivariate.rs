@@ -736,7 +736,10 @@ fn alscal_file() {
 
 #[test]
 fn alscal_errors() {
-    assert!(err("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /SHAPE=RECTANGULAR.").contains("not supported"));
+    assert!(alscal("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC.").asymmetric);
+    assert!(!alscal("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC /SHAPE=SYMMETRIC.").asymmetric);
+    assert!(!alscal("ALSCAL VARIABLES=a b c d.").asymmetric);
     assert!(err("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL.").contains("not supported"));
     assert!(err("ALSCAL VARIABLES=a b c d /CONDITION=ROW.").contains("not supported"));
     assert!(err("ALSCAL VARIABLES=a b c d /FILE=start CONFIG(FIXED).").contains("FIXED"));

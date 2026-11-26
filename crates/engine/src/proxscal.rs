@@ -65,6 +65,14 @@ fn symmetric(raw: &Matrix, wraw: &Matrix, shape: ProxShape, fallback: bool) -> (
     let n = raw.len();
     let mut d = vec![vec![f64::NAN; n]; n];
     let mut w = zeros(n, n);
+    if shape == ProxShape::Full {
+        for (i, j) in (0..n).flat_map(|i| (0..n).map(move |j| (i, j))) {
+            if i != j && raw[i][j].is_finite() && wraw[i][j] > 0.0 {
+                (d[i][j], w[i][j]) = (raw[i][j], wraw[i][j]);
+            }
+        }
+        return (d, w);
+    }
     for i in 0..n {
         for j in 0..i {
             let lower = (raw[i][j], wraw[i][j]);

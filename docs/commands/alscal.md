@@ -2,13 +2,13 @@
 
 # ALSCAL
 
-Multidimensional scaling of symmetric proximity matrices by alternating least squares on squared distances.
+Multidimensional scaling of proximity matrices, symmetric or asymmetric, by alternating least squares on squared distances.
 
 ## Syntax
 
 ```text
 ALSCAL VARIABLES=varlist | /MATRIX=IN('file' | dataset | *)
-   [/INPUT=ROWS(ALL | n)] [/SHAPE=SYMMETRIC]
+   [/INPUT=ROWS(ALL | n)] [/SHAPE=SYMMETRIC | ASYMMETRIC]
    [/LEVEL=ORDINAL[([UNTIE] [SIMILAR])] | INTERVAL[(1..4)] | RATIO[(1..4)] | NOMINAL]
    [/CONDITION=MATRIX | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL]
    [/CRITERIA=[NEGATIVE] [CUTOFF(0)] [CONVERGE(.001)] [ITER(30)] [STRESSMIN(.005)] [DIMENS(2[,max])]]
@@ -16,7 +16,7 @@ ALSCAL VARIABLES=varlist | /MATRIX=IN('file' | dataset | *)
    [/FILE='file' | dataset [CONFIG | ROWCONF] [SUBJWGHT] [(INITIAL)]].
 ```
 
-Each case is a row of a square matrix of dissimilarities and each variable a column; only the triangle below the diagonal is read, and more cases than variables hold one matrix per subject.
+Each case is a row of a square matrix of dissimilarities and each variable a column; only the triangle below the diagonal is read (SHAPE=ASYMMETRIC reads both), and more cases than variables hold one matrix per subject. With SHAPE=ASYMMETRIC the distances stay symmetric and each ordered pair of stimuli is a datum of its own: the disparities, S-stress, stress and RSQ run over all of them, a pair given in one triangle only counts once, and the start averages the two triangles.
 
 MATRIX=IN reads a matrix file of PROXIMITIES or CLUSTER instead, VARIABLES picking its items; a similarity file is scaled as SIMILAR, or turned into dissimilarities from its largest value for INTERVAL and RATIO. A missing value or one below CUTOFF is left out; the weight variable is not used. The model fits squared distances to squared disparities and reports S-stress, the root of the mean over the matrices of their squared misfit relative to the fourth powers of the disparities. ORDINAL keeps the order of the data (UNTIE lets ties part, SIMILAR turns the order), NOMINAL only which values are equal; INTERVAL(n) and RATIO(n) make the squared disparities a polynomial of degree n of the squared data, with and without an intercept. CONDITION=MATRIX fits each matrix on its own, UNCONDITIONAL all at once. MODEL=INDSCAL weights the dimensions per matrix (no negative weights unless NEGATIVE). The start is classical scaling of the mean scalar products of all matrices, after each got the smallest constant that makes it a metric. Iterations stop when S-stress improves by less than CONVERGE, falls to STRESSMIN or after ITER; DIMENS(min,max) solves from max down to min (1 only for EUCLID), each smaller solution from the first dimensions of the one before.
 

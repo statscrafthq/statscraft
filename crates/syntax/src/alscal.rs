@@ -39,6 +39,8 @@ pub struct Alscal {
     pub rows: Option<usize>,
     pub level: AlscalLevel,
     pub unconditional: bool,
+    /// SHAPE=ASYMMETRIC: both triangles of every matrix are data.
+    pub asymmetric: bool,
     /// MODEL=INDSCAL.
     pub indscal: bool,
     pub negative: bool,
@@ -104,6 +106,7 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             similar: false,
         },
         unconditional: false,
+        asymmetric: false,
         indscal: false,
         negative: false,
         cutoff: 0.0,
@@ -144,10 +147,14 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("SHAPE") {
             p.eat(Punct::Eq);
-            if p.at_keyword("ASYMMETRIC") || p.at_keyword("RECTANGULAR") {
-                return Err(not_yet(p, "SHAPE=ASYMMETRIC or RECTANGULAR"));
+            if p.at_keyword("RECTANGULAR") {
+                return Err(not_yet(p, "SHAPE=RECTANGULAR"));
             }
-            if !p.eat_keyword("SYMMETRIC") {
+            if p.eat_keyword("ASYMMETRIC") {
+                command.asymmetric = true;
+            } else if p.eat_keyword("SYMMETRIC") {
+                command.asymmetric = false;
+            } else {
                 return Err(p.unexpected(&["SYMMETRIC", "ASYMMETRIC", "RECTANGULAR"]));
             }
         } else if p.eat_keyword("LEVEL") {
