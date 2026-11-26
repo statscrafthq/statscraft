@@ -28,7 +28,7 @@ pub(crate) fn display_format(format: Format) -> Format {
 }
 
 /// The input formats DATA LIST reads.
-const INPUT_FORMATS: [FormatType; 21] = [
+const INPUT_FORMATS: [FormatType; 23] = [
     FormatType::F,
     FormatType::N,
     FormatType::E,
@@ -36,6 +36,8 @@ const INPUT_FORMATS: [FormatType; 21] = [
     FormatType::Dot,
     FormatType::Dollar,
     FormatType::Pct,
+    FormatType::Z,
+    FormatType::Pibhex,
     FormatType::A,
     FormatType::Date,
     FormatType::Adate,
@@ -121,7 +123,7 @@ fn input_format(p: &Parser, text: &str) -> PResult<Format> {
             ),
         )
         .hint(
-            "supported: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE, JDATE, QYR, \
+            "supported: F, N, E, COMMA, DOT, DOLLAR, PCT, Z, PIBHEX, A, DATE, ADATE, EDATE, SDATE, JDATE, QYR, \
              MOYR, WKYR, DATETIME, YMDHMS, TIME, MTIME, DTIME",
         ));
     }
@@ -192,12 +194,27 @@ fn format_items(p: &mut Parser, fixed: bool) -> PResult<Vec<Item>> {
             (tab, None) if fixed && tab.starts_with('T') && number(&tab[1..]).is_some() => {
                 Item::Tab(number(&tab[1..]).expect("checked"))
             }
-            (text, n) => Item::Format(n.unwrap_or(1), input_format(p, text)?),
+            (text, n) => {
+                let format = input_format(p, text)?;
+                pibhex_width(p, format.kind, format.width)?;
+                Item::Format(n.unwrap_or(1), format)
+            }
         };
         p.pos += 1;
         items.push(item);
     }
     Ok(items)
+}
+
+/// PIBHEX is read in whole bytes, two hexadecimal digits each, at most eight of them.
+fn pibhex_width(p: &Parser, kind: FormatType, width: u16) -> PResult<()> {
+    if kind == FormatType::Pibhex && (!width.is_multiple_of(2) || width > 16) {
+        return Err(SyntaxError::new(
+            p.span(),
+            "PIBHEX needs an even width of at most 16",
+        ));
+    }
+    Ok(())
 }
 
 /// Column-style format after the columns: `(A)`, `(F,2)`, `(DOLLAR)`, `(2)`.
@@ -225,6 +242,7 @@ pub(crate) fn column_format(p: &mut Parser, width: u16) -> PResult<Format> {
             "more decimals than the columns hold",
         ));
     }
+    pibhex_width(p, kind, width)?;
     Ok(Format {
         kind,
         width,

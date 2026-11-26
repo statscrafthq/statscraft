@@ -386,7 +386,6 @@ fn output_format(p: &Parser, text: &str) -> PResult<Format> {
         FormatType::Pk,
         FormatType::Ib,
         FormatType::Pib,
-        FormatType::Pibhex,
         FormatType::Rb,
         FormatType::Rbhex,
     ];
@@ -403,6 +402,15 @@ fn output_format(p: &Parser, text: &str) -> PResult<Format> {
         return Err(SyntaxError::new(
             p.span(),
             "a format needs a width of 1 or more",
+        ));
+    }
+    if parsed.kind == FormatType::Pibhex
+        && text.bytes().any(|b| b.is_ascii_digit())
+        && (!parsed.width.is_multiple_of(2) || parsed.width > 16)
+    {
+        return Err(SyntaxError::new(
+            p.span(),
+            "PIBHEX needs an even width of at most 16",
         ));
     }
     if parsed.kind == FormatType::A && parsed.decimals > 0 {
