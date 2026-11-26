@@ -92,6 +92,8 @@ enum After {
     /// A run from this syntax window, whose errors it lists.
     Editor(WindowId),
     OpenData(PathBuf),
+    /// File > New > Data: an empty data window on the Variable View once NEW FILE has run.
+    NewData,
     SaveData(PathBuf),
     /// With the dialog's title, for the output.
     CloseDialog(&'static str),
@@ -176,6 +178,16 @@ pub(crate) struct DataView {
     /// The Variable View rows selected before the last plain click, which the first click of
     /// a double-click on one of them takes away.
     rows_before_click: BTreeSet<usize>,
+}
+
+impl DataView {
+    /// A fresh view of other data in the same window: nothing selected, the same tab.
+    pub(crate) fn same_tab(&self) -> Self {
+        DataView {
+            tab: self.tab,
+            ..Default::default()
+        }
+    }
 }
 
 impl Default for DataView {
@@ -1154,7 +1166,7 @@ impl App {
         let changed = matches!(&result, Ok(r) if r.saved);
         let file = self.data_file.clone();
         let checked = matches!(&after, After::Remote((r, _)) if r.action == Action::Check);
-        let loaded = matches!(&result, Ok(r) if r.commands.iter().any(|c| c.name == "GET" || c.name == "GET DATA"));
+        let loaded = matches!(&result, Ok(r) if r.commands.iter().any(|c| matches!(c.name.as_str(), "GET" | "GET DATA" | "NEW FILE")));
         let on_file = matches!(&result, Ok(r) if ends_on_file(&r.commands));
         if changed && loaded && !matches!(after, After::OpenData(_)) {
             // a GET typed or sent from the command line: Save must not write this data over
@@ -1228,6 +1240,11 @@ impl App {
                     view.field_edit = None;
                 }
                 self.show(result, "syntax editor", Some(id));
+            }
+            After::NewData => {
+                if self.show(result, "window", None) {
+                    self.open_empty_data();
+                }
             }
             After::OpenData(path) => {
                 if self.show(result, "open file", None) {
@@ -1413,6 +1430,37 @@ impl App {
         {
             self.status = Err(e);
         }
+    }
+
+    /// File > New > Data: NEW FILE, so the next variable starts a new dataset in an empty
+    /// window. Active data without a name gets one first (DATASET NAME), so it stays open in
+    /// its window as data opened from a file does.
+    fn new_data(&mut self) {
+        if !self.runs.is_idle() {
+            self.status = Err(t("status-wait-for-new-data").into());
+            return;
+        }
+        if self.session.dataset().is_some() && active_name(&self.session).is_none() {
+            let name = self.session.next_dataset_name();
+            self.run(&format!("DATASET NAME {name}."), None, After::Show);
+        }
+        self.run("NEW FILE.", None, After::NewData);
+    }
+
+    /// The empty data window (opened when there is none) to the front, on its Variable View.
+    fn open_empty_data(&mut self) {
+        let id = match self.windows.with_dataset(None) {
+            Some(id) => id,
+            None => self.windows.open(Kind::Data(Box::default())),
+        };
+        if let Some(w) = self.windows.data_mut(id) {
+            w.view.tab = Tab::Variables;
+        }
+        // the window being drawn has its view lent to `self.view`
+        if id == self.here {
+            self.view.tab = Tab::Variables;
+        }
+        self.front(id);
     }
 
     fn open_data(&mut self, path: PathBuf) {
@@ -1706,6 +1754,9 @@ impl App {
                 }
                 ui.separator();
                 ui.menu_button(t("menu-new"), |ui| {
+                    if ui.button(t("menu-data")).clicked() {
+                        self.new_data();
+                    }
                     if ui.button(t("menu-syntax")).clicked() {
                         self.windows.open_syntax(String::new(), None);
                     }
@@ -3311,7 +3362,8 @@ impl App {
                 data.variable_count(),
                 self.view.cell_edit.is_some(),
             ),
-            Tab::Variables => (data.variable_count(), Field::ALL.len(), false),
+            // the empty row under the last variable too
+            Tab::Variables => (data.variable_count() + 1, Field::ALL.len(), false),
         };
         if self.dialog.is_some()
             || self.view.confirm.is_some()
@@ -3555,7 +3607,13 @@ impl App {
             true => self.view.variable_selected.as_ref().map(|s| &s.rows),
             false => self.view.selected.as_ref().map(|s| &s.columns),
         };
-        let picked: Vec<usize> = picked.into_iter().flatten().copied().collect();
+        let count = data.variable_count();
+        let picked: Vec<usize> = picked
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|&v| v < count)
+            .collect();
         if picked.is_empty() {
             if variable_view {
                 self.status = Err(t("data-select-rows-to-delete").into());
@@ -3841,6 +3899,9 @@ impl App {
             return;
         };
         let variable_view = self.view.tab == Tab::Variables;
+        // the Variable View's empty row under the last variable has no menu
+        let count =
+            window_data(&self.session, &self.windows, self.here).map_or(0, Dataset::variable_count);
         let selection = match variable_view {
             true => &self.view.variable_selected,
             false => &self.view.selected,
@@ -3857,9 +3918,10 @@ impl App {
                 Some(grid_menu::Target::Cell { case, column })
             }
             (grid::Hit::Number(_), true, Some(s)) => {
-                Some(grid_menu::Target::Variables(picked(&s.rows)))
+                let rows: Vec<usize> = s.rows.iter().copied().filter(|&r| r < count).collect();
+                (!rows.is_empty()).then_some(grid_menu::Target::Variables(rows))
             }
-            (grid::Hit::Cell(variable, field), true, _) => {
+            (grid::Hit::Cell(variable, field), true, _) if variable < count => {
                 Some(grid_menu::Target::Field { variable, field })
             }
             _ => None,
@@ -3944,14 +4006,16 @@ impl App {
     }
 
     fn variable_view(&mut self, ui: &mut Ui) {
-        if window_data(&self.session, &self.windows, self.here).is_none() {
+        if window_data(&self.session, &self.windows, self.here).is_none() && !self.can_start_data()
+        {
             return Self::no_data(ui);
         }
         if self.view.find.is_some() {
             ui.horizontal(|ui| self.find_bar(ui));
         }
         paper(ui, !self.settings.paper_follows_system);
-        let data = window_data(&self.session, &self.windows, self.here).expect("checked above");
+        let data = window_data(&self.session, &self.windows, self.here);
+        let count = data.map_or(0, Dataset::variable_count);
         let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
         let mut widths = vec![
             // all twelve fit a window 1280 points wide
@@ -3962,6 +4026,10 @@ impl App {
         }
         let cell = |r: usize, c: usize| {
             let field = Field::ALL[c];
+            // the empty row under the last variable takes the name of a new one
+            let Some(data) = data.filter(|_| r < count) else {
+                return (Some(String::new()), Align::Min);
+            };
             let text = edits::field_text(&data.variable_at(r), field);
             let right = matches!(field, Field::Width | Field::Decimals | Field::Columns);
             (Some(text), if right { Align::Max } else { Align::Min })
@@ -3974,7 +4042,7 @@ impl App {
             "variables",
             &headers,
             &widths,
-            data.variable_count(),
+            count + 1,
             self.view.variable_selected.as_ref(),
             std::mem::take(&mut self.view.variable_follow),
             &cell,
@@ -4046,7 +4114,20 @@ impl App {
             self.view.field_edit = None;
         }
         if commit && let Some(e) = self.view.field_edit.take() {
-            let data = window_data(&self.session, &self.windows, self.here).expect("checked above");
+            let data = window_data(&self.session, &self.windows, self.here);
+            let Some(data) = data.filter(|d| e.row < d.variable_count()) else {
+                match edits::new_variable(&e.text) {
+                    // new data takes the next DataSetn name, as a file opened from the window
+                    Ok(syntax) if self.can_start_data() => {
+                        let syntax = self.session.open_syntax(&syntax);
+                        self.run(&syntax, None, After::Show);
+                    }
+                    Ok(syntax) => self.run(&syntax, None, After::Show),
+                    Err(_) if e.text.trim().is_empty() => {}
+                    Err(message) => self.status = Err(message),
+                }
+                return;
+            };
             match edits::field_edit(&data.variable_at(e.row), Field::ALL[e.column], &e.text) {
                 Ok(Some(syntax)) => {
                     self.run(&syntax, None, After::Show);
@@ -4057,9 +4138,40 @@ impl App {
         }
     }
 
-    /// Starts editing a cell of the Variable View.
+    /// An empty data window with no active dataset behind it (after NEW FILE, or at the start):
+    /// a name typed in its Variable View starts the dataset with NUMERIC.
+    fn can_start_data(&self) -> bool {
+        self.session.dataset().is_none()
+            && self
+                .windows
+                .data(self.here)
+                .is_some_and(|w| w.dataset.is_none())
+    }
+
+    /// Starts editing a cell of the Variable View; in the empty row under the last variable,
+    /// only the name, which makes a new variable.
     fn edit_field(&mut self, (row, column): (usize, usize)) {
-        let Some(data) = window_data(&self.session, &self.windows, self.here) else {
+        let data = window_data(&self.session, &self.windows, self.here);
+        let count = data.map_or(0, Dataset::variable_count);
+        if row >= count {
+            if data.is_none() && !self.can_start_data() {
+                return;
+            }
+            self.view.variable_selected = Some(grid::Selection::cell((count, column)));
+            if Field::ALL[column] != Field::Name {
+                self.status = Err(t("data-new-variable-name-first").into());
+                return;
+            }
+            self.view.field_edit = Some(CellEdit {
+                row: count,
+                column,
+                original: String::new(),
+                text: String::new(),
+                started: false,
+            });
+            return;
+        }
+        let Some(data) = data else {
             return;
         };
         let variable = data.variable_at(row);

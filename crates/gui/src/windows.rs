@@ -341,9 +341,10 @@ impl Registry {
             && self.with_dataset(now).is_none()
             && let Some(d) = self.data_mut(id)
         {
+            // the tab stays: a name typed in the Variable View of the empty window goes on there
             *d = DataWindow {
                 dataset: now.map(str::to_string),
-                ..Default::default()
+                view: d.view.same_tab(),
             };
         }
         let mut closed = Vec::new();
@@ -694,6 +695,23 @@ mod tests {
         let (opened, closed) = r.sync_data(&[], None, None);
         assert!(opened.is_empty() && closed.is_empty());
         assert_eq!(shown(&r), [None]);
+    }
+
+    #[test]
+    fn new_data_keeps_the_open_data_and_its_first_variable_names_the_empty_window() {
+        let mut r = Registry::new();
+        let first = r.with_dataset(None).unwrap();
+        r.sync_data(&names(&["DataSet1"]), None, Some("DataSet1"));
+        // NEW FILE: DataSet1 keeps its window; File > New > Data then opens an empty one
+        let (opened, closed) = r.sync_data(&names(&["DataSet1"]), Some("DataSet1"), None);
+        assert!(opened.is_empty() && closed.is_empty());
+        let empty = r.open(Kind::Data(Box::default()));
+        // the first NUMERIC and a DATASET NAME start DataSet2 in that window
+        let (opened, closed) =
+            r.sync_data(&names(&["DataSet2", "DataSet1"]), None, Some("DataSet2"));
+        assert!(opened.is_empty() && closed.is_empty());
+        assert_eq!(r.with_dataset(Some("DataSet2")), Some(empty));
+        assert_eq!(r.with_dataset(Some("DataSet1")), Some(first));
     }
 
     #[test]

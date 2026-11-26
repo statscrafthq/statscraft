@@ -3,7 +3,7 @@
 
 use crate::expr::{Column, Evaluator};
 use crate::{Engine, Error};
-use statscraft_data::Values;
+use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{Command, Expr, Format, FormatType};
 
 /// One open DO IF block.
@@ -309,12 +309,16 @@ impl Engine {
     }
 
     /// STRING and NUMERIC: new variables, empty or system-missing. Nothing is added when one
-    /// of the names cannot be.
+    /// of the names cannot be. After NEW FILE (no dataset) they start the blank dataset that
+    /// NEW FILE stands for.
     pub(crate) fn declare<'a>(
         &mut self,
         groups: impl Iterator<Item = (&'a [String], Option<&'a Format>)>,
     ) -> Result<(), Error> {
-        let mut data = self.active()?.clone();
+        let mut data = match &self.dataset {
+            Some(data) => data.clone(),
+            None => Dataset::new(0),
+        };
         let cases = data.case_count();
         for (names, format) in groups {
             for name in names {

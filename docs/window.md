@@ -49,6 +49,7 @@ Each dataset of the session that holds data has a data window. The title names t
 - The data a typed `GET` reads without `DATASET NAME` has no name. Such a dataset closes when another one becomes active (a click in another data window, the Active list, opening a file). When it holds unsaved changes, a question comes first: **Save** saves it and goes on, **Don't save** goes on without it, **Cancel** keeps everything as it is.
 - File > Close or the window's close button closes the dataset. When its data is unsaved, a question offers **Save**, **Don't save** and **Cancel**. Closing runs `DATASET CLOSE name.`. When the dataset is the active one, another open dataset is activated first, as `DATASET CLOSE` of the active dataset only takes its name away; when it is the last one, `NEW FILE.` follows.
 - Closing the last data window does not end the program while other windows are open. Opening a file opens a data window again.
+- File > New > Data runs `NEW FILE.` and opens an empty data window on the Variables tab. The data open before stays open in its window; active data without a name gets one first (`DATASET NAME DataSet2.` and so on). The first variable named in the Variables tab starts the new dataset, with the next free name (`NUMERIC height (F8.2).` and `DATASET NAME DataSet3.`), so it stays open like a file opened from the window.
 
 ## The Data tab
 
@@ -82,6 +83,8 @@ The cases, in a grid that draws only the visible cells.
 ## The Variables tab
 
 One row per variable, with these columns: name, type, format, width, decimals, label, value labels, missing values, columns (the display width, as wide as the Data tab shows it), alignment, measure and role. A variable without an alignment or role in the file shows numbers to the right, strings to the left and the role Input.
+
+An empty row under the last variable makes a new one: type a name in its Name field and press Enter. That runs `NUMERIC name (F8.2).`, and the variable goes at the end; change its type, label and the rest in its row as for any variable. The empty data window has this row too, so the program started without a file, or File > New > Data, takes variables at once.
 
 ### Changing a field
 
@@ -374,7 +377,7 @@ The menu bar is the same in every window: File, Edit, Data, Analyze, Graphs, Tra
 
 - **Open data...**, **Save data**, **Save data as...** and **Export data...** (see [Opening files](#opening-files) and [Exporting data](#exporting-data)). Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
 - **Apply Data Dictionary...** copies labels, formats and missing values from another data file ([APPLY DICTIONARY](commands/apply-dictionary.md)).
-- **New > Syntax** and **New > Output**, **Open syntax...**, **Open output...** and **Recent files**.
+- **New > Data**, **New > Syntax** and **New > Output**, **Open syntax...**, **Open output...** and **Recent files**.
 - **Save syntax**, **Save syntax as...**, **Save output**, **Save output as...** and **Export...** (see [Saving output](#saving-output) and [Exporting all output](#exporting-all-output)).
 - **Output Management > Start...** and **End...** route tables to files while syntax runs ([OMS](commands/oms.md), [OMSEND](commands/omsend.md)).
 - **Close** and **Exit**.

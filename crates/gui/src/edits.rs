@@ -735,6 +735,15 @@ pub fn listed(names: &[String]) -> String {
     }
 }
 
+/// The syntax for a name typed in the empty row under the last variable of the Variable View:
+/// a numeric variable, F8.2 as Insert variable gives, at the end of the dictionary.
+pub fn new_variable(name: &str) -> Result<String, String> {
+    match name.trim() {
+        "" => Err("a variable needs a name".into()),
+        name => Ok(format!("NUMERIC {name} (F8.2).")),
+    }
+}
+
 /// The syntax for an edit of a Variable View cell, or None when the text did not change.
 pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Option<String>, String> {
     if text == field_text(variable, field) {
@@ -1478,5 +1487,11 @@ mod tests {
         ] {
             assert_eq!(edit(&session, "age", field, text).unwrap_err(), error);
         }
+    }
+
+    #[test]
+    fn a_name_in_the_empty_row_makes_a_numeric_variable() {
+        assert_eq!(new_variable(" height ").unwrap(), "NUMERIC height (F8.2).");
+        assert_eq!(new_variable("  ").unwrap_err(), "a variable needs a name");
     }
 }

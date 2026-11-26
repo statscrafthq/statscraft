@@ -115,6 +115,21 @@ fn new_file_empties_the_active_dataset_and_keeps_a_named_one() {
 }
 
 #[test]
+fn numeric_and_string_after_new_file_start_the_blank_dataset() {
+    let mut s = session();
+    run(
+        &mut s,
+        "NEW FILE.\nNUMERIC height (F5.1).\nSTRING town (A12).",
+    );
+    let data = s.dataset().expect("a blank dataset with the two variables");
+    assert_eq!(data.case_count(), 0);
+    let names: Vec<&str> = data.variable_names().collect();
+    assert_eq!(names, ["height", "town"]);
+    assert_eq!(data.variable_at(0).format(), "F5.1");
+    assert!(data.variable_at(1).is_string());
+}
+
+#[test]
 fn clear_transformations_goes_back_to_the_last_data_pass() {
     let mut s = session();
     run(

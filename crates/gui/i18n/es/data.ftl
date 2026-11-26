@@ -52,6 +52,7 @@ data-rows-copied = { $count } fila(s) copiada(s) con sus encabezados
 data-cell-copied = celda copiada
 data-select-rows-to-delete = seleccione las variables por su número de fila para eliminarlas
 data-field-not-here = { $field } todavía no se puede cambiar aquí
+data-new-variable-name-first = escriba primero el nombre de la variable nueva
 
 data-field-name = Nombre
 data-field-type = Tipo

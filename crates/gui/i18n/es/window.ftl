@@ -34,6 +34,7 @@ status-chart-no-picture = este tipo de gráfico todavía no tiene imagen
 status-undone = deshecho: { $syntax }
 status-redone = rehecho: { $syntax }
 status-wait-to-delete-output = espere a que termine la ejecución para eliminar resultados
+status-wait-for-new-data = espere a que termine la ejecución para empezar datos nuevos
 status-opening = Abriendo { $file }
 status-running = Ejecutando { $what }
 status-waiting = { $count } en espera

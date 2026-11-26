@@ -452,6 +452,11 @@ impl Session {
         self.engine.named_datasets()
     }
 
+    /// The next free DataSetn name, as the window gives data it opens or keeps open.
+    pub fn next_dataset_name(&self) -> String {
+        self.engine.next_dataset_name()
+    }
+
     /// The syntax that opens a data file from the window: `open` (such as `GET FILE='a.sav'.`)
     /// and a DATASET NAME with the next DataSetn name, so the dataset open before stays open.
     pub fn open_syntax(&self, open: &str) -> String {

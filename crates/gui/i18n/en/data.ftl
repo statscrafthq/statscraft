@@ -52,6 +52,7 @@ data-rows-copied = { $count } row(s) copied with their headers
 data-cell-copied = the cell copied
 data-select-rows-to-delete = select variables by their row numbers to delete them
 data-field-not-here = { $field } cannot be changed here yet
+data-new-variable-name-first = type the name of the new variable first
 
 data-field-name = Name
 data-field-type = Type

@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - [CATPCA](docs/commands/catpca.md) `/RESAMPLE=BOOTSTRAP` analyses balanced or unbalanced bootstrap samples of the cases, turns each solution to the data's by a Procrustes rotation or reflection, and gives percentile intervals for the eigenvalues, the component loadings and the category values in three tables.
+- File > New > Data opens an empty data window, and a name typed in the empty row under the last variable of the Variables tab makes a new numeric variable. NUMERIC and STRING after NEW FILE start the blank dataset.
 
 ## 0.52.0 (2026-11-26)
 

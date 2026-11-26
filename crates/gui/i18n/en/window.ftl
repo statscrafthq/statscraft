@@ -34,6 +34,7 @@ status-chart-no-picture = this kind of chart has no picture yet
 status-undone = undone: { $syntax }
 status-redone = redone: { $syntax }
 status-wait-to-delete-output = wait until the run ends to delete output
+status-wait-for-new-data = wait until the run ends to start new data
 status-opening = Opening { $file }
 status-running = Running { $what }
 status-waiting = { $count } waiting
