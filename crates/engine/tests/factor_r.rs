@@ -9,6 +9,20 @@
 //! second derivative is below 0.05 as a Heywood variable (here v1, with a unique variance of
 //! 0.06), which leaves the loadings up to 1.4e-3 and the communalities 7e-4 from the exact optimum
 //! (the discrepancy is within 2e-7 of its minimum).
+//!
+//! The second part covers the options the first leaves out: GLS (the discrepancy 1/2 tr((I -
+//! R^-1 S)^2) with S = L L' + diag(psi), minimized to full precision over L and psi from
+//! several starts, chi-square (N - 1 - (2p + 5)/6 - 2m/3) F; `psych::fa` stops earlier and is
+//! no use as an oracle there) and alpha factoring (the fixed point of Kaiser and Caffrey in
+//! base R, which `psych::fa(fm = "alpha", min.err = 1e-14)` reproduces to 1e-9), quartimax and
+//! equamax of three principal components with Kaiser normalization (`GPArotation::cfT` with
+//! kappa 0 and m / (2 p)), promax with kappa 4 (the steps of `stats::promax` with the target
+//! taken from the row-normalized varimax loadings, as the Hendrickson-White method has it:
+//! `stats::promax` itself powers the loadings without normalizing them and differs by up to
+//! 0.015 here), and the three kinds of scores
+//! (regression, Bartlett, Anderson-Rubin) from the manual's matrix formulas written out in
+//! base R on the standardized data. Rotated columns may come in another order or sign than R's
+//! and are matched before they are compared.
 
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
@@ -307,4 +321,324 @@ fn varimax_and_oblimin_agree_with_r() {
     );
     let phi = matrix(&t, "Factor Correlation Matrix", 1);
     near(phi[0][1], 0.165611924887, 1e-5, "factor correlation");
+}
+
+// ---------------------------------------------------------------- options the first part leaves out
+
+fn run_engine(syntax: &str) -> (Vec<Table>, Engine) {
+    let (commands, errors) = parse(&format!("{DATA}{syntax}"));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut tables = Vec::new();
+    for command in &commands {
+        tables.extend(engine.execute(&command.command).expect("runs"));
+    }
+    (tables, engine)
+}
+
+/// Every column of `want` must equal one column of `got`, up to its sign, each column of `got`
+/// used once. The columns are the columns of the row-per-variable matrices.
+fn match_columns(got: &[Vec<f64>], want: &[&[f64]], tolerance: f64, what: &str) {
+    let columns = want[0].len();
+    let mut used = vec![false; columns];
+    for j in 0..columns {
+        let found = (0..columns).find(|&k| {
+            !used[k]
+                && [1.0, -1.0].iter().any(|sign| {
+                    got.iter()
+                        .zip(want)
+                        .all(|(g, w)| (sign * g[k] - w[j]).abs() <= tolerance)
+                })
+        });
+        let k =
+            found.unwrap_or_else(|| panic!("{what}: column {} of R is not among {got:?}", j + 1));
+        used[k] = true;
+    }
+}
+
+#[test]
+fn gls_and_alpha_agree_with_r() {
+    let t = run(
+        "FACTOR VARIABLES=v1 TO v6 /PRINT=EXTRACTION /CRITERIA=FACTORS(2) ITERATE(5000) \
+         ECONVERGE(1E-13) /EXTRACTION=GLS /ROTATION=NOROTATE.",
+    );
+    // v1 has a unique variance of 0.033, below the 0.05 at which the manual's Newton steps call a
+    // variable a Heywood variable, so the solution stops up to 1.3e-4 from the exact optimum
+    let communalities: Vec<f64> = table(&t, "Communalities")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    for (got, want) in communalities.iter().zip([
+        0.9668133802,
+        0.4439117070,
+        0.3924652570,
+        0.6888715735,
+        0.7992795686,
+        0.2827210777,
+    ]) {
+        near(*got, want, 2e-4, "GLS communality");
+    }
+    // the loadings are fixed up to a rotation: their cross products are not
+    let loadings = matrix(&t, "Factor Matrix", 1);
+    let cross =
+        |i: usize, j: usize| loadings[i][0] * loadings[j][0] + loadings[i][1] * loadings[j][1];
+    near(cross(0, 1), 0.6546895046, 2e-4, "GLS l1 l2");
+    near(cross(0, 2), 0.5698876266, 2e-4, "GLS l1 l3");
+    near(cross(3, 4), 0.7418747878, 2e-4, "GLS l4 l5");
+    near(cross(4, 5), 0.4698875350, 2e-4, "GLS l5 l6");
+    let fit = table(&t, "Goodness-of-fit Test");
+    near(
+        number(&fit.rows[0][0]),
+        2.2622762599,
+        1e-4,
+        "GLS chi-square",
+    );
+    near(number(&fit.rows[0][1]), 4.0, 1e-12, "GLS df");
+    near(number(&fit.rows[0][2]), 0.6876454146, 1e-4, "GLS p");
+
+    let t = run(
+        "FACTOR VARIABLES=v1 TO v6 /PRINT=EXTRACTION /CRITERIA=FACTORS(2) ITERATE(5000) \
+         ECONVERGE(1E-13) /EXTRACTION=ALPHA /ROTATION=NOROTATE.",
+    );
+    compare(
+        &matrix(&t, "Factor Matrix", 1),
+        &[
+            [0.581061362427, 0.773215805526],
+            [0.398331068528, 0.552265542516],
+            [0.577344007884, 0.297542145943],
+            [0.707505640718, -0.392889980691],
+            [0.734072161805, -0.482697508889],
+            [0.435030535042, -0.322530730527],
+        ],
+        1e-7,
+        "alpha",
+    );
+    let communalities: Vec<f64> = table(&t, "Communalities")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    for (got, want) in communalities.iter().zip([
+        0.935494988821,
+        0.463664869606,
+        0.421857432052,
+        0.654926768575,
+        0.771858823826,
+        0.293277638554,
+    ]) {
+        near(*got, want, 1e-7, "alpha communality");
+    }
+}
+
+#[test]
+fn quartimax_and_equamax_agree_with_r() {
+    let pc3: [(&str, &[&[f64]]); 2] = [
+        (
+            "QUARTIMAX",
+            &[
+                &[0.036172027856, 0.902898930033, -0.080423286364],
+                &[-0.011656185699, 0.834573383912, -0.117698755607],
+                &[0.174979332147, 0.749023974818, 0.283551533069],
+                &[0.925485188951, 0.109435623545, 0.091618260914],
+                &[0.913804325809, 0.067396700796, 0.163955264167],
+                &[0.355444730404, 0.007463903735, 0.903993821964],
+            ],
+        ),
+        (
+            "EQUAMAX",
+            &[
+                &[0.057626593579, 0.903673558685, -0.055281764539],
+                &[0.012377030679, 0.837056673007, -0.098410020612],
+                &[0.159796639730, 0.739301551010, 0.316155664257],
+                &[0.914676020672, 0.090849476664, 0.178905131842],
+                &[0.895706405497, 0.047429377775, 0.248842277493],
+                &[0.270525256180, -0.018956150860, 0.932769128184],
+            ],
+        ),
+    ];
+    for (method, want) in pc3 {
+        let t = run(&format!(
+            "FACTOR VARIABLES=v1 TO v6 /PRINT=ROTATION /CRITERIA=FACTORS(3) ITERATE(5000) \
+             /EXTRACTION=PC /ROTATION={method}."
+        ));
+        match_columns(
+            &matrix(&t, "Rotated Component Matrix", 1),
+            want,
+            1e-5,
+            method,
+        );
+    }
+}
+
+#[test]
+fn promax_agrees_with_r() {
+    let cases: [(&str, [[f64; 2]; 6], f64); 2] = [
+        (
+            "PAF",
+            [
+                [-0.076246617581, 0.976078728573],
+                [-0.072467668721, 0.687773813728],
+                [0.212300420333, 0.569338947307],
+                [0.816748063392, 0.043685447579],
+                [0.886699058777, -0.003868169382],
+                [0.539159963554, -0.048635337909],
+            ],
+            0.169118953497,
+        ),
+        (
+            "PC",
+            [
+                [-0.070864785096, 0.914893565843],
+                [-0.126159012800, 0.851866760753],
+                [0.235080062283, 0.719525676375],
+                [0.862756509613, 0.056627942795],
+                [0.889271201412, 0.008176125186],
+                [0.741158028120, -0.093383793780],
+            ],
+            0.156099705035,
+        ),
+    ];
+    for (method, pattern, phi) in cases {
+        let t = run(&format!(
+            "FACTOR VARIABLES=v1 TO v6 /PRINT=ROTATION /CRITERIA=FACTORS(2) ITERATE(5000) \
+             ECONVERGE(1E-13) KAISER /EXTRACTION={method} /ROTATION=PROMAX(4)."
+        ));
+        match_columns(
+            &matrix(&t, "Pattern Matrix", 1),
+            &pattern.iter().map(|r| &r[..]).collect::<Vec<_>>(),
+            1e-6,
+            method,
+        );
+        let correlation = table(
+            &t,
+            if method == "PC" {
+                "Component Correlation Matrix"
+            } else {
+                "Factor Correlation Matrix"
+            },
+        );
+        near(
+            number(&correlation.rows[0][2]).abs(),
+            phi,
+            1e-6,
+            "promax factor correlation",
+        );
+    }
+}
+
+#[test]
+fn factor_scores_agree_with_r() {
+    // cases 1 to 3 and the variances of the two score columns, PAF unrotated and varimax
+    type Scores = ([[f64; 2]; 3], [f64; 2]);
+    let cases: [(&str, &str, Scores); 6] = [
+        (
+            "REG",
+            "NOROTATE",
+            (
+                [
+                    [0.080900743225, -0.898495390901],
+                    [0.499609570916, 0.804398939012],
+                    [0.231479238841, 0.419944860390],
+                ],
+                [0.8999788037, 0.9030260481],
+            ),
+        ),
+        (
+            "REG",
+            "VARIMAX",
+            (
+                [
+                    [0.677535131555, -0.595638349363],
+                    [-0.191881054472, 0.927280452382],
+                    [-0.121448684476, 0.463882033304],
+                ],
+                [0.8614119646, 0.9415928873],
+            ),
+        ),
+        (
+            "BART",
+            "NOROTATE",
+            (
+                [
+                    [0.126655384428, -1.071758635427],
+                    [0.465799419789, 0.841771814595],
+                    [0.210597113939, 0.477741931137],
+                ],
+                [1.1144648545, 1.1116854488],
+            ),
+        ),
+        (
+            "BART",
+            "VARIMAX",
+            (
+                [
+                    [0.830049125211, -0.689729373562],
+                    [-0.242134223528, 0.931085337184],
+                    [-0.176397943652, 0.491398272933],
+                ],
+                [1.1616713964, 1.0644789068],
+            ),
+        ),
+        (
+            "AR",
+            "NOROTATE",
+            (
+                [
+                    [0.099315767271, -1.014459846853],
+                    [0.457822347673, 0.809245039737],
+                    [0.208870805146, 0.458094933803],
+                ],
+                [1.0, 1.0],
+            ),
+        ),
+        (
+            "AR",
+            "VARIMAX",
+            (
+                [
+                    [0.770761733981, -0.667022302428],
+                    [-0.225512653718, 0.902010465228],
+                    [-0.164116519776, 0.475966122276],
+                ],
+                [1.0, 1.0],
+            ),
+        ),
+    ];
+    for (method, rotation, (first, variances)) in cases {
+        let (_, engine) = run_engine(&format!(
+            "FACTOR VARIABLES=v1 TO v6 /CRITERIA=FACTORS(2) ITERATE(5000) ECONVERGE(1E-13) \
+             /EXTRACTION=PAF /ROTATION={rotation} /SAVE={method}(ALL)."
+        ));
+        let data = engine.dataset().unwrap();
+        let column = |name: &str| -> Vec<f64> {
+            let v = data.variable(name).unwrap().numeric().unwrap();
+            (0..data.case_count()).map(|k| v.get(k).unwrap()).collect()
+        };
+        let scores = [column("FAC1_1"), column("FAC2_1")];
+        let n = scores[0].len() as f64;
+        let variance = |c: &[f64]| {
+            let mean = c.iter().sum::<f64>() / n;
+            c.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0)
+        };
+        // a rotated factor may come out with the other sign or in the other place
+        let mut used = [false; 2];
+        for j in 0..2 {
+            let found = (0..2).find(|&k| {
+                !used[k]
+                    && [1.0, -1.0].iter().any(|sign| {
+                        (0..3).all(|c| (sign * scores[k][c] - first[c][j]).abs() <= 1e-6)
+                    })
+            });
+            let k =
+                found.unwrap_or_else(|| panic!("{method} {rotation}: column {} not found", j + 1));
+            used[k] = true;
+            near(
+                variance(&scores[k]),
+                variances[j],
+                1e-8,
+                &format!("{method} {rotation} variance"),
+            );
+        }
+    }
 }
