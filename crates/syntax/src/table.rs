@@ -3002,8 +3002,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "ALSCAL VARIABLES=varlist | /MATRIX=IN('file' | dataset | *)\n\
                  \x20  [/INPUT=ROWS(ALL | n)] [/SHAPE=SYMMETRIC | ASYMMETRIC | RECTANGULAR]\n\
                  \x20  [/LEVEL=ORDINAL[([UNTIE] [SIMILAR])] | INTERVAL[(1..4)] | RATIO[(1..4)] | NOMINAL]\n\
-                 \x20  [/CONDITION=MATRIX | ROW | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL | ASCAL | AINDS]\n\
-                 \x20  [/CRITERIA=[NEGATIVE] [CUTOFF(0)] [CONVERGE(.001)] [ITER(30)] [STRESSMIN(.005)] [DIMENS(2[,max])]]\n\
+                 \x20  [/CONDITION=MATRIX | ROW | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL | ASCAL | AINDS | GEMSCAL]\n\
+                 \x20  [/CRITERIA=[NEGATIVE] [CUTOFF(0)] [CONVERGE(.001)] [ITER(30)] [STRESSMIN(.005)] [DIMENS(2[,max])] [DIRECTIONS(q)]]\n\
                  \x20  [/PRINT=[DATA] [HEADER]] [/PLOT[=DEFAULT | ALL]] [/OUTFILE='file' | dataset]\n\
                  \x20  [/FILE='file' | dataset [CONFIG | ROWCONF | COLCONF] [SUBJWGHT] [STIMWGHT] [(INITIAL)]].\n\
                  Each case is a row of a square matrix of dissimilarities and each variable a column; only the\n\
@@ -3034,7 +3034,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  which makes the distance from i to j differ from the way back; the weights of a dimension average 1\n\
                  over the stimuli, which fixes the scale of its coordinates, and the axes are not turned. MODEL=AINDS\n\
                  adds the subject weights of INDSCAL (more than one matrix; one matrix is fitted as ASCAL):\n\
-                 d(i,j,k)^2 = sum of w(k,a) v(i,a) (x(i,a) - x(j,a))^2. Neither goes with CONDITION=ROW. The start is classical scaling of the mean scalar products of all matrices, after\n\
+                 d(i,j,k)^2 = sum of w(k,a) v(i,a) (x(i,a) - x(j,a))^2. Neither goes with CONDITION=ROW.\n\
+                 MODEL=GEMSCAL (more than one matrix, 2 or more dimensions) gives every matrix a metric of its own on\n\
+                 the group space, d(i,j,k)^2 = (x(i) - x(j))' M(k) (x(i) - x(j)), where M(k) has q directions, unit\n\
+                 vectors of the space with a weight each: DIRECTIONS(q) of CRITERIA, at most the dimensions and by\n\
+                 default as many. Each iteration fits the metric of a matrix by least squares and keeps its q\n\
+                 largest eigenvalues (positive ones unless NEGATIVE); the coordinates are then turned to principal\n\
+                 axes with a sum of squares of the number of stimuli per dimension. The Subject Weights table holds\n\
+                 the weights of the directions and Subject Directions the directions as columns; INDSCAL is the\n\
+                 case of the axes as directions. The start is classical scaling of the mean scalar products of all matrices, after\n\
                  each got the smallest constant that makes it a metric. Iterations stop when S-stress improves by less\n\
                  than CONVERGE, falls to STRESSMIN or after ITER; DIMENS(min,max) solves from max down to min (1 only\n\
                  for EUCLID), each smaller solution from the first dimensions of the one before.\n\
@@ -3048,12 +3056,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  gives the configuration, the subject weights, the stimulus weights, the linear fit (disparities against distances), the\n\
                  nonlinear fit (data against distances) for ORDINAL and NOMINAL and the transformation (data against\n\
                  disparities), with ALL one per matrix. OUTFILE writes TYPE_ (CON for coordinates, SUB for subject\n\
-                 weights, STI for stimulus weights; ROW and COL for the two sets of a rectangular matrix), DIMENS, MATNUM (0 for\n\
+                 weights, STI for stimulus weights, GEM for the directions of a matrix, one row for each dimension; ROW and COL for the two sets of a rectangular matrix), DIMENS, MATNUM (0 for\n\
                  coordinates) and DIM1, DIM2, ... for every dimensionality. FILE\n\
                  reads such a file (or any with TYPE_, DIM1, DIM2, ...) to start the iterations from: the first rows\n\
                  of TYPE_ CON or ROW with a value in the last dimension, one for each stimulus, are the starting\n\
                  coordinates of the largest dimensionality (for a rectangular matrix the rows come as ROW or CON and\n\
-                 the columns as COL; COLCONF is accepted with it), and with MODEL=INDSCAL the TYPE_ SUB rows, one for each\n\
+                 the columns as COL; COLCONF is accepted with it), and with MODEL=INDSCAL or GEMSCAL (as the diagonal of the metrics) the TYPE_ SUB rows, one for each\n\
                  matrix, the starting weights (they are read when SUBJWGHT is listed, or when nothing is listed); with\n\
                  MODEL=ASCAL or AINDS the TYPE_ STI rows, one for each stimulus, start the stimulus weights (STIMWGHT,\n\
                  or when nothing is listed and the file has them). The words may be cut to three letters; only INITIAL\n\

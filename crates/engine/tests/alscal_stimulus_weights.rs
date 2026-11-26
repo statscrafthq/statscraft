@@ -208,10 +208,6 @@ fn the_model_is_checked() {
             "ALSCAL VARIABLES=s1 TO s7 /SHAPE=ASYMMETRIC /FILE=x STIMWGHT.",
             "STIMWGHT of FILE is used by MODEL=ASCAL and AINDS only",
         ),
-        (
-            "ALSCAL VARIABLES=s1 TO s7 /SHAPE=ASYMMETRIC /MODEL=GEMSCAL.",
-            "MODEL=GEMSCAL",
-        ),
     ] {
         let (_, errors) = parse(&format!("{ONE}{syntax}"));
         assert!(

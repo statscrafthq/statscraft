@@ -49,6 +49,10 @@ pub struct Alscal {
     pub indscal: bool,
     /// MODEL=ASCAL or AINDS: every stimulus has weights of the dimensions of its own.
     pub stimulus_weights: bool,
+    /// MODEL=GEMSCAL: every matrix has weights of directions of its own in the group space.
+    pub gemscal: bool,
+    /// DIRECTIONS(n) of GEMSCAL; None is as many as the dimensions.
+    pub directions: Option<usize>,
     pub negative: bool,
     pub cutoff: f64,
     pub converge: f64,
@@ -101,10 +105,6 @@ fn whole(p: &mut Parser, what: &str, low: usize, high: usize) -> PResult<usize> 
     }
 }
 
-fn not_yet(p: &Parser, what: &str) -> SyntaxError {
-    SyntaxError::new(p.span(), format!("{what} is not supported yet"))
-}
-
 pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
     let mut colconf = false;
     let mut stimwght = false;
@@ -121,6 +121,8 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
         rectangular: false,
         indscal: false,
         stimulus_weights: false,
+        gemscal: false,
+        directions: None,
         negative: false,
         cutoff: 0.0,
         converge: 0.001,
@@ -219,10 +221,8 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             };
         } else if p.eat_keyword("MODEL") || p.eat_keyword("METHOD") {
             p.eat(Punct::Eq);
-            if p.at_keyword("GEMSCAL") {
-                return Err(not_yet(p, "MODEL=GEMSCAL"));
-            }
             command.stimulus_weights = false;
+            command.gemscal = false;
             command.indscal = if p.eat_keyword("EUCLID") {
                 false
             } else if p.eat_keyword("INDSCAL") {
@@ -233,6 +233,9 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             } else if p.eat_keyword("AINDS") {
                 command.stimulus_weights = true;
                 true
+            } else if p.eat_keyword("GEMSCAL") {
+                command.gemscal = true;
+                false
             } else {
                 return Err(p.unexpected(&["EUCLID", "INDSCAL", "ASCAL", "AINDS", "GEMSCAL"]));
             };
@@ -286,8 +289,18 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
                     }
                     p.expect(Punct::RParen)?;
                     command.dimensions = (min, max);
-                } else if p.eat_keyword("DIRECTIONS") || p.eat_keyword("TIESTORE") {
-                    // DIRECTIONS only counts for GEMSCAL; ties need no storage here
+                } else if p.eat_keyword("DIRECTIONS") {
+                    let at = p.pos;
+                    let n = number_in_parens(p, "the number of directions")?;
+                    if n < 1.0 || n.fract() != 0.0 || n > 6.0 {
+                        return Err(SyntaxError::new(
+                            p.span_from(at),
+                            "DIRECTIONS takes a whole number from 1 to 6",
+                        ));
+                    }
+                    command.directions = Some(n as usize);
+                } else if p.eat_keyword("TIESTORE") {
+                    // ties need no storage here
                     number_in_parens(p, "a number")?;
                 } else {
                     return Err(p.unexpected(&[
@@ -421,6 +434,18 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             p.span(),
             "MODEL=INDSCAL needs at least 2 dimensions",
         ));
+    }
+    if command.gemscal {
+        let problem = if command.dimensions.0 < 2 {
+            Some("MODEL=GEMSCAL needs at least 2 dimensions")
+        } else if command.directions.is_some_and(|q| q > command.dimensions.1) {
+            Some("DIRECTIONS cannot exceed the number of dimensions")
+        } else {
+            None
+        };
+        if let Some(problem) = problem {
+            return Err(SyntaxError::new(p.span(), problem));
+        }
     }
     if command.stimulus_weights {
         let model = if command.indscal { "AINDS" } else { "ASCAL" };

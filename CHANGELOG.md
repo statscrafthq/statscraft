@@ -12,6 +12,7 @@ no test or verification notes, no comparisons with other software, no internal h
 - [ALSCAL](docs/commands/alscal.md) `/SHAPE=RECTANGULAR` unfolds a rectangular matrix: its rows and columns become two sets of stimuli in one space, with `/INPUT=ROWS(n)` for several matrices, row conditionality and the individual differences model.
 - [TWOSTEP CLUSTER](docs/commands/twostep-cluster.md) `/INFILE` updates a model saved with `/OUTFILE STATE`: the saved subclusters and the cases of the active file go into the tree together, with the saved distance, standardization and limits.
 - [ALSCAL](docs/commands/alscal.md) `/MODEL=ASCAL` and `AINDS` give every stimulus weights of the dimensions as the first of a pair, for asymmetric matrices whose distance from one stimulus to another differs from the way back.
+- [ALSCAL](docs/commands/alscal.md) `/MODEL=GEMSCAL` gives every matrix a metric of its own on the group space, with `/CRITERIA=DIRECTIONS(q)` setting how many directions it has.
 
 ## 0.51.0 (2026-11-26)
 

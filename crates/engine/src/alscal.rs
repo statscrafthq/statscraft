@@ -28,6 +28,8 @@
 //! - Fit per matrix: Kruskal's stress formula 1 of the distances and the disparities, and RSQ,
 //!   their squared correlation; averaged as the root of the mean square and the mean.
 
+mod gem;
+
 use crate::chart::{Axis, ChartKind};
 use crate::descriptives::number;
 use crate::matrix::{Matrix, inverse, symmetric_eigen};
@@ -97,6 +99,8 @@ struct Fit {
     /// The weight of every dimension for every stimulus as the first of a pair (ASCAL and
     /// AINDS); None without stimulus weights.
     v: Option<Matrix>,
+    /// GEMSCAL: per matrix the directions of its metric, p by q (with `w` the q weights).
+    t: Option<Vec<Matrix>>,
     /// Squared disparities, per subject one for each of its cells.
     f: Vec<Vec<f64>>,
     history: Vec<f64>,
@@ -676,6 +680,75 @@ fn iterate(data: &Data, command: &Alscal, x: Matrix, w: Vec<Vec<f64>>, v: Option
         x,
         w,
         v,
+        t: None,
+        f,
+        history,
+    }
+}
+
+/// The metric of every matrix of a GEMSCAL fit: T diag(w) T'.
+fn metrics_of(w: &[Vec<f64>], t: &[Matrix]) -> Vec<Matrix> {
+    w.iter()
+        .zip(t)
+        .map(|(w, t)| {
+            let p = t.len();
+            (0..p)
+                .map(|a| {
+                    (0..p)
+                        .map(|b| {
+                            w.iter()
+                                .enumerate()
+                                .map(|(d, wd)| wd * t[a][d] * t[b][d])
+                                .sum()
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// The squared distances of a fit.
+fn fit_squared(fit: &Fit) -> Vec<Matrix> {
+    match &fit.t {
+        Some(t) => gem::squared(&fit.x, &metrics_of(&fit.w, t)),
+        None => squared(&fit.x, &fit.w, fit.v.as_ref()),
+    }
+}
+
+/// The GEMSCAL iterations: the metric of every matrix, then the coordinates; the fit comes in
+/// its output form.
+fn iterate_metrics(
+    data: &Data,
+    command: &Alscal,
+    x: Matrix,
+    metrics: Vec<Matrix>,
+    q: usize,
+) -> Fit {
+    let (mut x, mut metrics) = (x, metrics);
+    let mut history: Vec<f64> = Vec::new();
+    let mut f;
+    loop {
+        let e = gem::squared(&x, &metrics);
+        f = scale_data(data, &e);
+        let s = sstress(data, &e, &f);
+        let improvement = history.last().map(|last| last - s);
+        history.push(s);
+        if improvement.is_some_and(|d| d < command.converge)
+            || s <= command.stress_min
+            || history.len() >= command.iterations
+        {
+            break;
+        }
+        metrics = gem::update_metrics(data, &x, &f, q, command.negative, &metrics);
+        gem::update_coordinates(data, &mut x, &metrics, &f);
+    }
+    let solution = gem::finish(x, &metrics, q, command.negative);
+    Fit {
+        x: solution.x,
+        w: solution.weights,
+        v: None,
+        t: Some(solution.directions),
         f,
         history,
     }
@@ -962,6 +1035,13 @@ impl Engine {
             )));
         }
         let mut indscal = command.indscal;
+        let mut gemscal = command.gemscal;
+        if gemscal && m < 2 {
+            warnings.push(
+                "ALSCAL: GEMSCAL needs more than one matrix; the Euclidean model is used".into(),
+            );
+            gemscal = false;
+        }
         let stimulus = command.stimulus_weights;
         if indscal && m < 2 {
             warnings.push(
@@ -1117,7 +1197,7 @@ impl Engine {
             Some(file) => Some(self.alscal_file(
                 file,
                 (n, m, max_dim),
-                (indscal, stimulus),
+                (indscal || gemscal, stimulus),
                 rectangle.as_ref(),
                 &mut warnings,
             )?),
@@ -1145,7 +1225,41 @@ impl Engine {
                 (true, None, Some((_, _, Some(v)))) => Some(v.clone()),
                 (true, None, _) => Some(vec![vec![1.0; p]; n]),
             };
-            let fit = finish(iterate(&data, &run, x, w, v), indscal);
+            let fit = match gemscal {
+                true => {
+                    let q = command.directions.unwrap_or(p).min(p);
+                    // the metric: the previous solution's, cut to p dimensions, or the file's
+                    // weights on the axes, or the axes themselves
+                    let metrics: Vec<Matrix> = match (fits.last(), &given) {
+                        (Some((_, previous)), _) => {
+                            let t = previous.t.as_ref().expect("GEMSCAL fit");
+                            metrics_of(&previous.w, t)
+                                .iter()
+                                .map(|m| m[..p].iter().map(|r| r[..p].to_vec()).collect())
+                                .collect()
+                        }
+                        (None, Some((_, Some(w), _))) => w
+                            .iter()
+                            .map(|w| {
+                                (0..p)
+                                    .map(|a| {
+                                        (0..p).map(|b| if a == b { w[a] } else { 0.0 }).collect()
+                                    })
+                                    .collect()
+                            })
+                            .collect(),
+                        _ => (0..m)
+                            .map(|_| {
+                                (0..p)
+                                    .map(|a| (0..p).map(|b| f64::from(u8::from(a == b))).collect())
+                                    .collect()
+                            })
+                            .collect(),
+                    };
+                    iterate_metrics(&data, &run, x, metrics, q)
+                }
+                false => finish(iterate(&data, &run, x, w, v), indscal),
+            };
             fits.push((p, fit));
         }
         let several = fits.len() > 1;
@@ -1186,7 +1300,8 @@ impl Engine {
                 ),
                 (
                     "Model",
-                    match (stimulus, indscal) {
+                    match (stimulus, indscal || gemscal) {
+                        (false, true) if gemscal => "Generalized Euclidean (GEMSCAL)",
                         (true, true) => "Asymmetric individual differences (AINDS)",
                         (true, false) => "Asymmetric Euclidean (ASCAL)",
                         (false, true) => "Individual differences (INDSCAL)",
@@ -1248,7 +1363,7 @@ impl Engine {
                 row_headers: 1,
                 ..Table::default()
             });
-            let e = squared(&fit.x, &fit.w, fit.v.as_ref());
+            let e = fit_squared(fit);
             let mut rows = Vec::new();
             let (mut stress_sq, mut rsq_sum) = (0.0, 0.0);
             for (k, ek) in e.iter().enumerate() {
@@ -1307,9 +1422,12 @@ impl Engine {
                     &dims,
                 )),
             }
-            if indscal {
+            if indscal || gemscal {
                 let mut columns = vec!["Matrix".to_string()];
-                columns.extend(dims.iter().cloned());
+                match gemscal {
+                    true => columns.extend((1..=fit.w[0].len()).map(|b| format!("Direction {b}"))),
+                    false => columns.extend(dims.iter().cloned()),
+                }
                 tables.push(Table {
                     title: suffix("Subject Weights"),
                     columns,
@@ -1326,6 +1444,18 @@ impl Engine {
                     row_headers: 1,
                     ..Table::default()
                 });
+            }
+            if let Some(directions) = &fit.t {
+                let named: Vec<String> = (1..=fit.w[0].len())
+                    .map(|b| format!("Direction {b}"))
+                    .collect();
+                for (k, t) in directions.iter().enumerate() {
+                    let title = match m {
+                        1 => suffix("Subject Directions"),
+                        _ => suffix(&format!("Subject Directions: Matrix {}", k + 1)),
+                    };
+                    tables.push(coordinates(title, &dims, t, &named));
+                }
             }
             if let Some(v) = &fit.v {
                 tables.push(coordinates(
@@ -1361,7 +1491,7 @@ impl Engine {
                 &fit.x,
                 *p,
             ));
-            if indscal && *p >= 2 {
+            if (indscal || gemscal) && fit.w[0].len() >= 2 {
                 let points = input
                     .sources
                     .iter()
@@ -1405,7 +1535,7 @@ impl Engine {
                     }],
                 ));
             }
-            let e = squared(&fit.x, &fit.w, fit.v.as_ref());
+            let e = fit_squared(fit);
             let group = |k: usize, what: &dyn Fn(usize, usize, usize) -> (f64, f64)| PointGroup {
                 name: input.sources[k].clone(),
                 points: data.cells[k]
@@ -1492,12 +1622,21 @@ impl Engine {
                     matnum.push(Some(0.0));
                     values.push(r.clone());
                 }
-                if indscal {
+                if indscal || gemscal {
                     for (k, w) in fit.w.iter().enumerate() {
                         kinds.push("SUB".to_string());
                         dimens.push(Some(*p as f64));
                         matnum.push(Some((k + 1) as f64));
                         values.push(w.clone());
+                    }
+                }
+                // the directions of a matrix, one row for each dimension
+                for (k, t) in fit.t.iter().flatten().enumerate() {
+                    for r in t {
+                        kinds.push("GEM".to_string());
+                        dimens.push(Some(*p as f64));
+                        matnum.push(Some((k + 1) as f64));
+                        values.push(r.clone());
                     }
                 }
                 for r in fit.v.iter().flatten() {

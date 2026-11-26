@@ -743,7 +743,17 @@ fn alscal_errors() {
     assert!(alscal("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC.").asymmetric);
     assert!(!alscal("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC /SHAPE=SYMMETRIC.").asymmetric);
     assert!(!alscal("ALSCAL VARIABLES=a b c d.").asymmetric);
-    assert!(err("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL.").contains("not supported"));
+    let gem = alscal("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL /CRITERIA=DIRECTIONS(2).");
+    assert!(gem.gemscal && !gem.indscal && gem.directions == Some(2));
+    assert!(
+        err("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL /CRITERIA=DIMENS(1).")
+            .contains("at least 2 dimensions")
+    );
+    assert!(
+        err("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL /CRITERIA=DIRECTIONS(3).")
+            .contains("cannot exceed")
+    );
+    assert!(!alscal("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL /MODEL=EUCLID.").gemscal);
     assert!(err("ALSCAL VARIABLES=a b c d /MODEL=ASCAL.").contains("needs SHAPE=ASYMMETRIC"));
     let ascal = alscal("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC /MODEL=ASCAL.");
     assert!(ascal.stimulus_weights && !ascal.indscal);
