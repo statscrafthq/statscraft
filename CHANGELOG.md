@@ -6,13 +6,14 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
-- The Data tab has an empty row under the last case: a value typed there adds a case. It runs [ADD CASE](docs/commands/add-case.md), a Statscraft extension that adds one blank case.
-- [CATPCA](docs/commands/catpca.md) `/RESAMPLE=BOOTSTRAP` analyses balanced or unbalanced bootstrap samples of the cases, turns each solution to the data's by a Procrustes rotation or reflection, and gives percentile intervals for the eigenvalues, the component loadings and the category values in three tables.
-- File > New > Data opens an empty data window, and a name typed in the empty row under the last variable of the Variables tab makes a new numeric variable. NUMERIC and STRING after NEW FILE start the blank dataset.
-- [ALSCAL](docs/commands/alscal.md) `/FILE` takes `(FIXED)` after CONFIG, ROWCONF, COLCONF, SUBJWGHT and STIMWGHT: those coordinates and weights stay as the file gives them and the rest is solved for them.
-- [CATPCA](docs/commands/catpca.md) `/RESAMPLE=BOOTSTRAP` draws the eigenvalues with their bootstrap interval, shows the interval of each category value as Lower and Upper on the transformation plots, and for two dimensions draws confidence ellipses of the eigenvalues, loadings, object points and category points; `LDELLAREA`, `OBELLAREA`, `CTELLAREA` choose the ellipses by area and `NELLPNT` sets the contour points.
-- [CATPCA](docs/commands/catpca.md) `/SAVE` takes `LDELLAREA`, `CTELLAREA` and `OBELLAREA` (also `ELLAREAOBJ`) for the areas of the bootstrap's confidence ellipses, and `/OUTFILE` takes `ELLCOORD` for the coordinates of the ellipses drawn.
+## 0.53.0 (2026-11-26)
+
+The window starts new data and takes new variables and cases where you type them, CATPCA gives bootstrap intervals and confidence ellipses, and SAVE CODEPAGE writes data files in a code page.
+
+- File > New > Data opens an empty data window. A name typed in the empty row under the last variable of the Variables tab makes a new numeric variable, and a value typed in the empty row under the last case of the Data tab adds a case ([ADD CASE](docs/commands/add-case.md), a Statscraft extension). NUMERIC and STRING after NEW FILE start the blank dataset.
+- [CATPCA](docs/commands/catpca.md) `/RESAMPLE=BOOTSTRAP` analyses balanced or unbalanced bootstrap samples of the cases, turned to the data's solution by a Procrustes rotation, with percentile intervals for the eigenvalues, loadings and category values, interval bands on the transformation plots and, for two dimensions, confidence ellipses (`LDELLAREA`, `OBELLAREA`, `CTELLAREA`, `NELLPNT`); `/SAVE` saves the ellipse areas and `/OUTFILE` takes `ELLCOORD` for their coordinates.
 - [SAVE CODEPAGE](docs/commands/save-codepage.md) writes a data file whose text (names, labels, string values, notes) is in a code page of your choice, such as `'1252'` or `'windows-1257'`, with `KEEP`, `DROP` and `UNSELECTED`.
+- [ALSCAL](docs/commands/alscal.md) `/FILE` takes `(FIXED)` after CONFIG, ROWCONF, COLCONF, SUBJWGHT and STIMWGHT: those coordinates and weights stay as the file gives them and the rest is solved for them.
 
 ## 0.52.0 (2026-11-26)
 
