@@ -6,7 +6,11 @@
 //! predictor, p(j,t) from the priors and the class totals of the cases with a value of the
 //! predictor, the split with the largest improvement). For a binary dependent, a Gini measure and
 //! priors from the data, the improvements of the splits that survive pruning agree with rpart
-//! (cp = 0, no surrogates): its improve column divided by the number of cases.
+//! (cp = 0, no surrogates): its improve column divided by the number of cases. The last tests
+//! compare three-class Gini trees with rpart, with the priors from the data, custom and equal
+//! priors: rpart gives a split only where it lowers the misclassification cost, so it stops
+//! where the engine, which grows before it prunes, still splits; every split rpart makes is
+//! found in the engine's tree with the same cases, variable and improvement.
 
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
@@ -1457,4 +1461,89 @@ fn an_influence_grows_the_least_squares_tree_of_replicated_cases() {
             .expect("a Mean column");
         close(risk(&tables).0, number(&t.rows[0][mean]), 1e-9);
     }
+}
+
+// ---------------------------------------------------------------- three classes against rpart
+
+// rpart (method class, split gini, minsplit 30, minbucket 12, maxdepth 3, cp 0, no surrogates)
+// on the same 150 cases: the improve column divided by 150, and the class counts of each node.
+const R_GINI3: &[Node] = &[
+    (0, &[70.0, 48.0, 32.0], 1, "g", Some(0.053032915622)),
+    (0, &[30.0, 6.0, 2.0], 1, "", None),
+    (0, &[40.0, 42.0, 30.0], 2, "o", Some(0.019274347158)),
+    (2, &[29.0, 22.0, 11.0], 1, "g", Some(0.016928827445)),
+    (2, &[11.0, 20.0, 19.0], 2, "g", Some(0.021955555556)),
+    (3, &[24.0, 11.0, 7.0], 1, "", None),
+    (3, &[5.0, 11.0, 4.0], 2, "", None),
+    (4, &[8.0, 18.0, 9.0], 2, "", None),
+    (4, &[3.0, 2.0, 10.0], 3, "", None),
+];
+const R_PRIORS: &[Node] = &[
+    (0, &[70.0, 48.0, 32.0], 1, "x1", Some(0.158942508893)),
+    (0, &[52.0, 7.0, 1.0], 1, "", None),
+    (0, &[18.0, 41.0, 31.0], 2, "g", Some(0.060348186728)),
+    (2, &[14.0, 6.0, 2.0], 1, "", None),
+    (2, &[4.0, 35.0, 29.0], 2, "x1", Some(0.021210833028)),
+    (4, &[3.0, 30.0, 16.0], 2, "", None),
+    (4, &[1.0, 5.0, 13.0], 3, "", None),
+];
+const R_EQUAL: &[Node] = &[
+    (0, &[70.0, 48.0, 32.0], 1, "x1", Some(0.152589030193)),
+    (0, &[52.0, 7.0, 1.0], 1, "o", Some(0.007547809425)),
+    (0, &[18.0, 41.0, 31.0], 3, "x1", Some(0.028446121265)),
+    (1, &[33.0, 2.0, 0.0], 1, "", None),
+    (1, &[19.0, 5.0, 1.0], 1, "", None),
+    (2, &[18.0, 33.0, 17.0], 2, "x2", Some(0.016203698650)),
+    (2, &[0.0, 8.0, 14.0], 3, "", None),
+    (5, &[9.0, 22.0, 6.0], 2, "", None),
+    (5, &[9.0, 11.0, 11.0], 3, "", None),
+];
+
+/// Every node of `expected` that rpart split must be a node of the engine's tree with the same
+/// class counts, the same split variable and the same improvement, and its children the nodes
+/// with the counts rpart gives them.
+fn agrees_with_rpart(command: &str, expected: &[Node]) {
+    let mut engine = engine();
+    let source = format!("{command} /PRINT TREETABLE /TREE DISPLAY=NONE.");
+    let tables = run(&mut engine, &source);
+    let tree = table(&tables, "Tree Table");
+    let (variable, gain) = (column(tree, "Variable"), column(tree, "Improvement"));
+    let counts = |row: &[Cell]| -> Vec<f64> { (0..3).map(|j| number(&row[3 + 2 * j])).collect() };
+    let find = |want: &[f64]| tree.rows.iter().position(|r| counts(r) == want);
+    for (id, node) in expected.iter().enumerate() {
+        let row = find(node.1).unwrap_or_else(|| panic!("{command}: no node with {:?}", node.1));
+        // where rpart stopped the engine may still split: its pruning is another rule
+        if let Some(g) = node.4 {
+            assert_eq!(
+                text(&tree.rows[row][variable]),
+                node.3,
+                "{command}: node {id}"
+            );
+            close(number(&tree.rows[row][gain]), g, 1e-9);
+        }
+    }
+}
+
+#[test]
+fn gini_of_three_classes_agrees_with_rpart() {
+    agrees_with_rpart(
+        "TREE y3 [n] BY x2 [s] o [o] g [n] /METHOD TYPE=CRT /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
+        R_GINI3,
+    );
+}
+
+#[test]
+fn custom_priors_agree_with_rpart() {
+    agrees_with_rpart(
+        "TREE y3 [n] BY x1 [s] o [o] g [n] /METHOD TYPE=CRT /PRIORS CUSTOM=1 [5] 2 [3] 3 [2] /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
+        R_PRIORS,
+    );
+}
+
+#[test]
+fn equal_priors_agree_with_rpart() {
+    agrees_with_rpart(
+        "TREE y3 [n] BY x1 [s] x2 [s] o [o] /METHOD TYPE=CRT /PRIORS EQUAL /GROWTHLIMIT MAXDEPTH=3 MINPARENTSIZE=30 MINCHILDSIZE=12",
+        R_EQUAL,
+    );
 }
