@@ -153,6 +153,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::CasesToVars(_)
         | Command::Dataset(_)
         | Command::NewFile
+        | Command::AddCase
         | Command::Orthoplan(_)
         | Command::Plancards(_)
         | Command::Conjoint(_)
@@ -383,6 +384,12 @@ impl Engine {
                 self.case_limit = None;
                 self.scratch_assigned.clear();
                 self.vectors.clear();
+            }
+            Command::AddCase => {
+                let data = self.active_mut()?;
+                let mut cases: Vec<Option<usize>> = (0..data.case_count()).map(Some).collect();
+                cases.push(None);
+                data.take_cases(&cases).map_err(|e| Error(e.to_string()))?;
             }
             Command::ClearTransformations => self.clear_transformations(),
             Command::Erase(file) => {

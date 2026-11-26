@@ -21,6 +21,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "EXPORT",
             "XSAVE",
             "NEW FILE",
+            "ADD CASE",
             "ADD FILES",
             "MATCH FILES",
             "STAR JOIN",

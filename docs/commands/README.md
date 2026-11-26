@@ -20,6 +20,7 @@ One page per supported command, generated from the same table that the parser an
 | [EXPORT](export.md) | Write the active dataset to a portable (.por) file. |
 | [XSAVE](xsave.md) | Write the cases to a data file as the next data pass reads them. |
 | [NEW FILE](new-file.md) | Start a new, empty active dataset. |
+| [ADD CASE](add-case.md) | A Statscraft extension: one blank case after the last case of the active dataset. |
 | [ADD FILES](add-files.md) | Append the cases of several data files, matching variables by name. |
 | [MATCH FILES](match-files.md) | Combine the variables of several data files case by case or by key. |
 | [STAR JOIN](star-join.md) | Add the fields of lookup files to every case of a data file, by keys, as an SQL left join. |

@@ -3254,8 +3254,13 @@ impl App {
         }
         let headers: Vec<String> = data.variable_names().map(str::to_string).collect();
         let currencies = self.session.currencies();
+        let cases = data.case_count();
         let cell = |r: usize, c: usize| {
             let variable = data.variable_at(c);
+            // the empty row under the last case takes the values of a new one
+            if r >= cases {
+                return (Some(String::new()), cell_align(&variable));
+            }
             let labelled = labels && !variable.value_labels().is_empty();
             let sysmis = matches!(variable.values(), Values::Numeric(v) if v.get(r).is_none());
             let text = edits::cell_text(&variable, r, labelled, &currencies);
@@ -3264,23 +3269,27 @@ impl App {
         let mut commit = false;
         let mut cancel = false;
         let edit = &mut self.view.cell_edit;
-        let events = paint_grid(
-            ui,
-            "data",
-            &headers,
-            &widths,
-            data.case_count(),
-            self.view.selected.as_ref(),
-            std::mem::take(&mut self.view.follow),
-            &cell,
-            &filtered_out(data),
-            edit.as_ref().map(|e| (e.row, e.column)),
-            &mut |ui, rect| {
-                if let Some(e) = edit.as_mut() {
-                    (commit, cancel) = cell_editor(ui, rect, e);
-                }
-            },
-        );
+        let new_row = usize::from(data.variable_count() > 0);
+        let events = {
+            let struck = filtered_out(data);
+            paint_grid(
+                ui,
+                "data",
+                &headers,
+                &widths,
+                cases + new_row,
+                self.view.selected.as_ref(),
+                std::mem::take(&mut self.view.follow),
+                &cell,
+                &|r| r < cases && struck(r),
+                edit.as_ref().map(|e| (e.row, e.column)),
+                &mut |ui, rect| {
+                    if let Some(e) = edit.as_mut() {
+                        (commit, cancel) = cell_editor(ui, rect, e);
+                    }
+                },
+            )
+        };
         self.view.page = events.page.max(1);
         let modifiers = ui.input(|i| i.modifiers);
         if select(&mut self.view.selected, &events, modifiers) {
@@ -3318,7 +3327,13 @@ impl App {
         let Some(data) = window_data(&self.session, &self.windows, self.here) else {
             return;
         };
-        let text = edits::edit_text(&data.variable_at(column), row);
+        if column >= data.variable_count() {
+            return;
+        }
+        let text = match row < data.case_count() {
+            true => edits::edit_text(&data.variable_at(column), row),
+            false => String::new(),
+        };
         self.view.selected = Some(grid::Selection::cell((row, column)));
         self.view.cell_edit = Some(CellEdit {
             row,
@@ -3339,7 +3354,10 @@ impl App {
         if e.text == e.original {
             return;
         }
+        // a value in the empty row under the last case adds the case first
+        let new = e.row >= data.case_count();
         match edits::cell_edit(&data.variable_at(e.column), e.row, &e.text) {
+            Ok(syntax) if new => self.run(&format!("ADD CASE.\n{syntax}"), None, After::Show),
             Ok(syntax) => self.run(&syntax, None, After::Show),
             Err(message) => self.status = Err(message),
         }
@@ -3357,8 +3375,9 @@ impl App {
         };
         let variables = self.view.tab == Tab::Variables;
         let (rows, columns, editing) = match self.view.tab {
+            // the empty row under the last case too
             Tab::Data => (
-                data.case_count(),
+                data.case_count() + 1,
                 data.variable_count(),
                 self.view.cell_edit.is_some(),
             ),
@@ -3899,9 +3918,10 @@ impl App {
             return;
         };
         let variable_view = self.view.tab == Tab::Variables;
-        // the Variable View's empty row under the last variable has no menu
-        let count =
-            window_data(&self.session, &self.windows, self.here).map_or(0, Dataset::variable_count);
+        // the empty row under the last variable or case has no menu
+        let data = window_data(&self.session, &self.windows, self.here);
+        let count = data.map_or(0, Dataset::variable_count);
+        let cases = data.map_or(0, Dataset::case_count);
         let selection = match variable_view {
             true => &self.view.variable_selected,
             false => &self.view.selected,
@@ -3912,9 +3932,10 @@ impl App {
                 Some(grid_menu::Target::Variables(picked(&s.columns)))
             }
             (grid::Hit::Number(_), false, Some(s)) => {
-                Some(grid_menu::Target::Cases(picked(&s.rows)))
+                let rows: Vec<usize> = s.rows.iter().copied().filter(|&r| r < cases).collect();
+                (!rows.is_empty()).then_some(grid_menu::Target::Cases(rows))
             }
-            (grid::Hit::Cell(case, column), false, _) => {
+            (grid::Hit::Cell(case, column), false, _) if case < cases => {
                 Some(grid_menu::Target::Cell { case, column })
             }
             (grid::Hit::Number(_), true, Some(s)) => {

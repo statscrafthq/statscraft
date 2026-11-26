@@ -7222,6 +7222,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: output::echo,
     },
     CommandSpec {
+        name: "ADD CASE",
+        summary: "A Statscraft extension: one blank case after the last case of the active dataset.",
+        syntax: "ADD CASE.\n\
+                 Not a command of the language: Statscraft adds it so that a value typed under the last\n\
+                 case in the window's Data tab has a case to go to. The new case is system-missing in every\n\
+                 numeric variable and blank in every string; the transformations waiting for the data run\n\
+                 first. A value goes in with IF ($CASENUM = n), as an edit of any other cell does.",
+        example: "ADD CASE.\nIF ($CASENUM = 4) height = 172.",
+        parse: output::add_case,
+    },
+    CommandSpec {
         name: "NEW FILE",
         summary: "Start a new, empty active dataset.",
         syntax: "NEW FILE.\n\

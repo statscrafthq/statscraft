@@ -130,6 +130,34 @@ fn numeric_and_string_after_new_file_start_the_blank_dataset() {
 }
 
 #[test]
+fn add_case_puts_a_blank_case_after_the_last_one() {
+    let mut s = session();
+    // the waiting COMPUTE runs first, so the old cases have it and the new one is blank
+    run(
+        &mut s,
+        "COMPUTE twice = id * 2.\nADD CASE.\nIF ($CASENUM = 4) id = 9.",
+    );
+    let data = s.dataset().unwrap();
+    assert_eq!(data.case_count(), 4);
+    let column = |name: &str| match data.variable(name).unwrap().values() {
+        Values::Numeric(v) => (0..4).map(|c| v.get(c)).collect::<Vec<_>>(),
+        Values::String(_) => panic!("{name} is numeric"),
+    };
+    assert_eq!(column("id"), [Some(1.0), Some(2.0), Some(3.0), Some(9.0)]);
+    assert_eq!(column("twice"), [Some(2.0), Some(4.0), Some(6.0), None]);
+    match data.variable("name").unwrap().values() {
+        Values::String(v) => assert_eq!(v.get(3), ""),
+        Values::Numeric(_) => panic!("name is a string"),
+    }
+    // a blank dataset takes cases once it has a variable
+    run(
+        &mut s,
+        "NEW FILE.\nNUMERIC height (F5.1).\nADD CASE.\nADD CASE.",
+    );
+    assert_eq!(s.dataset().unwrap().case_count(), 2);
+}
+
+#[test]
 fn clear_transformations_goes_back_to_the_last_data_pass() {
     let mut s = session();
     run(

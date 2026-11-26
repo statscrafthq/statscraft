@@ -299,6 +299,8 @@ pub enum Command {
     },
     Echo(String),
     NewFile,
+    /// ADD CASE, a Statscraft extension: one blank case after the last.
+    AddCase,
     ClearTransformations,
     /// TIME PROGRAM: the transformations after it define time-dependent covariates.
     TimeProgram,

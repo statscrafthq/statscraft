@@ -63,6 +63,8 @@ fn titles_take_free_text_or_a_quoted_string() {
 #[test]
 fn file_commands_need_their_keywords() {
     assert_eq!(one("NEW FILE."), Command::NewFile);
+    assert_eq!(one("ADD CASE."), Command::AddCase);
+    assert!(err("ADD CASE 2.").contains("expected"));
     assert_eq!(one("CLEAR TRANSFORMATIONS."), Command::ClearTransformations);
     assert_eq!(one("ERASE FILE 'a.txt'."), Command::Erase("a.txt".into()));
     assert_eq!(one("ERASE FILE='a.txt'."), Command::Erase("a.txt".into()));

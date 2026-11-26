@@ -184,6 +184,11 @@ pub(crate) fn new_file(p: &mut Parser) -> PResult<Command> {
     Ok(Command::NewFile)
 }
 
+pub(crate) fn add_case(p: &mut Parser) -> PResult<Command> {
+    p.finish(&[])?;
+    Ok(Command::AddCase)
+}
+
 pub(crate) fn clear_transformations(p: &mut Parser) -> PResult<Command> {
     p.finish(&[])?;
     Ok(Command::ClearTransformations)

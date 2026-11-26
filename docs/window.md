@@ -67,6 +67,7 @@ The cases, in a grid that draws only the visible cells.
 ### Editing
 
 - Double-click a cell or press Enter to change it. Enter commits, Escape cancels.
+- An empty row under the last case takes a new one: a value typed there runs `ADD CASE.` and then sets the value, like any edit. The other values of the new case are missing until you type them.
 - Delete with whole columns selected asks to delete those variables.
 - Delete with cells selected clears them, for example `IF (RANGE($CASENUM, 2, 4)) age = $SYSMIS.` (a blank for a string). Ctrl+Z brings them back.
 
