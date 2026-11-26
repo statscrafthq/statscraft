@@ -8,6 +8,7 @@ mod agreement_r;
 mod aim_selectpred;
 mod alscal;
 mod alscal_asymmetric;
+mod alscal_rectangular;
 mod anova;
 mod autorecode;
 mod bayes;

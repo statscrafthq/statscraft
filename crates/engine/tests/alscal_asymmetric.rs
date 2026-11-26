@@ -447,21 +447,11 @@ fn the_header_names_the_conditionality_and_a_symmetric_matrix_has_no_rows() {
 }
 
 #[test]
-fn the_shapes_and_models_not_yet_known_are_still_refused() {
-    for (syntax, wanted) in [
-        (
-            "ALSCAL VARIABLES=s1 TO s7 /SHAPE=RECTANGULAR.",
-            "SHAPE=RECTANGULAR",
-        ),
-        (
-            "ALSCAL VARIABLES=s1 TO s7 /SHAPE=ASYMMETRIC /MODEL=ASCAL.",
-            "MODEL=ASCAL",
-        ),
-    ] {
-        let (_, errors) = parse(&format!("{SYM}{syntax}"));
-        assert!(
-            errors.iter().any(|e| e.message.contains(wanted)),
-            "{syntax}: {errors:?}"
-        );
-    }
+fn the_models_not_yet_known_are_still_refused() {
+    let syntax = "ALSCAL VARIABLES=s1 TO s7 /SHAPE=ASYMMETRIC /MODEL=ASCAL.";
+    let (_, errors) = parse(&format!("{SYM}{syntax}"));
+    assert!(
+        errors.iter().any(|e| e.message.contains("MODEL=ASCAL")),
+        "{errors:?}"
+    );
 }

@@ -32,11 +32,12 @@ use crate::chart::{Axis, ChartKind};
 use crate::descriptives::number;
 use crate::matrix::{Matrix, inverse, symmetric_eigen};
 use crate::mds::{first_positive, monotone, principal_axes, zeros};
+use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::plot::{Plot, Point, PointGroup};
-use crate::proxscal::{Reading, coordinates, space_chart, square};
+use crate::proxscal::{Input, Reading, coordinates, space_chart, square};
 use crate::{Cell, Chart, Engine, Error, Table};
-use statscraft_data::{Dataset, Values};
+use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{Alscal, AlscalLevel, ProxShape};
 
 /// One proximity that counts: of stimulus `a` to stimulus `b`.
@@ -64,6 +65,14 @@ struct Data {
     /// matrices, or a row of a matrix.
     groups: Vec<Vec<(usize, usize)>>,
     asymmetric: bool,
+}
+
+/// A rectangular matrix of proximities as a square one over rows then columns: the proximity
+/// of row stimulus i and column stimulus j at (i, rows + j), the others missing; its stimuli
+/// are named, and the weights and the values missing are as given by the reading.
+struct Rectangle {
+    rows: usize,
+    columns: usize,
 }
 
 impl Data {
@@ -197,6 +206,56 @@ fn start(data: &Data, p: usize) -> Matrix {
         }
     }
     x
+}
+
+/// The proximities of one rectangular matrix as one symmetric matrix over the rows and the
+/// columns for the start: a missing cross value takes the mean of the matrix, and the distance
+/// of two stimuli of the same set is half the sum of its bounds from the triangle inequality:
+/// at least the largest, and at most the smallest, of the sums and differences of their
+/// distances to the stimuli of the other set.
+fn unfolded(o: &Matrix, present: &[Vec<bool>], rect: &Rectangle) -> Matrix {
+    let (r, c) = (rect.rows, rect.columns);
+    let n = r + c;
+    let given: Vec<f64> = (0..r)
+        .flat_map(|i| (0..c).map(move |j| (i, j)))
+        .filter(|&(i, j)| present[i][r + j])
+        .map(|(i, j)| o[i][r + j])
+        .collect();
+    let mean = match given.is_empty() {
+        true => 0.0,
+        false => given.iter().sum::<f64>() / given.len() as f64,
+    };
+    let mut d = zeros(n, n);
+    for i in 0..r {
+        for j in 0..c {
+            let v = if present[i][r + j] { o[i][r + j] } else { mean };
+            d[i][r + j] = v;
+            d[r + j][i] = v;
+        }
+    }
+    let between = |d: &Matrix, a: usize, b: usize, others: std::ops::Range<usize>| -> f64 {
+        let (mut low, mut high) = (0.0_f64, f64::INFINITY);
+        for z in others {
+            low = low.max((d[a][z] - d[b][z]).abs());
+            high = high.min(d[a][z] + d[b][z]);
+        }
+        match high.is_finite() && high >= low {
+            true => (low + high) / 2.0,
+            false => low,
+        }
+    };
+    let mut full = d.clone();
+    for (a, b) in pairs(r) {
+        let v = between(&d, a, b, r..n);
+        full[a][b] = v;
+        full[b][a] = v;
+    }
+    for (a, b) in pairs(c) {
+        let v = between(&d, r + a, r + b, 0..r);
+        full[r + a][r + b] = v;
+        full[r + b][r + a] = v;
+    }
+    full
 }
 
 /// The squared disparities of every group fitted to the squared distances `e`, then rescaled
@@ -584,16 +643,81 @@ fn finish(mut fit: Fit, indscal: bool) -> Fit {
 type FileStart = (Option<Matrix>, Option<Matrix>);
 
 impl Engine {
+    /// The data of SHAPE=RECTANGULAR: every case is a row of a matrix of the variables'
+    /// columns, ROWS(n) cases to a matrix (all of them without ROWS). The proximities sit in
+    /// the block of a square matrix over rows then columns that the rows and columns of the
+    /// data span.
+    fn rectangular_input(&self, command: &Alscal) -> Result<(Input, Rectangle), Error> {
+        let data = self.active()?;
+        let variables: Vec<Variable> = self
+            .expand(&command.variables)?
+            .iter()
+            .map(|n| data.variable(n))
+            .collect::<Result<_, _>>()?;
+        if let Some(v) = variables.iter().find(|v| v.is_string()) {
+            return Err(Error(format!(
+                "ALSCAL needs numeric variables, but {} is a string variable",
+                v.name()
+            )));
+        }
+        let mut warnings = Vec::new();
+        if data.weight_variable().is_some() {
+            warnings.push("ALSCAL does not use the weight variable".to_string());
+        }
+        let cases = data.case_count();
+        let rows = command.rows.unwrap_or(cases);
+        let columns = variables.len();
+        if rows < 4 || columns < 4 {
+            return Err(Error(format!(
+                "ALSCAL needs at least 4 rows and 4 columns in a rectangular matrix, but there are {rows} and {columns}"
+            )));
+        }
+        if cases % rows != 0 {
+            return Err(Error(format!(
+                "ALSCAL: the number of cases, {cases}, is not a multiple of INPUT=ROWS({rows})"
+            )));
+        }
+        let m = cases / rows;
+        let n = rows + columns;
+        let mut delta = vec![vec![vec![f64::NAN; n]; n]; m];
+        let mut w = vec![zeros(n, n); m];
+        for k in 0..m {
+            for i in 0..rows {
+                for (j, v) in variables.iter().enumerate() {
+                    let case = k * rows + i;
+                    if let (true, Values::Numeric(values)) = (is_valid(v, case, false), v.values())
+                        && let Some(x) = values.get(case)
+                    {
+                        delta[k][i][rows + j] = x;
+                        w[k][i][rows + j] = 1.0;
+                    }
+                }
+            }
+        }
+        let objects = (1..=rows)
+            .map(|i| format!("Row {i}"))
+            .chain(variables.iter().map(|v| v.name().to_string()))
+            .collect();
+        let input = Input {
+            objects,
+            sources: (1..=m).map(|k| format!("SRC_{k}")).collect(),
+            delta,
+            w,
+            similarity: false,
+            warnings,
+        };
+        Ok((input, Rectangle { rows, columns }))
+    }
+
     /// Reads the stimulus coordinates (rows whose TYPE_ starts with CON or ROW) and the subject
     /// weights (SUB) for `p` dimensions from the file of an ALSCAL /FILE: the first `n` or `m`
     /// such rows with a value for DIMp, which is the block an OUTFILE of `p` dimensions writes.
     fn alscal_file(
         &self,
         file: &statscraft_syntax::AlscalFile,
-        n: usize,
-        m: usize,
-        p: usize,
+        (n, m, p): (usize, usize, usize),
         indscal: bool,
+        rect: Option<&Rectangle>,
         warnings: &mut Vec<String>,
     ) -> Result<FileStart, Error> {
         let data = self.data_file(&file.name)?;
@@ -630,7 +754,20 @@ impl Engine {
                 })
                 .collect()
         };
-        let config = if file.config {
+        let config = if let (true, Some(r)) = (file.config, rect) {
+            // the rows of the data (TYPE_ ROW or CON), then its columns (TYPE_ COL)
+            let (rows, columns) = (rows_of(&["CON", "ROW"]), rows_of(&["COL"]));
+            if rows.len() < r.rows || columns.len() < r.columns {
+                return Err(Error(format!(
+                    "{who}: the file has {} row rows (TYPE_ ROW or CON) and {} column rows (TYPE_ COL) with {p} dimensions, and {} rows and {} columns are scaled",
+                    rows.len(),
+                    columns.len(),
+                    r.rows,
+                    r.columns
+                )));
+            }
+            Some([&rows[..r.rows], &columns[..r.columns]].concat())
+        } else if file.config {
             let rows = rows_of(&["CON", "ROW"]);
             if rows.len() < n {
                 return Err(Error(format!(
@@ -668,27 +805,37 @@ impl Engine {
     }
 
     pub(crate) fn alscal(&mut self, command: &Alscal) -> Result<Vec<Table>, Error> {
-        let input = self.proximity_input(&Reading {
-            who: "ALSCAL",
-            variables: &command.variables,
-            weights: &[],
-            table: None,
-            shape: match command.asymmetric {
-                true => ProxShape::Full,
-                false => ProxShape::Lower,
-            },
-            matrix_in: &command.matrix_in,
-            matrix_items: true,
-        })?;
+        let (input, rectangle) = match command.rectangular {
+            true => {
+                let (input, rectangle) = self.rectangular_input(command)?;
+                (input, Some(rectangle))
+            }
+            false => {
+                let input = self.proximity_input(&Reading {
+                    who: "ALSCAL",
+                    variables: &command.variables,
+                    weights: &[],
+                    table: None,
+                    shape: match command.asymmetric {
+                        true => ProxShape::Full,
+                        false => ProxShape::Lower,
+                    },
+                    matrix_in: &command.matrix_in,
+                    matrix_items: true,
+                })?;
+                (input, None)
+            }
+        };
         let mut warnings = input.warnings.clone();
         let n = input.objects.len();
         let m = input.sources.len();
         if let Some(rows) = command.rows
             && command.matrix_in.is_none()
+            && !command.rectangular
             && rows != n
         {
             return Err(Error(format!(
-                "ALSCAL: INPUT=ROWS({rows}) with {n} variables needs SHAPE=RECTANGULAR, which is not supported yet"
+                "ALSCAL: INPUT=ROWS({rows}) with {n} variables needs SHAPE=RECTANGULAR"
             )));
         }
         if n < 4 {
@@ -754,7 +901,11 @@ impl Engine {
                 let mut list = Vec::new();
                 for i in 0..n {
                     for j in 0..n {
-                        let wanted = if asymmetric { i != j } else { j < i };
+                        let wanted = match &rectangle {
+                            Some(r) => i < r.rows && j >= r.rows,
+                            None if asymmetric => i != j,
+                            None => j < i,
+                        };
                         if wanted && present[k][i][j] {
                             list.push(Obs {
                                 a: i,
@@ -787,9 +938,14 @@ impl Engine {
             })
             .collect();
         // the start works on one symmetric matrix per subject
-        let (o, present) = match asymmetric {
-            false => (o, present),
-            true => {
+        let (o, present) = match (&rectangle, asymmetric) {
+            (Some(rect), _) => {
+                let sym: Vec<Matrix> = (0..m).map(|k| unfolded(&o[k], &present[k], rect)).collect();
+                let has = vec![(0..n).map(|i| (0..n).map(|j| i != j).collect()).collect(); m];
+                (sym, has)
+            }
+            (None, false) => (o, present),
+            (None, true) => {
                 let mut sym = vec![zeros(n, n); m];
                 let mut has = vec![vec![vec![false; n]; n]; m];
                 for k in 0..m {
@@ -830,7 +986,7 @@ impl Engine {
                     (false, false) => (0..m).map(|k| of(k).collect()).collect(),
                 }
             },
-            asymmetric,
+            asymmetric: asymmetric || rectangle.is_some(),
         };
         if data.cells.iter().all(Vec::is_empty) {
             return Err(Error("ALSCAL: every proximity is missing".into()));
@@ -842,7 +998,13 @@ impl Engine {
         let mut fits: Vec<(usize, Fit)> = Vec::new();
         // the configuration and weights file, for the largest dimensionality
         let given = match &command.file {
-            Some(file) => Some(self.alscal_file(file, n, m, max_dim, indscal, &mut warnings)?),
+            Some(file) => Some(self.alscal_file(
+                file,
+                (n, m, max_dim),
+                indscal,
+                rectangle.as_ref(),
+                &mut warnings,
+            )?),
             None => None,
         };
         for p in (min_dim..=max_dim).rev() {
@@ -871,16 +1033,20 @@ impl Engine {
                 AlscalLevel::Ratio(_) => "Ratio",
                 AlscalLevel::Nominal => "Nominal",
             };
+            let stimuli = match &rectangle {
+                Some(r) => format!("{} rows and {} columns", r.rows, r.columns),
+                None => n.to_string(),
+            };
             let rows = [
-                ("Stimuli", n.to_string()),
+                ("Stimuli", stimuli),
                 ("Matrices", m.to_string()),
                 ("Level of measurement", level_name.to_string()),
                 (
                     "Shape",
-                    if asymmetric {
-                        "Asymmetric"
-                    } else {
-                        "Symmetric"
+                    match (&rectangle, asymmetric) {
+                        (Some(_), _) => "Rectangular",
+                        (None, true) => "Asymmetric",
+                        (None, false) => "Symmetric",
                     }
                     .to_string(),
                 ),
@@ -925,12 +1091,10 @@ impl Engine {
                     1 => "Raw Data".to_string(),
                     _ => format!("Raw Data: Matrix {} ({name})", k + 1),
                 };
-                tables.push(square(
-                    title,
-                    &input.objects,
-                    &input.delta[k],
-                    Some(&input.w[k]),
-                ));
+                tables.push(match &rectangle {
+                    Some(r) => block(title, &input.objects, r, &input.delta[k], &input.w[k]),
+                    None => square(title, &input.objects, &input.delta[k], Some(&input.w[k])),
+                });
             }
         }
         for (p, fit) in &fits {
@@ -995,12 +1159,28 @@ impl Engine {
                 ..Table::default()
             });
             let dims: Vec<String> = (1..=*p).map(|d| format!("Dimension {d}")).collect();
-            tables.push(coordinates(
-                suffix("Stimulus Coordinates"),
-                &input.objects,
-                &fit.x,
-                &dims,
-            ));
+            match &rectangle {
+                Some(r) => {
+                    tables.push(coordinates(
+                        suffix("Row Stimulus Coordinates"),
+                        &input.objects[..r.rows],
+                        &fit.x[..r.rows].to_vec(),
+                        &dims,
+                    ));
+                    tables.push(coordinates(
+                        suffix("Column Stimulus Coordinates"),
+                        &input.objects[r.rows..],
+                        &fit.x[r.rows..].to_vec(),
+                        &dims,
+                    ));
+                }
+                None => tables.push(coordinates(
+                    suffix("Stimulus Coordinates"),
+                    &input.objects,
+                    &fit.x,
+                    &dims,
+                )),
+            }
             if indscal {
                 let mut columns = vec!["Matrix".to_string()];
                 columns.extend(dims.iter().cloned());
@@ -1032,7 +1212,10 @@ impl Engine {
                         1 => suffix("Optimally Scaled Data"),
                         _ => suffix(&format!("Optimally Scaled Data: Matrix {}", k + 1)),
                     };
-                    tables.push(square(title, &input.objects, &scaled, Some(&input.w[k])));
+                    tables.push(match &rectangle {
+                        Some(r) => block(title, &input.objects, r, &scaled, &input.w[k]),
+                        None => square(title, &input.objects, &scaled, Some(&input.w[k])),
+                    });
                 }
             }
         }
@@ -1140,8 +1323,15 @@ impl Engine {
             let mut values: Vec<Vec<f64>> = Vec::new();
             let top = max_dim;
             for (p, fit) in &fits {
-                for r in &fit.x {
-                    kinds.push("CON".to_string());
+                for (point, r) in fit.x.iter().enumerate() {
+                    kinds.push(
+                        match &rectangle {
+                            Some(rect) if point < rect.rows => "ROW",
+                            Some(_) => "COL",
+                            None => "CON",
+                        }
+                        .to_string(),
+                    );
                     dimens.push(Some(*p as f64));
                     matnum.push(Some(0.0));
                     values.push(r.clone());
@@ -1172,6 +1362,36 @@ impl Engine {
         }
         self.charts.extend(charts);
         Ok(tables)
+    }
+}
+
+/// A rectangular matrix as a table: the rows of the data down, the columns across; a cell
+/// that is missing or does not count is left empty.
+fn block(
+    title: String,
+    objects: &[String],
+    rect: &Rectangle,
+    values: &Matrix,
+    w: &Matrix,
+) -> Table {
+    let (r, c) = (rect.rows, rect.columns);
+    let mut columns = vec![String::new()];
+    columns.extend(objects[r..].iter().cloned());
+    Table {
+        title,
+        columns,
+        rows: (0..r)
+            .map(|i| {
+                let mut row = vec![text(objects[i].clone())];
+                row.extend((0..c).map(|j| match w[i][r + j] > 0.0 {
+                    true => number(Some(values[i][r + j])),
+                    false => Cell::Empty,
+                }));
+                row
+            })
+            .collect(),
+        row_headers: 1,
+        ..Table::default()
     }
 }
 

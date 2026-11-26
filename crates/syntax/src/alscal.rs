@@ -43,6 +43,8 @@ pub struct Alscal {
     pub row: bool,
     /// SHAPE=ASYMMETRIC: both triangles of every matrix are data.
     pub asymmetric: bool,
+    /// SHAPE=RECTANGULAR: rows and columns are two sets of stimuli (unfolding).
+    pub rectangular: bool,
     /// MODEL=INDSCAL.
     pub indscal: bool,
     pub negative: bool,
@@ -100,6 +102,7 @@ fn not_yet(p: &Parser, what: &str) -> SyntaxError {
 }
 
 pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
+    let mut colconf = false;
     let mut command = Alscal {
         variables: Vec::new(),
         rows: None,
@@ -110,6 +113,7 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
         unconditional: false,
         row: false,
         asymmetric: false,
+        rectangular: false,
         indscal: false,
         negative: false,
         cutoff: 0.0,
@@ -150,14 +154,12 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("SHAPE") {
             p.eat(Punct::Eq);
-            if p.at_keyword("RECTANGULAR") {
-                return Err(not_yet(p, "SHAPE=RECTANGULAR"));
-            }
+            (command.asymmetric, command.rectangular) = (false, false);
             if p.eat_keyword("ASYMMETRIC") {
                 command.asymmetric = true;
-            } else if p.eat_keyword("SYMMETRIC") {
-                command.asymmetric = false;
-            } else {
+            } else if p.eat_keyword("RECTANGULAR") {
+                command.rectangular = true;
+            } else if !p.eat_keyword("SYMMETRIC") {
                 return Err(p.unexpected(&["SYMMETRIC", "ASYMMETRIC", "RECTANGULAR"]));
             }
         } else if p.eat_keyword("LEVEL") {
@@ -327,14 +329,18 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             p.eat(Punct::Eq);
             let name = crate::files::dataset_or_file(p)?;
             let (mut config, mut weights, mut given) = (false, false, false);
+            colconf = false;
             while !at_end(p) {
                 let start = p.pos;
                 if p.eat_keyword("CONFIG") || p.eat_keyword("ROWCONF") {
                     config = true;
+                } else if p.eat_keyword("COLCONF") {
+                    config = true;
+                    colconf = true;
                 } else if p.eat_keyword("SUBJWGHT") {
                     weights = true;
                 } else {
-                    return Err(p.unexpected(&["CONFIG", "ROWCONF", "SUBJWGHT"]));
+                    return Err(p.unexpected(&["CONFIG", "ROWCONF", "COLCONF", "SUBJWGHT"]));
                 }
                 given = true;
                 if p.eat(Punct::LParen) {
@@ -373,10 +379,22 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             "ALSCAL needs VARIABLES unless MATRIX=IN reads a proximity matrix",
         ));
     }
-    if command.row && !command.asymmetric {
+    if command.row && !command.asymmetric && !command.rectangular {
         return Err(SyntaxError::new(
             p.span(),
-            "CONDITION=ROW needs SHAPE=ASYMMETRIC (or RECTANGULAR): a symmetric matrix has no rows of its own",
+            "CONDITION=ROW needs SHAPE=ASYMMETRIC or RECTANGULAR: a symmetric matrix has no rows of its own",
+        ));
+    }
+    if command.rectangular && command.matrix_in.is_some() {
+        return Err(SyntaxError::new(
+            p.span(),
+            "SHAPE=RECTANGULAR reads the cases of the active dataset; MATRIX=IN holds square proximities",
+        ));
+    }
+    if colconf && !command.rectangular {
+        return Err(SyntaxError::new(
+            p.span(),
+            "COLCONF of FILE needs SHAPE=RECTANGULAR: only then are there columns of stimuli of their own",
         ));
     }
     if command.indscal && command.dimensions.0 < 2 {
