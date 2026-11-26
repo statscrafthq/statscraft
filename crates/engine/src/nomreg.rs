@@ -1055,8 +1055,9 @@ impl Engine {
                 let total: f64 = r.iter().sum();
                 r.iter()
                     .map(|&v| {
-                        let v = v + c.bias;
-                        if v == 0.0 && total > 0.0 { c.delta } else { v }
+                        // an empty cell of a subpopulation with cases gets DELTA, every cell BIAS
+                        let empty = v == 0.0 && total > 0.0;
+                        v + c.bias + if empty { c.delta } else { 0.0 }
                     })
                     .collect()
             })
