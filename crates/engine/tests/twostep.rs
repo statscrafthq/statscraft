@@ -842,6 +842,12 @@ fn infile_refuses_what_the_saved_model_cannot_take() {
         )
         .contains("name the variables in the order of the file")
     );
+    // a state file edited into something inconsistent is refused, not trusted
+    let mut state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("s.json")).unwrap()).unwrap();
+    state["subclusters"][0]["mean"] = serde_json::json!([0.5]);
+    std::fs::write(dir.join("edited.json"), state.to_string()).unwrap();
+    assert!(attempt(&mut engine, ok, &using("edited.json")).contains("does not fit the variables"));
     // one new case is enough
     let one = "DATA LIST FREE /x y (F4.1) c (A1).\nBEGIN DATA\n1 2 a\nEND DATA.\n";
     let tables = run_on(&mut engine, &format!("{one}{}", using("s.json")));

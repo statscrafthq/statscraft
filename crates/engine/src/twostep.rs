@@ -732,6 +732,22 @@ impl Engine {
         if subclusters.is_empty() {
             return Err(bad("it holds no subclusters"));
         }
+        for cf in &subclusters {
+            let fits = cf.n > 0.0
+                && cf.mean.len() == scales.len()
+                && cf.ss.len() == scales.len()
+                && cf.counts.len() == categories.len()
+                && cf
+                    .counts
+                    .iter()
+                    .zip(&categories)
+                    .all(|(c, (_, levels))| c.len() == levels.len());
+            if !fits {
+                return Err(bad(
+                    "a subcluster does not fit the variables and categories it names",
+                ));
+            }
+        }
         let whole = |v: &serde_json::Value| {
             v.as_u64()
                 .map(|n| n as usize)
