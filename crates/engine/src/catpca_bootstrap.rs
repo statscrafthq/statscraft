@@ -294,7 +294,7 @@ impl Engine {
         let wanted = !command.plot.charts.is_empty()
             || command.save_areas != Default::default()
             || command.outfile_ellcoord.is_some();
-        let mut clouds = (p == 2 && wanted).then(|| Clouds::new(prep, original));
+        let mut clouds = (p == 2 && wanted).then(|| Clouds::new(prep, original, spec.samples));
         let pool = spec
             .balanced
             .then(|| balanced_pool(n, spec.samples, || self.random()));
@@ -508,11 +508,24 @@ pub(crate) struct Cloud {
     sxx: f64,
     sxy: f64,
     syy: f64,
+    /// The points themselves, for the joint plots; kept only when `keep` is set.
+    keep: bool,
+    points: Vec<[f64; 2]>,
 }
 
 impl Cloud {
+    fn keeping(keep: bool) -> Cloud {
+        Cloud {
+            keep,
+            ..Cloud::default()
+        }
+    }
+
     fn add(&mut self, point: &[f64]) {
         let (x, y) = (point[0], point[1]);
+        if self.keep {
+            self.points.push([x, y]);
+        }
         self.n += 1.0;
         self.sx += x;
         self.sy += y;
@@ -548,16 +561,20 @@ pub(crate) struct Clouds {
 }
 
 impl Clouds {
-    fn new(prep: &Prepared, original: &Solution) -> Clouds {
+    fn new(prep: &Prepared, original: &Solution, samples: usize) -> Clouds {
+        // every k-th case keeps its points, so the plots hold at most about MAX_OBJECT_POINTS
+        let stride = object_stride(prep.n_tot, samples);
         Clouds {
             eigen: Cloud::default(),
-            loadings: vec![Cloud::default(); original.loadings.len()],
+            loadings: vec![Cloud::keeping(true); original.loadings.len()],
             categories: prep
                 .avars
                 .iter()
-                .map(|v| vec![Cloud::default(); v.cats.len()])
+                .map(|v| vec![Cloud::keeping(true); v.cats.len()])
                 .collect(),
-            objects: vec![Cloud::default(); prep.n_tot],
+            objects: (0..prep.n_tot)
+                .map(|i| Cloud::keeping(i % stride == 0))
+                .collect(),
             added_in: vec![0; prep.n_tot],
             samples: 0,
         }
@@ -659,10 +676,23 @@ impl Clouds {
     }
 }
 
-/// A confidence ellipse: its center (the data's point), its contour and its area.
+/// The most object points the joint plots keep over all samples.
+const MAX_OBJECT_POINTS: usize = 200_000;
+
+/// Every how many cases the joint plots keep the points of: 1 while the points of all cases fit.
+fn object_stride(cases: usize, samples: usize) -> usize {
+    cases
+        .saturating_mul(samples)
+        .div_ceil(MAX_OBJECT_POINTS)
+        .max(1)
+}
+
+/// A confidence ellipse: its center (the data's point), its contour and its area, and the
+/// aligned points of the samples when they were kept.
 #[derive(Clone)]
 pub(crate) struct Ellipse {
     pub(crate) center: [f64; 2],
+    pub(crate) cloud: Vec<[f64; 2]>,
     pub(crate) contour: Vec<[f64; 2]>,
     pub(crate) area: f64,
 }
@@ -712,6 +742,7 @@ fn ellipse(center: [f64; 2], cloud: &Cloud, percent: f64, points: usize) -> Opti
     contour.push(contour[0]);
     Some(Ellipse {
         center,
+        cloud: cloud.points.clone(),
         contour,
         area: std::f64::consts::PI * k * (l1 * l2).sqrt(),
     })
@@ -778,6 +809,54 @@ fn ellipse_chart(title: String, shown: &[(String, &Ellipse)]) -> Option<Chart> {
         Axis::titled("Dimension 2"),
         Plot::Points {
             groups,
+            lines: Vec::new(),
+            z_axis: None,
+        },
+    ))
+}
+
+/// A joint plot: the data's labelled points and the points the samples gave for them, in one
+/// scatter. An entity without kept sample points is left out.
+fn cloud_chart(title: String, shown: &[(String, &Ellipse)]) -> Option<Chart> {
+    let shown: Vec<_> = shown.iter().filter(|(_, e)| !e.cloud.is_empty()).collect();
+    if shown.is_empty() {
+        return None;
+    }
+    let data = shown
+        .iter()
+        .map(|(name, e)| Point {
+            x: e.center[0],
+            y: e.center[1],
+            z: None,
+            label: Some(name.clone()),
+        })
+        .collect();
+    let samples = shown
+        .iter()
+        .flat_map(|(_, e)| e.cloud.iter())
+        .map(|c| Point {
+            x: c[0],
+            y: c[1],
+            z: None,
+            label: None,
+        })
+        .collect();
+    Some(Chart::plot(
+        ChartKind::Scatter,
+        title,
+        Axis::titled("Dimension 1"),
+        Axis::titled("Dimension 2"),
+        Plot::Points {
+            groups: vec![
+                PointGroup {
+                    name: "Data".into(),
+                    points: data,
+                },
+                PointGroup {
+                    name: "Bootstrap".into(),
+                    points: samples,
+                },
+            ],
             lines: Vec::new(),
             z_axis: None,
         },
@@ -864,6 +943,10 @@ impl Engine {
                 "Confidence Ellipses of the Component Loadings".into(),
                 &picked,
             ));
+            charts.extend(cloud_chart(
+                "Bootstrap Points of the Component Loadings".into(),
+                &picked,
+            ));
         }
         if wants(|c| matches!(c, CatpcaPlot::Object(..))) {
             let all: Vec<Option<&Ellipse>> = e.objects.iter().map(Option::as_ref).collect();
@@ -879,6 +962,10 @@ impl Engine {
                 .collect();
             charts.extend(ellipse_chart(
                 "Confidence Ellipses of the Object Points".into(),
+                &picked,
+            ));
+            charts.extend(cloud_chart(
+                "Bootstrap Points of the Object Points".into(),
                 &picked,
             ));
         }
@@ -940,10 +1027,18 @@ impl Engine {
                 ),
                 &picked,
             ));
+            charts.extend(cloud_chart(
+                format!("Bootstrap Points of the Category Points: {}", name_of(j)?),
+                &picked,
+            ));
         }
         if joint {
             charts.extend(ellipse_chart(
                 "Confidence Ellipses of the Category Points".into(),
+                &joint_picked,
+            ));
+            charts.extend(cloud_chart(
+                "Bootstrap Points of the Category Points".into(),
                 &joint_picked,
             ));
         }
@@ -977,6 +1072,17 @@ fn boot_table(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_object_points_kept_are_bounded() {
+        use super::{MAX_OBJECT_POINTS, object_stride};
+        assert_eq!(object_stride(20, 30), 1);
+        assert_eq!(object_stride(1000, 200), 1);
+        let (cases, samples) = (50_000, 1000);
+        let stride = object_stride(cases, samples);
+        assert_eq!(stride, 250);
+        assert!(cases.div_ceil(stride) * samples <= MAX_OBJECT_POINTS);
+    }
+
     use super::*;
 
     fn lcg(seed: u64) -> impl FnMut() -> f64 {
@@ -1089,6 +1195,7 @@ mod tests {
     #[test]
     fn a_limit_keeps_the_ellipses_above_or_below_an_area_or_mean_plus_deviations() {
         let make = |area: f64| Ellipse {
+            cloud: Vec::new(),
             center: [0.0, 0.0],
             contour: Vec::new(),
             area,

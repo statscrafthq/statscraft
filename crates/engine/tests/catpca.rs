@@ -852,6 +852,61 @@ fn a_two_dimensional_bootstrap_draws_ellipses_the_eigenvalue_plot_and_value_band
     assert_eq!(groups[0].points[1], groups[0].points[13]);
 }
 
+fn point_groups(
+    charts: &[statscraft_engine::Chart],
+    title: &str,
+) -> Vec<statscraft_engine::plot::PointGroup> {
+    let chart = charts.iter().find(|c| c.title == title);
+    match chart.and_then(|c| c.plot.as_ref()) {
+        Some(statscraft_engine::plot::Plot::Points { groups, .. }) => groups.clone(),
+        _ => Vec::new(),
+    }
+}
+
+#[test]
+fn joint_plots_hold_the_data_points_and_the_points_of_the_samples() {
+    let run_with = || {
+        let mut engine = Engine::default();
+        run(
+            &mut engine,
+            &format!(
+                "{DATA}SET SEED=6.\n{BOOT_COMMAND} /RESAMPLE=BOOTSTRAP(30)
+                 /PLOT=OBJECT LOADING CATEGORY(taste) JOINTCAT OBELLAREA(> AREA 0)."
+            ),
+        );
+        assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+        engine.take_charts()
+    };
+    let charts = run_with();
+    // loadings: 4 variables, every sample gives each one point
+    let loadings = point_groups(&charts, "Bootstrap Points of the Component Loadings");
+    assert_eq!(loadings.len(), 2);
+    assert_eq!(loadings[0].name, "Data");
+    assert_eq!(loadings[1].name, "Bootstrap");
+    assert_eq!(loadings[0].points.len(), 4);
+    assert_eq!(loadings[1].points.len(), 4 * 30);
+    // the data group is the point of each ellipse
+    let ellipses = point_groups(&charts, "Confidence Ellipses of the Component Loadings");
+    for (data, ellipse) in loadings[0].points.iter().zip(&ellipses) {
+        assert_eq!(data.label, ellipse.points[0].label);
+        assert_eq!((data.x, data.y), (ellipse.points[0].x, ellipse.points[0].y));
+    }
+    // objects: 20 cases, each drawn into at most every sample once
+    let objects = point_groups(&charts, "Bootstrap Points of the Object Points");
+    assert_eq!(objects[0].points.len(), 20);
+    assert!(!objects[1].points.is_empty() && objects[1].points.len() <= 20 * 30);
+    for title in [
+        "Bootstrap Points of the Category Points: taste",
+        "Bootstrap Points of the Category Points",
+    ] {
+        let groups = point_groups(&charts, title);
+        assert_eq!(groups.len(), 2, "{title}");
+        assert!(groups[1].points.len() >= groups[0].points.len(), "{title}");
+    }
+    // the same seed gives the same points
+    assert_eq!(run_with(), charts);
+}
+
 #[test]
 fn ellipse_limits_choose_which_ellipses_are_drawn_and_a_seed_repeats_them() {
     let run_with = |plot: &str| {
