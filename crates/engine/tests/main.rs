@@ -156,6 +156,7 @@ mod spchart;
 mod split_filter;
 mod star_join;
 mod statistics;
+mod string_date_functions_r;
 mod summarize_codebook;
 mod table_labels;
 mod temporary_names;
