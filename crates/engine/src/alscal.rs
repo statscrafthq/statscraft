@@ -94,6 +94,9 @@ struct Fit {
     x: Matrix,
     /// Per subject the weight of every dimension (all 1 for EUCLID).
     w: Vec<Vec<f64>>,
+    /// The weight of every dimension for every stimulus as the first of a pair (ASCAL and
+    /// AINDS); None without stimulus weights.
+    v: Option<Matrix>,
     /// Squared disparities, per subject one for each of its cells.
     f: Vec<Vec<f64>>,
     history: Vec<f64>,
@@ -103,20 +106,24 @@ fn pairs(n: usize) -> impl Iterator<Item = (usize, usize)> {
     (0..n).flat_map(move |i| (0..i).map(move |j| (i, j)))
 }
 
-/// Squared distances of the model for every subject.
-fn squared(x: &Matrix, w: &[Vec<f64>]) -> Vec<Matrix> {
+/// Squared distances of the model for every subject: the weight of a dimension is the
+/// subject's times, with stimulus weights, that of the first stimulus of the pair, so that
+/// the distances are no longer symmetric.
+fn squared(x: &Matrix, w: &[Vec<f64>], v: Option<&Matrix>) -> Vec<Matrix> {
     let n = x.len();
     w.iter()
         .map(|wk| {
             let mut e = zeros(n, n);
-            for (i, j) in pairs(n) {
-                let v: f64 = wk
-                    .iter()
-                    .enumerate()
-                    .map(|(a, wa)| wa * (x[i][a] - x[j][a]).powi(2))
-                    .sum();
-                e[i][j] = v;
-                e[j][i] = v;
+            for i in 0..n {
+                for j in (0..n).filter(|&j| j != i) {
+                    e[i][j] = wk
+                        .iter()
+                        .enumerate()
+                        .map(|(a, wa)| {
+                            wa * v.map_or(1.0, |v| v[i][a]) * (x[i][a] - x[j][a]).powi(2)
+                        })
+                        .sum();
+                }
             }
             e
         })
@@ -431,7 +438,13 @@ fn cubic_roots(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
 }
 
 /// Every coordinate in turn at the minimum of S-stress with the others held.
-fn update_coordinates(data: &Data, x: &mut Matrix, w: &[Vec<f64>], f: &[Vec<f64>]) {
+fn update_coordinates(
+    data: &Data,
+    x: &mut Matrix,
+    w: &[Vec<f64>],
+    v: Option<&Matrix>,
+    f: &[Vec<f64>],
+) {
     let n = data.n;
     let p = x.first().map_or(0, Vec::len);
     let m = w.len();
@@ -451,11 +464,15 @@ fn update_coordinates(data: &Data, x: &mut Matrix, w: &[Vec<f64>], f: &[Vec<f64>
                 terms.clear();
                 for k in (0..m).filter(|&k| w[k][a] != 0.0 && c[k] != 0.0) {
                     for &(cell, j) in &data.incident[k][l] {
+                        // the weight of a dimension for this pair: the subject's, and with
+                        // stimulus weights those of the pair's first stimulus
+                        let row = data.cells[k][cell].a;
+                        let weight = |b: usize| w[k][b] * v.map_or(1.0, |v| v[row][b]);
                         let rest: f64 = (0..p)
                             .filter(|&b| b != a)
-                            .map(|b| w[k][b] * (x[l][b] - x[j][b]).powi(2))
+                            .map(|b| weight(b) * (x[l][b] - x[j][b]).powi(2))
                             .sum();
-                        terms.push((c[k], w[k][a], x[j][a], rest - f[k][cell]));
+                        terms.push((c[k], weight(a), x[j][a], rest - f[k][cell]));
                     }
                 }
                 let (mut c3, mut c2, mut c1, mut c0) = (0.0, 0.0, 0.0, 0.0);
@@ -498,84 +515,95 @@ fn update_coordinates(data: &Data, x: &mut Matrix, w: &[Vec<f64>], f: &[Vec<f64>
     }
 }
 
+/// Least squares weights of the dimensions for `rows` (the squared distances of each dimension
+/// and the squared disparity); negative ones become 0 unless allowed. `old` stays when there
+/// are too few rows or the fit fails.
+fn solve_weights(rows: &[(Vec<f64>, f64)], p: usize, negative: bool, old: &[f64]) -> Vec<f64> {
+    let fit = |cols: &[usize]| -> Option<Vec<f64>> {
+        let ptp: Matrix = cols
+            .iter()
+            .map(|&a| {
+                cols.iter()
+                    .map(|&b| rows.iter().map(|r| r.0[a] * r.0[b]).sum())
+                    .collect()
+            })
+            .collect();
+        let pty: Vec<f64> = cols
+            .iter()
+            .map(|&a| rows.iter().map(|r| r.0[a] * r.1).sum())
+            .collect();
+        let (inv, _) = inverse(&ptp)?;
+        let beta: Vec<f64> = inv
+            .iter()
+            .map(|r| r.iter().zip(&pty).map(|(a, b)| a * b).sum())
+            .collect();
+        let mut out = vec![0.0; p];
+        cols.iter().zip(beta).for_each(|(&a, b)| out[a] = b);
+        Some(out)
+    };
+    if rows.len() < p {
+        // too few pairs to weigh every dimension
+        return old.to_vec();
+    }
+    if !negative {
+        // nonnegative least squares; all weights 0 means it could not solve
+        let design: Matrix = rows.iter().map(|r| r.0.clone()).collect();
+        let target: Vec<f64> = rows.iter().map(|r| r.1).collect();
+        let w = crate::mds::nnls(&design, &target);
+        // all 0 is the answer only when no dimension points the data's way
+        let pointing = (0..p).any(|a| {
+            design
+                .iter()
+                .zip(&target)
+                .map(|(r, y)| r[a] * y)
+                .sum::<f64>()
+                > 0.0
+        });
+        return match w.iter().any(|v| *v > 0.0) || !pointing {
+            true => w,
+            false => old.to_vec(),
+        };
+    }
+    let all: Vec<usize> = (0..p).collect();
+    fit(&all).unwrap_or_else(|| old.to_vec())
+}
+
 /// Least squares dimension weights of every subject; negative ones become 0 unless allowed.
 fn update_weights(
     data: &Data,
     x: &Matrix,
+    v: Option<&Matrix>,
     f: &[Vec<f64>],
     negative: bool,
     old: &[Vec<f64>],
 ) -> Vec<Vec<f64>> {
     let p = x.first().map_or(0, Vec::len);
+    let v_of = |row: usize, a: usize| v.map_or(1.0, |v| v[row][a]);
     (0..f.len())
         .map(|k| {
             let rows: Vec<(Vec<f64>, f64)> = data.cells[k]
                 .iter()
                 .zip(&f[k])
-                .map(|(c, v)| {
+                .map(|(c, target)| {
                     (
-                        (0..p).map(|a| (x[c.a][a] - x[c.b][a]).powi(2)).collect(),
-                        *v,
+                        (0..p)
+                            .map(|a| v_of(c.a, a) * (x[c.a][a] - x[c.b][a]).powi(2))
+                            .collect(),
+                        *target,
                     )
                 })
                 .collect();
-            let fit = |cols: &[usize]| -> Option<Vec<f64>> {
-                let ptp: Matrix = cols
-                    .iter()
-                    .map(|&a| {
-                        cols.iter()
-                            .map(|&b| rows.iter().map(|r| r.0[a] * r.0[b]).sum())
-                            .collect()
-                    })
-                    .collect();
-                let pty: Vec<f64> = cols
-                    .iter()
-                    .map(|&a| rows.iter().map(|r| r.0[a] * r.1).sum())
-                    .collect();
-                let (inv, _) = inverse(&ptp)?;
-                let beta: Vec<f64> = inv
-                    .iter()
-                    .map(|r| r.iter().zip(&pty).map(|(a, b)| a * b).sum())
-                    .collect();
-                let mut out = vec![0.0; p];
-                cols.iter().zip(beta).for_each(|(&a, b)| out[a] = b);
-                Some(out)
-            };
-            if rows.len() < p {
-                // too few pairs to weigh every dimension
-                return old[k].clone();
-            }
-            if !negative {
-                // nonnegative least squares; all weights 0 means it could not solve
-                let design: Matrix = rows.iter().map(|r| r.0.clone()).collect();
-                let target: Vec<f64> = rows.iter().map(|r| r.1).collect();
-                let w = crate::mds::nnls(&design, &target);
-                // all 0 is the answer only when no dimension points the data's way
-                let pointing = (0..p).any(|a| {
-                    design
-                        .iter()
-                        .zip(&target)
-                        .map(|(r, y)| r[a] * y)
-                        .sum::<f64>()
-                        > 0.0
-                });
-                return match w.iter().any(|v| *v > 0.0) || !pointing {
-                    true => w,
-                    false => old[k].clone(),
-                };
-            }
-            let all: Vec<usize> = (0..p).collect();
-            fit(&all).unwrap_or_else(|| old[k].clone())
+            solve_weights(&rows, p, negative, &old[k])
         })
         .collect()
 }
 
-fn iterate(data: &Data, command: &Alscal, x: Matrix, w: Vec<Vec<f64>>) -> Fit {
+fn iterate(data: &Data, command: &Alscal, x: Matrix, w: Vec<Vec<f64>>, v: Option<Matrix>) -> Fit {
     let (mut x, mut w) = (x, w);
     let mut history: Vec<f64> = Vec::new();
     let mut f;
     loop {
-        let e = squared(&x, &w);
+        let e = squared(&x, &w, v.as_ref());
         f = scale_data(data, &e);
         let s = sstress(data, &e, &f);
         let improvement = history.last().map(|last| last - s);
@@ -587,11 +615,17 @@ fn iterate(data: &Data, command: &Alscal, x: Matrix, w: Vec<Vec<f64>>) -> Fit {
             break;
         }
         if command.indscal {
-            w = update_weights(data, &x, &f, command.negative, &w);
+            w = update_weights(data, &x, v.as_ref(), &f, command.negative, &w);
         }
-        update_coordinates(data, &mut x, &w, &f);
+        update_coordinates(data, &mut x, &w, v.as_ref(), &f);
     }
-    Fit { x, w, f, history }
+    Fit {
+        x,
+        w,
+        v,
+        f,
+        history,
+    }
 }
 
 /// Centered, turned and scaled for output (see the help).
@@ -1020,7 +1054,7 @@ impl Engine {
                 (None, Some((_, Some(w)))) => w.clone(),
                 _ => vec![vec![1.0; p]; m],
             };
-            let fit = finish(iterate(&data, &run, x, w), indscal);
+            let fit = finish(iterate(&data, &run, x, w, None), indscal);
             fits.push((p, fit));
         }
         let several = fits.len() > 1;
@@ -1122,7 +1156,7 @@ impl Engine {
                 row_headers: 1,
                 ..Table::default()
             });
-            let e = squared(&fit.x, &fit.w);
+            let e = squared(&fit.x, &fit.w, fit.v.as_ref());
             let mut rows = Vec::new();
             let (mut stress_sq, mut rsq_sum) = (0.0, 0.0);
             for (k, ek) in e.iter().enumerate() {
@@ -1249,7 +1283,7 @@ impl Engine {
                     }],
                 ));
             }
-            let e = squared(&fit.x, &fit.w);
+            let e = squared(&fit.x, &fit.w, fit.v.as_ref());
             let group = |k: usize, what: &dyn Fn(usize, usize, usize) -> (f64, f64)| PointGroup {
                 name: input.sources[k].clone(),
                 points: data.cells[k]
