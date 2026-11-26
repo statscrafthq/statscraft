@@ -9,6 +9,7 @@ no test or verification notes, no comparisons with other software, no internal h
 - [VERIFY](docs/commands/verify.md) reports the first and last case of the file and of the USE and PREDICT periods, flags date variables that are missing, out of range, not nested or stepping oddly, and lists one numeric series at those cases with its missing count.
 - CATPCA with `/RESAMPLE=BOOTSTRAP` also draws joint plots of the data's points together with the points the bootstrap samples gave for the loadings, objects and categories.
 - [KEYED DATA LIST](docs/commands/keyed-data-list.md) reads variables from the record of a text file that a key variable picks for each case: the record number for a number, the record that begins with the key for a string, with a variable that says whether a record was found, also inside an input program.
+- UNIANOVA and GLM `/OUTFILE` also works under `SPLIT FILE`: each file holds the groups one after the other, the split variables in front.
 
 ## 0.53.0 (2026-11-26)
 

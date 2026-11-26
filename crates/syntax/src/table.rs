@@ -4992,8 +4992,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  design.\n\
                  SAVE adds variables to the data: PRED WPRED RESID WRESID DRESID ZRESID SRESID SEPRED COOK LEVER,\n\
                  named PRE_1, RES_1 and so on unless a name is given. OUTFILE writes files for one dependent variable\n\
-                 without RANDOM, not under SPLIT FILE, each to a .sav file or a dataset made with DATASET DECLARE (a\n\
-                 different one for each keyword): COVB the parameter covariance matrix and CORB their correlation\n\
+                 without RANDOM, each to a .sav file or a dataset made with DATASET DECLARE (a different one for\n\
+                 each keyword; under SPLIT FILE the split variables come first and the groups follow one another): COVB the parameter covariance matrix and CORB their correlation\n\
                  matrix, as RowType_ (COV or CORR), VarName_ and a column P1, P2, ... for every parameter in the order\n\
                  of the Parameter Estimates (a redundant one blank), with a record per estimated parameter and then\n\
                  the records EST (the estimates, a redundant one 0), SE, DF (the error degrees of freedom) and SIG\n\
