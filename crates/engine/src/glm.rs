@@ -1201,11 +1201,6 @@ impl Engine {
         dependent: &str,
     ) -> Result<(), Error> {
         let name = command.command;
-        if self.split_group.is_some() {
-            return Err(Error(format!(
-                "{name}: OUTFILE is not available under SPLIT FILE"
-            )));
-        }
         let names: Vec<String> = fit
             .effects
             .iter()
@@ -1254,7 +1249,7 @@ impl Engine {
             file.push("DF", dependent, freedom);
             file.push("SIG", dependent, significance);
             let part = self.matrix_part(name, &file)?;
-            self.write_data_file(target, part)?;
+            self.glm_out(target, part)?;
         }
         if let (Some(target), Some(hc)) = (&out.hccovb, command.robust) {
             // the robust covariance matrix holds its diagonal terms only, as the manual says;
@@ -1287,7 +1282,7 @@ impl Engine {
             file.push("DF", dependent, freedom);
             file.push("SIG", dependent, significance);
             let part = self.matrix_part(name, &file)?;
-            self.write_data_file(target, part)?;
+            self.glm_out(target, part)?;
         }
         if let Some(target) = &out.effect {
             // the Tests of Between-Subjects Effects as numbers: a record for every row of the
@@ -1327,7 +1322,8 @@ impl Engine {
                 part.set_numeric_values(variable, values)?;
                 part.set_variable_label(variable, Some(label))?;
             }
-            self.write_data_file(target, part)?;
+            let part = self.with_split_variables(name, "/OUTFILE", "of the file", part)?;
+            self.glm_out(target, part)?;
         }
         if let Some(target) = &out.design {
             let mut part = Dataset::new(fit.x.len());
@@ -1338,8 +1334,19 @@ impl Engine {
                 part.set_format(&variable, "F10.4")?;
                 part.set_variable_label(&variable, Some(&names[k]))?;
             }
-            self.write_data_file(target, part)?;
+            let part = self.with_split_variables(name, "/OUTFILE", "of the file", part)?;
+            self.glm_out(target, part)?;
         }
+        Ok(())
+    }
+
+    /// One OUTFILE file of the running group: written at once, or under SPLIT FILE kept (with
+    /// the split variables in front) and joined with the other groups' after the last group.
+    fn glm_out(&mut self, target: &str, part: Dataset) -> Result<(), Error> {
+        if self.split_group.is_none() {
+            return self.write_data_file(target, part);
+        }
+        self.named_parts.push((target.to_string(), part));
         Ok(())
     }
 

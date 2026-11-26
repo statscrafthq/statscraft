@@ -476,11 +476,11 @@ impl Engine {
         Ok(joined)
     }
 
-    /// Stores the datasets the groups of a procedure left, the parts of one name joined in the
-    /// order of the groups.
-    pub(crate) fn store_named_parts(&mut self, parts: Vec<(String, Dataset)>) -> Result<(), Error> {
+    /// The datasets the groups of a procedure left, the parts of one name joined in the order of
+    /// the groups.
+    fn joined_named_parts(parts: &[(String, Dataset)]) -> Result<Vec<(String, Dataset)>, Error> {
         let mut names: Vec<String> = Vec::new();
-        for (name, _) in &parts {
+        for (name, _) in parts {
             if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
                 names.push(name.clone());
             }
@@ -495,11 +495,25 @@ impl Engine {
             let Some(widest) = mine.iter().max_by_key(|d| d.variable_count()) else {
                 continue;
             };
-            let joined = join_parts(widest, &mine)?;
-            made.push((name, joined));
+            made.push((name, join_parts(widest, &mine)?));
         }
-        for (name, out) in made {
+        Ok(made)
+    }
+
+    /// Stores the datasets the groups of a procedure left, the parts of one name joined in the
+    /// order of the groups.
+    pub(crate) fn store_named_parts(&mut self, parts: Vec<(String, Dataset)>) -> Result<(), Error> {
+        for (name, out) in Self::joined_named_parts(&parts)? {
             self.store_dataset(name, Some(out));
+        }
+        Ok(())
+    }
+
+    /// Writes the files (or declared datasets) the groups of a procedure left, the parts of one
+    /// target joined in the order of the groups.
+    pub(crate) fn write_named_parts(&mut self, parts: Vec<(String, Dataset)>) -> Result<(), Error> {
+        for (target, out) in Self::joined_named_parts(&parts)? {
+            self.write_data_file(&target, out)?;
         }
         Ok(())
     }

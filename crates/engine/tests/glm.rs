@@ -2973,7 +2973,7 @@ fn outfile_writes_covariances_correlations_and_the_design_matrix() {
 }
 
 #[test]
-fn outfile_is_for_one_dependent_without_random_and_not_under_split_file() {
+fn outfile_is_for_one_dependent_without_random() {
     let message = run_error(&format!(
         "{DATA}\nDATASET DECLARE c.\nGLM y x BY a /OUTFILE COVB(c)."
     ));
@@ -2982,11 +2982,54 @@ fn outfile_is_for_one_dependent_without_random_and_not_under_split_file() {
         "{DATA}\nDATASET DECLARE c.\nUNIANOVA y BY a b /RANDOM=b /OUTFILE COVB(c)."
     ));
     assert!(message.contains("RANDOM"), "{message}");
-    let message = run_error(&format!(
-        "{DATA}\nDATASET DECLARE c.\nSORT CASES BY b.\nSPLIT FILE BY b.\n\
-         UNIANOVA y BY a /OUTFILE COVB(c)."
-    ));
-    assert!(message.contains("SPLIT FILE"), "{message}");
+}
+
+// Under SPLIT FILE every OUTFILE file holds the groups one after the other, the split variable
+// in front: each group's records are those of the same model run on that group's cases alone.
+#[test]
+fn outfile_under_split_file_holds_every_groups_records() {
+    let model = "UNIANOVA y BY a WITH x /DESIGN=a x \
+                 /OUTFILE COVB(covb) EFFECT(eff) DESIGN(des).";
+    let declare = "DATASET DECLARE covb.\nDATASET DECLARE eff.\nDATASET DECLARE des.\n";
+    let mut split = Engine::default();
+    run(
+        &mut split,
+        &format!("{DATA}\n{declare}SORT CASES BY b.\nSPLIT FILE BY b.\n{model}"),
+    );
+    let columns = ["P1", "P2", "P3", "P4", "P5", "DES_1", "DES_2"];
+    let of = |engine: &mut Engine, file: &str, name: &str| {
+        run(engine, &format!("DATASET ACTIVATE {file}."));
+        values(engine, name)
+    };
+    for (file, names) in [
+        ("covb", &columns[..5]),
+        ("des", &columns[5..]),
+        ("eff", &["SS", "DF", "F"][..]),
+    ] {
+        for name in names {
+            let mut expected: Vec<Option<f64>> = Vec::new();
+            let mut groups: Vec<Option<f64>> = Vec::new();
+            for level in [1, 2] {
+                let mut alone = Engine::default();
+                run(
+                    &mut alone,
+                    &format!("{DATA}\n{declare}SELECT IF b = {level}.\n{model}"),
+                );
+                let part = of(&mut alone, file, name);
+                groups.extend(part.iter().map(|_| Some(f64::from(level))));
+                expected.extend(part);
+            }
+            let got = of(&mut split, file, name);
+            assert_eq!(got.len(), expected.len(), "{file} {name}");
+            for (g, e) in got.iter().zip(&expected) {
+                match (g, e) {
+                    (Some(g), Some(e)) => assert!(close(*g, *e), "{file} {name}: {g} {e}"),
+                    _ => assert_eq!(g, e, "{file} {name}"),
+                }
+            }
+            assert_eq!(of(&mut split, file, "b"), groups, "{file} split variable");
+        }
+    }
 }
 
 // HCCOVB writes the robust covariance matrix of ROBUST with its diagonal terms only (blank off

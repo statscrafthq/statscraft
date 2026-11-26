@@ -1498,6 +1498,17 @@ impl Engine {
                 let target = c.matrix.output.clone().expect("checked");
                 return self.procedure_with_matrix_out(command, &target);
             }
+            Command::Glm(_) => {
+                let split = self.active()?.split_file().cloned();
+                self.matrix_parts = (split, Vec::new());
+                self.named_parts.clear();
+                let tables = self.procedure(command);
+                self.matrix_parts = (None, Vec::new());
+                let parts = std::mem::take(&mut self.named_parts);
+                let tables = tables?;
+                self.write_named_parts(parts)?;
+                return Ok(tables);
+            }
             Command::Pls(_) => {
                 let split = self.active()?.split_file().cloned();
                 self.matrix_parts = (split, Vec::new());
@@ -1560,7 +1571,6 @@ impl Engine {
             | Command::Spchart(_)
             | Command::Km(_)
             | Command::Survival(_)
-            | Command::Glm(_)
             | Command::Mixed(_)
             | Command::Varcomp(_)
             | Command::Csdescriptives(_)
