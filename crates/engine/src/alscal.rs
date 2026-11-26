@@ -39,21 +39,52 @@ use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{Alscal, AlscalLevel, ProxShape};
 
-/// The data of the scaling: per subject the proximities and which pairs count.
+/// One proximity that counts: of stimulus `a` to stimulus `b`.
+struct Obs {
+    a: usize,
+    b: usize,
+    o: f64,
+}
+
+/// The data of the scaling: per subject the proximities that count.
 struct Data {
     n: usize,
+    /// Per subject its proximities: the pairs below the diagonal for a symmetric matrix, every
+    /// ordered pair for an asymmetric one.
+    cells: Vec<Vec<Obs>>,
+    /// Per subject and stimulus: the cells it is in, as (cell, the other stimulus), by other
+    /// stimulus.
+    incident: Vec<Vec<Vec<(usize, usize)>>>,
+    /// Per subject the proximities as one symmetric matrix and which pairs have one (the two
+    /// triangles averaged where both are given), for the start.
     o: Vec<Matrix>,
     present: Vec<Vec<Vec<bool>>>,
     level: AlscalLevel,
     groups: Vec<Vec<usize>>,
+    asymmetric: bool,
+}
+
+impl Data {
+    /// A matrix of `values` (one per cell of subject `k`), the other triangle mirrored for a
+    /// symmetric matrix.
+    fn matrix_of(&self, k: usize, values: &[f64]) -> Matrix {
+        let mut m = zeros(self.n, self.n);
+        for (c, v) in self.cells[k].iter().zip(values) {
+            m[c.a][c.b] = *v;
+            if !self.asymmetric {
+                m[c.b][c.a] = *v;
+            }
+        }
+        m
+    }
 }
 
 struct Fit {
     x: Matrix,
     /// Per subject the weight of every dimension (all 1 for EUCLID).
     w: Vec<Vec<f64>>,
-    /// Squared disparities.
-    f: Vec<Matrix>,
+    /// Squared disparities, per subject one for each of its cells.
+    f: Vec<Vec<f64>>,
     history: Vec<f64>,
 }
 
@@ -168,20 +199,18 @@ fn start(data: &Data, p: usize) -> Matrix {
 
 /// The squared disparities of every group fitted to the squared distances `e`, then rescaled
 /// per subject.
-fn scale_data(data: &Data, e: &[Matrix]) -> Vec<Matrix> {
-    let n = data.n;
-    let mut f: Vec<Matrix> = vec![zeros(n, n); e.len()];
+fn scale_data(data: &Data, e: &[Matrix]) -> Vec<Vec<f64>> {
+    let mut f: Vec<Vec<f64>> = data.cells.iter().map(|c| vec![0.0; c.len()]).collect();
     for group in &data.groups {
-        let all: Vec<(usize, usize, usize)> = group
+        let all: Vec<(usize, usize)> = group
             .iter()
-            .flat_map(|&k| {
-                pairs(n)
-                    .filter(move |&(i, j)| data.present[k][i][j])
-                    .map(move |(i, j)| (k, i, j))
-            })
+            .flat_map(|&k| (0..data.cells[k].len()).map(move |c| (k, c)))
             .collect();
-        let o = |c: &(usize, usize, usize)| data.o[c.0][c.1][c.2];
-        let target = |c: &(usize, usize, usize)| e[c.0][c.1][c.2];
+        let o = |c: &(usize, usize)| data.cells[c.0][c.1].o;
+        let target = |c: &(usize, usize)| {
+            let cell = &data.cells[c.0][c.1];
+            e[c.0][cell.a][cell.b]
+        };
         let fitted: Vec<f64> = match data.level {
             AlscalLevel::Ordinal { untie, similar } => {
                 let mut order: Vec<usize> = (0..all.len()).collect();
@@ -270,33 +299,33 @@ fn scale_data(data: &Data, e: &[Matrix]) -> Vec<Matrix> {
                 }
             }
         };
-        for (&(k, i, j), v) in all.iter().zip(fitted) {
-            f[k][i][j] = v;
-            f[k][j][i] = v;
+        for (&(k, c), v) in all.iter().zip(fitted) {
+            f[k][c] = v;
         }
     }
     // each subject's disparities rescaled to fit its squared distances best
     for (k, fk) in f.iter_mut().enumerate() {
         let (mut ee, mut ef) = (0.0, 0.0);
-        for (i, j) in pairs(n).filter(|&(i, j)| data.present[k][i][j]) {
-            ee += e[k][i][j] * e[k][i][j];
-            ef += e[k][i][j] * fk[i][j];
+        for (cell, v) in data.cells[k].iter().zip(fk.iter()) {
+            let d = e[k][cell.a][cell.b];
+            ee += d * d;
+            ef += d * v;
         }
         if ef > 0.0 {
-            fk.iter_mut().flatten().for_each(|v| *v *= ee / ef);
+            fk.iter_mut().for_each(|v| *v *= ee / ef);
         }
     }
     f
 }
 
-fn sstress(data: &Data, e: &[Matrix], f: &[Matrix]) -> f64 {
+fn sstress(data: &Data, e: &[Matrix], f: &[Vec<f64>]) -> f64 {
     let m = e.len() as f64;
     let total: f64 = (0..e.len())
         .map(|k| {
             let (mut num, mut den) = (0.0, 0.0);
-            for (i, j) in pairs(data.n).filter(|&(i, j)| data.present[k][i][j]) {
-                num += (e[k][i][j] - f[k][i][j]).powi(2);
-                den += f[k][i][j].powi(2);
+            for (cell, v) in data.cells[k].iter().zip(&f[k]) {
+                num += (e[k][cell.a][cell.b] - v).powi(2);
+                den += v.powi(2);
             }
             if den > 0.0 { num / den } else { 0.0 }
         })
@@ -345,16 +374,13 @@ fn cubic_roots(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
 }
 
 /// Every coordinate in turn at the minimum of S-stress with the others held.
-fn update_coordinates(data: &Data, x: &mut Matrix, w: &[Vec<f64>], f: &[Matrix]) {
+fn update_coordinates(data: &Data, x: &mut Matrix, w: &[Vec<f64>], f: &[Vec<f64>]) {
     let n = data.n;
     let p = x.first().map_or(0, Vec::len);
     let m = w.len();
     let c: Vec<f64> = (0..m)
         .map(|k| {
-            let s: f64 = pairs(n)
-                .filter(|&(i, j)| data.present[k][i][j])
-                .map(|(i, j)| f[k][i][j].powi(2))
-                .sum();
+            let s: f64 = f[k].iter().map(|v| v.powi(2)).sum();
             if s > 0.0 { 1.0 / s } else { 0.0 }
         })
         .collect();
@@ -367,12 +393,12 @@ fn update_coordinates(data: &Data, x: &mut Matrix, w: &[Vec<f64>], f: &[Matrix])
                 // (c_k, w_ka, x_ja, q_jk) of every pair of point l
                 terms.clear();
                 for k in (0..m).filter(|&k| w[k][a] != 0.0 && c[k] != 0.0) {
-                    for j in (0..n).filter(|&j| j != l && data.present[k][l][j]) {
+                    for &(cell, j) in &data.incident[k][l] {
                         let rest: f64 = (0..p)
                             .filter(|&b| b != a)
                             .map(|b| w[k][b] * (x[l][b] - x[j][b]).powi(2))
                             .sum();
-                        terms.push((c[k], w[k][a], x[j][a], rest - f[k][l][j]));
+                        terms.push((c[k], w[k][a], x[j][a], rest - f[k][cell]));
                     }
                 }
                 let (mut c3, mut c2, mut c1, mut c0) = (0.0, 0.0, 0.0, 0.0);
@@ -419,20 +445,20 @@ fn update_coordinates(data: &Data, x: &mut Matrix, w: &[Vec<f64>], f: &[Matrix])
 fn update_weights(
     data: &Data,
     x: &Matrix,
-    f: &[Matrix],
+    f: &[Vec<f64>],
     negative: bool,
     old: &[Vec<f64>],
 ) -> Vec<Vec<f64>> {
-    let n = data.n;
     let p = x.first().map_or(0, Vec::len);
     (0..f.len())
         .map(|k| {
-            let rows: Vec<(Vec<f64>, f64)> = pairs(n)
-                .filter(|&(i, j)| data.present[k][i][j])
-                .map(|(i, j)| {
+            let rows: Vec<(Vec<f64>, f64)> = data.cells[k]
+                .iter()
+                .zip(&f[k])
+                .map(|(c, v)| {
                     (
-                        (0..p).map(|a| (x[i][a] - x[j][a]).powi(2)).collect(),
-                        f[k][i][j],
+                        (0..p).map(|a| (x[c.a][a] - x[c.b][a]).powi(2)).collect(),
+                        *v,
                     )
                 })
                 .collect();
@@ -549,11 +575,7 @@ fn finish(mut fit: Fit, indscal: bool) -> Fit {
         if ss > 0.0 {
             let s = ((n * p) as f64 / ss).sqrt();
             fit.x.iter_mut().flatten().for_each(|v| *v *= s);
-            fit.f
-                .iter_mut()
-                .flatten()
-                .flatten()
-                .for_each(|v| *v *= s * s);
+            fit.f.iter_mut().flatten().for_each(|v| *v *= s * s);
         }
     }
     first_positive(&mut fit.x);
@@ -709,6 +731,7 @@ impl Engine {
                     .collect()
             })
             .collect();
+        let asymmetric = false;
         let mut o = input.delta.clone();
         if input.similarity && matches!(level, AlscalLevel::Interval(_) | AlscalLevel::Ratio(_)) {
             // the metric levels need dissimilarities: each from the largest similarity
@@ -724,8 +747,67 @@ impl Engine {
                 ok.iter_mut().flatten().for_each(|v| *v = top - *v);
             }
         }
+        let cells: Vec<Vec<Obs>> = (0..m)
+            .map(|k| {
+                let mut list = Vec::new();
+                for i in 0..n {
+                    for j in 0..n {
+                        let wanted = if asymmetric { i != j } else { j < i };
+                        if wanted && present[k][i][j] {
+                            list.push(Obs {
+                                a: i,
+                                b: j,
+                                o: o[k][i][j],
+                            });
+                        }
+                    }
+                }
+                list
+            })
+            .collect();
+        let incident = cells
+            .iter()
+            .map(|list| {
+                let mut by_point: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+                for (c, cell) in list.iter().enumerate() {
+                    by_point[cell.a].push((c, cell.b));
+                    by_point[cell.b].push((c, cell.a));
+                }
+                by_point
+                    .iter_mut()
+                    .for_each(|v| v.sort_by_key(|&(_, other)| other));
+                by_point
+            })
+            .collect();
+        // the start works on one symmetric matrix per subject
+        let (o, present) = match asymmetric {
+            false => (o, present),
+            true => {
+                let mut sym = vec![zeros(n, n); m];
+                let mut has = vec![vec![vec![false; n]; n]; m];
+                for k in 0..m {
+                    for (i, j) in pairs(n) {
+                        let given: Vec<f64> = [(i, j), (j, i)]
+                            .iter()
+                            .filter(|&&(a, b)| present[k][a][b])
+                            .map(|&(a, b)| o[k][a][b])
+                            .collect();
+                        if !given.is_empty() {
+                            let v = given.iter().sum::<f64>() / given.len() as f64;
+                            sym[k][i][j] = v;
+                            sym[k][j][i] = v;
+                            has[k][i][j] = true;
+                            has[k][j][i] = true;
+                        }
+                    }
+                }
+                (sym, has)
+            }
+        };
         let data = Data {
             n,
+            cells,
+            incident,
             o,
             present,
             level,
@@ -733,8 +815,9 @@ impl Engine {
                 true => vec![(0..m).collect()],
                 false => (0..m).map(|k| vec![k]).collect(),
             },
+            asymmetric,
         };
-        if data.present.iter().all(|s| s.iter().flatten().all(|v| !v)) {
+        if data.cells.iter().all(Vec::is_empty) {
             return Err(Error("ALSCAL: every proximity is missing".into()));
         }
         let run = Alscal {
@@ -855,9 +938,10 @@ impl Engine {
             let mut rows = Vec::new();
             let (mut stress_sq, mut rsq_sum) = (0.0, 0.0);
             for (k, ek) in e.iter().enumerate() {
-                let (d, dstar): (Vec<f64>, Vec<f64>) = pairs(n)
-                    .filter(|&(i, j)| data.present[k][i][j])
-                    .map(|(i, j)| (ek[i][j].sqrt(), fit.f[k][i][j].max(0.0).sqrt()))
+                let (d, dstar): (Vec<f64>, Vec<f64>) = data.cells[k]
+                    .iter()
+                    .zip(&fit.f[k])
+                    .map(|(c, v)| (ek[c.a][c.b].sqrt(), v.max(0.0).sqrt()))
                     .unzip();
                 let num: f64 = d.iter().zip(&dstar).map(|(a, b)| (a - b).powi(2)).sum();
                 let den: f64 = d.iter().map(|a| a * a).sum();
@@ -915,7 +999,8 @@ impl Engine {
             }
             if command.print_data {
                 for k in 0..m {
-                    let scaled: Matrix = fit.f[k]
+                    let scaled: Matrix = data
+                        .matrix_of(k, &fit.f[k])
                         .iter()
                         .map(|r| r.iter().map(|v| v.max(0.0).sqrt()).collect())
                         .collect();
@@ -958,12 +1043,13 @@ impl Engine {
                 ));
             }
             let e = squared(&fit.x, &fit.w);
-            let group = |k: usize, what: &dyn Fn(usize, usize) -> (f64, f64)| PointGroup {
+            let group = |k: usize, what: &dyn Fn(usize, usize, usize) -> (f64, f64)| PointGroup {
                 name: input.sources[k].clone(),
-                points: pairs(n)
-                    .filter(|&(i, j)| data.present[k][i][j])
-                    .map(|(i, j)| {
-                        let (x, y) = what(i, j);
+                points: data.cells[k]
+                    .iter()
+                    .enumerate()
+                    .map(|(c, cell)| {
+                        let (x, y) = what(c, cell.a, cell.b);
                         Point {
                             x,
                             y,
@@ -975,8 +1061,8 @@ impl Engine {
             };
             let linear = (0..m)
                 .map(|k| {
-                    group(k, &|i, j| {
-                        (fit.f[k][i][j].max(0.0).sqrt(), e[k][i][j].sqrt())
+                    group(k, &|c, i, j| {
+                        (fit.f[k][c].max(0.0).sqrt(), e[k][i][j].sqrt())
                     })
                 })
                 .collect();
@@ -988,7 +1074,7 @@ impl Engine {
             ));
             if matches!(level, AlscalLevel::Ordinal { .. } | AlscalLevel::Nominal) {
                 let nonlinear = (0..m)
-                    .map(|k| group(k, &|i, j| (input.delta[k][i][j], e[k][i][j].sqrt())))
+                    .map(|k| group(k, &|_, i, j| (input.delta[k][i][j], e[k][i][j].sqrt())))
                     .collect();
                 charts.push(points_chart(
                     "Scatterplot of Nonlinear Fit",
@@ -1001,8 +1087,8 @@ impl Engine {
                 let groups = ks
                     .iter()
                     .map(|&k| {
-                        group(k, &|i, j| {
-                            (input.delta[k][i][j], fit.f[k][i][j].max(0.0).sqrt())
+                        group(k, &|c, i, j| {
+                            (input.delta[k][i][j], fit.f[k][c].max(0.0).sqrt())
                         })
                     })
                     .collect();
