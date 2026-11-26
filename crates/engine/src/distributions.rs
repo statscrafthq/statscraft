@@ -20,8 +20,8 @@
 //! caller reports as an error.
 
 use crate::dist::{
-    beta_i, gamma_q, ln_gamma, maximum_modulus_cdf, maximum_modulus_quantile, noncentral_f_cdf,
-    noncentral_t_cdf, normal_cdf, normal_quantile, solve, studentized_range_cdf,
+    beta_i, gamma_p, gamma_q, ln_gamma, maximum_modulus_cdf, maximum_modulus_quantile,
+    noncentral_f_cdf, noncentral_t_cdf, normal_cdf, normal_quantile, solve, studentized_range_cdf,
     studentized_range_quantile,
 };
 use std::f64::consts::PI;
@@ -51,7 +51,15 @@ fn chi_square_cdf(x: f64, df: f64) -> f64 {
     if x <= 0.0 {
         0.0
     } else {
-        1.0 - gamma_q(df / 2.0, x / 2.0)
+        gamma_p(df / 2.0, x / 2.0)
+    }
+}
+
+fn chi_square_sf(x: f64, df: f64) -> f64 {
+    if x <= 0.0 {
+        1.0
+    } else {
+        gamma_q(df / 2.0, x / 2.0)
     }
 }
 
@@ -97,6 +105,15 @@ fn f_cdf(x: f64, d1: f64, d2: f64) -> f64 {
     }
 }
 
+/// P(F > x), taken from the other side of the beta so that a far tail keeps its digits.
+fn f_sf(x: f64, d1: f64, d2: f64) -> f64 {
+    if x <= 0.0 {
+        1.0
+    } else {
+        beta_i(d2 / 2.0, d1 / 2.0, d2 / (d2 + d1 * x))
+    }
+}
+
 fn f_pdf(x: f64, d1: f64, d2: f64) -> f64 {
     if x < 0.0 {
         return 0.0;
@@ -111,6 +128,22 @@ fn t_cdf(x: f64, df: f64) -> f64 {
     if x > 0.0 { 1.0 - tail } else { tail }
 }
 
+fn half_normal_cdf(z: f64) -> f64 {
+    if z <= 0.0 {
+        0.0
+    } else {
+        gamma_p(0.5, z * z / 2.0)
+    }
+}
+
+fn half_normal_sf(z: f64) -> f64 {
+    if z <= 0.0 {
+        1.0
+    } else {
+        gamma_q(0.5, z * z / 2.0)
+    }
+}
+
 fn t_pdf(x: f64, df: f64) -> f64 {
     (ln_gamma((df + 1.0) / 2.0)
         - ln_gamma(df / 2.0)
@@ -122,7 +155,22 @@ fn t_pdf(x: f64, df: f64) -> f64 {
 /// x with cdf(x) = p for an increasing cdf, searched upwards from `low`, or both ways when
 /// `low` is -infinity.
 fn quantile(p: f64, cdf: impl Fn(f64) -> f64, low: f64) -> f64 {
-    let f = |x: f64| cdf(x) - p;
+    root_up(|x: f64| cdf(x) - p, low)
+}
+
+/// The same from both ends: below one half the lower tail `cdf` is solved, above it the upper
+/// tail `sf` against 1 - p, so that a quantile far in either tail keeps its relative accuracy.
+fn quantile_tails(p: f64, cdf: impl Fn(f64) -> f64, sf: impl Fn(f64) -> f64, low: f64) -> f64 {
+    if p <= 0.5 {
+        root_up(|x| cdf(x) - p, low)
+    } else {
+        root_up(|x| (1.0 - p) - sf(x), low)
+    }
+}
+
+/// The root of an increasing `f`, searched upwards from `low`, or both ways when `low` is
+/// -infinity.
+fn root_up(f: impl Fn(f64) -> f64, low: f64) -> f64 {
     let mut high = if low.is_finite() { low + 1.0 } else { 1.0 };
     let mut step = 1.0;
     while f(high) < 0.0 && high < 1e300 {
@@ -305,33 +353,34 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
             "PDF" => t_pdf(x, df),
             "IDF" => {
                 check_p(x)?;
-                quantile(x, |t| t_cdf(t, df), f64::NEG_INFINITY)
+                // the upper half from the lower by symmetry, so that 1/2 gives exactly 0
+                let lower = if x <= 0.5 { x } else { 1.0 - x };
+                let t = if lower == 0.5 {
+                    0.0
+                } else {
+                    quantile(lower, |t| t_cdf(t, df), f64::NEG_INFINITY)
+                };
+                if x <= 0.5 { t } else { -t }
             }
             _ => return None,
         },
         (_, "CHISQ", &[df]) if positive(df) => match family {
             "CDF" => chi_square_cdf(x, df),
-            "SIG" => {
-                if x <= 0.0 {
-                    1.0
-                } else {
-                    gamma_q(df / 2.0, x / 2.0)
-                }
-            }
+            "SIG" => chi_square_sf(x, df),
             "PDF" => chi_square_pdf(x, df),
             "IDF" => {
                 check_p(x)?;
-                quantile(x, |v| chi_square_cdf(v, df), 0.0)
+                quantile_tails(x, |v| chi_square_cdf(v, df), |v| chi_square_sf(v, df), 0.0)
             }
             _ => return None,
         },
         (_, "F", &[d1, d2]) if positive(d1) && positive(d2) => match family {
             "CDF" => f_cdf(x, d1, d2),
-            "SIG" => 1.0 - f_cdf(x, d1, d2),
+            "SIG" => f_sf(x, d1, d2),
             "PDF" => f_pdf(x, d1, d2),
             "IDF" => {
                 check_p(x)?;
-                quantile(x, |v| f_cdf(v, d1, d2), 0.0)
+                quantile_tails(x, |v| f_cdf(v, d1, d2), |v| f_sf(v, d1, d2), 0.0)
             }
             _ => return None,
         },
@@ -349,7 +398,14 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
                 if v <= 0.0 {
                     0.0
                 } else {
-                    1.0 - gamma_q(shape, rate * v)
+                    gamma_p(shape, rate * v)
+                }
+            };
+            let sf = |v: f64| {
+                if v <= 0.0 {
+                    1.0
+                } else {
+                    gamma_q(shape, rate * v)
                 }
             };
             match family {
@@ -357,13 +413,13 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
                 "PDF" => gamma_pdf(x, shape, rate),
                 "IDF" => {
                     check_p(x)?;
-                    quantile(x, cdf, 0.0)
+                    quantile_tails(x, cdf, sf, 0.0)
                 }
                 _ => return None,
             }
         }
         (_, "EXP", &[rate]) if positive(rate) => match family {
-            "CDF" => 1.0 - (-rate * x.max(0.0)).exp(),
+            "CDF" => -(-rate * x.max(0.0)).exp_m1(),
             "PDF" => {
                 if x < 0.0 {
                     0.0
@@ -373,7 +429,7 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
             }
             "IDF" => {
                 check_p(x)?;
-                -(1.0 - x).ln() / rate
+                -(-x).ln_1p() / rate
             }
             _ => return None,
         },
@@ -399,7 +455,14 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
                 "PDF" => 1.0 / (PI * scale * (1.0 + z * z)),
                 "IDF" => {
                     check_p(x)?;
-                    location + scale * (PI * (x - 0.5)).tan()
+                    // tan(pi (p - 1/2)) is -1 / tan(pi p): the form that keeps a tiny p
+                    if x == 0.5 {
+                        location
+                    } else if x < 0.5 {
+                        location - scale / (PI * x).tan()
+                    } else {
+                        location + scale / (PI * (1.0 - x)).tan()
+                    }
                 }
                 _ => return None,
             }
@@ -462,13 +525,7 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
         (_, "HALFNRM", &[location, scale]) if positive(scale) => {
             let z = (x - location) / scale;
             match family {
-                "CDF" => {
-                    if z <= 0.0 {
-                        0.0
-                    } else {
-                        2.0 * normal_cdf(z) - 1.0
-                    }
-                }
+                "CDF" => half_normal_cdf(z),
                 "PDF" => {
                     if z < 0.0 {
                         0.0
@@ -481,7 +538,7 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
                     if x == 1.0 {
                         return None;
                     }
-                    location + scale * normal_quantile((1.0 + x) / 2.0)
+                    location + scale * quantile_tails(x, half_normal_cdf, half_normal_sf, 0.0)
                 }
                 _ => return None,
             }
@@ -492,7 +549,7 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
                     if x <= threshold {
                         0.0
                     } else {
-                        1.0 - (threshold / x).powf(shape)
+                        -(shape * (threshold / x).ln()).exp_m1()
                     }
                 }
                 "PDF" => {
@@ -514,7 +571,7 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
                 if x <= 0.0 {
                     0.0
                 } else {
-                    1.0 - (-(x / scale).powf(shape)).exp()
+                    -(-(x / scale).powf(shape)).exp_m1()
                 }
             }
             "PDF" => {
@@ -526,7 +583,7 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
             }
             "IDF" => {
                 check_p(x)?;
-                scale * (-(1.0 - x).ln()).powf(1.0 / shape)
+                scale * (-(-x).ln_1p()).powf(1.0 / shape)
             }
             _ => return None,
         },
