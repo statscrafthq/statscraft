@@ -425,18 +425,28 @@ fn modulo(a: Option<f64>, b: Option<f64>) -> Option<f64> {
     }
 }
 
+/// The mean of the values; when their sum overflows it is the sum of the values over n, which
+/// stays inside the range of the values.
+fn mean_of(values: &[f64]) -> f64 {
+    let n = values.len() as f64;
+    let sum: f64 = values.iter().sum();
+    if sum.is_finite() {
+        sum / n
+    } else {
+        values.iter().map(|v| v / n).sum()
+    }
+}
+
 fn variance(values: &[f64]) -> f64 {
     let n = values.len() as f64;
-    let mean = values.iter().sum::<f64>() / n;
+    let mean = mean_of(values);
     values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0)
 }
 
 fn statistic(name: &str, values: &[f64]) -> f64 {
-    let n = values.len() as f64;
-    let sum: f64 = values.iter().sum();
     match name {
-        "SUM" => sum,
-        "MEAN" => sum / n,
+        "SUM" => values.iter().sum(),
+        "MEAN" => mean_of(values),
         "MEDIAN" => {
             let mut sorted = values.to_vec();
             sorted.sort_by(f64::total_cmp);
@@ -444,7 +454,7 @@ fn statistic(name: &str, values: &[f64]) -> f64 {
             if sorted.len() % 2 == 1 {
                 sorted[half]
             } else {
-                (sorted[half - 1] + sorted[half]) / 2.0
+                mean_of(&sorted[half - 1..=half])
             }
         }
         "MIN" => values.iter().copied().fold(f64::INFINITY, f64::min),
@@ -452,7 +462,7 @@ fn statistic(name: &str, values: &[f64]) -> f64 {
         "VARIANCE" => variance(values),
         "SD" => variance(values).sqrt(),
         // a mean of zero gives a result that is not finite, which becomes missing
-        _ => variance(values).sqrt() / (sum / n),
+        _ => variance(values).sqrt() / mean_of(values),
     }
 }
 
