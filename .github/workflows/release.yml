@@ -30,7 +30,7 @@ jobs:
       # with the Artifact Signing Certificate Profile Signer role, and the variables
       # SIGNING_ENDPOINT (the account's region, e.g. https://neu.codesigning.azure.net),
       # SIGNING_ACCOUNT and SIGNING_PROFILE. Without them the Windows files stay unsigned.
-      SIGN_WINDOWS: ${{ matrix.os == 'windows-latest' && secrets.AZURE_CLIENT_ID != '' }}
+      SIGN_WINDOWS: ${{ matrix.os == 'windows-latest' && secrets.AZURE_CLIENT_ID != '' && vars.SIGNING_PROFILE != '' }}
     steps:
       - uses: actions/checkout@v7
       - if: runner.os != 'macOS'
