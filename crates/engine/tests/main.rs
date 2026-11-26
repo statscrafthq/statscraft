@@ -68,6 +68,7 @@ mod get_data;
 mod ggraph;
 mod glm;
 mod glm_multivariate;
+mod glm_posthoc_r;
 mod graph;
 mod igraph;
 mod inline_data;
