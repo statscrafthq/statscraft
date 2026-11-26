@@ -666,3 +666,185 @@ fn detectanomaly_errors_and_split_file() {
         "{warnings:?}"
     );
 }
+
+const FIRST_PART: &str = "DATA LIST FREE /x y (F4.1) c (A1).
+BEGIN DATA
+1.0 2.0 a  1.5 2.4 a  2.1 1.8 a  8.0 9.0 b  8.6 9.5 b  9.1 8.7 b  5.0 5.5 a  5.3 6.1 b
+END DATA.
+";
+
+const SECOND_PART: [&str; 6] = [
+    "1.2 2.2 a",
+    "8.4 9.2 b",
+    "4.8 5.2 a",
+    "5.6 5.9 b",
+    "9.5 9.9 b",
+    "2.4 2.1 a",
+];
+
+/// The sorted (count, first mean) of the subclusters a state file holds.
+fn subclusters(state: &serde_json::Value) -> Vec<(f64, f64, f64)> {
+    let mut out: Vec<(f64, f64, f64)> = state["subclusters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["n"].as_f64().unwrap(),
+                s["mean"][0].as_f64().unwrap(),
+                s["mean"][1].as_f64().unwrap(),
+            )
+        })
+        .collect();
+    out.sort_by(|a, b| a.1.total_cmp(&b.1));
+    out
+}
+
+/// Whether two labelings group the cases alike, whatever the numbers.
+fn same_partition(a: &[f64], b: &[f64]) -> bool {
+    a.len() == b.len()
+        && (0..a.len()).all(|i| (0..a.len()).all(|j| (a[i] == a[j]) == (b[i] == b[j])))
+}
+
+/// INFILE adds the cases of the active file to the saved tree. With one entry per distinct record
+/// the result is that of a run on both parts, the standardization of the saved scales applied by
+/// hand: the same subclusters and the same grouping of the new cases.
+#[test]
+fn infile_updates_a_saved_tree_like_a_run_on_both_parts() {
+    let dir = std::env::temp_dir().join(format!("statscraft-twostep-in-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let cd = format!("CD '{}'.\n", dir.display());
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{cd}{FIRST_PART}TWOSTEP CLUSTER /CONTINUOUS VARIABLES=x y /CATEGORICAL VARIABLES=c \
+             /NUMCLUSTERS FIXED=2 /VIEWMODEL DISPLAY=NO /OUTFILE STATE='first.json'."
+        ),
+    );
+    let read = |name: &str| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join(name)).unwrap()).unwrap()
+    };
+    let first = read("first.json");
+    assert_eq!(first["subclusters"].as_array().unwrap().len(), 8);
+    let scale = |k: usize| {
+        (
+            first["continuous"][k]["mean"].as_f64().unwrap(),
+            first["continuous"][k]["sd"].as_f64().unwrap(),
+        )
+    };
+    let (mx, sx) = scale(0);
+    let (my, sy) = scale(1);
+    // the update: the second part is the active file
+    let second = format!(
+        "DATA LIST FREE /x y (F4.1) c (A1).\nBEGIN DATA\n{}\nEND DATA.\n",
+        SECOND_PART.join("  ")
+    );
+    run_on(
+        &mut engine,
+        &format!(
+            "{second}TWOSTEP CLUSTER /CONTINUOUS VARIABLES=x y /CATEGORICAL VARIABLES=c \
+             /INFILE FILE='first.json' /NUMCLUSTERS FIXED=3 /SAVE CLUSTER VARIABLE=grp \
+             /VIEWMODEL DISPLAY=NO /OUTFILE STATE='second.json'."
+        ),
+    );
+    let updated: Vec<f64> = saved(&engine, "grp")
+        .into_iter()
+        .map(Option::unwrap)
+        .collect();
+    assert_eq!(updated.len(), 6);
+    // the run on both parts, the saved scales applied by hand
+    let both = format!(
+        "DATA LIST FREE /x y (F4.1) c (A1).\nBEGIN DATA\n{}  {}\nEND DATA.\n\
+         COMPUTE zx = (x - {mx:?}) / {sx:?}.\nCOMPUTE zy = (y - {my:?}) / {sy:?}.\n",
+        "1.0 2.0 a  1.5 2.4 a  2.1 1.8 a  8.0 9.0 b  8.6 9.5 b  9.1 8.7 b  5.0 5.5 a  5.3 6.1 b",
+        SECOND_PART.join("  ")
+    );
+    let mut scratch = Engine::default();
+    run_on(
+        &mut scratch,
+        &format!(
+            "{cd}{both}TWOSTEP CLUSTER /CONTINUOUS VARIABLES=zx zy /CATEGORICAL VARIABLES=c \
+             /NOSTANDARDIZE VARIABLES=zx zy /NUMCLUSTERS FIXED=3 /SAVE CLUSTER VARIABLE=grp \
+             /VIEWMODEL DISPLAY=NO /OUTFILE STATE='both.json'."
+        ),
+    );
+    let all: Vec<f64> = saved(&scratch, "grp")
+        .into_iter()
+        .map(Option::unwrap)
+        .collect();
+    assert_eq!(all.len(), 14);
+    // the same leaf entries: 14 records, one each
+    let (a, b) = (
+        subclusters(&read("second.json")),
+        subclusters(&read("both.json")),
+    );
+    assert_eq!(a.len(), 14);
+    for (u, v) in a.iter().zip(&b) {
+        assert!(
+            close(u.0, v.0) && close(u.1, v.1) && close(u.2, v.2),
+            "{u:?} {v:?}"
+        );
+    }
+    assert!(same_partition(&updated, &all[8..]));
+    // the low and the high cases are clusters of their own
+    assert_eq!(updated[0], updated[5]);
+    assert_eq!(updated[1], updated[4]);
+    assert_ne!(updated[0], updated[1]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn infile_refuses_what_the_saved_model_cannot_take() {
+    let dir = std::env::temp_dir().join(format!("statscraft-twostep-bad-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let cd = format!("CD '{}'.\n", dir.display());
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{cd}{FIRST_PART}TWOSTEP CLUSTER /CONTINUOUS VARIABLES=x y /CATEGORICAL VARIABLES=c \
+             /NUMCLUSTERS FIXED=2 /VIEWMODEL DISPLAY=NO /OUTFILE MODEL='m.json' STATE='s.json'."
+        ),
+    );
+    let attempt = |engine: &mut Engine, data: &str, syntax: &str| -> String {
+        let (commands, errors) = parse(&format!("{data}{syntax}"));
+        assert!(errors.is_empty(), "{errors:?}");
+        for command in &commands {
+            if let Err(e) = engine.execute(&command.command) {
+                return e.to_string();
+            }
+        }
+        panic!("no error");
+    };
+    let ok = "DATA LIST FREE /x y (F4.1) c (A1).\nBEGIN DATA\n1 2 a 8 9 b\nEND DATA.\n";
+    let using = |file: &str| {
+        format!(
+            "TWOSTEP CLUSTER /CONTINUOUS VARIABLES=x y /CATEGORICAL VARIABLES=c /INFILE FILE='{file}' \
+             /NUMCLUSTERS FIXED=2 /VIEWMODEL DISPLAY=YES."
+        )
+    };
+    assert!(attempt(&mut engine, ok, &using("m.json")).contains("not a TWOSTEP state file"));
+    assert!(attempt(&mut engine, ok, &using("nothing.json")).contains("cannot read the INFILE"));
+    // a category the saved model does not know
+    let unknown = "DATA LIST FREE /x y (F4.1) c (A1).\nBEGIN DATA\n1 2 z 8 9 b\nEND DATA.\n";
+    assert!(
+        attempt(&mut engine, unknown, &using("s.json"))
+            .contains("a category the saved model does not hold")
+    );
+    // the variables must match the saved model in number
+    assert!(
+        attempt(
+            &mut engine,
+            ok,
+            "TWOSTEP CLUSTER /CONTINUOUS VARIABLES=x /CATEGORICAL VARIABLES=c /INFILE FILE='s.json' \
+             /NUMCLUSTERS FIXED=2 /VIEWMODEL DISPLAY=YES."
+        )
+        .contains("name the variables in the order of the file")
+    );
+    // one new case is enough
+    let one = "DATA LIST FREE /x y (F4.1) c (A1).\nBEGIN DATA\n1 2 a\nEND DATA.\n";
+    let tables = run_on(&mut engine, &format!("{one}{}", using("s.json")));
+    assert!(tables.iter().any(|t| t.title == "Model Summary"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

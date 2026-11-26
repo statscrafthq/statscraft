@@ -30,6 +30,13 @@
 //!   filled), a record whose distance is not below C is noise, cluster -1: C = ln of the product
 //!   of the continuous ranges and category counts, or for Euclidean distance twice the root of
 //!   the mean of the within-cluster variances.
+//! - INFILE updates a saved tree: the leaf entries of the STATE file are put into the tree first
+//!   and the cases of the active file follow, at the saved threshold, branch and level limits;
+//!   the distance and the scales of the standardized variables and the categories come from the
+//!   file too, and CRITERIA, DISTANCE, HANDLENOISE and MEMALLOCATE are ignored. A category the
+//!   file does not hold is an error. The variance term of the likelihood distance is that of
+//!   all records, the saved ones and the new, taken from their summaries. The tables describe
+//!   the cases of the active file, clustered by the updated model; the saved records do not exist.
 //! - Continuous variables are standardized (mean 0, standard deviation 1 with n - 1) unless
 //!   NOSTANDARDIZE names them. Records missing on any variable are left out; the weight is not
 //!   used.
@@ -638,7 +645,110 @@ pub(crate) fn cf_json(cf: &Cf) -> serde_json::Value {
     json!({"n": cf.n, "mean": cf.mean, "ss": cf.ss, "counts": cf.counts})
 }
 
+/// What a TWOSTEP STATE file holds.
+struct SavedState {
+    euclidean: bool,
+    /// Mean and standard deviation of every continuous variable that was standardized.
+    scales: Vec<Option<(f64, f64)>>,
+    /// Name and categories of every categorical variable.
+    categories: Vec<(String, Vec<Key>)>,
+    threshold: f64,
+    branch: usize,
+    levels: usize,
+    subclusters: Vec<Cf>,
+}
+
 impl Engine {
+    /// Reads the STATE file `file` that INFILE updates.
+    fn read_twostep_state(&self, file: &str) -> Result<SavedState, Error> {
+        let path = self.path(file);
+        let text = std::fs::read_to_string(&path).map_err(|e| {
+            Error(format!(
+                "TWOSTEP CLUSTER cannot read the INFILE {}: {e}",
+                path.display()
+            ))
+        })?;
+        let bad = |what: &str| {
+            Error(format!(
+                "TWOSTEP CLUSTER /INFILE {}: {what}; it must be a STATE file this program wrote",
+                path.display()
+            ))
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&text).map_err(|_| bad("it is not readable"))?;
+        if value["format"] != "statscraft-twostep-state" {
+            return Err(bad("it is not a TWOSTEP state file"));
+        }
+        let number = |v: &serde_json::Value| v.as_f64().ok_or_else(|| bad("a number is missing"));
+        let numbers = |v: &serde_json::Value| -> Result<Vec<f64>, Error> {
+            v.as_array()
+                .ok_or_else(|| bad("a list is missing"))?
+                .iter()
+                .map(number)
+                .collect()
+        };
+        let list = |v: &serde_json::Value| {
+            v.as_array()
+                .cloned()
+                .ok_or_else(|| bad("a list is missing"))
+        };
+        let scales = list(&value["continuous"])?
+            .iter()
+            .map(|c| match (c["mean"].as_f64(), c["sd"].as_f64()) {
+                (Some(m), Some(sd)) if sd > 0.0 => Ok(Some((m, sd))),
+                (None, None) => Ok(None),
+                _ => Err(bad("a scale is incomplete")),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let categories = list(&value["categorical"])?
+            .iter()
+            .map(|c| {
+                let keys = list(&c["categories"])?
+                    .iter()
+                    .map(|k| match (k.as_f64(), k.as_str()) {
+                        (Some(x), _) => Ok(Key::Number(x)),
+                        (_, Some(t)) => Ok(Key::Text(t.to_string())),
+                        _ => Err(bad("a category is neither a number nor text")),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok((c["name"].as_str().unwrap_or("").to_string(), keys))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let subclusters = list(&value["subclusters"])?
+            .iter()
+            .map(|s| {
+                let counts = list(&s["counts"])?
+                    .iter()
+                    .map(numbers)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Cf {
+                    n: number(&s["n"])?,
+                    mean: numbers(&s["mean"])?,
+                    ss: numbers(&s["ss"])?,
+                    counts,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        if subclusters.is_empty() {
+            return Err(bad("it holds no subclusters"));
+        }
+        let whole = |v: &serde_json::Value| {
+            v.as_u64()
+                .map(|n| n as usize)
+                .filter(|&n| n >= 2)
+                .ok_or_else(|| bad("a tree limit is missing"))
+        };
+        Ok(SavedState {
+            euclidean: value["distance"] == "euclidean",
+            scales,
+            categories,
+            threshold: number(&value["threshold"])?,
+            branch: whole(&value["max_branch"])?,
+            levels: whole(&value["max_level"])?,
+            subclusters,
+        })
+    }
+
     /// Writes a model file of the command `who` as pretty JSON.
     pub(crate) fn write_json(
         &self,
@@ -737,11 +847,11 @@ pub(crate) fn mean_sd(values: &[f64]) -> (Option<f64>, Option<f64>) {
 
 impl Engine {
     pub(crate) fn twostep(&mut self, command: &Twostep) -> Result<Vec<Table>, Error> {
-        if command.infile.is_some() {
-            return Err(Error(
-                "TWOSTEP CLUSTER /INFILE (updating a saved tree) is not supported yet".into(),
-            ));
-        }
+        let saved = command
+            .infile
+            .as_ref()
+            .map(|file| self.read_twostep_state(file))
+            .transpose()?;
         let outfile = command.model_file.is_some() || command.state_file.is_some();
         if outfile && self.split_group.is_some() {
             return Err(Error(
@@ -793,6 +903,24 @@ impl Engine {
             .map(|n| data.variable(n))
             .collect::<Result<_, _>>()?;
         let mut warnings = Vec::new();
+        if let Some(state) = &saved {
+            if continuous.len() != state.scales.len() || categorical.len() != state.categories.len()
+            {
+                return Err(Error(format!(
+                    "TWOSTEP CLUSTER /INFILE: the saved model has {} continuous and {} categorical variables, but the command names {} and {}; name the variables in the order of the file",
+                    state.scales.len(),
+                    state.categories.len(),
+                    continuous.len(),
+                    categorical.len()
+                )));
+            }
+            if command.euclidean != state.euclidean {
+                warnings.push(
+                    "TWOSTEP CLUSTER /INFILE: DISTANCE is ignored; the distance of the saved model is used"
+                        .to_string(),
+                );
+            }
+        }
         if case_weights(data)?.is_some() {
             warnings.push("TWOSTEP CLUSTER does not use the weight variable".to_string());
         }
@@ -839,9 +967,11 @@ impl Engine {
                     && keys.iter().all(|k| k[case].is_some())
             })
             .collect();
-        if used.len() < 2 {
+        let needed = if saved.is_some() { 1 } else { 2 };
+        if used.len() < needed {
             return Err(Error(format!(
-                "TWOSTEP CLUSTER needs at least 2 cases without missing values, found {}",
+                "TWOSTEP CLUSTER needs at least {needed} case{} without missing values, found {}",
+                if needed == 1 { "" } else { "s" },
                 used.len()
             )));
         }
@@ -855,7 +985,7 @@ impl Engine {
             .collect();
         // a constant continuous variable has no spread to measure
         let mut k = 0;
-        while k < continuous.len() {
+        while saved.is_none() && k < continuous.len() {
             if variance(&raw[k]) > 0.0 {
                 k += 1;
             } else {
@@ -873,17 +1003,20 @@ impl Engine {
             ));
         }
         // the mean and standard deviation of each standardized variable
-        let scales: Vec<Option<(f64, f64)>> = continuous
-            .iter()
-            .zip(&raw)
-            .map(|(v, values)| {
-                let keep = unstandardized
-                    .iter()
-                    .any(|n| n.eq_ignore_ascii_case(v.name()));
-                let (mean, sd) = mean_sd(values);
-                (!keep).then(|| (mean.expect("cases"), sd.expect("two cases")))
-            })
-            .collect();
+        let scales: Vec<Option<(f64, f64)>> = match &saved {
+            Some(state) => state.scales.clone(),
+            None => continuous
+                .iter()
+                .zip(&raw)
+                .map(|(v, values)| {
+                    let keep = unstandardized
+                        .iter()
+                        .any(|n| n.eq_ignore_ascii_case(v.name()));
+                    let (mean, sd) = mean_sd(values);
+                    (!keep).then(|| (mean.expect("cases"), sd.expect("two cases")))
+                })
+                .collect(),
+        };
         let transformed: Vec<Vec<f64>> = raw
             .iter()
             .zip(&scales)
@@ -892,10 +1025,33 @@ impl Engine {
                 None => values.clone(),
             })
             .collect();
-        let coded: Vec<(Vec<Key>, Vec<Option<usize>>)> = keys
-            .iter()
-            .map(|k| category_codes(&used.iter().map(|&c| k[c].clone()).collect::<Vec<_>>()))
-            .collect();
+        let coded: Vec<(Vec<Key>, Vec<Option<usize>>)> = match &saved {
+            Some(state) => {
+                let mut out = Vec::new();
+                for (v, (k, (name, levels))) in
+                    categorical.iter().zip(keys.iter().zip(&state.categories))
+                {
+                    let mut codes = Vec::with_capacity(used.len());
+                    for &c in &used {
+                        let key = k[c].as_ref().expect("valid");
+                        let at = levels.iter().position(|l| l.compare(key).is_eq());
+                        let Some(at) = at else {
+                            return Err(Error(format!(
+                                "TWOSTEP CLUSTER /INFILE: {} has a category the saved model does not hold (it knows the categories of {name})",
+                                v.name()
+                            )));
+                        };
+                        codes.push(Some(at));
+                    }
+                    out.push((levels.clone(), codes));
+                }
+                out
+            }
+            None => keys
+                .iter()
+                .map(|k| category_codes(&used.iter().map(|&c| k[c].clone()).collect::<Vec<_>>()))
+                .collect(),
+        };
         let levels: Vec<usize> = coded.iter().map(|(l, _)| l.len()).collect();
         let records: Vec<Cf> = (0..used.len())
             .map(|r| {
@@ -907,17 +1063,57 @@ impl Engine {
                 Cf::record(&x, &c, &levels)
             })
             .collect();
-        let model = Model {
-            adjust: transformed.iter().map(|t| variance(t)).collect(),
-            euclidean: command.euclidean,
+        let euclidean = saved.as_ref().map_or(command.euclidean, |s| s.euclidean);
+        // the variance of each variable over all records: from the summaries when updating
+        let adjust: Vec<f64> = match &saved {
+            Some(state) => {
+                let mut all: Option<Cf> = None;
+                for cf in state.subclusters.iter().chain(&records) {
+                    match all.as_mut() {
+                        Some(total) => total.add(cf),
+                        None => all = Some(cf.clone()),
+                    }
+                }
+                let total = all.expect("a record");
+                (0..transformed.len())
+                    .map(|k| total.ss[k] / (total.n - 1.0).max(1.0))
+                    .collect()
+            }
+            None => transformed.iter().map(|t| variance(t)).collect(),
         };
-        let settings = Settings {
-            threshold: command.threshold,
-            branch: command.branch,
-            levels: command.levels,
-            noise: command.noise / 100.0,
+        let model = Model { adjust, euclidean };
+        let (settings, branch, tree_levels) = match &saved {
+            Some(state) => (
+                Settings {
+                    threshold: state.threshold,
+                    branch: state.branch,
+                    levels: state.levels,
+                    noise: 0.0,
+                },
+                state.branch,
+                state.levels,
+            ),
+            None => (
+                Settings {
+                    threshold: command.threshold,
+                    branch: command.branch,
+                    levels: command.levels,
+                    noise: command.noise / 100.0,
+                },
+                command.branch,
+                command.levels,
+            ),
         };
-        let pre = precluster(&model, records.clone(), &settings);
+        let start: Vec<Cf> = match &saved {
+            Some(state) => state
+                .subclusters
+                .iter()
+                .cloned()
+                .chain(records.clone())
+                .collect(),
+            None => records.clone(),
+        };
+        let pre = precluster(&model, start, &settings);
         let subs = &pre.subclusters;
         let joins = agglomerate(&model, subs);
         let (ic, count) = match (command.count, auto) {
@@ -936,8 +1132,8 @@ impl Engine {
         let clusters = clusters_at(subs, &joins, count);
 
         // the critical distance of noise
-        let noise_limit = (command.noise > 0.0 && pre.filled).then(|| {
-            if command.euclidean {
+        let noise_limit = (saved.is_none() && command.noise > 0.0 && pre.filled).then(|| {
+            if euclidean {
                 let within: f64 = clusters
                     .iter()
                     .flat_map(|c| c.ss.iter().map(move |ss| ss / c.n))
@@ -1137,11 +1333,7 @@ impl Engine {
                     json!({"name": v.name(), "categories": cats})
                 })
                 .collect();
-            let distance = if command.euclidean {
-                "euclidean"
-            } else {
-                "likelihood"
-            };
+            let distance = if euclidean { "euclidean" } else { "likelihood" };
             if let Some(file) = &command.model_file {
                 let found: Vec<_> = order
                     .iter()
@@ -1170,8 +1362,8 @@ impl Engine {
                     "continuous": continuous,
                     "categorical": categorical,
                     "threshold": pre.threshold,
-                    "max_branch": command.branch,
-                    "max_level": command.levels,
+                    "max_branch": branch,
+                    "max_level": tree_levels,
                     "subclusters": subclusters,
                 });
                 self.write_json("TWOSTEP CLUSTER", file, "state", &state)?;

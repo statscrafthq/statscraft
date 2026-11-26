@@ -2481,7 +2481,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "TWOSTEP CLUSTER [/CONTINUOUS VARIABLES=varlist] [/CATEGORICAL VARIABLES=varlist]\n\
                  \x20               [/DISTANCE=LIKELIHOOD | EUCLIDEAN] [/NUMCLUSTERS=AUTO [15] [BIC | AIC] | FIXED=n]\n\
                  \x20               [/CRITERIA=[INITHRESHOLD(0)] [MXBRANCH(8)] [MXLEVEL(3)]] [/HANDLENOISE=0]\n\
-                 \x20               [/NOSTANDARDIZE [VARIABLES=varlist]] [/MISSING=EXCLUDE | INCLUDE] [/MEMALLOCATE=64]\n\
+                 \x20               [/INFILE FILE='file'] [/NOSTANDARDIZE [VARIABLES=varlist]] [/MISSING=EXCLUDE | INCLUDE] [/MEMALLOCATE=64]\n\
                  \x20               [/PRINT=[IC] [COUNT] [SUMMARY]] [/VIEWMODEL [DISPLAY=YES | NO] [EVALUATIONFIELDS=varlist]]\n\
                  \x20               [/SAVE CLUSTER [VARIABLE=name]] [/OUTFILE [MODEL='file'] [STATE='file']].\n\
                  Step one reads the cases in file order into a tree of small subclusters: a case joins the\n\
@@ -2502,8 +2502,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  variable are left out; the weight variable is not used. SAVE adds the cluster numbers, named\n\
                  TSC_1, TSC_2 and so on unless given. OUTFILE writes Statscraft's own JSON: MODEL the variables,\n\
                  their standardization and the final clusters, STATE the subclusters and settings of the tree\n\
-                 (not with SPLIT FILE). The result depends on the order of the cases. DMCLUSTER is another\n\
-                 name for the command.",
+                 (not with SPLIT FILE). INFILE updates a model whose STATE file an earlier run wrote: the\n\
+                 saved subclusters go into the tree first and the cases of the active file follow, with the\n\
+                 saved distance, threshold, branch and level limits, standardization and categories (the\n\
+                 variables are named in the order of the file, a new category is an error, CRITERIA, DISTANCE,\n\
+                 HANDLENOISE and MEMALLOCATE are ignored); the file itself is left as it is, the tables describe\n\
+                 the cases of the active file and OUTFILE can write the updated model. The result depends on the\n\
+                 order of the cases. DMCLUSTER is another name for the command.",
         example: "TWOSTEP CLUSTER /CONTINUOUS VARIABLES=spend visits /CATEGORICAL VARIABLES=region plan\n\
                   \x20 /NUMCLUSTERS=AUTO 8 BIC /PRINT=COUNT SUMMARY IC /SAVE CLUSTER VARIABLE=segment.",
         parse: twostep::twostep,
