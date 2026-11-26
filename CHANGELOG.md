@@ -6,13 +6,13 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
-- [ALSCAL](docs/commands/alscal.md) `/SHAPE=ASYMMETRIC` scales matrices whose two triangles differ: both are data for symmetric distances, with the Euclidean and the individual differences model.
-- [ALSCAL](docs/commands/alscal.md) `/CONDITION=ROW` fits the disparities of each row of an asymmetric matrix on its own, for data whose rows are measured on scales of their own.
+## 0.52.0 (2026-11-26)
+
+ALSCAL scales asymmetric and rectangular data with all its models, PLS saves its datasets under SPLIT FILE, and TWOSTEP CLUSTER updates a saved model.
+
+- [ALSCAL](docs/commands/alscal.md) takes `/SHAPE=ASYMMETRIC` and `RECTANGULAR` (unfolding, with `/INPUT=ROWS(n)`), `/CONDITION=ROW`, and the models `ASCAL`, `AINDS` (stimulus weights) and `GEMSCAL` (a metric of its own for every matrix, with `/CRITERIA=DIRECTIONS(q)`).
 - [PLS](docs/commands/pls.md) `/OUTDATASET` works under SPLIT FILE: every group is fitted and the CASES, LATENTFACTORS and PREDICTORS datasets hold the groups one after the other, the split variables in front.
-- [ALSCAL](docs/commands/alscal.md) `/SHAPE=RECTANGULAR` unfolds a rectangular matrix: its rows and columns become two sets of stimuli in one space, with `/INPUT=ROWS(n)` for several matrices, row conditionality and the individual differences model.
 - [TWOSTEP CLUSTER](docs/commands/twostep-cluster.md) `/INFILE` updates a model saved with `/OUTFILE STATE`: the saved subclusters and the cases of the active file go into the tree together, with the saved distance, standardization and limits.
-- [ALSCAL](docs/commands/alscal.md) `/MODEL=ASCAL` and `AINDS` give every stimulus weights of the dimensions as the first of a pair, for asymmetric matrices whose distance from one stimulus to another differs from the way back.
-- [ALSCAL](docs/commands/alscal.md) `/MODEL=GEMSCAL` gives every matrix a metric of its own on the group space, with `/CRITERIA=DIRECTIONS(q)` setting how many directions it has.
 
 ## 0.51.0 (2026-11-26)
 
