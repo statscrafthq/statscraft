@@ -2,7 +2,10 @@
 //! stimuli in one space. Exact cases, which need no outside program: distances between made-up
 //! row points and column points are recovered, with the shape of both sets of points, at the
 //! ratio and interval level, under row conditionality with rows on scales of their own, and
-//! with one matrix or several.
+//! with one matrix or several. The last test unfolds noisy distances and compares the minimum
+//! of S-stress with the one R finds (BFGS with the analytic gradient from 60 random starts per
+//! dimension, the gradient at the minimum below 1e-8): S-stress is the root of one minus the
+//! squared cosine of the squared distances and the squared data over the whole rectangle.
 
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
@@ -328,5 +331,37 @@ fn the_rectangle_is_checked() {
             }
         }
         assert!(message.expect("an error").contains(wanted), "{syntax}");
+    }
+}
+
+/// The distances of `EXACT` with multiplicative noise (R, seed 2611, lognormal with sigma 0.12),
+/// rounded to two decimals.
+const NOISY: &str = "4.49 8.01 4.73 7.99 2.6 4.26
+1.27 3.93 4.47 2.21 1.71 1.75
+3.67 2.78 2.42 6.37 3.57 2.93
+4.25 1.22 6.4 3.25 3.47 2.55
+2.04 4.14 2.21 4.72 2.21 3.52";
+
+#[test]
+fn noisy_distances_reach_the_minimum_r_finds() {
+    let data = data_of(NOISY);
+    // dimensions and the root of the least 1 - cos^2 that R found; most of its random starts end
+    // in worse local minima, the engine's start from classical scaling in the best one
+    for (dimensions, minimum) in [
+        (1, 0.324545972888),
+        (2, 0.144438313369),
+        (3, 0.079737063734),
+    ] {
+        let tables = run(
+            &data,
+            &format!(
+                "ALSCAL VARIABLES=c1 TO c6 /SHAPE=RECTANGULAR /LEVEL=RATIO /CRITERIA=DIMENS({dimensions}) {TIGHT}."
+            ),
+        );
+        let got = final_sstress(&tables);
+        assert!(
+            (got - minimum).abs() < 1e-6,
+            "{dimensions} dimensions: {got} against {minimum}"
+        );
     }
 }
