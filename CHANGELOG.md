@@ -9,6 +9,7 @@ no test or verification notes, no comparisons with other software, no internal h
 - [CATPCA](docs/commands/catpca.md) `/RESAMPLE=BOOTSTRAP` analyses balanced or unbalanced bootstrap samples of the cases, turns each solution to the data's by a Procrustes rotation or reflection, and gives percentile intervals for the eigenvalues, the component loadings and the category values in three tables.
 - File > New > Data opens an empty data window, and a name typed in the empty row under the last variable of the Variables tab makes a new numeric variable. NUMERIC and STRING after NEW FILE start the blank dataset.
 - [ALSCAL](docs/commands/alscal.md) `/FILE` takes `(FIXED)` after CONFIG, ROWCONF, COLCONF, SUBJWGHT and STIMWGHT: those coordinates and weights stay as the file gives them and the rest is solved for them.
+- [CATPCA](docs/commands/catpca.md) `/RESAMPLE=BOOTSTRAP` draws the eigenvalues with their bootstrap interval, shows the interval of each category value as Lower and Upper on the transformation plots, and for two dimensions draws confidence ellipses of the eigenvalues, loadings, object points and category points; `LDELLAREA`, `OBELLAREA`, `CTELLAREA` choose the ellipses by area and `NELLPNT` sets the contour points.
 
 ## 0.52.0 (2026-11-26)
 

@@ -1461,7 +1461,7 @@ impl Engine {
 
         // the bootstrap: its tables here, its charts with the others below
         let mut bootstrap_charts: Vec<Chart> = Vec::new();
-        let mut bootstrap_bands: Option<Vec<Vec<Option<(f64, f64)>>>> = None;
+        let mut bootstrap_bands: Option<Vec<Vec<crate::catpca_bootstrap::Band>>> = None;
         if let Some(spec) = &command.resample {
             let original = summarize(command, &prep, &quants, &x, p, converged);
             let result =

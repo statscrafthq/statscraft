@@ -784,3 +784,115 @@ fn bootstrap_refusals() {
     assert!(titles(&t).contains(&"Bootstrap Eigenvalues"));
     assert!(engine.warnings().iter().any(|w| w.contains("LDELLAREA")));
 }
+
+fn chart_titles(engine: &mut Engine) -> Vec<String> {
+    engine.take_charts().into_iter().map(|c| c.title).collect()
+}
+
+#[test]
+fn a_two_dimensional_bootstrap_draws_ellipses_the_eigenvalue_plot_and_value_bands() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DATA}SET SEED=4.\n{BOOT_COMMAND} /RESAMPLE=BOOTSTRAP(40)
+             /PLOT=OBJECT LOADING CATEGORY(taste) JOINTCAT TRANS(taste) OBELLAREA(> AREA 0) NELLPNT(12)."
+        ),
+    );
+    let charts = engine.take_charts();
+    let titles: Vec<&str> = charts.iter().map(|c| c.title.as_str()).collect();
+    for want in [
+        "Bootstrap Eigenvalues",
+        "Confidence Ellipse of the Eigenvalues",
+        "Confidence Ellipses of the Component Loadings",
+        "Confidence Ellipses of the Object Points",
+        "Confidence Ellipses of the Category Points: taste",
+        "Confidence Ellipses of the Category Points",
+    ] {
+        assert!(titles.contains(&want), "{want} in {titles:?}");
+    }
+    // the eigenvalue plot: the data and its interval; the transformation plot: value and bands
+    let eigen = charts
+        .iter()
+        .find(|c| c.title == "Bootstrap Eigenvalues")
+        .unwrap();
+    assert_eq!(
+        eigen
+            .series
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Data", "Lower", "Upper"]
+    );
+    for k in 0..2 {
+        assert!(eigen.series[1].values[k] <= eigen.series[2].values[k]);
+    }
+    let trans = charts
+        .iter()
+        .find(|c| c.title == "Transformation: taste")
+        .unwrap();
+    let names: Vec<&str> = trans.series.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["Quantification", "Lower", "Upper"]);
+    for k in 0..trans.series[0].values.len() {
+        let (lower, upper) = (trans.series[1].values[k], trans.series[2].values[k]);
+        if lower.is_finite() {
+            assert!(lower <= upper);
+        }
+    }
+    // an ellipse is its point and a closed contour of NELLPNT + 1 points; 20 objects, 20 ellipses
+    let objects = charts
+        .iter()
+        .find(|c| c.title == "Confidence Ellipses of the Object Points")
+        .unwrap();
+    let Some(statscraft_engine::plot::Plot::Points { groups, .. }) = &objects.plot else {
+        panic!("no points")
+    };
+    assert_eq!(groups.len(), 20);
+    assert!(groups.iter().all(|g| g.points.len() == 1 + 13));
+    assert_eq!(groups[0].points[1], groups[0].points[13]);
+}
+
+#[test]
+fn ellipse_limits_choose_which_ellipses_are_drawn_and_a_seed_repeats_them() {
+    let run_with = |plot: &str| {
+        let mut engine = Engine::default();
+        run(
+            &mut engine,
+            &format!(
+                "{DATA}SET SEED=9.\n{BOOT_COMMAND} /RESAMPLE=BOOTSTRAP(30) /PLOT=LOADING {plot}."
+            ),
+        );
+        engine.take_charts()
+    };
+    let groups_of = |charts: &[statscraft_engine::Chart]| -> usize {
+        let c = charts
+            .iter()
+            .find(|c| c.title == "Confidence Ellipses of the Component Loadings");
+        match c.and_then(|c| c.plot.as_ref()) {
+            Some(statscraft_engine::plot::Plot::Points { groups, .. }) => groups.len(),
+            _ => 0,
+        }
+    };
+    // by default every loading's ellipse has an area above 0
+    let all = run_with("");
+    assert_eq!(groups_of(&all), 4);
+    // an impossible limit leaves no chart; a limit of the area below an enormous value all
+    assert_eq!(groups_of(&run_with("LDELLAREA(> AREA 1000)")), 0);
+    assert_eq!(groups_of(&run_with("LDELLAREA(< AREA 1000)")), 4);
+    // the same seed gives the same ellipses
+    assert_eq!(run_with("LDELLAREA"), all);
+}
+
+#[test]
+fn ellipses_need_a_two_dimensional_solution() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DATA}SET SEED=4.\n{BOOT_COMMAND} /DIMENSION=3 /RESAMPLE=BOOTSTRAP(10) /PLOT=LOADING."
+        ),
+    );
+    let titles = chart_titles(&mut engine);
+    assert!(titles.iter().any(|t| t == "Bootstrap Eigenvalues"));
+    assert!(!titles.iter().any(|t| t.starts_with("Confidence Ellipse")));
+}

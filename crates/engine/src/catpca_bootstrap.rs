@@ -367,7 +367,7 @@ impl Engine {
         let mut tables = Vec::new();
 
         // eigenvalues
-        let mut eigen_bands: Vec<Option<(f64, f64)>> = Vec::new();
+        let mut eigen_bands: Vec<Band> = Vec::new();
         let rows: Vec<Vec<Cell>> = (0..p)
             .map(|s| {
                 let values: Vec<f64> = kept.iter().map(|a| a.eigen[s]).collect();
@@ -413,7 +413,7 @@ impl Engine {
         ));
 
         // category values
-        let mut value_bands: Vec<Vec<Option<(f64, f64)>>> = vec![Vec::new(); original.values.len()];
+        let mut value_bands: Vec<Vec<Band>> = vec![Vec::new(); original.values.len()];
         let mut rows = Vec::new();
         for j in prep
             .active_vars
@@ -466,13 +466,16 @@ impl Engine {
     }
 }
 
+/// A percentile interval, where a sample had the value.
+pub(crate) type Band = Option<(f64, f64)>;
+
 /// What the bootstrap hands to the charts of the analysis.
 pub(crate) struct BootResult {
     pub(crate) tables: Vec<Table>,
     /// The percentile interval of each eigenvalue.
-    pub(crate) eigen_bands: Vec<Option<(f64, f64)>>,
+    pub(crate) eigen_bands: Vec<Band>,
     /// Per analysis variable the interval of each category's value (single levels).
-    pub(crate) value_bands: Vec<Vec<Option<(f64, f64)>>>,
+    pub(crate) value_bands: Vec<Vec<Band>>,
     /// The confidence ellipses of a two-dimensional solution.
     pub(crate) ellipses: Option<Ellipses>,
 }
@@ -685,7 +688,7 @@ fn ellipse(center: [f64; 2], cloud: &Cloud, percent: f64, points: usize) -> Opti
         [0.0, 1.0]
     };
     let (r1, r2) = ((k * l1).sqrt(), (k * l2).sqrt());
-    let contour = (0..=points)
+    let mut contour: Vec<[f64; 2]> = (0..points)
         .map(|t| {
             let angle = std::f64::consts::TAU * t as f64 / points as f64;
             let (u, v) = (r1 * angle.cos(), r2 * angle.sin());
@@ -695,6 +698,8 @@ fn ellipse(center: [f64; 2], cloud: &Cloud, percent: f64, points: usize) -> Opti
             ]
         })
         .collect();
+    // closed: the last point is the first
+    contour.push(contour[0]);
     Some(Ellipse {
         center,
         contour,
@@ -1038,6 +1043,68 @@ mod tests {
                 assert!((x - y).abs() < 1e-9);
             }
         }
+    }
+
+    fn cloud_of(points: &[[f64; 2]]) -> Cloud {
+        let mut cloud = Cloud::default();
+        for p in points {
+            cloud.add(p);
+        }
+        cloud
+    }
+
+    #[test]
+    fn an_ellipse_has_the_covariance_the_area_and_the_contour_of_r() {
+        // cov(cbind(x, y)) in R: 3.70, 3.15, 4.30; the chi-square level of two degrees of
+        // freedom at 95% is 5.99146454710798 and the area pi k sqrt(det S) is 46.0580587846453
+        let cloud = cloud_of(&[[1.0, 2.0], [2.0, 1.0], [3.0, 5.0], [4.0, 3.0], [6.0, 6.0]]);
+        let [a, b, c] = cloud.covariance().unwrap();
+        assert!((a - 3.70).abs() < 1e-12 && (b - 3.15).abs() < 1e-12 && (c - 4.30).abs() < 1e-12);
+        let e = ellipse([10.0, -2.0], &cloud, 95.0, 24).unwrap();
+        assert!((e.area - 46.0580587846453).abs() < 1e-9);
+        // closed contour of 24 steps; every point lies on (x - c)' S^-1 (x - c) = k
+        assert_eq!(e.contour.len(), 25);
+        assert_eq!(e.contour[0], e.contour[24]);
+        let det = a * c - b * b;
+        let k = 5.99146454710798;
+        for p in &e.contour {
+            let (u, v) = (p[0] - 10.0, p[1] + 2.0);
+            let form = (c * u * u - 2.0 * b * u * v + a * v * v) / det;
+            assert!((form - k).abs() < 1e-9, "{form}");
+        }
+        // a cloud of fewer than three points has no ellipse
+        assert!(ellipse([0.0, 0.0], &cloud_of(&[[1.0, 1.0], [2.0, 3.0]]), 95.0, 8).is_none());
+    }
+
+    #[test]
+    fn a_limit_keeps_the_ellipses_above_or_below_an_area_or_mean_plus_deviations() {
+        let make = |area: f64| Ellipse {
+            center: [0.0, 0.0],
+            contour: Vec::new(),
+            area,
+        };
+        let all = [0.5, 1.0, 1.5, 4.0, 9.0].map(make);
+        let refs: Vec<Option<&Ellipse>> = all.iter().map(Some).collect();
+        let limit = |greater, stdev, value| EllipseLimit {
+            greater,
+            stdev,
+            value,
+        };
+        // mean 3.2, sd 3.41...: mean + 2 sd = 10.2213958726168 keeps none, mean + 0.5 sd =
+        // 4.9553489681542 keeps the 9 (R: mean(areas) + k * sd(areas))
+        assert_eq!(passing(&refs, &limit(true, true, 2.0)), [false; 5]);
+        assert_eq!(
+            passing(&refs, &limit(true, true, 0.5)),
+            [false, false, false, false, true]
+        );
+        assert_eq!(
+            passing(&refs, &limit(false, false, 1.5)),
+            [true, true, false, false, false]
+        );
+        assert_eq!(
+            passing(&refs, &limit(true, false, 0.0)),
+            [true, true, true, true, true]
+        );
     }
 
     #[test]

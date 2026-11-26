@@ -4523,6 +4523,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20\x20\x20[/PRINT=[DESCRIP[(varlist)]] [LOADING[(SORT | NOSORT)]] [CORR] [VAF] [OCORR] [QUANT[(varlist)]]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20[HISTORY] [OBJECT[([(labelvar)] varlist)]] [NONE]]\n\
                  \x20\x20\x20[/PLOT=[OBJECT[(varlist)][(len)]] [LOADING[(varlist [(CENTR[(varlist)])])][(len)]]\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20\x20[LDELLAREA[((GT|LT) (AREA|STDEV) value)]] [OBELLAREA[(...)]] [CTELLAREA[(...)]] [NELLPNT(40)]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20[CATEGORY(varlist)[(len)]] [JOINTCAT[(varlist)][(len)]] [TRANS(var[(n)] ...)[(len)]]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20[RESID(var[(n)] ...)[(len)]] [BIPLOT[(LOADING | CENTR[(varlist)])][(varlist)][(len)]]\n\
                  \x20\x20\x20\x20\x20\x20\x20\x20\x20[TRIPLOT[(varlist[(varlist)])][(len)]] [PROJCENTR(var, varlist)[(len)]] [VAF]\n\
@@ -4561,6 +4562,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  interval at the percent: tables Bootstrap Eigenvalues, Bootstrap Component Loadings and Bootstrap\n\
                  Quantifications. It cannot be combined with ROTATION or a FIXED configuration, and at least one\n\
                  active variable must not be MNOM. Samples that cannot be analysed are left out and counted.\n\
+                 The bootstrap also draws charts (unless PLOT=NONE): the eigenvalues of the data with their interval,\n\
+                 and for a solution of 2 dimensions the confidence ellipses of the eigenvalues, of the component\n\
+                 loadings (with LOADING), of the object points (with OBJECT) and of the category points of the\n\
+                 variables of CATEGORY (and of all of them together with JOINTCAT); an ellipse is the region where\n\
+                 (x - c)' S^-1 (x - c) is at most the chi-square value of 2 degrees of freedom at the percent, around\n\
+                 the data's point c, S the covariance of the aligned points of the samples. LDELLAREA, OBELLAREA and\n\
+                 CTELLAREA(GT|LT AREA|STDEV value) keep the ellipses whose area is above or below the value, or the\n\
+                 mean area plus that many standard deviations (defaults: > AREA 0, > STDEV 2, > AREA 2); NELLPNT(n)\n\
+                 sets the points of a contour (40). TRANS plots of variables with a single value show the interval of\n\
+                 each category's value as Lower and Upper.\n\
                  Always shown: Case Processing Summary, Iteration History (iteration 0 and the last, or all with\n\
                  HISTORY) and Model Summary (Cronbach's alpha, eigenvalue and percent of variance per dimension and\n\
                  in total). PRINT adds: DESCRIP frequencies, missing count and mode; QUANT each variable's\n\
