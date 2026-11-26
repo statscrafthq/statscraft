@@ -7365,6 +7365,21 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: timeseries::tshow,
     },
     CommandSpec {
+        name: "VERIFY",
+        summary: "Check the DATE variables and report the USE and PREDICT periods.",
+        syntax: "VERIFY [[VARIABLES=]series].\n\
+                 A table with the first and last case of the file and of the USE and PREDICT periods, by case\n\
+                 number and by DATE_ text, then a table of the date variables: how many values are missing or\n\
+                 out of range, and a flag with the first case where a variable is not nested in the next higher\n\
+                 one, begins or ends a cycle off its usual value, or steps by more than it should.\n\
+                 With a numeric series, a third table gives its values at those cases and its missing count\n\
+                 (user-missing values count as missing unless TSET MISSING=INCLUDE).\n\
+                 Run it after SELECT IF, SORT CASES or AGGREGATE have changed the file, before a time series\n\
+                 procedure.",
+        example: "DATE YEAR 2018 MONTH.\nVERIFY sales.",
+        parse: timeseries::verify,
+    },
+    CommandSpec {
         name: "CREATE",
         summary: "New series from functions of existing series: lags, differences, smoothers, FFT.",
         syntax: "CREATE new names = function(series [, numbers]) [/new names = function(...) ...].\n\

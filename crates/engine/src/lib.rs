@@ -176,6 +176,7 @@ mod validatedata;
 mod varcomp;
 mod variables;
 pub mod vega_lite;
+mod verify;
 mod wls;
 pub mod workbook;
 pub mod xlsx;
@@ -1359,6 +1360,7 @@ impl Engine {
             }
             Command::Tset(items) => self.tset_command(items),
             Command::Tshow => return Ok(self.tshow()),
+            Command::Verify(_) => return self.procedure(command),
             Command::Create(equations) => return self.create(equations),
             Command::Rmv(equations) => return self.rmv(equations),
             Command::ShiftValues(specs) => return self.shift_values(specs),
@@ -1943,6 +1945,7 @@ impl Engine {
             Command::Cnlr(command) => self.cnlr(command),
             Command::Correlogram(command) => self.correlogram(command),
             Command::Season(command) => self.season(command),
+            Command::Verify(series) => self.verify(series.as_deref()),
             Command::Exsmooth(command) => self.exsmooth(command),
             Command::Arima(command) => self.arima(command),
             Command::Areg(command) => self.areg(command),

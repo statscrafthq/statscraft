@@ -245,6 +245,7 @@ One page per supported command, generated from the same table that the parser an
 |---|---|
 | [TSET](tset.md) | Settings shared by the time series procedures. |
 | [TSHOW](tshow.md) | List the time series settings. |
+| [VERIFY](verify.md) | Check the DATE variables and report the USE and PREDICT periods. |
 | [CREATE](create.md) | New series from functions of existing series: lags, differences, smoothers, FFT. |
 | [RMV](rmv.md) | Copies of series with the missing values filled in by interpolation, a mean, a median or a trend. |
 | [ACF](acf.md) | Autocorrelations of time series, with standard errors, Box-Ljung tests and charts. |
