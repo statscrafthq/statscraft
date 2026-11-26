@@ -720,7 +720,7 @@ fn errors_name_what_is_wrong() {
             "argument 2 of STRING must be a format such as F8.2",
         ),
         (
-            "COMPUTE r = NUMBER('1', TIME8).",
+            "COMPUTE r = NUMBER('1', RBHEX8).",
             "argument 2 of NUMBER must be a format such as F8.2",
         ),
         (

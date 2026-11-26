@@ -503,18 +503,28 @@ const NUMBER_FORMATS: &[(&str, FormatType)] = &[
     ("ADATE", FormatType::Adate),
     ("EDATE", FormatType::Edate),
     ("SDATE", FormatType::Sdate),
+    ("JDATE", FormatType::Jdate),
+    ("QYR", FormatType::Qyr),
+    ("MOYR", FormatType::Moyr),
+    ("WKYR", FormatType::Wkyr),
+    ("DATETIME", FormatType::Datetime),
+    ("YMDHMS", FormatType::Ymdhms),
+    ("TIME", FormatType::Time),
+    ("MTIME", FormatType::Mtime),
+    ("Z", FormatType::Z),
+    ("PIBHEX", FormatType::Pibhex),
 ];
 
 /// The formats STRING writes with: those every output shows.
 const STRING_FORMATS: &[&str] = &[
     "F", "N", "E", "COMMA", "DOT", "DOLLAR", "PCT", "DATE", "ADATE", "EDATE", "JDATE", "SDATE",
     "QYR", "MOYR", "WKYR", "DATETIME", "YMDHMS", "TIME", "MTIME", "DTIME", "WKDAY", "MONTH", "CCA",
-    "CCB", "CCC", "CCD", "CCE",
+    "CCB", "CCC", "CCD", "CCE", "PIBHEX",
 ];
 
 /// The format argument of NUMBER and STRING (such as F8.2 or DATE11): its type in upper case,
 /// width and decimals. The parser hands it over as a variable name.
-// shortcut: NUMBER reads the formats DATA LIST reads (no TIME, DATETIME ...); add them there
+// shortcut: NUMBER reads the formats DATA LIST reads except DTIME, which only DATA LIST reads
 fn format_arg(function: &str, expr: &Expr) -> Result<(String, usize, usize), Error> {
     let parsed = match expr {
         Expr::Variable(text) => {
@@ -568,9 +578,23 @@ fn read_number(
         return reading.blanks;
     }
     let read = match kind {
-        FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
-            crate::data_list::date(&field, *kind, reading.epoch)
+        FormatType::Date
+        | FormatType::Adate
+        | FormatType::Edate
+        | FormatType::Sdate
+        | FormatType::Jdate
+        | FormatType::Qyr
+        | FormatType::Moyr
+        | FormatType::Wkyr => crate::data_list::date(&field, *kind, reading.epoch),
+        FormatType::Datetime | FormatType::Ymdhms | FormatType::Time | FormatType::Mtime => {
+            let format = statscraft_syntax::Format {
+                kind: *kind,
+                width: width as u16,
+                decimals: decimals as u8,
+            };
+            crate::get_data::number(&field, format, false, reading.epoch)
         }
+        FormatType::Pibhex => crate::data_list::pibhex(&field, width),
         _ => crate::data_list::number(&field, *kind, decimals as u8),
     };
     read.ok().flatten()

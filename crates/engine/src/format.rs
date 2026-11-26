@@ -108,6 +108,22 @@ pub fn format_value(value: f64, format: &str, fit: bool) -> String {
             });
             currency.show(value, width, decimals)
         }
+        // the unsigned hexadecimal digits of a whole number, in capitals, with leading zeros
+        "PIBHEX" => {
+            // the whole number nearest to the value, in whole bytes
+            let nearest = value.round();
+            let digits = format!("{:X}", nearest as u64);
+            let fits = nearest >= 0.0
+                && nearest < 2f64.powi(64)
+                && given.is_multiple_of(2)
+                && given <= 16
+                && (fit || digits.len() <= given);
+            if fits {
+                format!("{digits:0>given$}")
+            } else {
+                "*".repeat(given)
+            }
+        }
         // leading zeros fill the width the format gives; there is no sign
         "N" => {
             let number = format_number(Some(value), 40, decimals);

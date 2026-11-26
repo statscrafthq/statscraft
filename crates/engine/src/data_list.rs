@@ -404,6 +404,7 @@ pub(crate) fn read(
                 _ => Err("is not a duration in days and hours"),
             }
         }
+        FormatType::Pibhex => pibhex(text, usize::from(format.width)),
         kind => number(text, kind, decimals),
     };
     match result {
@@ -440,6 +441,9 @@ pub(crate) fn number(
         }
         _ => text.to_string(),
     };
+    if kind == FormatType::Z {
+        return zoned(text, decimals);
+    }
     let invalid = "is not a number";
     let (negative, rest) = match cleaned.strip_prefix('-') {
         Some(rest) => (true, rest),
@@ -477,6 +481,59 @@ pub(crate) fn number(
         return Err(invalid);
     }
     Ok(Some(if negative { -value } else { value }))
+}
+
+/// A zoned decimal (Z): digits, the last of them written as the letter that carries the sign:
+/// `{` and A to I are +0 to +9, `}` and J to R are -0 to -9, a plain digit is positive. A
+/// decimal point in the text sets the decimals, otherwise the last `decimals` digits are decimals.
+fn zoned(text: &str, decimals: u8) -> Result<Option<f64>, &'static str> {
+    let invalid = "is not a zoned decimal";
+    let text = text.trim();
+    let Some(last) = text.chars().last() else {
+        return Ok(None);
+    };
+    let (negative, digit) = match last {
+        '0'..='9' => (false, last as u8 - b'0'),
+        '{' => (false, 0),
+        'A'..='I' => (false, last as u8 - b'A' + 1),
+        '}' => (true, 0),
+        'J'..='R' => (true, last as u8 - b'J' + 1),
+        _ => return Err(invalid),
+    };
+    let body = &text[..text.len() - last.len_utf8()];
+    if !body.bytes().all(|b| b.is_ascii_digit() || b == b'.') || body.matches('.').count() > 1 {
+        return Err(invalid);
+    }
+    let mantissa = format!("{body}{digit}");
+    let shift = if mantissa.contains('.') {
+        0
+    } else {
+        -i32::from(decimals)
+    };
+    let value: f64 = format!("{mantissa}e{shift}").parse().map_err(|_| invalid)?;
+    Ok(Some(if negative { -value } else { value }))
+}
+
+/// A hexadecimal number read as an unsigned integer (PIBHEX): exactly `width` hexadecimal
+/// digits, no signs, points or blanks.
+pub(crate) fn pibhex(text: &str, width: usize) -> Result<Option<f64>, &'static str> {
+    let invalid = "is not a hexadecimal number of the width of its format";
+    // a lone period is the system-missing value, as in the other numeric formats
+    if text.trim() == "." {
+        return Ok(None);
+    }
+    // whole bytes, two digits each, at most eight of them
+    if width == 0
+        || !width.is_multiple_of(2)
+        || width > 16
+        || text.chars().count() != width
+        || !text.bytes().all(|b| b.is_ascii_hexdigit())
+    {
+        return Err(invalid);
+    }
+    u64::from_str_radix(text, 16)
+        .map(|v| Some(v as f64))
+        .map_err(|_| invalid)
 }
 
 /// The month of a date field: a number, a Roman numeral or at least three letters of its

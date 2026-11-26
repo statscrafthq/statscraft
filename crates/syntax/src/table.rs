@@ -252,7 +252,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  between. Inside INPUT PROGRAM each run reads the next case's records into the case being\n\
                  built; without variables it passes over a record. END (fixed data in an input program\n\
                  only) names a variable that is 0, and 1 once the data are used up.\n\
-                 Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE, JDATE (yyddd or\n\
+                 Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, Z (zoned decimal: 1234A is 12341, 1234J is -12341),\n\
+                 PIBHEX (hexadecimal digits, the whole width), A, DATE, ADATE, EDATE, SDATE, JDATE (yyddd or\n\
                  yyyyddd), QYR (4Q90, Q4 1990), MOYR (Oct-1990), WKYR (43WK90, 43 1990), DATETIME, YMDHMS (year\n\
                  first), TIME (hours:minutes:seconds), MTIME (minutes:seconds), DTIME (days, then time). A date\n\
                  may be written with blanks, dashes, slashes, periods or commas between its parts, a month as a\n\
