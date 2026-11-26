@@ -6,6 +6,12 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+## 0.50.0 (2026-11-26)
+
+Nonlinear regression arrives with NLR and CNLR, the time series commands gain RMV, FIT and SHIFT VALUES, MCONVERT converts matrix data, and the window speaks Spanish.
+
+- The window speaks Spanish: Edit > Settings > Language chooses System (the default, Spanish when the computer is set to Spanish), English or Español, and the change applies at once. The menus, toolbars, status bar, grids, the Settings dialog and the buttons of the dialogs follow it; syntax, output tables and command messages stay the same in every language. See [The language of the window](docs/window.md#the-language-of-the-window).
+- The README is also in Spanish and Simplified Chinese.
 - [RMV](docs/commands/rmv.md) copies series with their missing values filled in: `LINT` interpolates, `MEAN` and `MEDIAN` use the nearest valid values on each side, `SMEAN` the series mean and `TREND` a fitted line.
 - [NLR](docs/commands/nlr.md) fits nonlinear models by least squares (Levenberg-Marquardt) to the model that [MODEL PROGRAM](docs/commands/model-program.md) and [DERIVATIVES](docs/commands/derivatives.md) define: iteration history, analysis of variance with R squared, estimates with asymptotic standard errors and 95% intervals, parameter correlations, FILE and OUTFILE for starting values, SAVE of predicted values, residuals and derivatives, and a check of the derivatives given against numerical ones. CLEAR MODEL PROGRAMS drops the programs.
 - [SHIFT VALUES](docs/commands/shift-values.md) adds a variable holding the value of another variable from an earlier or later case, within each split group, with the dictionary entry of the original.
