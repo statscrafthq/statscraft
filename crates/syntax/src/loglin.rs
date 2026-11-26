@@ -33,7 +33,10 @@ pub enum LoglinearContrastKind {
     Named(Contrast),
     /// The k x k matrix as given; `basis` (BASIS SPECIAL) makes the contrasts equal to it,
     /// otherwise its transpose is the basis of the design columns.
-    Special { values: Vec<f64>, basis: bool },
+    Special {
+        values: Vec<f64>,
+        basis: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -277,7 +280,9 @@ fn contrast_kind(p: &mut Parser) -> PResult<LoglinearContrastKind> {
     if basis {
         return Err(p.unexpected(&["SPECIAL"]));
     }
-    Ok(LoglinearContrastKind::Named(crate::glm::contrast(p, false)?))
+    Ok(LoglinearContrastKind::Named(crate::glm::contrast(
+        p, false,
+    )?))
 }
 
 pub(crate) fn loglinear(p: &mut Parser) -> PResult<Command> {

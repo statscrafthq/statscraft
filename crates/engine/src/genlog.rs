@@ -61,19 +61,19 @@ struct Column {
 }
 
 /// One Newton-Raphson step's change, for PRINT ITERATION.
-struct Step {
-    absolute: f64,
-    relative: f64,
-    score: f64,
+pub(crate) struct Step {
+    pub(crate) absolute: f64,
+    pub(crate) relative: f64,
+    pub(crate) score: f64,
 }
 
-struct Fitted {
-    m: Vec<f64>,
-    beta: Vec<f64>,
+pub(crate) struct Fitted {
+    pub(crate) m: Vec<f64>,
+    pub(crate) beta: Vec<f64>,
     /// (X'MX)^-1 over the non-redundant columns.
-    cov: Matrix,
-    steps: Vec<Step>,
-    converged: bool,
+    pub(crate) cov: Matrix,
+    pub(crate) steps: Vec<Step>,
+    pub(crate) converged: bool,
 }
 
 /// A saved variable: its root, the name given, its label and the value of every case.
@@ -1204,7 +1204,7 @@ fn trim_number(v: f64) -> String {
 
 /// Newton-Raphson for log m = log z + x'b over the cells in use.
 #[allow(clippy::too_many_arguments)]
-fn newton(
+pub(crate) fn newton(
     x: &[Vec<f64>],
     z: &[f64],
     in_use: &[bool],

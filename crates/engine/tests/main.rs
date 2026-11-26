@@ -73,6 +73,7 @@ mod legacy_scaling;
 mod logistic;
 mod logistic_r;
 mod loglinear;
+mod loglinear_general;
 mod loops;
 mod macros;
 mod manova;
