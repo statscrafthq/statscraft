@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- NOMREG with both DELTA and BIAS gives an empty cell both, as PLUM does; before, DELTA had no effect once BIAS was above 0.
 - DATA LIST, GET DATA and ALTER TYPE read the date formats JDATE, QYR, MOYR and WKYR; DATE, ADATE, EDATE and SDATE dates and TIME, MTIME and YMDHMS values with no delimiters (28OCT1990, 10281990, 0530, 20110317140645); a plus sign on a time; a month spelled out or in Roman numerals after any delimiter in DATETIME, which reads a slash date with a first number above 12 day first; and they refuse minutes of 60 or more and seconds of 60 or more in a time. A bare four-digit MTIME value is now minutes and seconds (0719 is 7:19), as the format's form without a colon; other bare numbers stay minutes.
 - NPTESTS Kolmogorov-Smirnov tests (one sample, and two independent samples) work out the significance with pi itself in the Smirnov series, as the formula is written, instead of the seven-digit constants of NPAR TESTS; the p-value changes by about 1e-7 for statistics between 0.27 and 1, NPAR TESTS is unchanged.
 - AGGREGATE accepts a period after a function name (`SUM.(x)`, `PGT.(x, 30)`, `FIRST.(x)`, `N.(x)`, `NMISS.(x)`), which counts user-missing values as valid; before, such a call was refused with an unexpected character.

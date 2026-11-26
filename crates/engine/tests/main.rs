@@ -103,6 +103,7 @@ mod naivebayes;
 mod neural;
 mod nlr;
 mod nomreg;
+mod nomreg_plum_r;
 mod npar;
 mod npar_r;
 mod nptests;
