@@ -12,7 +12,7 @@ use statscraft_data::Values;
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
 
-const DATA: &str = "DATA LIST FREE /y age inc reg.
+pub(crate) const DATA: &str = "DATA LIST FREE /y age inc reg.
 BEGIN DATA
 0 54 27.1 1 
 1 46 64.5 1 
