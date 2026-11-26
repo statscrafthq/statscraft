@@ -515,6 +515,8 @@ pub enum TranslateType {
     Xlsx,
     /// A Stata data file.
     Stata,
+    /// A SAS transport file (TYPE=SAS /VERSION=X).
+    SasTransport,
     /// A dBASE III file (TYPE=DB3).
     Dbase3,
     /// A dBASE IV file (TYPE=DB4).

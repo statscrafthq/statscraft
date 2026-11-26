@@ -6933,8 +6933,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "SAVE TRANSLATE",
-        summary: "Write the active dataset to a CSV or tab-delimited text file, an Excel workbook, a Stata file or a dBASE file.",
-        syntax: "SAVE TRANSLATE OUTFILE='path' | handle /TYPE=CSV | TAB | XLS /VERSION=12 | STATA | DB3 | DB4 [/REPLACE]\n\
+        summary: "Write the active dataset to a CSV or tab-delimited text file, an Excel workbook, a Stata file, a SAS transport file or a dBASE file.",
+        syntax: "SAVE TRANSLATE OUTFILE='path' | handle /TYPE=CSV | TAB | XLS /VERSION=12 | STATA | SAS /VERSION=X | DB3 | DB4 [/REPLACE]\n\
                  \x20   [/FIELDNAMES [VALUE=NAMES | LABELS]] [/CELLS=VALUES | LABELS] [/MISSING=IGNORE | RECODE]\n\
                  \x20   [/TEXTOPTIONS [DELIMITER='c'] [QUALIFIER='c'] [DECIMAL=DOT | COMMA] [FORMAT=PLAIN | VARIABLE]]\n\
                  \x20   [/EXCELOPTIONS SHEET='name'] [/ENCODING='name' [BOM=YES | NO]] [/UNSELECTED=RETAIN | DELETE]\n\
@@ -6967,6 +6967,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  become %td days since 1960, dates with a time %tc milliseconds; times and other numbers\n\
                  are plain. User-missing values stay valid values unless MISSING=RECODE. Text is UTF-8 from\n\
                  Stata 14 on, else in ENCODING (default: the system's code page).\n\
+                 SAS: TYPE=SAS /VERSION=X writes a transport file (the layout of version 5, which SAS and\n\
+                 other software read); the other SAS versions are not written. Names are cut to 8 bytes,\n\
+                 with _ for any other character than a letter or digit, and made unique; the data set is\n\
+                 named after the file. The label is the variable label, else the name (40 bytes at most).\n\
+                 Dates are days since 1960-01-01 with the format DATE, dates with a time of day seconds with\n\
+                 DATETIME, times seconds with TIME; other numbers have no format. Every missing value, user\n\
+                 missing ones too, is the SAS missing value. Text is Windows Latin-1, 200 bytes at most; value\n\
+                 labels are not written. ENCODING is not used.\n\
                  dBASE: DB3 holds 128 fields and DB4 255, a record up to 4000 bytes; more variables are left\n\
                  off with a warning. A field name is the variable name in capitals with _ for any other\n\
                  character than a letter or digit, V in front of a name that does not start with a letter, cut\n\
@@ -6978,7 +6986,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "SAVE TRANSLATE OUTFILE='wave2.xlsx' /TYPE=XLS /VERSION=12 /FIELDNAMES /CELLS=LABELS /REPLACE.\n\
                   SAVE TRANSLATE OUTFILE='wave2.csv' /TYPE=CSV /FIELDNAMES /TEXTOPTIONS DECIMAL=COMMA /REPLACE.\n\
                   SAVE TRANSLATE OUTFILE='clinic.dta' /TYPE=STATA /EDITION=SE /DROP=nurse_note /MAP /REPLACE.\n\
-                  SAVE TRANSLATE OUTFILE='stock.dbf' /TYPE=DB4 /REPLACE.",
+                  SAVE TRANSLATE OUTFILE='stock.dbf' /TYPE=DB4 /REPLACE.\n\
+                  SAVE TRANSLATE OUTFILE='stock.xpt' /TYPE=SAS /VERSION=X /REPLACE.",
         parse: save_translate::save_translate,
     },
     CommandSpec {

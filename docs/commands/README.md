@@ -15,7 +15,7 @@ One page per supported command, generated from the same table that the parser an
 | [IMPORT](import.md) | Read a portable (.por) file and make it the active dataset. |
 | [SYSFILE INFO](sysfile-info.md) | Show the dictionary of a data file without opening it as the active dataset. |
 | [SAVE](save.md) | Write the active dataset to a data file. |
-| [SAVE TRANSLATE](save-translate.md) | Write the active dataset to a CSV or tab-delimited text file, an Excel workbook, a Stata file or a dBASE file. |
+| [SAVE TRANSLATE](save-translate.md) | Write the active dataset to a CSV or tab-delimited text file, an Excel workbook, a Stata file, a SAS transport file or a dBASE file. |
 | [EXPORT](export.md) | Write the active dataset to a portable (.por) file. |
 | [XSAVE](xsave.md) | Write the cases to a data file as the next data pass reads them. |
 | [NEW FILE](new-file.md) | Start a new, empty active dataset. |

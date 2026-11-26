@@ -31,7 +31,7 @@ use std::collections::HashMap;
 
 /// Days from 1582-10-14 (day 0 of our dates) to 1960-01-01 (day 0 of Stata's).
 const DAYS_TO_1960: i64 = DAYS_TO_1970 - 3653;
-const SECONDS_TO_1960: f64 = (DAYS_TO_1960 * 86_400) as f64;
+pub(crate) const SECONDS_TO_1960: f64 = (DAYS_TO_1960 * 86_400) as f64;
 /// The longest string a variable holds here; longer long strings are cut.
 const MAX_STRING: usize = 32_767;
 const MAX_FILE_LABEL: usize = 64;

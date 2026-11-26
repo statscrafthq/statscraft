@@ -91,7 +91,7 @@ enum Kind {
 
 /// Text in Windows Latin-1, cut to `width` bytes, padded with blanks; whether a character was
 /// lost.
-fn latin1(text: &str, width: usize) -> (Vec<u8>, bool) {
+pub(crate) fn latin1(text: &str, width: usize) -> (Vec<u8>, bool) {
     let mut lost = false;
     let mut bytes: Vec<u8> = Vec::new();
     let mut one = [0u8; 4];

@@ -175,6 +175,7 @@ pub mod vega_lite;
 mod wls;
 pub mod workbook;
 pub mod xlsx;
+mod xport;
 
 pub use chart::Chart;
 pub use expr::functions;

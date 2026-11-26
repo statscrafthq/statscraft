@@ -193,7 +193,7 @@ fn recode_user_missing_limits_overwrite_and_refused_options() {
         ),
         (
             "SAVE TRANSLATE OUTFILE='x.dbf'.",
-            "SAVE TRANSLATE needs /TYPE=CSV, TAB, STATA, DB3, DB4 or XLS /VERSION=12",
+            "SAVE TRANSLATE needs /TYPE=CSV, TAB, STATA, SAS /VERSION=X, DB3, DB4 or XLS /VERSION=12",
         ),
         (
             "SAVE TRANSLATE OUTFILE='x.dbf' /TYPE=DB4 /ENCODING='UTF8'.",

@@ -234,8 +234,8 @@ fn types_and_options_that_are_refused() {
     let mut s = session(&dir);
     let cases = [
         (
-            "SAVE TRANSLATE OUTFILE='a.sas7bdat' /TYPE=SAS /VERSION=7.",
-            "SAVE TRANSLATE /TYPE=SAS is not supported yet; write CSV, TAB, STATA, DB3, DB4 or XLS /VERSION=12",
+            "SAVE TRANSLATE OUTFILE='a.sav' /TYPE=PC.",
+            "SAVE TRANSLATE /TYPE=PC is not supported yet; write CSV, TAB, STATA, SAS /VERSION=X, DB3, DB4 or XLS /VERSION=12",
         ),
         (
             "SAVE TRANSLATE OUTFILE='a.xls' /TYPE=XLS /VERSION=8.",
@@ -247,7 +247,7 @@ fn types_and_options_that_are_refused() {
         ),
         (
             "SAVE TRANSLATE OUTFILE='a.txt'.",
-            "SAVE TRANSLATE needs /TYPE=CSV, TAB, STATA, DB3, DB4 or XLS /VERSION=12",
+            "SAVE TRANSLATE needs /TYPE=CSV, TAB, STATA, SAS /VERSION=X, DB3, DB4 or XLS /VERSION=12",
         ),
         (
             "SAVE TRANSLATE OUTFILE='a.dta' /VERSION=6.",

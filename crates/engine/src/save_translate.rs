@@ -1,5 +1,6 @@
 //! SAVE TRANSLATE: the active dataset as CSV, tab-delimited text, an Excel 2007 workbook, a
-//! Stata data file (see `stata.rs`) or a dBASE file (see `dbf.rs`).
+//! Stata data file (see `stata.rs`), a SAS transport file (see `xport.rs`) or a dBASE file
+//! (see `dbf.rs`).
 //!
 //! Choices where the manual is silent:
 //! - Lines end with CR LF, as RFC 4180 has it for CSV.
@@ -20,6 +21,7 @@ use crate::excel::excel_number;
 use crate::expr::{DAYS_TO_1970, civil_from_days};
 use crate::stata::{DtaOptions, stata_encoding, stata_names, write_dta};
 use crate::workbook::clock;
+use crate::xport::{member_name, write_xport, xport_names};
 use crate::{Engine, Error, Table, format_value, is_date_time_or_currency};
 use rust_xlsxwriter::{Format, Formula, Workbook};
 use statscraft_data::{Dataset, Value, Values, Variable};
@@ -135,9 +137,11 @@ impl Engine {
         let stata = command.kind == TranslateType::Stata;
         let unicode = command.stata_version >= 14;
         let dbase = matches!(command.kind, TranslateType::Dbase3 | TranslateType::Dbase4);
-        let file_names = |names: Vec<&str>| match (stata, dbase) {
-            (true, _) => stata_names(names, unicode),
-            (_, true) => dbf_names(names),
+        let sas = command.kind == TranslateType::SasTransport;
+        let file_names = |names: Vec<&str>| match (stata, dbase, sas) {
+            (true, ..) => stata_names(names, unicode),
+            (_, true, _) => dbf_names(names),
+            (.., true) => xport_names(names),
             _ => names.into_iter().map(str::to_string).collect(),
         };
         let tables = self.map_tables(&data, &names, &command.options, true, Some(&file_names))?;
@@ -169,6 +173,16 @@ impl Engine {
                     big: false,
                 };
                 write_dta(&data, &options).and_then(|(bytes, warnings)| {
+                    self.warn_some(warnings);
+                    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+                })
+            }
+            TranslateType::SasTransport => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let member = member_name(&path.to_string_lossy());
+                write_xport(&data, &member, now).and_then(|(bytes, warnings)| {
                     self.warn_some(warnings);
                     std::fs::write(&path, bytes).map_err(|e| e.to_string())
                 })
