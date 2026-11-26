@@ -272,3 +272,13 @@ fn a_model_that_fails_outside_a_bound_is_kept_inside_it() {
     near(estimate(&t, "a"), 3.27355897107, "a");
     near(estimate(&t, "b"), 1.44461087127, "b");
 }
+
+#[test]
+fn iter_alone_bounds_a_fit_without_nonlinear_constraints() {
+    // MINORITERATION only limits the inner runs of the nonlinear constraints
+    let t = run(&format!(
+        "{MODEL}CNLR y /BOUNDS b <= 9 /CRITERIA=ITER(300) MINORITERATION(2) OPTOLERANCE(1E-24) FPRECISION(1E-26)."
+    ));
+    near(estimate(&t, "a"), 10.2670933528832, "a");
+    near(estimate(&t, "b"), 2.9314961966467, "b");
+}

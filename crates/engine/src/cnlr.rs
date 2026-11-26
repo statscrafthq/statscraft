@@ -589,11 +589,10 @@ impl Problem<'_> {
         for (k, ..) in self.nonlinear {
             let column = &e.constraints[*k];
             let first = column[self.used[0]];
-            if column
+            if self
+                .used
                 .iter()
-                .enumerate()
-                .filter(|(i, _)| self.used.contains(i))
-                .any(|(_, v)| (v - first).abs() > 1e-9 * (1.0 + first.abs()))
+                .any(|i| (column[*i] - first).abs() > 1e-9 * (1.0 + first.abs()))
             {
                 return Err(Error(
                     "CNLR: a constrained function takes different values in different cases; it can depend on the parameters only"
@@ -807,7 +806,7 @@ fn solve(
             settings.lftol
         ))
     })?;
-    let tol = Tolerances {
+    let mut tol = Tolerances {
         iterations: settings.minor,
         gradient: settings.gradient,
         steplimit: settings.steplimit,
@@ -838,6 +837,15 @@ fn solve(
         if !problem.nonlinear.is_empty() && problem.lambda.is_empty() {
             problem.lambda = vec![0.0; problem.sides(&vec![0.0; problem.nonlinear.len()]).len()];
         }
+        // without nonlinear constraints one inner run is the whole fit, so ITER bounds it; with
+        // them each inner run takes at most MINORITERATION of what ITER has left
+        tol.iterations = if problem.nonlinear.is_empty() {
+            settings.iterations
+        } else {
+            settings
+                .minor
+                .min(settings.iterations.saturating_sub(count).max(1))
+        };
         let inner = minimize(problem, x.clone(), &constraints, hessian.clone(), &tol)?;
         count += inner.steps.len();
         if record {
@@ -1226,7 +1234,17 @@ fn bootstrap_tables(names: &[String], theta: &[f64], estimates: &[Vec<f64>]) -> 
     let rows = (0..p)
         .map(|a| {
             let mut row = vec![text(&names[a])];
-            row.extend((0..p).map(|b| Cell::Number(s[a][b] / (s[a][a] * s[b][b]).sqrt())));
+            // a parameter that never varies (pinned by a bound) has no correlation
+            row.extend((0..p).map(|b| {
+                let d = (s[a][a] * s[b][b]).sqrt();
+                if d > 0.0 {
+                    Cell::Number(s[a][b] / d)
+                } else if a == b {
+                    Cell::Number(1.0)
+                } else {
+                    Cell::Empty
+                }
+            }));
             row
         })
         .collect();
