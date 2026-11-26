@@ -2997,7 +2997,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "ALSCAL VARIABLES=varlist | /MATRIX=IN('file' | dataset | *)\n\
                  \x20  [/INPUT=ROWS(ALL | n)] [/SHAPE=SYMMETRIC | ASYMMETRIC]\n\
                  \x20  [/LEVEL=ORDINAL[([UNTIE] [SIMILAR])] | INTERVAL[(1..4)] | RATIO[(1..4)] | NOMINAL]\n\
-                 \x20  [/CONDITION=MATRIX | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL]\n\
+                 \x20  [/CONDITION=MATRIX | ROW | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL]\n\
                  \x20  [/CRITERIA=[NEGATIVE] [CUTOFF(0)] [CONVERGE(.001)] [ITER(30)] [STRESSMIN(.005)] [DIMENS(2[,max])]]\n\
                  \x20  [/PRINT=[DATA] [HEADER]] [/PLOT[=DEFAULT | ALL]] [/OUTFILE='file' | dataset]\n\
                  \x20  [/FILE='file' | dataset [CONFIG | ROWCONF] [SUBJWGHT] [(INITIAL)]].\n\
@@ -3014,7 +3014,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  keeps the order of the data (UNTIE lets ties part, SIMILAR turns the order), NOMINAL only which values\n\
                  are equal; INTERVAL(n) and RATIO(n) make the squared disparities a polynomial of degree n of the\n\
                  squared data, with and without an intercept. CONDITION=MATRIX fits each matrix on its own,\n\
-                 UNCONDITIONAL all at once. MODEL=INDSCAL weights the dimensions per matrix (no negative weights\n\
+                 UNCONDITIONAL all at once, ROW (asymmetric data only) each row of each matrix on its own, the\n\
+                 first stimulus of an ordered pair naming its row. MODEL=INDSCAL weights the dimensions per matrix (no negative weights\n\
                  unless NEGATIVE). The start is classical scaling of the mean scalar products of all matrices, after\n\
                  each got the smallest constant that makes it a metric. Iterations stop when S-stress improves by less\n\
                  than CONVERGE, falls to STRESSMIN or after ITER; DIMENS(min,max) solves from max down to min (1 only\n\

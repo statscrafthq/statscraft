@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - [ALSCAL](docs/commands/alscal.md) `/SHAPE=ASYMMETRIC` scales matrices whose two triangles differ: both are data for symmetric distances, with the Euclidean and the individual differences model.
+- [ALSCAL](docs/commands/alscal.md) `/CONDITION=ROW` fits the disparities of each row of an asymmetric matrix on its own, for data whose rows are measured on scales of their own.
 
 ## 0.51.0 (2026-11-26)
 

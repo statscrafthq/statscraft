@@ -60,7 +60,9 @@ struct Data {
     o: Vec<Matrix>,
     present: Vec<Vec<Vec<bool>>>,
     level: AlscalLevel,
-    groups: Vec<Vec<usize>>,
+    /// The proximities that are compared with each other, as (subject, cell): a matrix, all
+    /// matrices, or a row of a matrix.
+    groups: Vec<Vec<(usize, usize)>>,
     asymmetric: bool,
 }
 
@@ -201,11 +203,7 @@ fn start(data: &Data, p: usize) -> Matrix {
 /// per subject.
 fn scale_data(data: &Data, e: &[Matrix]) -> Vec<Vec<f64>> {
     let mut f: Vec<Vec<f64>> = data.cells.iter().map(|c| vec![0.0; c.len()]).collect();
-    for group in &data.groups {
-        let all: Vec<(usize, usize)> = group
-            .iter()
-            .flat_map(|&k| (0..data.cells[k].len()).map(move |c| (k, c)))
-            .collect();
+    for all in &data.groups {
         let o = |c: &(usize, usize)| data.cells[c.0][c.1].o;
         let target = |c: &(usize, usize)| {
             let cell = &data.cells[c.0][c.1];
@@ -769,6 +767,11 @@ impl Engine {
                 list
             })
             .collect();
+        let cells_of: Vec<usize> = cells.iter().map(Vec::len).collect();
+        let rows_of: Vec<Vec<usize>> = cells
+            .iter()
+            .map(|list| list.iter().map(|c| c.a).collect())
+            .collect();
         let incident = cells
             .iter()
             .map(|list| {
@@ -815,9 +818,17 @@ impl Engine {
             o,
             present,
             level,
-            groups: match command.unconditional {
-                true => vec![(0..m).collect()],
-                false => (0..m).map(|k| vec![k]).collect(),
+            groups: {
+                let of = |k: usize| (0..cells_of[k]).map(move |c| (k, c));
+                match (command.unconditional, command.row) {
+                    (true, _) => vec![(0..m).flat_map(of).collect()],
+                    (false, true) => (0..m)
+                        .flat_map(|k| (0..n).map(move |row| (k, row)).collect::<Vec<_>>())
+                        .map(|(k, row)| of(k).filter(|&(_, c)| rows_of[k][c] == row).collect())
+                        .filter(|g: &Vec<(usize, usize)>| !g.is_empty())
+                        .collect(),
+                    (false, false) => (0..m).map(|k| of(k).collect()).collect(),
+                }
             },
             asymmetric,
         };
@@ -875,10 +886,10 @@ impl Engine {
                 ),
                 (
                     "Conditionality",
-                    if command.unconditional {
-                        "Unconditional"
-                    } else {
-                        "Matrix"
+                    match (command.unconditional, command.row) {
+                        (true, _) => "Unconditional",
+                        (false, true) => "Row",
+                        (false, false) => "Matrix",
                     }
                     .to_string(),
                 ),

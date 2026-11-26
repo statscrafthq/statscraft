@@ -39,6 +39,8 @@ pub struct Alscal {
     pub rows: Option<usize>,
     pub level: AlscalLevel,
     pub unconditional: bool,
+    /// CONDITION=ROW: only the numbers of one row are comparable.
+    pub row: bool,
     /// SHAPE=ASYMMETRIC: both triangles of every matrix are data.
     pub asymmetric: bool,
     /// MODEL=INDSCAL.
@@ -106,6 +108,7 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             similar: false,
         },
         unconditional: false,
+        row: false,
         asymmetric: false,
         indscal: false,
         negative: false,
@@ -195,13 +198,14 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
             };
         } else if p.eat_keyword("CONDITION") {
             p.eat(Punct::Eq);
-            if p.at_keyword("ROW") {
-                return Err(not_yet(p, "CONDITION=ROW"));
-            }
+            command.row = false;
             command.unconditional = if p.eat_keyword("MATRIX") {
                 false
             } else if p.eat_keyword("UNCONDITIONAL") {
                 true
+            } else if p.eat_keyword("ROW") {
+                command.row = true;
+                false
             } else {
                 return Err(p.unexpected(&["MATRIX", "ROW", "UNCONDITIONAL"]));
             };
@@ -367,6 +371,12 @@ pub(crate) fn alscal(p: &mut Parser) -> PResult<Command> {
         return Err(SyntaxError::new(
             p.span(),
             "ALSCAL needs VARIABLES unless MATRIX=IN reads a proximity matrix",
+        ));
+    }
+    if command.row && !command.asymmetric {
+        return Err(SyntaxError::new(
+            p.span(),
+            "CONDITION=ROW needs SHAPE=ASYMMETRIC (or RECTANGULAR): a symmetric matrix has no rows of its own",
         ));
     }
     if command.indscal && command.dimensions.0 < 2 {
