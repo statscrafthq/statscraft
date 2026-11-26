@@ -14,6 +14,7 @@ no test or verification notes, no comparisons with other software, no internal h
 - UNIANOVA and GLM `/OUTFILE` also works under `SPLIT FILE`: each file holds the groups one after the other, the split variables in front.
 - [GENLIN](docs/commands/genlin.md) `/MODEL DISTRIBUTION=TWEEDIE(q)` fits the compound Poisson-gamma distribution (q above 1 and below 2) for zero or positive responses, with the scale by maximum likelihood, deviance, Pearson or a fixed number and the Lagrange test.
 - [ONEWAY](docs/commands/oneway.md) `/POSTHOC=WALLER(kratio)` gives the homogeneous subsets of the Waller-Duncan t test.
+- [GENLIN](docs/commands/genlin.md) `/REPEATED` also takes the ordinal `MULTINOMIAL` distribution with the independent working correlation: the model's estimates with model-based or robust (sandwich over subjects) covariances.
 
 ## 0.53.0 (2026-11-26)
 

@@ -2279,10 +2279,10 @@ fn repeated_errors() {
         assert!(e.contains(message), "{tail}: {e}");
     }
     let e = run_error(&format!(
-        "{PANEL}GENLIN visits BY arm /MODEL arm DISTRIBUTION=MULTINOMIAL /REPEATED SUBJECT=id.
+        "{PANEL}GENLIN visits BY arm /MODEL arm DISTRIBUTION=MULTINOMIAL /REPEATED SUBJECT=id CORRTYPE=EXCHANGEABLE.
 "
     ));
-    assert!(e.contains("not supported yet"), "{e}");
+    assert!(e.contains("INDEPENDENT working correlation only"), "{e}");
     let e = run_error(&format!(
         "{PANEL}COMPUTE w = 1 + (wave = 2).
 WEIGHT BY w.
@@ -3715,4 +3715,170 @@ fn tweedie_parameter_is_between_one_and_two_and_the_response_not_negative() {
         "{TWEEDIE_DATA}COMPUTE y = y - 1.5 * (x > 1.5).\nGENLIN y BY g WITH x /MODEL g x DISTRIBUTION=TWEEDIE(1.5) LINK=LOG."
     ));
     assert!(get(&t, "Case Processing Summary", "Included", "N") < 36.0);
+}
+
+// REPEATED with the ordinal multinomial model and the INDEPENDENT working correlation: the
+// estimating equations are the score equations of the plain ordinal model, so the estimates are its
+// maximum likelihood estimates; the model-based covariance is the inverse of the expected
+// information and the robust one sums the scores of each subject first. Expected numbers: our own
+// Fisher scoring in R (it agrees with MASS::polr to 7E-6, the optimiser's tolerance) with the
+// information and the sandwich taken from the analytic scores.
+const ORDINAL_PANEL: &str = "DATA LIST FREE /id wave g x y.
+BEGIN DATA.
+1 1 1 0.6 4
+1 2 1 2.8 1
+1 3 1 0.5 4
+1 4 1 2.5 3
+2 1 0 0.5 1
+2 2 0 1.6 1
+2 3 0 1.5 2
+3 1 1 0.9 3
+3 2 1 1.7 4
+4 1 0 1.5 4
+4 2 0 2.5 4
+4 3 0 0.6 1
+4 4 0 2 3
+5 1 1 1.5 1
+5 2 1 0.5 2
+5 3 1 0.3 3
+6 1 0 1.9 4
+6 2 0 2.5 2
+7 1 1 0.7 1
+7 2 1 0.1 3
+7 3 1 1 4
+8 1 0 2.8 4
+8 2 0 1.7 2
+8 3 0 1.6 4
+8 4 0 1.6 2
+9 1 1 2.8 4
+9 2 1 1.6 4
+10 1 0 1.6 3
+10 2 0 0.7 4
+10 3 0 2 4
+11 1 1 2.9 1
+11 2 1 1.9 3
+11 3 1 0.3 1
+11 4 1 0.8 3
+12 1 0 1.4 3
+12 2 0 0.1 4
+13 1 1 1.5 3
+13 2 1 0.5 2
+13 3 1 2.5 4
+14 1 0 2.5 1
+14 2 0 0.1 1
+14 3 0 0.1 4
+15 1 1 2.1 2
+15 2 1 1.6 4
+15 3 1 1.6 2
+16 1 0 1.8 1
+16 2 0 0.4 1
+16 3 0 2.1 3
+16 4 0 0.1 2
+17 1 1 1.7 2
+17 2 1 2.4 1
+18 1 0 0.9 4
+18 2 0 1.1 4
+18 3 0 2.6 3
+19 1 1 1.6 1
+19 2 1 0.6 3
+19 3 1 1.1 4
+20 1 0 0.7 4
+20 2 0 0.4 2
+20 3 0 2.2 4
+20 4 0 0.2 3
+21 1 1 2.6 3
+21 2 1 0.9 3
+22 1 0 0.1 1
+22 2 0 0 1
+22 3 0 1.2 1
+22 4 0 1.5 1
+23 1 1 1.1 2
+23 2 1 1.5 2
+23 3 1 2.1 3
+23 4 1 0.8 1
+24 1 0 0.3 2
+24 2 0 1.3 1
+END DATA.
+";
+
+#[test]
+fn ordinal_multinomial_with_repeated_and_independent_correlation() {
+    let estimates = [
+        (
+            "Threshold [y = 1]",
+            -0.6921170337,
+            0.4133359322,
+            0.4923539179,
+        ),
+        (
+            "Threshold [y = 2]",
+            0.1558771166,
+            0.4720056466,
+            0.4845681666,
+        ),
+        (
+            "Threshold [y = 3]",
+            1.1444600689,
+            0.4817196313,
+            0.5030348758,
+        ),
+        ("[g=0]", -0.0656621557, 0.4731600593, 0.4229510075),
+        ("x", 0.2446729051, 0.2705476322, 0.2576479514),
+    ];
+    let source = |covb: &str| {
+        format!(
+            "{ORDINAL_PANEL}GENLIN y BY g WITH x /MODEL g x DISTRIBUTION=MULTINOMIAL
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave {covb}
+  /PRINT MODELINFO CPS SOLUTION SUMMARY FIT."
+        )
+    };
+    let robust = tables_of(&source("COVB=ROBUST"));
+    let model = tables_of(&source("COVB=MODEL"));
+    for (row, b, robust_se, model_se) in estimates {
+        close(get(&robust, PE, row, B), b, 1e-7, row);
+        close(get(&robust, PE, row, SE), robust_se, 1e-7, row);
+        close(get(&model, PE, row, B), b, 1e-7, row);
+        close(get(&model, PE, row, SE), model_se, 1e-7, row);
+    }
+    // the Wald tests of the effects use the covariance in force
+    let wald = |tables: &[Table], effect: &str| {
+        get(
+            tables,
+            "Tests of Model Effects",
+            effect,
+            "Type III / Wald Chi-Square",
+        )
+    };
+    close(wald(&robust, "g"), 0.0192581302, 1e-6, "robust g");
+    close(wald(&robust, "x"), 0.8178700078, 1e-6, "robust x");
+    close(wald(&model, "g"), 0.0241018370, 1e-6, "model g");
+    close(wald(&model, "x"), 0.9018169007, 1e-6, "model x");
+    // the estimating equations have no likelihood: no omnibus test and no goodness of fit
+    let titles: Vec<&str> = robust.iter().map(|t| t.title.as_str()).collect();
+    assert!(!titles.contains(&"Omnibus Test") && !titles.contains(&"Goodness of Fit"));
+    // the information about the data counts the 24 subjects
+    let subjects = robust
+        .iter()
+        .flat_map(|t| &t.rows)
+        .find(|r| matches!(&r[0], Cell::Text(t) if t == "Number of Subjects"))
+        .expect("Number of Subjects");
+    assert_eq!(number(&subjects[2]), 24.0);
+    let plain = tables_of(&format!(
+        "{ORDINAL_PANEL}GENLIN y BY g WITH x /MODEL g x DISTRIBUTION=MULTINOMIAL /PRINT SOLUTION."
+    ));
+    for (row, b, _, _) in estimates {
+        close(get(&plain, PE, row, B), b, 1e-6, row);
+    }
+}
+
+#[test]
+fn ordinal_multinomial_with_repeated_refuses_what_it_cannot_do() {
+    let e = run_error(&format!(
+        "{ORDINAL_PANEL}GENLIN y BY g /MODEL g DISTRIBUTION=MULTINOMIAL /REPEATED SUBJECT=id CORRTYPE=AR(1)."
+    ));
+    assert!(e.contains("INDEPENDENT working correlation only"), "{e}");
+    let e = run_error(&format!(
+        "{ORDINAL_PANEL}GENLIN y BY g /MODEL g DISTRIBUTION=MULTINOMIAL /CRITERIA ANALYSISTYPE=3(LR) /REPEATED SUBJECT=id."
+    ));
+    assert!(e.contains("generalized score statistic"), "{e}");
 }

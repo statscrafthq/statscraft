@@ -4916,6 +4916,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Correlated Data Summary, and WORKINGCORR (used only here) the working correlation matrix. (LR) gives\n\
                  generalized score chi-squares. SAVE gives no leverage, deviance-based or standardized residuals, or\n\
                  Cook's distance.\n\
+                 With the ordinal MULTINOMIAL distribution REPEATED takes CORRTYPE=INDEPENDENT only: the estimates\n\
+                 are those of the model without REPEATED, the covariance is the inverse of the expected\n\
+                 information (COVB=MODEL) or the sandwich over the subjects (ROBUST), and the Wald tests, not the\n\
+                 omnibus test, goodness of fit or (LR), are given.\n\
                  LAGRANGE tests a fixed scale (NORMAL, GAMMA or IGAUSS) or a fixed NEGBIN k with 1 df; for k = 0 it\n\
                  gives the z of the dispersion regression. HISTORY(n) lists every n-th iteration and the last, then\n\
                  the final gradient and Hessian. GEF shows the general estimable function and LMATRIX the L' matrix\n\

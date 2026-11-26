@@ -1857,10 +1857,20 @@ impl Engine {
             None => ScaleMode::Fixed(1.0),
         };
         let repeated = command.repeated.as_ref();
-        if repeated.is_some() && multinomial {
-            return Err(Error(
-                "GENLIN: REPEATED with DISTRIBUTION=MULTINOMIAL (ordinal generalized estimating equations) is not supported yet".into(),
-            ));
+        if let (Some(r), true) = (repeated, multinomial) {
+            // shortcut: only the independent structure, whose estimating equations are the score
+            // equations of the plain ordinal model; the others need the working association of
+            // the cumulative indicators, upgrade when one is wanted
+            if r.correlation != GenlinCorrelation::Independent {
+                return Err(Error(
+                    "GENLIN: REPEATED with DISTRIBUTION=MULTINOMIAL (ordinal generalized estimating equations) is supported with the INDEPENDENT working correlation only".into(),
+                ));
+            }
+            if command.criteria.lr {
+                return Err(Error(
+                    "GENLIN: REPEATED with DISTRIBUTION=MULTINOMIAL gives the Wald tests of the effects; the generalized score statistic (SUMMARY with LR) is not supported yet".into(),
+                ));
+            }
         }
         // the variables, each in one role
         let (response_names, events) = match &command.response {
@@ -2649,8 +2659,52 @@ impl Engine {
             }
             _ => None,
         };
+        // the ordinal multinomial model with REPEATED: the estimating equations of independent
+        // measurements are the score equations of the plain fit, so the estimates are the plain
+        // ones; the model-based covariance is the inverse of the expected information, the robust
+        // one sums the scores of each subject first
+        let gee_ordinal = multinomial && repeated.is_some();
+        if let (Some(r), Some(s), true) = (repeated, &subjects, gee_ordinal) {
+            let expected = ordinal_eval(&ordinal, &x, ord_link, &result.b, true)
+                .ok_or_else(failed)?
+                .2;
+            let bread = ginverse(&expected, crit.singular).0;
+            result.cov = if r.robust {
+                let q = result.b.len();
+                let mut meat = vec![vec![0.0; q]; q];
+                for member in &s.members {
+                    let mut total = vec![0.0; q];
+                    for &(row, _) in member {
+                        let score = ordinal_case_score(&ordinal, &x, ord_link, &result.b, row);
+                        for (t, v) in total.iter_mut().zip(&score) {
+                            *t += v;
+                        }
+                    }
+                    // a frequency weight copies whole subjects
+                    let weight = ordinal.f[member[0].0];
+                    for a in 0..q {
+                        for b in 0..q {
+                            meat[a][b] += weight * total[a] * total[b];
+                        }
+                    }
+                }
+                let m1 = crate::matrix::multiply(&bread, &meat);
+                crate::matrix::multiply(&m1, &bread)
+            } else {
+                bread
+            };
+            // the scale of a fixed value multiplies the model-based covariance; the robust one
+            // does not change with it
+            if !r.robust {
+                for row in &mut result.cov {
+                    for v in row.iter_mut() {
+                        *v *= result.phi;
+                    }
+                }
+            }
+        }
         let phi = result.phi;
-        let gee = gee_fit.is_some();
+        let gee = gee_fit.is_some() || gee_ordinal;
         // the covariance at the scale, robust if asked
         if !gee {
             result.cov = result
@@ -3079,7 +3133,7 @@ impl Engine {
                     phi_q,
                 )),
             ));
-        } else if print.fit {
+        } else if print.fit && !gee_ordinal {
             let ll = ll_one;
             let aic = -2.0 * ll + 2.0 * d_params;
             let aicc = if n_ic - d_params - 1.0 > 0.0 {
@@ -3372,8 +3426,10 @@ impl Engine {
                     rows,
                     Some(format!(
                         "{caption} Iteration 0 is the start and the last iteration is always shown. {}",
-                        if gee {
+                        if gee_fit.is_some() {
                             "The estimating equations have no likelihood, so none is shown."
+                        } else if gee_ordinal {
+                            "The iterations are those of the model of independent measurements, whose log likelihood is shown."
                         } else if multinomial {
                             "The log likelihood is the one of the Goodness of Fit table."
                         } else {
@@ -4043,6 +4099,9 @@ impl Engine {
             file.push("SIG", "", significance);
             file.push("DF", "", freedom);
             outfile_part = Some(self.matrix_part("GENLIN", &file)?);
+        }
+        if print.workingcorr && gee_ordinal {
+            warnings.push("PRINT WORKINGCORR: the working correlation of the ordinal multinomial model is the independent one and is not shown".into());
         }
         if let (true, Some((g, _, _)), Some(r), Some(s)) =
             (print.workingcorr, &gee_fit, repeated, &subjects)
