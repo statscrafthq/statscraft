@@ -1,6 +1,6 @@
 //! DATA LIST, BEGIN DATA and END DATA: text data, inline or from a file.
 
-use crate::ast::{Command, DataField, DataLayout, DataList, Format, FormatType};
+use crate::ast::{Command, DataField, DataLayout, DataList, Format, FormatType, KeyedDataList};
 use crate::commands::format;
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -545,4 +545,71 @@ pub(crate) fn begin_data(p: &mut Parser) -> PResult<Command> {
     }
     p.finish(&[])?;
     Ok(Command::BeginData(lines))
+}
+
+/// KEYED DATA LIST: FILE, KEY and IN (and TABLE, NOTABLE, ENCODING) in any order, then the
+/// definitions of the variables of the one record.
+pub(crate) fn keyed_data_list(p: &mut Parser) -> PResult<Command> {
+    let start = p.pos;
+    let (mut file, mut key, mut found, mut encoding) = (None, None, None, None);
+    while !p.at(Punct::Slash) && p.peek().is_some() {
+        if p.eat(Punct::Comma) {
+            continue;
+        }
+        if p.eat_keyword("FILE") {
+            p.eat(Punct::Eq);
+            file = Some(p.file("a quoted file path or a file handle")?);
+        } else if p.eat_keyword("KEY") {
+            p.eat(Punct::Eq);
+            key = Some(p.name("the key variable")?);
+        } else if p.eat_keyword("IN") {
+            p.eat(Punct::Eq);
+            found = Some(p.name("a variable name")?);
+        } else if p.eat_keyword("ENCODING") {
+            p.eat(Punct::Eq);
+            encoding = Some(p.string("a quoted encoding")?);
+        } else if p.eat_keyword("TABLE") || p.eat_keyword("NOTABLE") {
+        } else {
+            return Err(p.unexpected(&["FILE", "KEY", "IN", "TABLE", "NOTABLE", "ENCODING", "'/'"]));
+        }
+    }
+    let span = p.span_from(start);
+    let missing = |what: &str| SyntaxError::new(span, format!("KEYED DATA LIST needs {what}"));
+    let Some(file) = file else {
+        return Err(missing("FILE=handle"));
+    };
+    let Some(key) = key else {
+        return Err(missing("KEY=variable"));
+    };
+    let Some(found) = found else {
+        return Err(missing("IN=variable"));
+    };
+    if !p.at(Punct::Slash) {
+        return Err(p.unexpected(&["'/'"]));
+    }
+    let (fields, _) = fixed_fields(p, 1, 0)?;
+    if fields.is_empty() {
+        return Err(p.unexpected(&["a variable name"]));
+    }
+    let mut seen: Vec<String> = vec![key.to_lowercase(), found.to_lowercase()];
+    if seen[0] == seen[1] {
+        return Err(missing("a KEY variable other than the IN variable"));
+    }
+    for field in &fields {
+        let lower = field.name.to_lowercase();
+        if seen[1..].contains(&lower) || lower == seen[0] {
+            return Err(SyntaxError::new(
+                p.span(),
+                format!("variable {} is named twice", field.name),
+            ));
+        }
+        seen.push(lower);
+    }
+    Ok(Command::KeyedDataList(KeyedDataList {
+        file,
+        key,
+        found,
+        encoding,
+        fields,
+    }))
 }

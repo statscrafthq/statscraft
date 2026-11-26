@@ -259,6 +259,24 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: data_list::data_list,
     },
     CommandSpec {
+        name: "KEYED DATA LIST",
+        summary: "Read variables from the record of a text file that a key variable picks, for each case.",
+        syntax: "KEYED DATA LIST FILE=handle | 'path' KEY=var IN=var [TABLE | NOTABLE] [ENCODING='encoding']\n\
+                 \x20   /var columns [(type[,decimals])] | (formats) ...\n\
+                 For every case the record that KEY names is read from the file and its variables are added to\n\
+                 the case, as DATA LIST would read them from one line in fixed columns. A numeric KEY reads the\n\
+                 record of that number (1 for the first line, a whole number up to the number of lines): the file\n\
+                 is direct-access. A string KEY reads the first record that begins with the key, without its\n\
+                 trailing blanks: the file is keyed. IN names a variable that is set to 1 when the record was\n\
+                 read and to 0 when there is none (a key that is missing, no whole number in range, or matches\n\
+                 no record); the variables read keep their value or stay missing then. A variable that exists\n\
+                 is given the value of the record for the cases where one is found. The command works on the\n\
+                 cases that are there, or inside an input program, where a run reads one record whatever the\n\
+                 outcome. Scratch variables may serve as KEY and IN. TABLE and NOTABLE change nothing.",
+        example: "KEYED DATA LIST FILE=courses KEY=#key IN=#found /period 13 credits 16.",
+        parse: data_list::keyed_data_list,
+    },
+    CommandSpec {
         name: "BEGIN DATA",
         summary: "Inline data for the DATA LIST before it, up to a line that holds END DATA.",
         syntax: "BEGIN DATA\n\

@@ -71,6 +71,7 @@ mod graph;
 mod igraph;
 mod inline_data;
 mod input_program;
+mod keyed_data_list;
 mod km_survival;
 mod knn;
 mod large_offsets;
