@@ -305,6 +305,8 @@ fn dbf(bytes: &[u8]) -> Result<(Dataset, Vec<String>), String> {
                         match text.parse::<f64>() {
                             _ if text.is_empty() => None,
                             Ok(v) if v.is_finite() => Some(v),
+                            // what dBASE writes for a missing number
+                            _ if text.bytes().all(|b| b == b'*') => None,
                             _ => {
                                 warnings.push(format!(
                                     "record {}: {name} is system-missing: '{text}' is not a number",

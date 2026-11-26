@@ -134,6 +134,7 @@ mod rmv;
 mod robustness;
 mod roc_analysis;
 mod roc_r;
+mod save_dbf;
 mod save_translate;
 mod scratch;
 mod settings;

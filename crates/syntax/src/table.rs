@@ -6933,8 +6933,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "SAVE TRANSLATE",
-        summary: "Write the active dataset to a CSV or tab-delimited text file, an Excel workbook or a Stata file.",
-        syntax: "SAVE TRANSLATE OUTFILE='path' | handle /TYPE=CSV | TAB | XLS /VERSION=12 | STATA [/REPLACE]\n\
+        summary: "Write the active dataset to a CSV or tab-delimited text file, an Excel workbook, a Stata file or a dBASE file.",
+        syntax: "SAVE TRANSLATE OUTFILE='path' | handle /TYPE=CSV | TAB | XLS /VERSION=12 | STATA | DB3 | DB4 [/REPLACE]\n\
                  \x20   [/FIELDNAMES [VALUE=NAMES | LABELS]] [/CELLS=VALUES | LABELS] [/MISSING=IGNORE | RECODE]\n\
                  \x20   [/TEXTOPTIONS [DELIMITER='c'] [QUALIFIER='c'] [DECIMAL=DOT | COMMA] [FORMAT=PLAIN | VARIABLE]]\n\
                  \x20   [/EXCELOPTIONS SHEET='name'] [/ENCODING='name' [BOM=YES | NO]] [/UNSELECTED=RETAIN | DELETE]\n\
@@ -6966,10 +6966,19 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  numeric variables, for whole values up to 2147483620 (80 bytes each for Stata 8). Dates\n\
                  become %td days since 1960, dates with a time %tc milliseconds; times and other numbers\n\
                  are plain. User-missing values stay valid values unless MISSING=RECODE. Text is UTF-8 from\n\
-                 Stata 14 on, else in ENCODING (default: the system's code page).",
+                 Stata 14 on, else in ENCODING (default: the system's code page).\n\
+                 dBASE: DB3 holds 128 fields and DB4 255, a record up to 4000 bytes; more variables are left\n\
+                 off with a warning. A field name is the variable name in capitals with _ for any other\n\
+                 character than a letter or digit, V in front of a name that does not start with a letter, cut\n\
+                 to 10 bytes and made unique. A numeric variable is a numeric field as wide as its print\n\
+                 format (19 at most for DB3, 20 for DB4) with its decimals; a missing value, or one that does\n\
+                 not fit, is asterisks, so widen the format with PRINT FORMATS first. Dates are date fields\n\
+                 (a time of day is dropped); a string variable is a character field of its width, 254 bytes at\n\
+                 most, in Windows Latin-1. MISSING=RECODE blanks user-missing values. ENCODING is not used.",
         example: "SAVE TRANSLATE OUTFILE='wave2.xlsx' /TYPE=XLS /VERSION=12 /FIELDNAMES /CELLS=LABELS /REPLACE.\n\
                   SAVE TRANSLATE OUTFILE='wave2.csv' /TYPE=CSV /FIELDNAMES /TEXTOPTIONS DECIMAL=COMMA /REPLACE.\n\
-                  SAVE TRANSLATE OUTFILE='clinic.dta' /TYPE=STATA /EDITION=SE /DROP=nurse_note /MAP /REPLACE.",
+                  SAVE TRANSLATE OUTFILE='clinic.dta' /TYPE=STATA /EDITION=SE /DROP=nurse_note /MAP /REPLACE.\n\
+                  SAVE TRANSLATE OUTFILE='stock.dbf' /TYPE=DB4 /REPLACE.",
         parse: save_translate::save_translate,
     },
     CommandSpec {

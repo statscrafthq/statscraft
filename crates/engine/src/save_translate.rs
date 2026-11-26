@@ -1,5 +1,5 @@
-//! SAVE TRANSLATE: the active dataset as CSV, tab-delimited text, an Excel 2007 workbook or a
-//! Stata data file (see `stata.rs`).
+//! SAVE TRANSLATE: the active dataset as CSV, tab-delimited text, an Excel 2007 workbook, a
+//! Stata data file (see `stata.rs`) or a dBASE file (see `dbf.rs`).
 //!
 //! Choices where the manual is silent:
 //! - Lines end with CR LF, as RFC 4180 has it for CSV.
@@ -15,6 +15,7 @@
 //!   #NULL! like system-missing.
 //! - The first sheet is Sheet1 without EXCELOPTIONS; further sheets add (2), (3) and so on.
 
+use crate::dbf::{DbfLimits, dbf_names, write_dbf};
 use crate::excel::excel_number;
 use crate::expr::{DAYS_TO_1970, civil_from_days};
 use crate::stata::{DtaOptions, stata_encoding, stata_names, write_dta};
@@ -133,9 +134,11 @@ impl Engine {
         let names: Vec<String> = data.variable_names().map(str::to_string).collect();
         let stata = command.kind == TranslateType::Stata;
         let unicode = command.stata_version >= 14;
-        let file_names = |names: Vec<&str>| match stata {
-            true => stata_names(names, unicode),
-            false => names.into_iter().map(str::to_string).collect(),
+        let dbase = matches!(command.kind, TranslateType::Dbase3 | TranslateType::Dbase4);
+        let file_names = |names: Vec<&str>| match (stata, dbase) {
+            (true, _) => stata_names(names, unicode),
+            (_, true) => dbf_names(names),
+            _ => names.into_iter().map(str::to_string).collect(),
         };
         let tables = self.map_tables(&data, &names, &command.options, true, Some(&file_names))?;
         let data = self.file_options(data, &command.options, true)?;
@@ -169,6 +172,19 @@ impl Engine {
                     self.warn_some(warnings);
                     std::fs::write(&path, bytes).map_err(|e| e.to_string())
                 })
+            }
+            TranslateType::Dbase3 | TranslateType::Dbase4 => {
+                let limits = DbfLimits::new(command.kind == TranslateType::Dbase4);
+                let seconds = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let today = civil_from_days((seconds / 86_400) as i64);
+                write_dbf(&data, &limits, command.recode_missing, today).and_then(
+                    |(bytes, warnings)| {
+                        self.warn_some(warnings);
+                        std::fs::write(&path, bytes).map_err(|e| e.to_string())
+                    },
+                )
             }
             _ => self.write_text(&data, command, &path),
         };

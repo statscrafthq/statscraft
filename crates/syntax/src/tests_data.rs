@@ -459,6 +459,21 @@ fn export_import_and_get_translate() {
         panic!()
     };
     assert_eq!((dta.stata_version, dta.stata_se), (14, false));
+    for (syntax, kind) in [
+        (
+            "SAVE TRANSLATE OUTFILE='a.dbf' /TYPE=DB3.",
+            TranslateType::Dbase3,
+        ),
+        (
+            "SAVE TRANSLATE OUTFILE='a.dbf' /TYPE=db4.",
+            TranslateType::Dbase4,
+        ),
+    ] {
+        let Command::SaveTranslate(dbf) = one(syntax) else {
+            panic!()
+        };
+        assert_eq!(dbf.kind, kind);
+    }
 
     assert_eq!(err("EXPORT /MAP.").message, "EXPORT needs OUTFILE='name'");
     assert_eq!(

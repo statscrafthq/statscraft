@@ -1,5 +1,5 @@
 //! SAVE TRANSLATE: the active dataset as a CSV or tab-delimited text file, an Excel 2007
-//! workbook or a Stata data file.
+//! workbook, a Stata data file or a dBASE III or IV file.
 
 use crate::ast::{Command, FileOption, SaveTranslate, TranslateType};
 use crate::error::SyntaxError;
@@ -85,7 +85,7 @@ pub(crate) fn save_translate(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("TYPE") {
             p.eat(Punct::Eq);
             let Some(TokenKind::Word(w)) = p.peek() else {
-                return Err(p.unexpected(&["CSV", "TAB", "XLS"]));
+                return Err(p.unexpected(&["CSV", "TAB", "XLS", "STATA", "DB3", "DB4"]));
             };
             kind = Some((w.to_uppercase(), p.span()));
             p.pos += 1;
@@ -178,7 +178,7 @@ pub(crate) fn save_translate(p: &mut Parser) -> PResult<Command> {
             _ => {
                 return Err(SyntaxError::new(
                     span,
-                    "SAVE TRANSLATE needs /TYPE=CSV, TAB, STATA or XLS /VERSION=12",
+                    "SAVE TRANSLATE needs /TYPE=CSV, TAB, STATA, DB3, DB4 or XLS /VERSION=12",
                 ));
             }
         },
@@ -215,11 +215,13 @@ pub(crate) fn save_translate(p: &mut Parser) -> PResult<Command> {
             };
             TranslateType::Stata
         }
-        "DB2" | "DB3" | "DB4" | "ODBC" | "PC" | "SAS" | "SYM" | "SLK" | "WKS" | "WK1" | "WK3" => {
+        "DB3" => TranslateType::Dbase3,
+        "DB4" => TranslateType::Dbase4,
+        "DB2" | "ODBC" | "PC" | "SAS" | "SYM" | "SLK" | "WKS" | "WK1" | "WK3" => {
             return Err(SyntaxError::new(
                 span,
                 format!(
-                    "SAVE TRANSLATE /TYPE={name} is not supported yet; write CSV, TAB, STATA or XLS \
+                    "SAVE TRANSLATE /TYPE={name} is not supported yet; write CSV, TAB, STATA, DB3, DB4 or XLS \
                      /VERSION=12"
                 ),
             ));
@@ -235,6 +237,14 @@ pub(crate) fn save_translate(p: &mut Parser) -> PResult<Command> {
         return Err(SyntaxError::new(
             span,
             "ENCODING applies to TYPE=CSV and TAB; a workbook is always Unicode",
+        ));
+    }
+    if matches!(command.kind, TranslateType::Dbase3 | TranslateType::Dbase4)
+        && command.encoding.is_some()
+    {
+        return Err(SyntaxError::new(
+            span,
+            "ENCODING applies to TYPE=CSV, TAB and STATA; a dBASE file holds Windows Latin-1 text",
         ));
     }
     let decimal = command

@@ -39,6 +39,7 @@ mod naivebayes;
 // its own crate so that dev builds can optimize it (see the workspace Cargo.toml)
 use statscraft_dist as dist;
 mod cnlr;
+mod dbf;
 mod distributions;
 mod examine;
 pub mod excel;

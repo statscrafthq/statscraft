@@ -515,6 +515,10 @@ pub enum TranslateType {
     Xlsx,
     /// A Stata data file.
     Stata,
+    /// A dBASE III file (TYPE=DB3).
+    Dbase3,
+    /// A dBASE IV file (TYPE=DB4).
+    Dbase4,
 }
 
 #[derive(Debug, Clone, PartialEq)]
