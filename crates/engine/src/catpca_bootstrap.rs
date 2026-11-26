@@ -34,25 +34,30 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::Dataset;
 use statscraft_syntax::{Catpca, CatpcaBootstrap, VarItem};
 
-/// The cases of every balanced sample: each of the `n` cases `samples` times over all samples.
-pub(crate) fn balanced_samples(
+/// The pool of a balanced bootstrap: each of the `n` cases `samples` times, shuffled; sample `b`
+/// is the `b`-th run of `n` entries.
+pub(crate) fn balanced_pool(
     n: usize,
     samples: usize,
     mut uniform: impl FnMut() -> f64,
-) -> Vec<Vec<usize>> {
-    let mut pool: Vec<usize> = (0..samples).flat_map(|_| 0..n).collect();
+) -> Vec<u32> {
+    let mut pool: Vec<u32> = (0..samples).flat_map(|_| 0..n as u32).collect();
     // Fisher-Yates
     for i in (1..pool.len()).rev() {
         let j = ((uniform() * (i + 1) as f64) as usize).min(i);
         pool.swap(i, j);
     }
-    pool.chunks(n)
-        .map(|c| {
-            let mut s = c.to_vec();
-            s.sort_unstable();
-            s
-        })
-        .collect()
+    pool
+}
+
+/// The cases of sample `b` of a balanced pool, in case order.
+pub(crate) fn balanced_sample(pool: &[u32], n: usize, b: usize) -> Vec<usize> {
+    let mut s: Vec<usize> = pool[b * n..(b + 1) * n]
+        .iter()
+        .map(|&c| c as usize)
+        .collect();
+    s.sort_unstable();
+    s
 }
 
 /// One unbalanced sample: `n` cases drawn with replacement.
@@ -156,7 +161,7 @@ impl Engine {
         prep: &Prepared,
         singles: &[usize],
         p: usize,
-    ) -> Result<Option<Aligned>, Error> {
+    ) -> Result<Result<Aligned, String>, Error> {
         let data = self.active()?;
         let mut sample: Dataset = data.clone();
         let picked: Vec<Option<usize>> = cases.iter().map(|&c| Some(c)).collect();
@@ -167,19 +172,21 @@ impl Engine {
             .iter()
             .map(|(items, s)| (items.as_slice(), s.weight))
             .collect();
-        let run = (|| -> Result<Option<(Solution, Prepared)>, Error> {
+        let run = (|| -> Result<(Solution, Prepared), Error> {
             let sample_prep = self.prepare_scaling("CATPCA", &command.common, &lists)?;
             if sample_prep.active.len() <= p {
-                return Ok(None);
+                return Err(Error(format!(
+                    "the sample has {} active cases, too few for {p} dimensions",
+                    sample_prep.active.len()
+                )));
             }
-            let Some(solution) = fit_quants_for_sample(self, command, &sample_prep, p) else {
-                return Ok(None);
-            };
-            Ok(Some((solution, sample_prep)))
+            let solution = fit_quants_for_sample(self, command, &sample_prep, p)?;
+            Ok((solution, sample_prep))
         })();
         self.dataset = held;
-        let Some((solution, sample_prep)) = run.ok().flatten() else {
-            return Ok(None);
+        let (solution, sample_prep) = match run {
+            Ok(done) => done,
+            Err(e) => return Ok(Err(e.0)),
         };
         if solution
             .eigen
@@ -188,7 +195,7 @@ impl Engine {
             .chain(solution.values.iter().flatten())
             .any(|v| !v.is_finite())
         {
-            return Ok(None);
+            return Ok(Err("a variable has no variation in the sample".into()));
         }
         let target: Matrix = singles
             .iter()
@@ -230,7 +237,7 @@ impl Engine {
                 pairs.into_iter().map(|(c, v)| (c, sign * v)).collect()
             })
             .collect();
-        Ok(Some(Aligned {
+        Ok(Ok(Aligned {
             converged: solution.converged,
             eigen: solution.eigen,
             loadings,
@@ -260,37 +267,41 @@ impl Engine {
             ));
         }
         let n = prep.n_tot;
-        if n.saturating_mul(spec.samples) > 400_000_000 {
+        if n.saturating_mul(spec.samples) > 100_000_000 {
             return Err(Error(format!(
                 "CATPCA RESAMPLE: {} samples of {n} cases are too many to draw; lower the number of samples",
                 spec.samples
             )));
         }
-        let drawn: Vec<Vec<usize>> = if spec.balanced {
-            balanced_samples(n, spec.samples, || self.random())
-        } else {
-            (0..spec.samples)
-                .map(|_| unbalanced_sample(n, || self.random()))
-                .collect()
-        };
+        let pool = spec
+            .balanced
+            .then(|| balanced_pool(n, spec.samples, || self.random()));
         let mut kept: Vec<Aligned> = Vec::new();
-        for cases in &drawn {
-            if let Some(a) =
-                self.bootstrap_sample(command, spec, cases, original, prep, &singles, p)?
-            {
-                kept.push(a);
+        let mut first_reason: Option<String> = None;
+        for b in 0..spec.samples {
+            let cases = match &pool {
+                Some(pool) => balanced_sample(pool, n, b),
+                None => unbalanced_sample(n, || self.random()),
+            };
+            match self.bootstrap_sample(command, spec, &cases, original, prep, &singles, p)? {
+                Ok(a) => kept.push(a),
+                Err(reason) => {
+                    first_reason.get_or_insert(reason);
+                }
             }
         }
         if kept.is_empty() {
-            return Err(Error(
-                "CATPCA RESAMPLE: none of the samples could be analysed".into(),
-            ));
+            return Err(Error(format!(
+                "CATPCA RESAMPLE: none of the samples could be analysed ({})",
+                first_reason.unwrap_or_default()
+            )));
         }
         if kept.len() < spec.samples {
             warnings.push(format!(
-                "CATPCA RESAMPLE: {} of {} samples could not be analysed and are left out",
+                "CATPCA RESAMPLE: {} of {} samples could not be analysed and are left out (first reason: {})",
                 spec.samples - kept.len(),
-                spec.samples
+                spec.samples,
+                first_reason.unwrap_or_default()
             ));
         }
         let unconverged = kept.iter().filter(|a| !a.converged).count();
@@ -465,7 +476,8 @@ mod tests {
     #[test]
     fn a_balanced_bootstrap_draws_every_case_exactly_samples_times() {
         let (n, samples) = (7, 50);
-        let drawn = balanced_samples(n, samples, lcg(1));
+        let pool = balanced_pool(n, samples, lcg(1));
+        let drawn: Vec<Vec<usize>> = (0..samples).map(|b| balanced_sample(&pool, n, b)).collect();
         assert_eq!(drawn.len(), samples);
         assert!(drawn.iter().all(|s| s.len() == n));
         let mut count = vec![0; n];
@@ -476,8 +488,8 @@ mod tests {
         // the samples differ from one another
         assert!(drawn.iter().any(|s| s != &drawn[0]));
         // the same generator gives the same samples; another one does not
-        assert_eq!(drawn, balanced_samples(n, samples, lcg(1)));
-        assert_ne!(drawn, balanced_samples(n, samples, lcg(2)));
+        assert_eq!(pool, balanced_pool(n, samples, lcg(1)));
+        assert_ne!(pool, balanced_pool(n, samples, lcg(2)));
     }
 
     #[test]

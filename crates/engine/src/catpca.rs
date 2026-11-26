@@ -452,23 +452,20 @@ fn fit_supplementary(v: &AVar, q: &mut Quant, x: &Matrix, w: &[f64], n_w: f64) {
     }
 }
 
-/// A table with a row header column and numeric cells.
-/// Fits a bootstrap sample from the numeric start and summarizes it; None when it fails.
+/// Fits a bootstrap sample from the numeric start and summarizes it.
 pub(crate) fn fit_quants_for_sample(
     engine: &Engine,
     command: &Catpca,
     prep: &Prepared,
     p: usize,
-) -> Option<Solution> {
+) -> Result<Solution, Error> {
     let mut quants: Vec<Quant> = prep
         .avars
         .iter()
         .map(|v| Quant::new(v, command.analysis[v.list].1.level, prep.n_w))
         .collect();
-    let (_, _, converged) = engine
-        .fit_quants(command, prep, &mut quants, p, &None)
-        .ok()?;
-    Some(summarize(command, prep, &quants, p, converged))
+    let (_, _, converged) = engine.fit_quants(command, prep, &mut quants, p, &None)?;
+    Ok(summarize(command, prep, &quants, p, converged))
 }
 
 /// What the bootstrap compares between solutions.
@@ -541,6 +538,7 @@ pub(crate) fn summarize(
     }
 }
 
+/// A table with a row header column and numeric cells.
 fn grid(title: impl Into<String>, columns: Vec<String>, rows: Vec<Vec<Cell>>) -> Table {
     Table {
         title: title.into(),
