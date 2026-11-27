@@ -183,6 +183,7 @@ mod simulation;
 mod spchart;
 mod split_filter;
 mod stab_basic_r;
+mod stab_models_r;
 mod star_join;
 mod statistics;
 mod string_date_functions_r;

@@ -511,10 +511,12 @@ fn fit(eq: &Equation, set: &[bool]) -> Fit {
     let y = eq.y();
     let p = set.iter().filter(|s| **s).count();
     let k = eq.coefficients(p);
-    let r2 = 1.0 - m[y][y];
+    // rounding can leave the unexplained share a hair below 0 in a perfect fit
+    let unexplained = m[y][y].max(0.0);
+    let r2 = 1.0 - unexplained;
     let ss_total = eq.ss_total();
     let df_res = eq.c - k;
-    let ss_res = m[y][y] * ss_total;
+    let ss_res = unexplained * ss_total;
     let mse = ss_res / df_res;
     let vars: Vec<usize> = (0..y).filter(|&j| set[j]).collect();
     let syy = eq.var[y];
@@ -522,12 +524,13 @@ fn fit(eq: &Equation, set: &[bool]) -> Fit {
         .iter()
         .map(|&j| {
             let b = m[y][j] * (syy / eq.var[j]).sqrt();
-            let se = (m[j][j] * m[y][y] * syy / (eq.var[j] * df_res)).sqrt();
+            let se = (m[j][j] * unexplained * syy / (eq.var[j] * df_res)).sqrt();
             (j, b, se)
         })
         .collect();
-    let cov =
-        |a: usize, c: usize| m[a][c] * m[y][y] * syy / ((eq.var[a] * eq.var[c]).sqrt() * df_res);
+    let cov = |a: usize, c: usize| {
+        m[a][c] * unexplained * syy / ((eq.var[a] * eq.var[c]).sqrt() * df_res)
+    };
     let constant = (!eq.origin).then(|| {
         let b0 = eq.mean[y] - b.iter().map(|&(j, b, _)| b * eq.mean[j]).sum::<f64>();
         let mut v = mse / eq.w;
