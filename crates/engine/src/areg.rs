@@ -36,7 +36,7 @@
 use crate::arima::Estimates;
 use crate::descriptives::number;
 use crate::dist::{f_p, t_p, t_quantile};
-use crate::matrix::inverse;
+use crate::matrix::inverse_scaled;
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::timeseries::{Values, read_series};
@@ -115,7 +115,7 @@ fn least_squares(ys: &[f64], xs: &[Vec<f64>], constant: bool) -> Option<Fit> {
             }
         }
     }
-    let (inv, _) = inverse(&xtx)?;
+    let (inv, _) = inverse_scaled(&xtx)?;
     let beta: Vec<f64> = (0..k)
         .map(|i| (0..k).map(|j| inv[i][j] * xty[j]).sum())
         .collect();

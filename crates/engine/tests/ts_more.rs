@@ -325,6 +325,28 @@ fn areg_prais_winsten() {
     }
 }
 
+/// The units of a regressor change its coefficient and that coefficient's standard error by the
+/// same factor and nothing else: the cross-products of a regressor in hundred millions of its unit
+/// used to be judged singular by the size of their largest element ("the regressors are linearly
+/// dependent"). The numbers are those of the Prais-Winsten test above. Only a regressor in larger
+/// units is tried: the stopping rule is the manual's absolute change of every estimate, so a
+/// coefficient of hundred millions keeps changing by more than CNVERGE and the iterations differ.
+#[test]
+fn areg_does_not_depend_on_the_units_of_a_regressor() {
+    let scale = 1e8;
+    let r = run(&format!(
+        "{}COMPUTE temp = temp * 100000000.\nAREG power WITH temp.\n",
+        heater()
+    ));
+    let est = find(&r.tables, "Parameter Estimates");
+    assert!(close(row_value(est, "Rho (AR1)", 1), 0.5458407613, 1e-6));
+    assert!(close(row_value(est, "Rho (AR1)", 2), 0.1612518003, 1e-6));
+    assert!(close(row_value(est, "temp", 1), -2.581026749 / scale, 1e-6));
+    assert!(close(row_value(est, "temp", 2), 0.1100718113 / scale, 1e-6));
+    assert!(close(row_value(est, "Constant", 1), 120.415702638, 1e-5));
+    assert!(close(row_value(est, "Constant", 2), 1.4545700174, 1e-6));
+}
+
 /// A constant series has no residuals to measure rho from.
 #[test]
 fn areg_constant_series_is_an_error() {
