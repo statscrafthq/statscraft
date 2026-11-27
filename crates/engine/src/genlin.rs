@@ -4178,12 +4178,12 @@ impl Engine {
                 }
             }
             let mut out = Vec::new();
-            for u in 0..s.dim {
+            for (u, blocks) in g.blocks.iter().enumerate() {
                 for j in 0..k {
                     let mut row = vec![text(label(u, j))];
-                    for v in 0..s.dim {
+                    for (v, block) in blocks.iter().enumerate() {
                         for l in 0..k {
-                            row.push(match (&g.blocks[u][v], u == v) {
+                            row.push(match (block, u == v) {
                                 (_, true) => Cell::Empty,
                                 (Some(block), false) => Cell::Number(block[j][l]),
                                 (None, false) => Cell::Number(0.0),
