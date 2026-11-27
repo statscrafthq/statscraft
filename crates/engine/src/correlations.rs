@@ -234,7 +234,11 @@ impl Engine {
                             },
                         });
                     }
-                    let r = if same && p.w > 0.0 { 1.0 } else { p.r };
+                    let r = if same && p.w > 0.0 && p.cross > 0.0 {
+                        1.0
+                    } else {
+                        p.r
+                    };
                     let t = r * ((p.w - 2.0) / (1.0 - r * r)).sqrt();
                     let mut sig = t_p(t, p.w - 2.0);
                     if command.one_tailed {
