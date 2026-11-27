@@ -378,3 +378,29 @@ fn a_byte_order_mark_and_a_utf8_name_decide_how_columns_count() {
     assert_eq!(a, "Õlu|Äri");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_value_cut_inside_a_letter_loses_the_fragment_as_haven_reads_it() {
+    let dir = std::env::temp_dir().join(format!("statscraft-mb5-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut engine = Engine::default();
+    let source = format!(
+        "DATA LIST LIST /id (F2) a (A8).\nBEGIN DATA\n1 'abల'\n2 'xyz'\nEND DATA.\nSAVE OUTFILE='{}/cut.sav' /UNCOMPRESSED.",
+        dir.display()
+    );
+    execute_all(&mut engine, &source).unwrap();
+    // the last byte of the three of the letter becomes a blank: the value ends inside the letter,
+    // as when another program cut it at the width (R's haven reads "ab" and "xyz")
+    let path = dir.join("cut.sav");
+    let mut bytes = std::fs::read(&path).unwrap();
+    let at = bytes
+        .windows(5)
+        .position(|w| w == b"ab\xe0\xb0\xb2")
+        .unwrap();
+    bytes[at + 4] = b' ';
+    std::fs::write(&path, bytes).unwrap();
+    let mut engine = Engine::default();
+    execute_all(&mut engine, &format!("GET FILE='{}'.", path.display())).unwrap();
+    assert_eq!(show(&engine, "a").unwrap(), "ab|xyz");
+    let _ = std::fs::remove_dir_all(&dir);
+}
