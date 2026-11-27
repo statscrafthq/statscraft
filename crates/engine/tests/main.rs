@@ -93,6 +93,7 @@ mod flow_r;
 mod frequencies;
 mod frequencies_r;
 mod genlin;
+mod genlin_ordinal_gee_r;
 mod genlinmixed;
 mod get_data;
 mod ggraph;

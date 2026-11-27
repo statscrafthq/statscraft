@@ -56,6 +56,7 @@ use statscraft_syntax::{
 use std::f64::consts::PI;
 
 mod gee;
+mod gee_ordinal;
 
 // ---------------------------------------------------------------------------------------------
 // distributions and links
@@ -1858,12 +1859,10 @@ impl Engine {
         };
         let repeated = command.repeated.as_ref();
         if let (Some(r), true) = (repeated, multinomial) {
-            // shortcut: only the independent structure, whose estimating equations are the score
-            // equations of the plain ordinal model; the others need the working association of
-            // the cumulative indicators, upgrade when one is wanted
-            if r.correlation != GenlinCorrelation::Independent {
+            if matches!(r.correlation, GenlinCorrelation::Fixed(_)) {
                 return Err(Error(
-                    "GENLIN: REPEATED with DISTRIBUTION=MULTINOMIAL (ordinal generalized estimating equations) is supported with the INDEPENDENT working correlation only".into(),
+                    "GENLIN: REPEATED with DISTRIBUTION=MULTINOMIAL does not allow CORRTYPE=FIXED"
+                        .into(),
                 ));
             }
             if command.criteria.lr {
@@ -2664,7 +2663,43 @@ impl Engine {
         // ones; the model-based covariance is the inverse of the expected information, the robust
         // one sums the scores of each subject first
         let gee_ordinal = multinomial && repeated.is_some();
-        if let (Some(r), Some(s), true) = (repeated, &subjects, gee_ordinal) {
+        // with a working association the equations are solved by iteration of their own
+        let ordinal_gee = match (repeated, &subjects) {
+            (Some(r), Some(s))
+                if gee_ordinal && r.correlation != GenlinCorrelation::Independent =>
+            {
+                let ctl = gee_ordinal::Control::of(r, crit.singular);
+                let g = gee_ordinal::fit(&ordinal, &x, ord_link, s, &ctl, (&result.b, result.phi))
+                    .map_err(Error)?;
+                if g.halving_failed {
+                    warnings.push("The generalized estimating equations stopped: no shortened step kept every probability valid; the results may not be final".into());
+                } else if !g.converged {
+                    warnings.push(format!(
+                        "The generalized estimating equations did not converge within {} iterations (REPEATED MAXITERATIONS); the results may not be final",
+                        r.maxiterations
+                    ));
+                } else if !g.hessian_ok {
+                    warnings.push("The Hessian convergence criterion of the generalized estimating equations (1E-4, REPEATED HCONVERGE=0) is not met after the estimates converged; the results may not be final".into());
+                }
+                if g.ridged > 0 {
+                    warnings.push(format!(
+                        "The working correlation matrix of {} subject(s) was not positive definite; it was moved toward the identity matrix until it was",
+                        g.ridged
+                    ));
+                }
+                result.b = g.b.clone();
+                result.cov = if r.robust {
+                    g.robust.clone()
+                } else {
+                    g.model.clone()
+                };
+                Some(g)
+            }
+            _ => None,
+        };
+        if let (Some(r), Some(s), true) =
+            (repeated, &subjects, gee_ordinal && ordinal_gee.is_none())
+        {
             let expected = ordinal_eval(&ordinal, &x, ord_link, &result.b, true)
                 .ok_or_else(failed)?
                 .2;
@@ -3340,6 +3375,15 @@ impl Engine {
                 &'static str,
             );
             let run: Option<Run> = match (&glm_fit, &ordinal_fit, &gee_fit) {
+                _ if ordinal_gee.is_some() => ordinal_gee.as_ref().map(|g| {
+                    (
+                        g.history.clone(),
+                        None,
+                        g.score.clone(),
+                        g.information.clone(),
+                        "expected",
+                    )
+                }),
                 (_, _, Some((g, _, _))) => Some((
                     g.history.clone(),
                     None,
@@ -3426,7 +3470,7 @@ impl Engine {
                     rows,
                     Some(format!(
                         "{caption} Iteration 0 is the start and the last iteration is always shown. {}",
-                        if gee_fit.is_some() {
+                        if gee_fit.is_some() || ordinal_gee.is_some() {
                             "The estimating equations have no likelihood, so none is shown."
                         } else if gee_ordinal {
                             "The iterations are those of the model of independent measurements, whose log likelihood is shown."
@@ -4100,13 +4144,8 @@ impl Engine {
             file.push("DF", "", freedom);
             outfile_part = Some(self.matrix_part("GENLIN", &file)?);
         }
-        if print.workingcorr && gee_ordinal {
-            warnings.push("PRINT WORKINGCORR: the working correlation of the ordinal multinomial model is the independent one and is not shown".into());
-        }
-        if let (true, Some((g, _, _)), Some(r), Some(s)) =
-            (print.workingcorr, &gee_fit, repeated, &subjects)
-        {
-            let names: Vec<String> = (0..s.dim)
+        let position_names = |s: &gee::Subjects| -> Vec<String> {
+            (0..s.dim)
                 .map(|u| match s.positions.get(u) {
                     Some(keys) => format!(
                         "[{}]",
@@ -4119,7 +4158,56 @@ impl Engine {
                     ),
                     None => format!("Measurement {}", u + 1),
                 })
-                .collect();
+                .collect()
+        };
+        if print.workingcorr && gee_ordinal && ordinal_gee.is_none() {
+            warnings.push("PRINT WORKINGCORR: the working correlation of the ordinal multinomial model is the independent one and is not shown".into());
+        }
+        if let (true, Some(g), Some(r), Some(s)) =
+            (print.workingcorr, &ordinal_gee, repeated, &subjects)
+        {
+            // the association between the measurements, per category pair; the blocks on the
+            // diagonal are the correlations of the category indicators, which differ by case
+            let names = position_names(s);
+            let k = ordinal.j - 1;
+            let label = |u: usize, j: usize| format!("{} category {}", names[u], j + 1);
+            let mut columns = plain(&[""]);
+            for v in 0..s.dim {
+                for l in 0..k {
+                    columns.push((String::new(), label(v, l)));
+                }
+            }
+            let mut out = Vec::new();
+            for u in 0..s.dim {
+                for j in 0..k {
+                    let mut row = vec![text(label(u, j))];
+                    for v in 0..s.dim {
+                        for l in 0..k {
+                            row.push(match (&g.blocks[u][v], u == v) {
+                                (_, true) => Cell::Empty,
+                                (Some(block), false) => Cell::Number(block[j][l]),
+                                (None, false) => Cell::Number(0.0),
+                            });
+                        }
+                    }
+                    out.push(row);
+                }
+            }
+            tables.push(table(
+                "Working Association Between Measurements",
+                1,
+                columns,
+                out,
+                Some(format!(
+                    "{caption} Working correlation structure: {}. Each cell is the association of the residuals of two categories at two measurements; the cells of one measurement with itself are left empty.",
+                    correlation_name(&r.correlation, s.dim)
+                )),
+            ));
+        }
+        if let (true, Some((g, _, _)), Some(r), Some(s)) =
+            (print.workingcorr, &gee_fit, repeated, &subjects)
+        {
+            let names = position_names(s);
             let mut columns = plain(&[""]);
             columns.extend(names.iter().map(|n| (String::new(), n.clone())));
             let out = (0..s.dim)
