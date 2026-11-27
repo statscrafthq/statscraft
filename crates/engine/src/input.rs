@@ -631,6 +631,44 @@ impl Engine {
                 names.push(name.clone());
                 continue;
             }
+            // a TO list of variables the waiting transformations create: in the order they are
+            // made, and both ends must be among them
+            if let VarItem::Range(first, last) = item
+                && self.input.is_none()
+            {
+                let new = self.new_since_pass();
+                let at = |name: &String| new.iter().position(|n| n.eq_ignore_ascii_case(name));
+                match (at(first), at(last)) {
+                    (Some(a), Some(b)) if a <= b => {
+                        names.extend(new[a..=b].iter().cloned());
+                        continue;
+                    }
+                    (Some(_), Some(_)) => {
+                        return Err(Error(format!(
+                            "LEAVE: in a TO list the first variable must be made before the \
+                             second ({first} TO {last})"
+                        )));
+                    }
+                    (Some(_), None) | (None, Some(_)) => {
+                        // one end made here and one in the data: the data's own order may say
+                        if let Ok(list) = self.expand(std::slice::from_ref(item)) {
+                            names.extend(list);
+                            continue;
+                        }
+                        let (made, other) = if at(first).is_some() {
+                            (first, last)
+                        } else {
+                            (last, first)
+                        };
+                        return Err(Error(format!(
+                            "LEAVE: {first} TO {last}: {made} is made by the commands before \
+                             LEAVE, so {other} must be made by them too (a TO list runs over \
+                             variables that exist, or over ones made in order)"
+                        )));
+                    }
+                    (None, None) => {}
+                }
+            }
             names.extend(self.expand(std::slice::from_ref(item)).map_err(|e| {
                 Error(format!(
                     "{}; LEAVE names variables that the commands before it define",
@@ -638,6 +676,9 @@ impl Engine {
                 ))
             })?);
         }
+        // a name given twice (also through overlapping lists) is left once
+        let mut seen = std::collections::HashSet::new();
+        names.retain(|n| seen.insert(n.to_lowercase()));
         if let Some(name) = names.iter().find(|n| is_scratch(n)) {
             return Err(Error(format!(
                 "LEAVE cannot name the scratch variable {name}: a scratch variable keeps its \

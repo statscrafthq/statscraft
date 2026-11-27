@@ -213,6 +213,26 @@ pub(crate) struct Clean {
     vectors: std::collections::HashMap<String, Vec<String>>,
     /// The commands since then, which LEAVE runs again.
     commands: Vec<Command>,
+    /// Which list this is: a number no other list has had.
+    generation: u64,
+}
+
+static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+impl Clean {
+    /// Which list this is and how many commands it holds, for `keep_commands`: a data pass drops
+    /// the list and the next change starts another, with another generation.
+    pub(crate) fn mark(&self) -> (u64, usize) {
+        (self.generation, self.commands.len())
+    }
+
+    /// Forgets the commands after the first `n` of the list that `mark` named; another list is
+    /// left alone.
+    pub(crate) fn keep_commands(&mut self, mark: (u64, usize)) {
+        if self.generation == mark.0 {
+            self.commands.truncate(mark.1);
+        }
+    }
 }
 
 fn one_line(title: &str, text: &str) -> Table {
@@ -275,6 +295,8 @@ impl Engine {
                         temporary: self.temporary.clone(),
                         vectors: self.vectors.clone(),
                         commands: Vec::new(),
+                        generation: NEXT_GENERATION
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                     }))
                 }
                 Stage::Pass => self.clean = None,
@@ -304,6 +326,61 @@ impl Engine {
             let refs = crate::rows::Refs::of(&clean.commands);
             refs.names.iter().any(|n| n.eq_ignore_ascii_case(name))
         })
+    }
+
+    /// The variables the commands since the last data pass will create, in the order they are
+    /// made: the targets of COMPUTE, IF and COUNT, the names declared by STRING and NUMERIC
+    /// and the new variables of RECODE. A name that is only read is no creation.
+    pub(crate) fn new_since_pass(&self) -> Vec<String> {
+        use statscraft_syntax::{Command, VarItem};
+        let Some(clean) = self.clean.as_ref() else {
+            return Vec::new();
+        };
+        let mut made: Vec<String> = Vec::new();
+        for command in &clean.commands {
+            match command {
+                Command::Compute { target, .. } | Command::If { target, .. } => {
+                    made.push(target.clone());
+                }
+                Command::Count(counts) => made.extend(counts.iter().map(|c| c.target.clone())),
+                Command::String(groups) => made.extend(groups.iter().flat_map(|(n, _)| n.clone())),
+                Command::Numeric(groups) => {
+                    made.extend(groups.iter().flat_map(|(n, _)| n.clone()));
+                }
+                Command::Recode(groups) => {
+                    for group in groups {
+                        for item in &group.into {
+                            match item {
+                                VarItem::Name(name) => made.push(name.clone()),
+                                VarItem::Range(..) => made.extend(
+                                    crate::variables::new_names(std::slice::from_ref(item))
+                                        .unwrap_or_default(),
+                                ),
+                                VarItem::All => {}
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out: Vec<String> = Vec::new();
+        for name in made {
+            // new means not in the data as they were when the waiting commands began (the data
+            // in hand may have run some of them already)
+            let known = clean
+                .dataset
+                .as_ref()
+                .is_some_and(|d| d.variable_index(&name).is_some());
+            // a scratch variable is never in a TO list of LEAVE (it keeps its value anyway)
+            if !known
+                && !crate::rows::is_scratch(&name)
+                && !out.iter().any(|n| n.eq_ignore_ascii_case(&name))
+            {
+                out.push(name);
+            }
+        }
+        out
     }
 
     /// LEAVE outside an input program. The variables are new in this pass, so the

@@ -6,6 +6,8 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- LEAVE after a DO REPEAT no longer runs the commands of the structure twice; running totals made inside it came out doubled.
+- LEAVE takes a TO list of variables that COMPUTE, IF, COUNT, STRING, NUMERIC or RECODE before it create (LEAVE total1 TO total3); before, such a list was refused as unknown variables.
 - EXPORT keeps in portable files, and IMPORT reads from them by the file's own table, the symbols the format has a code for (plus-minus, degree, superscript digits, less-or-equal, greater-or-equal, not-equal, dagger, dashes, cent, bullet and a few more) in text; before, they became ?.
 - DATA LIST, PRINT and WRITE refuse a format list with groups nested more than 32 deep or with more than a million formats, with an error at the place; before, a long run of parentheses overflowed the stack and repeats of repeats filled the memory. A group in DATA LIST repeated more than 10000 times is no longer cut at 10000.
 - EXPORT writes text by the character table of the portable file: a letter with an accent or a symbol the table has no code for becomes ? with a warning (before, its UTF-8 bytes went in as they were and other programs could not read them), and # now has its code. Files written before still open.

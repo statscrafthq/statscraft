@@ -221,3 +221,114 @@ fn do_repeat_errors() {
         "{message}"
     );
 }
+
+#[test]
+fn leave_takes_a_to_list_of_variables_the_waiting_commands_create() {
+    let mut session = session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "COMPUTE a1 = a1 + x.\nCOMPUTE a2 = a2 + y.\nCOMPUTE a3 = a3 + z.\nLEAVE a1 TO a3.",
+    );
+    let data = session.dataset().unwrap();
+    // the running totals of each column, in the order the variables were made
+    assert_eq!(show(data, "a1"), "1 5");
+    assert_eq!(show(data, "a2"), "2 7");
+    assert_eq!(show(data, "a3"), "3 9");
+    let mut session = self::session("1 2 3");
+    let message = error(
+        &mut session,
+        "COMPUTE b1 = b1 + x.\nCOMPUTE b2 = b2 + y.\nLEAVE b2 TO b1.",
+    );
+    assert!(
+        message.contains("must be made before the second"),
+        "{message}"
+    );
+    // the list ends where a3 is made, although a4 is made after it
+    let mut session = self::session("1 2 3");
+    run(
+        &mut session,
+        "COMPUTE a1 = a1 + x.\nCOMPUTE a2 = a2 + y.\nCOMPUTE a3 = a3 + z.\nCOMPUTE a4 = a4 + 1.\n\
+         LEAVE a2 TO a3.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "a3"), "3");
+    // a range from a variable of the data to a made one runs over the data's order, and LEAVE
+    // refuses what existed
+    let mut session = self::session("1 2 3");
+    let message = error(&mut session, "COMPUTE n1 = n1 + x.\nLEAVE y TO n1.");
+    // (y is a variable of the data, which LEAVE does not take)
+    assert!(message.contains("existed before"), "{message}");
+    // the unknown end is the one named
+    let mut session = self::session("1 2 3");
+    let message = error(&mut session, "COMPUTE n1 = n1 + x.\nLEAVE n1 TO tyop.");
+    assert!(
+        message.contains("so tyop must be made by them too"),
+        "{message}"
+    );
+    // variables made inside DO IF and LOOP, with the names in another case
+    let mut session = self::session("1 2 3\n-1 5 6");
+    run(
+        &mut session,
+        "DO IF x > 0.\nCOMPUTE t1 = t1 + x.\nCOMPUTE t2 = t2 + y.\nEND IF.\n\
+         LOOP #i = 1 TO 2.\nCOMPUTE u1 = u1 + 1.\nCOMPUTE u2 = u2 + #i.\nEND LOOP.\n\
+         LEAVE T1 TO t2.\nLEAVE u1 TO U2.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "t2"), "2 2");
+    assert_eq!(show(data, "u1"), "2 4");
+    assert_eq!(show(data, "u2"), "3 6");
+    // a scratch variable made between the ends is not in the list, and a name twice is one
+    let mut session = self::session("1 2 3");
+    run(
+        &mut session,
+        "COMPUTE a1 = a1 + x.\nCOMPUTE #t = 1.\nCOMPUTE a2 = a2 + y.\nCOMPUTE a3 = a3 + z.\n\
+         LEAVE a1 TO a2 a2 TO a3 a1.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "a3"), "3");
+    // variables made by DO REPEAT
+    let mut session = self::session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "DO REPEAT r = r1 TO r3 / v = x y z.\nCOMPUTE r = r + v.\nEND REPEAT.\nLEAVE r1 TO r3.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "r1"), "1 5");
+    assert_eq!(show(data, "r3"), "3 9");
+    // the same with the names one by one: the commands the structure made ran once
+    let mut session = self::session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "DO REPEAT r = r1 TO r3 / v = x y z.\nCOMPUTE r = r + v.\nEND REPEAT.\nLEAVE r1 r2 r3.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "r2"), "2 7");
+    // RECODE into a TO list of new variables
+    let mut session = self::session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "DO IF x > 0.\nRECODE x y z (1 THRU 3 = 1) (ELSE = 2) INTO n1 TO n3.\nEND IF.\n\
+         COMPUTE m1 = m1 + n1.\nLEAVE n1 TO n3.\nLEAVE m1.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "n3"), "1 2");
+    assert_eq!(show(data, "m1"), "1 3");
+    // a data pass inside DO REPEAT: the commands of the structure still run once under LEAVE
+    let mut session = self::session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "DO REPEAT r = r1 TO r2 / v = x y.\nCOMPUTE r = r + v.\nEND REPEAT.\nLEAVE r1 r2.",
+    );
+    assert_eq!(show(session.dataset().unwrap(), "r1"), "1 5");
+    // LEAVE inside an input program, with variables declared there
+    let mut session = self::session("1 2 3");
+    run(
+        &mut session,
+        "NEW FILE.\nINPUT PROGRAM.\nNUMERIC t1 t2.\nLEAVE t1 TO t2.\nLOOP #i = 1 TO 3.\n\
+         COMPUTE t1 = t1 + #i.\nCOMPUTE t2 = t2 + 1.\nEND CASE.\nEND LOOP.\nEND FILE.\n\
+         END INPUT PROGRAM.\nEXECUTE.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "t1"), "1 3 6");
+    assert_eq!(show(data, "t2"), "1 2 3");
+}
