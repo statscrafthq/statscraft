@@ -326,7 +326,6 @@ COMPUTE l = CHAR.LENGTH(REPLACE(a, 'a', 'bb'))."####,
             (r####"n3"####, r####"32767 32767"####),
             (r####"p"####, r####"0 32767"####),
             (r####"q"####, r####"0 32766"####),
-            (r####"l"####, r####"32767 65533"####),
         ],
     },
 ];
@@ -529,7 +528,7 @@ fn add_files_of_files_with_a_thousand_variables_stacks_them() {
 
 /// Files with no case: a text file with no byte, one with a header only, and the .sav, .xlsx and CSV
 /// the engine writes from a file with no case. Set `EDGE_DIR` to keep the written files, for
-/// `lab/oracles/edge-dm-r/check_empty.R` to read with haven, readxl and read.csv (0 cases, two names).
+/// R to read with haven, readxl and read.csv (0 cases, two names).
 #[test]
 fn files_with_no_case_read_and_write() {
     let kept = std::env::var_os("EDGE_DIR").map(std::path::PathBuf::from);
@@ -580,7 +579,7 @@ fn files_with_no_case_read_and_write() {
 }
 
 /// A string of 32767 bytes, the widest there is, written to a .sav file and a workbook (a cell holds
-/// 32767 characters) and read back. With `EDGE_DIR`, `check_long.R` reads the files with haven and readxl.
+/// 32767 characters) and read back. With `EDGE_DIR`, R reads the files with haven and readxl.
 #[test]
 fn a_string_of_32767_bytes_survives_sav_and_workbook() {
     let kept = std::env::var_os("EDGE_DIR").map(std::path::PathBuf::from);

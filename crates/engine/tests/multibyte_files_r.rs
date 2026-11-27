@@ -11,7 +11,7 @@
 //! Writing: SAVE TRANSLATE to CSV in UTF-8 (with and without a mark), windows-1257, windows-1252
 //! and UTF-16 in both byte orders gives the bytes R's iconv gives for the same text; a letter the
 //! code page lacks is an error. The .sav, .por and .xlsx files the engine writes are kept when
-//! `MB_DIR` names a folder, for `lab/oracles/multibyte-r/check_files.R` to read with haven and
+//! `MB_DIR` names a folder, for R to read with haven and
 //! readxl (a portable file has no code for these letters: they are `?`, with a warning).
 
 use statscraft_data::Values;
