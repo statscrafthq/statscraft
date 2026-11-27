@@ -219,6 +219,7 @@ mod correlations_missing_r;
 mod examine_cells_r;
 mod frequencies_more_r;
 mod glm_emmeans_r;
+mod glm_repeated_r;
 mod means_layers_r;
 mod npar_options_r;
 mod oneway_r;
