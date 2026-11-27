@@ -208,7 +208,6 @@ fn cell_text(cell: &Cell) -> String {
         Cell::Text(t) => t.trim_end().to_string(),
         Cell::Number(n) => n.to_string(),
         Cell::Empty => String::new(),
-        other => format!("{other:?}"),
     }
 }
 
