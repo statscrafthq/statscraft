@@ -1,10 +1,11 @@
-//! ALTER TYPE against R on ten invented cases: a number becomes text as its print format writes it (the
+//! ALTER TYPE against R on ten invented rows in twelve runs: a number becomes text as its print format writes it (the
 //! digits of the format, left in the width, cut when too long), text becomes a number as R's `as.numeric`
 //! reads it once the blanks are trimmed (anything else is system-missing), AMIN is the longest value in
 //! bytes (a letter with an accent counts two), plus n bytes or n percent rounded, an input format limits the
 //! change to the variables it fits, the last mention of a variable wins, and TO and ALL lists.
-//! What R computes itself: the numbers (`as.numeric`), the text of a number (`sprintf`), the
-//! widths (`nchar` in bytes, `round`). What follows the manual, written out in the R script: the
+//! What R computes itself: the numbers (`as.numeric`), the text of a number (`sprintf`, after the
+//! guide's rounding of a half away from zero is done), the widths (`nchar` in bytes). A half of a
+//! percent width goes up (the guide only says rounded to an integer). What follows the manual, written out in the R script: the
 //! rules of the command itself (which variables a list and an input format pick).
 
 use statscraft_data::Values;
@@ -96,6 +97,12 @@ const CASES: &[Case] = &[
         formats: &[(r####"s2"####, r####"A8"####)],
     },
     Case {
+        label: r####"AMIN + 30 percent: 6.5 goes up to 7"####,
+        command: r####"ALTER TYPE s2 (A=AMIN + 30%)."####,
+        columns: &[(r####"s2"####, r####"a|bb|ccc||dddd|e|ff|ggg|hhéh|i"####)],
+        formats: &[(r####"s2"####, r####"A7"####)],
+    },
+    Case {
         label: r####"an input format limits the change to the variables it fits (A8 only, not A10)"####,
         command: r####"ALTER TYPE s1 s2 (A8 = A3)."####,
         columns: &[
@@ -120,7 +127,7 @@ const CASES: &[Case] = &[
         ],
     },
     Case {
-        label: r####"TO lists and the format without a width of the input"####,
+        label: r####"a TO list"####,
         command: r####"ALTER TYPE n1 TO n2 (F10.1)."####,
         columns: &[
             (
