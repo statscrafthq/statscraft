@@ -7182,7 +7182,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the weight variable and documents. Strings hold at most 255 bytes.\n\
                  Text goes in by the file's character table: the letters, digits and marks of ASCII, and\n\
                  the symbols plus-minus, degree, superscript digits, less-or-equal, greater-or-equal,\n\
-                 not-equal, dagger, dashes, cent and bullet. A\n\
+                 not-equal, dagger, dashes, cent, bullet and a few more. A\n\
                  character the table has no code for, such as a letter with an accent, is written as ? and\n\
                  a warning counts them (texts that differ only in such characters become equal), so every\n\
                  program that reads the file reads the same text. Control\n\

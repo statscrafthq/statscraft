@@ -17,7 +17,7 @@ UNSELECTED=DELETE leaves out the cases FILTER leaves out. DIGITS rounds values t
 
 The file holds names (upper case, at most 8 bytes: longer ones are shortened and made unique, as MYLONGRO and MYLONG\_2), variable and value labels, missing values, formats, the weight variable and documents. Strings hold at most 255 bytes.
 
-Text goes in by the file's character table: the letters, digits and marks of ASCII, and the symbols plus-minus, degree, superscript digits, less-or-equal, greater-or-equal, not-equal, dagger, dashes, cent and bullet. A character the table has no code for, such as a letter with an accent, is written as ? and a warning counts them (texts that differ only in such characters become equal), so every program that reads the file reads the same text. Control characters are written as 0; TYPE is accepted and changes nothing.
+Text goes in by the file's character table: the letters, digits and marks of ASCII, and the symbols plus-minus, degree, superscript digits, less-or-equal, greater-or-equal, not-equal, dagger, dashes, cent, bullet and a few more. A character the table has no code for, such as a letter with an accent, is written as ? and a warning counts them (texts that differ only in such characters become equal), so every program that reads the file reads the same text. Control characters are written as 0; TYPE is accepted and changes nothing.
 
 ## Example
 

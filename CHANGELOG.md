@@ -6,7 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
-- Portable files keep the symbols the format has a code for (plus-minus, degree, superscript digits, less-or-equal, greater-or-equal, not-equal, dagger, dashes, cent, bullet) in text, and read them from the file's own table; before, they became ?.
+- Portable files keep the symbols the format has a code for (plus-minus, degree, superscript digits, less-or-equal, greater-or-equal, not-equal, dagger, dashes, cent, bullet and a few more) in text, and read them from the file's own table; before, they became ?.
 - DATA LIST, PRINT and WRITE refuse a format list with groups nested more than 32 deep or with more than a million formats, with an error at the place; before, a long run of parentheses overflowed the stack and repeats of repeats filled the memory. A group in DATA LIST repeated more than 10000 times is no longer cut at 10000.
 - EXPORT writes text by the character table of the portable file: a letter with an accent or a symbol the table has no code for becomes ? with a warning (before, its UTF-8 bytes went in as they were and other programs could not read them), and # now has its code. Files written before still open.
 - GET DATA /TYPE=TXT: an AUTO variable is numeric when DATATYPEMIN PERCENTAGE (95 unless given) of its non-blank values are numbers, and the others become system-missing; before, every value had to be a number and DATATYPEMIN was ignored for text files. In fixed columns a number format with decimals implies them in a value without a decimal point, as DATA LIST does (F5.2 reads 12345 as 123.45).

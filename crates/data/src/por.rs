@@ -48,9 +48,8 @@ const TAG: [u8; 8] = [92, 89, 92, 92, 89, 88, 91, 93];
 const CODES: &[u8; 125] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz \
 .<(+|&[]!$*);^-/0,%_>?`:#@'=\"000000~000000000000000000000{}\\00";
 
-/// The symbols the character set has besides ASCII, as (code, character), found by reading files
-/// with R's haven that name each free code in the table. The writer gives the n-th of them the
-/// file byte 0x80 + n.
+/// The symbols the character set has besides ASCII, as (code, character). The writer gives the
+/// n-th of them the file byte 0x80 + n.
 const SYMBOLS: [(u8, char); 27] = [
     (156, '\u{2264}'),
     (157, '\u{25a1}'),
@@ -754,8 +753,8 @@ impl Dataset {
 
 struct Reader {
     bytes: Vec<u8>,
-    /// The stream positions that hold a symbol of the character set, in order, with the symbol;
-    /// the byte there is a placeholder. Rare, so a list is enough.
+    /// The stream positions that hold a symbol of the character set, in order, with the symbol
+    /// (the byte there is the file's own, which `string` replaces). Rare, so a list is enough.
     symbols: Vec<(usize, char)>,
     pos: usize,
 }
@@ -857,18 +856,37 @@ impl Reader {
         // the string starts after its length and the slash
         let first = self.pos - bytes.len();
         let from = self.symbols.partition_point(|&(at, _)| at < first);
-        let inside = self.symbols[from..]
+        let inside: Vec<(usize, char)> = self.symbols[from..]
             .iter()
-            .take_while(|&&(at, _)| at < self.pos);
+            .take_while(|&&(at, _)| at < self.pos)
+            .map(|&(at, c)| (at - first, c))
+            .collect();
+        if inside.is_empty() {
+            return Ok(decode(bytes));
+        }
+        // the text around the symbols is UTF-8 or windows-1252 as a whole, as without symbols
+        let around: Vec<u8> = bytes
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !inside.iter().any(|&(at, _)| at == *i))
+            .map(|(_, &b)| b)
+            .collect();
+        let utf8 = std::str::from_utf8(&around).is_ok();
+        let piece = |part: &[u8]| -> String {
+            if utf8 {
+                String::from_utf8_lossy(part).into_owned()
+            } else {
+                encoding_rs::WINDOWS_1252.decode(part).0.into_owned()
+            }
+        };
         let mut text = String::new();
         let mut done = 0;
-        for &(at, symbol) in inside {
-            let at = at - first;
-            text.push_str(&decode(bytes[done..at].to_vec()));
+        for (at, symbol) in inside {
+            text.push_str(&piece(&bytes[done..at]));
             text.push(symbol);
             done = at + 1;
         }
-        text.push_str(&decode(bytes[done..].to_vec()));
+        text.push_str(&piece(&bytes[done..]));
         Ok(text)
     }
 
@@ -932,7 +950,7 @@ fn parse(raw: &[u8]) -> Result<Dataset, String> {
         return Err("not a portable file: its tag is missing".into());
     }
     // the rest in ASCII, one byte for each byte of the file: a symbol of the character set is
-    // noted with its position and a placeholder; a byte the table does not name stays as it is
+    // noted with its position; a byte the table does not name stays as it is
     let mut symbols = Vec::new();
     let mut bytes = Vec::with_capacity(stream.len() - 464);
     for (at, &b) in stream[464..].iter().enumerate() {
@@ -946,7 +964,7 @@ fn parse(raw: &[u8]) -> Result<Dataset, String> {
                 Some(c) if c.is_ascii() => c as u8,
                 Some(c) => {
                     symbols.push((at, c));
-                    b'?'
+                    b
                 }
                 None => b,
             },
