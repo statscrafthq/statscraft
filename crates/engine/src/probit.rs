@@ -200,9 +200,70 @@ fn log_likelihood(s: &Settings, units: &[Unit], theta: &[f64], c: f64) -> f64 {
     units.iter().map(|u| evaluate(s, theta, c, u).ll).sum()
 }
 
+/// The fit on covariates centred and scaled to unit spread, so that their units and their
+/// distance from 0 cannot upset the Newton steps: with x = m + sd x*, the slopes b* = sd b and the
+/// level intercepts g* = g + sum m b of the scaled model give b = b* / sd and g = g* - sum m b,
+/// and the covariance matrix follows by the same linear map. The probabilities do not change.
+fn fit(s: &Settings, units: &[Unit]) -> Result<Fit, Error> {
+    let k = s.slopes;
+    if k == 0 || units.is_empty() {
+        return fit_scaled(s, units);
+    }
+    let count = units.len() as f64;
+    let centre: Vec<f64> = (0..k)
+        .map(|j| units.iter().map(|u| u.x[j]).sum::<f64>() / count)
+        .collect();
+    let spread: Vec<f64> = (0..k)
+        .map(|j| {
+            let sd = (units
+                .iter()
+                .map(|u| (u.x[j] - centre[j]).powi(2))
+                .sum::<f64>()
+                / count)
+                .sqrt();
+            if sd > 0.0 && sd.is_finite() { sd } else { 1.0 }
+        })
+        .collect();
+    let scaled: Vec<Unit> = units
+        .iter()
+        .map(|u| Unit {
+            case: u.case,
+            r: u.r,
+            n: u.n,
+            x: (0..k).map(|j| (u.x[j] - centre[j]) / spread[j]).collect(),
+            group: u.group,
+        })
+        .collect();
+    let mut f = fit_scaled(s, &scaled)?;
+    let size = f.theta.len() + usize::from(f.c_free);
+    // theta = T theta*
+    let mut t = vec![vec![0.0; size]; size];
+    for (j, row) in t.iter_mut().enumerate().take(k) {
+        row[j] = 1.0 / spread[j];
+    }
+    for g in 0..s.groups {
+        t[k + g][k + g] = 1.0;
+        for j in 0..k {
+            t[k + g][j] = -centre[j] / spread[j];
+        }
+    }
+    if f.c_free {
+        t[size - 1][size - 1] = 1.0;
+    }
+    let params: Vec<f64> = (0..f.theta.len())
+        .map(|a| (0..f.theta.len()).map(|b| t[a][b] * f.theta[b]).sum())
+        .collect();
+    f.theta = params;
+    f.cov = crate::matrix::multiply(
+        &crate::matrix::multiply(&t, &f.cov),
+        &crate::matrix::transpose(&t),
+    );
+    Ok(f)
+}
+
 /// Maximum likelihood by Newton steps (the expected information where the observed one is
 /// not positive definite), halved until the log-likelihood does not fall.
-fn fit(s: &Settings, units: &[Unit]) -> Result<Fit, Error> {
+fn fit_scaled(s: &Settings, units: &[Unit]) -> Result<Fit, Error> {
     let params = s.slopes + s.groups;
     let mut theta = vec![0.0; params];
     let mut c = s.estimate.unwrap_or(s.c);
