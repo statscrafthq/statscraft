@@ -235,4 +235,5 @@ mod quick_cluster_r;
 mod ratio_statistics_r;
 mod regression_more_r;
 mod reliability_missing_r;
+mod response_rate_r;
 mod ttest_missing_r;
