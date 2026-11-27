@@ -66,6 +66,7 @@ mod edge_nonpar_corr_r;
 mod edge_npar_r;
 mod edge_partial_corr_r;
 mod edge_regression_r;
+mod edge_reliability_r;
 mod edge_uniano_r;
 mod engine;
 mod examine;
