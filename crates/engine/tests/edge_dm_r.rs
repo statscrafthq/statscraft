@@ -650,3 +650,40 @@ fn three_thousand_summaries_in_one_aggregate_stay_fast() {
         assert!(close, "{got:?} against {want:?}");
     }
 }
+
+/// A guard that stacking wide files stays quick: ADD FILES looked a variable up by name for every
+/// cell, which with 200 variables and 500,000 cases a file took 66 seconds instead of 11. Two files of
+/// 200 variables and 5000 cases here, with a generous time limit, and the values against the formula.
+#[test]
+fn add_files_of_wide_files_takes_no_time_for_lookups() {
+    let dir = std::env::temp_dir().join(format!("statscraft-wide-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let d = dir.display();
+    let make = |from: usize, to: usize, file: &str| {
+        format!(
+            "INPUT PROGRAM.\nLOOP #i = {from} TO {to}.\nCOMPUTE id = #i.\nEND CASE.\nEND LOOP.\nEND FILE.\nEND INPUT PROGRAM.\n\
+             VECTOR x(200).\nLOOP #j = 1 TO 200.\nCOMPUTE x(#j) = MOD(id * #j, 97).\nEND LOOP.\nSAVE OUTFILE='{d}/{file}'.\n"
+        )
+    };
+    let mut engine = Engine::default();
+    execute_all(&mut engine, &make(1, 5000, "a.sav")).unwrap();
+    execute_all(&mut engine, &make(5001, 10000, "b.sav")).unwrap();
+    let start = std::time::Instant::now();
+    execute_all(
+        &mut engine,
+        &format!("ADD FILES /FILE='{d}/a.sav' /FILE='{d}/b.sav' /IN=second."),
+    )
+    .unwrap();
+    let seconds = start.elapsed().as_secs_f64();
+    assert!(seconds < 10.0, "stacking took {seconds} seconds");
+    assert_eq!(engine.dataset().unwrap().case_count(), 10000);
+    // the sum of x7 over the stacked file, from the formula
+    let want: f64 = (1..=10000u64).map(|i| ((i * 7) % 97) as f64).sum();
+    let got: f64 = column(&engine, "x7").iter().flatten().sum();
+    assert_eq!(got, want);
+    assert_eq!(
+        column(&engine, "second").iter().flatten().sum::<f64>(),
+        5000.0
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
