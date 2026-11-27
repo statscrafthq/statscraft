@@ -409,7 +409,7 @@ const NV: usize = 1200;
 const NC: usize = 24;
 
 fn value(i: usize, j: usize) -> Option<f64> {
-    ((i + 2 * j) % 11 != 0).then(|| ((i * 37 + j * 101) % 97) as f64 / 10.0)
+    (!(i + 2 * j).is_multiple_of(11)).then(|| ((i * 37 + j * 101) % 97) as f64 / 10.0)
 }
 
 /// 24 cases of id, g and 1200 variables v1 to v1200, from the formula.
