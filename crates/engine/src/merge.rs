@@ -377,6 +377,12 @@ impl Engine {
                 out.copy_variable(&inputs[owner].data, name, &vec![None; outputs])?;
             }
             let key = by.iter().any(|b| b.eq_ignore_ascii_case(name));
+            // the transaction variables once, not for every case
+            let transactions: Vec<(usize, Variable)> = holders
+                .iter()
+                .filter(|&&h| h != 0)
+                .map(|&h| (h, inputs[h].data.variable(name).expect("a holder has it")))
+                .collect();
             let sources: Vec<Option<(usize, usize)>> = (0..outputs)
                 .map(|output| {
                     let first = holders
@@ -387,10 +393,10 @@ impl Engine {
                     }
                     // the primary value, then every transaction value that is not missing
                     let mut source = first.filter(|(h, _)| *h == 0);
-                    for &h in holders.iter().filter(|&&h| h != 0) {
-                        let variable = inputs[h].data.variable(name).expect("a holder has it");
+                    for (h, variable) in &transactions {
+                        let h = *h;
                         for &case in &cases[h][output] {
-                            if !missing_at(&variable, case) {
+                            if !missing_at(variable, case) {
                                 source = Some((h, case));
                             }
                         }
@@ -596,29 +602,52 @@ fn set_from(
         .into_iter()
         .max()
         .flatten();
-    let variable = |input: usize| inputs[input].data.variable(name);
+    // every holder's variable once, not once for every cell
+    let mut variables = Vec::with_capacity(inputs.len());
+    for (i, input) in inputs.iter().enumerate() {
+        variables.push(match holders.contains(&i) {
+            true => Some(input.data.variable(name)?),
+            false => None,
+        });
+    }
     match width {
         Some(width) => {
             if out.variable(name)?.string_width() < Some(width) {
                 out.set_string_width(name, width)?;
             }
+            let mut columns = Vec::with_capacity(inputs.len());
+            for variable in &variables {
+                columns.push(match variable {
+                    Some(variable) => Some(variable.string()?),
+                    None => None,
+                });
+            }
             let values = sources
                 .iter()
                 .map(|source| match *source {
-                    Some((input, case)) => Ok(variable(input)?.string()?.get(case).to_string()),
-                    None => Ok(String::new()),
+                    Some((input, case)) => columns[input]
+                        .as_ref()
+                        .map_or_else(String::new, |c| c.get(case).to_string()),
+                    None => String::new(),
                 })
-                .collect::<Result<Vec<_>, Error>>()?;
+                .collect::<Vec<_>>();
             out.set_string_values(name, width, values)?;
         }
         None => {
+            let mut columns = Vec::with_capacity(inputs.len());
+            for variable in &variables {
+                columns.push(match variable {
+                    Some(variable) => Some(variable.numeric()?),
+                    None => None,
+                });
+            }
             let values = sources
                 .iter()
                 .map(|source| match *source {
-                    Some((input, case)) => Ok(variable(input)?.numeric()?.get(case)),
-                    None => Ok(None),
+                    Some((input, case)) => columns[input].as_ref().and_then(|c| c.get(case)),
+                    None => None,
                 })
-                .collect::<Result<Vec<_>, Error>>()?;
+                .collect::<Vec<_>>();
             out.set_numeric_values(name, values)?;
         }
     }
