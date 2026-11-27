@@ -218,17 +218,51 @@ pub(crate) struct Fit {
     pub(crate) rank: usize,
     pub(crate) n: f64,
     pub(crate) eps: f64,
+    /// Each dependent's raw sum of squares, whatever the shift the fit worked with.
+    raw_y: Vec<f64>,
+    /// What was taken from each dependent before the cross-products (0 for `new`).
+    shift: Vec<f64>,
 }
 
 impl Fit {
-    pub(crate) fn new(data: &Data, mut effects: Vec<Effect>, y: &[Vec<f64>], eps: f64) -> Fit {
+    pub(crate) fn new(data: &Data, effects: Vec<Effect>, y: &[Vec<f64>], eps: f64) -> Fit {
+        Fit::build(data, effects, y, eps, false)
+    }
+
+    /// As `new`, but with each dependent taken from its first value when there is an
+    /// intercept: the cross-products are then of deviations, so dependents far from 0 and close
+    /// together keep their digits (a raw sum of squares at 1e18 loses every one of them). A
+    /// constant added to a dependent only moves the intercept, so the intercept's
+    /// coefficient gets the shift back and nothing else changes.
+    pub(crate) fn new_centered(data: &Data, effects: Vec<Effect>, y: &[Vec<f64>], eps: f64) -> Fit {
+        Fit::build(data, effects, y, eps, true)
+    }
+
+    fn build(data: &Data, mut effects: Vec<Effect>, y: &[Vec<f64>], eps: f64, center: bool) -> Fit {
         let x = design(data, &mut effects);
         let p = effects.last().map_or(0, |e| e.start + e.cells.len());
         let r = y.first().map_or(0, Vec::len);
+        let has_intercept = effects.first().is_some_and(Effect::is_intercept);
+        let shift: Vec<f64> = (0..r)
+            .map(|j| {
+                if center && has_intercept {
+                    (0..data.rows())
+                        .find(|&i| data.w(i) > 0.0)
+                        .map_or(0.0, |i| y[i][j])
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let mut raw_y = vec![0.0; r];
         let mut zwz = vec![vec![0.0; p + r]; p + r];
         for i in 0..data.rows() {
-            let z: Vec<f64> = x[i].iter().chain(&y[i]).copied().collect();
             let w = data.w(i);
+            for j in 0..r {
+                raw_y[j] += w * y[i][j] * y[i][j];
+            }
+            let shifted: Vec<f64> = y[i].iter().zip(&shift).map(|(v, s)| v - s).collect();
+            let z: Vec<f64> = x[i].iter().chain(&shifted).copied().collect();
             for a in 0..p + r {
                 if z[a] == 0.0 {
                     continue;
@@ -246,13 +280,18 @@ impl Fit {
                     .collect()
             })
             .collect();
-        let b = (0..p)
+        let mut b: Matrix = (0..p)
             .map(|i| {
                 (0..r)
                     .map(|j| if swept[i] { m[p + j][i] } else { 0.0 })
                     .collect()
             })
             .collect();
+        if has_intercept && swept.first().copied().unwrap_or(false) {
+            for (j, s) in shift.iter().enumerate() {
+                b[0][j] += s;
+            }
+        }
         let s = (0..r)
             .map(|i| (0..r).map(|j| m[p + i][p + j]).collect())
             .collect();
@@ -270,7 +309,38 @@ impl Fit {
             rank,
             n: data.n(),
             eps,
+            raw_y,
+            shift,
         }
+    }
+
+    /// Z'WZ of the dependents as given: the shifted cross-products with the shift put back,
+    /// for the sums of squares that do not have the intercept swept out (their size is that of
+    /// the raw values, so nothing is lost there).
+    fn zwz_raw(&self) -> Matrix {
+        let (p, r) = (self.p, self.r);
+        let mut m = self.zwz.clone();
+        if self.shift.iter().all(|s| *s == 0.0) {
+            return m;
+        }
+        for (j, shift) in self.shift.iter().enumerate() {
+            let column: Vec<f64> = (0..p)
+                .map(|a| self.zwz[a][p + j] + shift * self.zwz[a][0])
+                .collect();
+            for (a, v) in column.into_iter().enumerate() {
+                m[a][p + j] = v;
+                m[p + j][a] = v;
+            }
+        }
+        for j in 0..r {
+            for k in 0..r {
+                m[p + j][p + k] = self.zwz[p + j][p + k]
+                    + self.shift[j] * self.zwz[0][p + k]
+                    + self.shift[k] * self.zwz[p + j][0]
+                    + self.shift[j] * self.shift[k] * self.zwz[0][0];
+            }
+        }
+        m
     }
 
     fn df_error(&self) -> f64 {
@@ -279,7 +349,11 @@ impl Fit {
 
     /// The error SSCP after sweeping the columns `order`, with the number of columns swept.
     pub(crate) fn error_after(&self, order: &[usize]) -> (Matrix, usize) {
-        let (m, swept) = sweep_in_order(&self.zwz, order, self.eps);
+        let (m, swept) = if order.contains(&0) {
+            sweep_in_order(&self.zwz, order, self.eps)
+        } else {
+            sweep_in_order(&self.zwz_raw(), order, self.eps)
+        };
         let p = self.p;
         let s = (0..self.r)
             .map(|i| (0..self.r).map(|j| m[p + i][p + j]).collect())
@@ -289,7 +363,7 @@ impl Fit {
 
     /// The diagonal of Y'WY: each dependent's raw sum of squares.
     fn raw(&self) -> Vec<f64> {
-        (self.p..self.p + self.r).map(|i| self.zwz[i][i]).collect()
+        self.raw_y.clone()
     }
 
     pub(crate) fn h(&self) -> Matrix {
@@ -1131,7 +1205,7 @@ impl Engine {
             if !command.save.is_empty() {
                 for (j, dependent) in dependents.iter().enumerate() {
                     let dj = d.only(j);
-                    let fj = Fit::new(&dj, effects.clone(), &dj.y, command.eps);
+                    let fj = Fit::new_centered(&dj, effects.clone(), &dj.y, command.eps);
                     self.save_glm(command, &dj, &fj, (j, dependent), cases)?;
                 }
             }
@@ -1140,7 +1214,7 @@ impl Engine {
             tables.push(between_factors(&d));
             for (j, text) in dependent_texts.iter().enumerate() {
                 let dj = d.only(j);
-                let fj = Fit::new(&dj, effects.clone(), &dj.y, command.eps);
+                let fj = Fit::new_centered(&dj, effects.clone(), &dj.y, command.eps);
                 tables.extend(crate::glm_random::random_tables(
                     command,
                     &dj,
@@ -1162,7 +1236,7 @@ impl Engine {
             )?);
         } else {
             let y: Vec<Vec<f64>> = d.y.clone();
-            let fit = Fit::new(&d, effects, &y, command.eps);
+            let fit = Fit::new_centered(&d, effects, &y, command.eps);
             tables.extend(univariate(
                 command,
                 &d,
@@ -4880,7 +4954,7 @@ fn rm_hypotheses(
     let average = block_diagonal(&vec![vec![1.0 / (r as f64).sqrt()]; r], m);
     let default = (average, names.to_vec());
     let given = m_matrix(command, dependents)?;
-    let fit = Fit::new(d, effects.to_vec(), &d.y, command.eps);
+    let fit = Fit::new_centered(d, effects.to_vec(), &d.y, command.eps);
     let flags = flags_of(command);
     let mut out = Vec::new();
     if command.print.mmatrix {
@@ -4932,7 +5006,7 @@ fn rm_posthoc(
                 })
                 .collect();
         let dk = Data { y, ..d.clone() };
-        let fit = Fit::new(&dk, effects.to_vec(), &dk.y, command.eps);
+        let fit = Fit::new_centered(&dk, effects.to_vec(), &dk.y, command.eps);
         per_measure.push(means_and_posthoc(
             &only, &dk, &fit, &names[k], &flags, label_of, warnings,
         )?);
@@ -4979,11 +5053,11 @@ fn original_dependent_tables(
         return out;
     }
     let flags = flags_of(command);
-    let fit = Fit::new(d, effects.to_vec(), &d.y, command.eps);
+    let fit = Fit::new_centered(d, effects.to_vec(), &d.y, command.eps);
     let parts: Vec<(Data, Fit)> = (0..texts.len())
         .map(|j| {
             let dj = d.only(j);
-            let fj = Fit::new(&dj, effects.to_vec(), &dj.y, command.eps);
+            let fj = Fit::new_centered(&dj, effects.to_vec(), &dj.y, command.eps);
             (dj, fj)
         })
         .collect();
@@ -5209,7 +5283,7 @@ impl Engine {
                 .join(" * ")
         };
         let y = d.y.clone();
-        let fit = Fit::new(d, effects, &y, command.eps);
+        let fit = Fit::new_centered(d, effects, &y, command.eps);
         let sscp = effect_sscp(&fit, command.sstype);
         let dfe = fit.df_error();
         let raw = fit.raw();
@@ -5366,7 +5440,7 @@ impl Engine {
                 .join(" * ")
         };
         let y = d.y.clone();
-        let fit = Fit::new(d, effects, &y, command.eps);
+        let fit = Fit::new_centered(d, effects, &y, command.eps);
         let sscp = effect_sscp(&fit, command.sstype);
         let dfe = fit.df_error();
         let raw = fit.raw();
@@ -6256,12 +6330,12 @@ impl Engine {
                 "PRINT TEST(MMATRIX) shows the M matrix of MMATRIX, which is not given".into(),
             );
         }
-        let fit = Fit::new(d, effects.clone(), &d.y, command.eps);
+        let fit = Fit::new_centered(d, effects.clone(), &d.y, command.eps);
         // each dependent alone gives the univariate tables
         let parts: Vec<(Data, Fit)> = (0..texts.len())
             .map(|j| {
                 let dj = d.only(j);
-                let fj = Fit::new(&dj, effects.clone(), &dj.y, command.eps);
+                let fj = Fit::new_centered(&dj, effects.clone(), &dj.y, command.eps);
                 (dj, fj)
             })
             .collect();
