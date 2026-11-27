@@ -193,6 +193,7 @@ mod ts_more;
 mod tsmodel;
 mod ttest_r;
 mod twostep;
+mod update_r;
 mod varcomp;
 mod vega_lite;
 mod verify;
