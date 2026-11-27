@@ -30,7 +30,7 @@ use crate::dist::{chi_square_p, ln_gamma, normal_cdf, normal_quantile};
 use crate::glm::{
     Data, Effect, design, effects_of, find_effect, ginverse, key_value_text, parameter_name,
 };
-use crate::matrix::{Matrix, inverse};
+use crate::matrix::{Matrix, inverse, multiply, transpose};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::shown::Shown;
@@ -558,6 +558,90 @@ type SaveColumn = (
     bool,
 );
 
+/// The location columns centred and scaled to unit spread for the fit, so that the information
+/// matrix is well conditioned whatever the size of the values. The linear predictor is
+/// (theta_j - x'b) times the scale: with x = m + s x' the thresholds become theta_j - m'b and the
+/// location coefficients s b, which `back` undoes (b = T b').
+struct Rescale {
+    mean: Vec<f64>,
+    spread: Vec<f64>,
+}
+
+impl Rescale {
+    fn new(x: &[Vec<f64>], w: &[f64]) -> Rescale {
+        let p = x.first().map_or(0, Vec::len);
+        let total: f64 = w.iter().sum::<f64>().max(f64::MIN_POSITIVE);
+        let mut mean = Vec::with_capacity(p);
+        let mut spread = Vec::with_capacity(p);
+        for j in 0..p {
+            let first = x
+                .iter()
+                .zip(w)
+                .find(|(_, wi)| **wi > 0.0)
+                .map_or(0.0, |(row, _)| row[j]);
+            let m = first
+                + x.iter()
+                    .zip(w)
+                    .map(|(row, wi)| wi * (row[j] - first))
+                    .sum::<f64>()
+                    / total;
+            let s = (x
+                .iter()
+                .zip(w)
+                .map(|(row, wi)| wi * (row[j] - m).powi(2))
+                .sum::<f64>()
+                / total)
+                .sqrt();
+            mean.push(m);
+            spread.push(if s.is_finite() && s > 0.0 { s } else { 1.0 });
+        }
+        Rescale { mean, spread }
+    }
+
+    fn apply(&self, x: &[Vec<f64>]) -> Vec<Vec<f64>> {
+        x.iter()
+            .map(|row| {
+                row.iter()
+                    .zip(self.mean.iter().zip(&self.spread))
+                    .map(|(v, (m, s))| (v - m) / s)
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Where the location coefficients start for threshold `j`.
+    fn offset(model: &Model, j: usize) -> usize {
+        if model.parallel {
+            model.k()
+        } else {
+            model.k() + j * model.px()
+        }
+    }
+
+    /// T: the raw parameters from the scaled ones, as a matrix over all of `model`'s parameters.
+    fn matrix(&self, model: &Model) -> Matrix {
+        let n = model.size();
+        let (k, px) = (model.k(), model.px());
+        let mut t: Matrix = (0..n)
+            .map(|r| (0..n).map(|c| f64::from(u8::from(r == c))).collect())
+            .collect();
+        let blocks = if model.parallel { 1 } else { k };
+        for b in 0..blocks {
+            let at = k + b * px;
+            for c in 0..px {
+                t[at + c][at + c] = 1.0 / self.spread[c];
+            }
+        }
+        for (j, row) in t.iter_mut().enumerate().take(k) {
+            let at = Rescale::offset(model, j);
+            for c in 0..px {
+                row[at + c] += self.mean[c] / self.spread[c];
+            }
+        }
+        t
+    }
+}
+
 /// What SAVE writes for one case.
 struct Prediction {
     probabilities: Vec<f64>,
@@ -566,11 +650,44 @@ struct Prediction {
 }
 
 fn columns_with_intercept(x: &[Vec<f64>], w: &[f64], singular: f64) -> Vec<bool> {
-    // a column is redundant when it adds nothing to the intercept and the columns before it
+    // a column is redundant when it adds nothing to the intercept and the columns before it;
+    // each column is judged on its deviations from its mean in units of its spread, so that a
+    // column far from 0 and close together is no multiple of the intercept unless it is one
     let p = x.first().map_or(0, Vec::len);
+    let total: f64 = w.iter().sum::<f64>().max(f64::MIN_POSITIVE);
+    let scaled: Vec<Vec<f64>> = (0..p)
+        .map(|j| {
+            let first = x
+                .iter()
+                .zip(w)
+                .find(|(_, wi)| **wi > 0.0)
+                .map_or(0.0, |(row, _)| row[j]);
+            let mean = first
+                + x.iter()
+                    .zip(w)
+                    .map(|(row, wi)| wi * (row[j] - first))
+                    .sum::<f64>()
+                    / total;
+            let spread = (x
+                .iter()
+                .zip(w)
+                .map(|(row, wi)| wi * (row[j] - mean).powi(2))
+                .sum::<f64>()
+                / total)
+                .sqrt();
+            let spread = if spread.is_finite() && spread > 0.0 {
+                spread
+            } else {
+                1.0
+            };
+            x.iter().map(|row| (row[j] - mean) / spread).collect()
+        })
+        .collect();
     let mut xwx = vec![vec![0.0; p + 1]; p + 1];
-    for (row, &wi) in x.iter().zip(w) {
-        let r: Vec<f64> = std::iter::once(1.0).chain(row.iter().copied()).collect();
+    for (i, &wi) in w.iter().enumerate() {
+        let r: Vec<f64> = std::iter::once(1.0)
+            .chain(scaled.iter().map(|column| column[i]))
+            .collect();
         for a in 0..=p {
             if r[a] == 0.0 {
                 continue;
@@ -789,6 +906,9 @@ impl Engine {
             .map(|&r| keep(&z_full[r], &z_redundant))
             .collect();
         let k = jn - 1;
+        let weights: Vec<f64> = observed.iter().map(|row| row.iter().sum()).collect();
+        let rescale = Rescale::new(&x, &weights);
+        let x_scaled = rescale.apply(&x);
         let total: f64 = counts.iter().flatten().sum();
         let mut cumulative = 0.0;
         let start: Vec<f64> = (0..k)
@@ -801,7 +921,7 @@ impl Engine {
         let location_model = Model {
             link: command.link,
             counts: &counts,
-            x: &x,
+            x: &x_scaled,
             z: &z,
             parallel: true,
             scale: false,
@@ -853,6 +973,21 @@ impl Engine {
                 "The information matrix is singular; the standard errors of some parameters are not shown".into(),
             );
         }
+        // back to the columns as given: the estimates, their covariance and the history
+        let t = rescale.matrix(model);
+        let covariance = multiply(&multiply(&t, &covariance), &transpose(&t));
+        let apply_t = |b: &[f64]| -> Vec<f64> {
+            t.iter()
+                .map(|row| row.iter().zip(b).map(|(a, v)| a * v).sum())
+                .collect()
+        };
+        let mut fit = fit;
+        let scaled_b = fit.b.clone();
+        fit.b = apply_t(&fit.b);
+        for step in &mut fit.history {
+            step.b = apply_t(&step.b);
+        }
+        let model = &Model { x: &x, ..*model };
         let constant = if command.print.is_some_and(|p| p.kernel) {
             0.0
         } else {
@@ -1221,9 +1356,9 @@ impl Engine {
                     parallel: false,
                     ..location_model
                 };
-                let mut start = fit.b[..k].to_vec();
+                let mut start = scaled_b[..k].to_vec();
                 for _ in 0..k {
-                    start.extend_from_slice(&fit.b[k..]);
+                    start.extend_from_slice(&scaled_b[k..]);
                 }
                 match maximize(&general_model, start, &criteria) {
                     Some(general) => {
