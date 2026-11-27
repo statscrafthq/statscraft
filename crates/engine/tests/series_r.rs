@@ -2148,7 +2148,7 @@ CREATE ma7 = MA(a, 7)
         ],
     },
     Case {
-        label: r####"RMV of a variable with no valid value leaves it missing"####,
+        label: r####"RMV of a variable with no valid value leaves it missing (by hand, not R)"####,
         command: r####"SELECT IF (id <= 5).
 COMPUTE z = $SYSMIS.
 RMV r1 = LINT(z)
@@ -2165,7 +2165,7 @@ RMV r1 = LINT(z)
         ],
     },
     Case {
-        label: r####"RMV with one valid value: TREND and LINT leave the gaps, SMEAN fills"####,
+        label: r####"RMV with one valid value: TREND and LINT leave the gaps, SMEAN fills (by hand, not R)"####,
         command: r####"SELECT IF (id <= 5).
 COMPUTE y = $SYSMIS.
 IF (id = 3) y = 7.5.
