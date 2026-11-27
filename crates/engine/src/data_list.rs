@@ -451,15 +451,15 @@ pub(crate) fn number(
     if text.is_empty() || text == "." {
         return Ok(None);
     }
-    let cleaned: String = match kind {
-        FormatType::Comma => text.replace(',', ""),
-        FormatType::Dollar => text.replace([',', '$'], ""),
-        FormatType::Dot => text.replace('.', "").replace(',', "."),
-        FormatType::Pct => text.strip_suffix('%').unwrap_or(text).to_string(),
+    let cleaned: std::borrow::Cow<str> = match kind {
+        FormatType::Comma => text.replace(',', "").into(),
+        FormatType::Dollar => text.replace([',', '$'], "").into(),
+        FormatType::Dot => text.replace('.', "").replace(',', ".").into(),
+        FormatType::Pct => text.strip_suffix('%').unwrap_or(text).into(),
         FormatType::N if !text.bytes().all(|b| b.is_ascii_digit()) => {
             return Err("is not a number: N format takes digits only");
         }
-        _ => text.to_string(),
+        _ => text.into(),
     };
     if kind == FormatType::Z {
         return zoned(text, decimals);
@@ -496,7 +496,11 @@ pub(crate) fn number(
         None if !mantissa.contains('.') => -i32::from(decimals),
         None => 0,
     };
-    let value: f64 = format!("{mantissa}e{shift}").parse().map_err(|_| invalid)?;
+    let value: f64 = match shift {
+        0 => mantissa.parse(),
+        _ => format!("{mantissa}e{shift}").parse(),
+    }
+    .map_err(|_| invalid)?;
     if !value.is_finite() {
         return Err(invalid);
     }
@@ -530,7 +534,11 @@ fn zoned(text: &str, decimals: u8) -> Result<Option<f64>, &'static str> {
     } else {
         -i32::from(decimals)
     };
-    let value: f64 = format!("{mantissa}e{shift}").parse().map_err(|_| invalid)?;
+    let value: f64 = match shift {
+        0 => mantissa.parse(),
+        _ => format!("{mantissa}e{shift}").parse(),
+    }
+    .map_err(|_| invalid)?;
     Ok(Some(if negative { -value } else { value }))
 }
 

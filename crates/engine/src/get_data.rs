@@ -27,25 +27,75 @@ pub fn delimited(
     ignore_multiple_spaces: bool,
 ) -> Vec<(usize, Vec<Option<String>>)> {
     let mut records = Vec::new();
-    let mut values: Vec<Option<String>> = Vec::new();
-    let mut value = String::new();
+    delimited_each(
+        text,
+        delimiters,
+        qualifier,
+        ignore_multiple_spaces,
+        &mut |line, values| {
+            let owned = values.iter().map(|v| v.map(str::to_string));
+            records.push((line, owned.collect()));
+            true
+        },
+    );
+    records
+}
+
+/// `delimited`, one record at a time: `each` gets the line the record starts on and its values
+/// and says whether to go on. A large file never has all its records in memory at once, and no
+/// value is a string of its own.
+pub(crate) fn delimited_each(
+    text: &str,
+    delimiters: &[char],
+    qualifier: Option<char>,
+    ignore_multiple_spaces: bool,
+    each: &mut dyn FnMut(usize, &[Option<&str>]) -> bool,
+) {
+    // the texts of the values of the record being read, one after the other; a value is the
+    // part of it between two offsets, or None when it is empty
+    let mut record = String::new();
+    let mut spans: Vec<Option<(usize, usize)>> = Vec::new();
+    // where the value being read starts in `record`
+    let mut start = 0;
     let mut quoted = false;
     let mut was_quoted = false;
     let mut line = 1;
     let mut record_line = 1;
     let mut chars = text.chars().peekable();
-    let finish_value =
-        |value: &mut String, was_quoted: &mut bool, values: &mut Vec<Option<String>>| {
-            let v = std::mem::take(value);
-            let keep = *was_quoted || !v.trim().is_empty();
-            values.push(keep.then(|| if *was_quoted { v } else { v.trim().to_string() }));
-            *was_quoted = false;
+    let finish_value = |record: &str,
+                        spans: &mut Vec<Option<(usize, usize)>>,
+                        start: &mut usize,
+                        was_quoted: &mut bool| {
+        let value = &record[*start..];
+        let span = if *was_quoted {
+            Some((*start, record.len()))
+        } else {
+            let trimmed = value.trim();
+            (!trimmed.is_empty()).then(|| {
+                let lead = *start + value.len() - value.trim_start().len();
+                (lead, lead + trimmed.len())
+            })
         };
+        spans.push(span);
+        *start = record.len();
+        *was_quoted = false;
+    };
+    let give = |record: &str,
+                spans: &[Option<(usize, usize)>],
+                line: usize,
+                each: &mut dyn FnMut(usize, &[Option<&str>]) -> bool|
+     -> bool {
+        let cells: Vec<Option<&str>> = spans
+            .iter()
+            .map(|span| span.map(|(a, b)| &record[a..b]))
+            .collect();
+        each(line, &cells)
+    };
     while let Some(c) = chars.next() {
         if quoted {
             if Some(c) == qualifier {
                 if chars.peek() == Some(&c) {
-                    value.push(c);
+                    record.push(c);
                     chars.next();
                 } else {
                     quoted = false;
@@ -55,7 +105,7 @@ pub fn delimited(
                     line += 1;
                 }
                 if c != '\r' {
-                    value.push(c);
+                    record.push(c);
                 }
             }
             continue;
@@ -63,15 +113,20 @@ pub fn delimited(
         match c {
             '\r' => {}
             '\n' => {
-                if !(values.is_empty() && value.trim().is_empty() && !was_quoted) {
-                    finish_value(&mut value, &mut was_quoted, &mut values);
-                    records.push((record_line, std::mem::take(&mut values)));
+                if !(spans.is_empty() && record[start..].trim().is_empty() && !was_quoted) {
+                    finish_value(&record, &mut spans, &mut start, &mut was_quoted);
+                    if !give(&record, &spans, record_line, each) {
+                        return;
+                    }
+                    record.clear();
+                    spans.clear();
+                    start = 0;
                 }
                 line += 1;
                 record_line = line;
             }
-            c if Some(c) == qualifier && value.trim().is_empty() => {
-                value.clear();
+            c if Some(c) == qualifier && record[start..].trim().is_empty() => {
+                record.truncate(start);
                 quoted = true;
                 was_quoted = true;
             }
@@ -81,23 +136,22 @@ pub fn delimited(
                 let run = c == ' '
                     && ignore_multiple_spaces
                     && (chars.peek() == Some(&' ')
-                        || (values.is_empty() && value.is_empty() && !was_quoted));
+                        || (spans.is_empty() && record.len() == start && !was_quoted));
                 if !run {
-                    finish_value(&mut value, &mut was_quoted, &mut values);
+                    finish_value(&record, &mut spans, &mut start, &mut was_quoted);
                 }
             }
             c => {
                 if !was_quoted {
-                    value.push(c);
+                    record.push(c);
                 }
             }
         }
     }
-    if !values.is_empty() || !value.trim().is_empty() || was_quoted {
-        finish_value(&mut value, &mut was_quoted, &mut values);
-        records.push((record_line, values));
+    if !spans.is_empty() || !record[start..].trim().is_empty() || was_quoted {
+        finish_value(&record, &mut spans, &mut start, &mut was_quoted);
+        give(&record, &spans, record_line, each);
     }
-    records
 }
 
 /// One value in a numeric input format; a two-digit year falls in the window from `epoch`
@@ -152,6 +206,128 @@ pub(crate) fn number_in(
     }
 }
 
+/// The values of one variable as its cases are read.
+enum Column {
+    Skipped,
+    /// The text of every value, for a variable whose type or width the whole file decides.
+    Raw(Vec<Option<String>>),
+    Text(TextColumn),
+    Number(NumberColumn),
+}
+
+/// A string variable of a known width; a value is cut to it with a warning.
+struct TextColumn {
+    width: usize,
+    values: Vec<String>,
+    warnings: Vec<String>,
+}
+
+impl TextColumn {
+    fn new(width: usize) -> Self {
+        TextColumn {
+            width,
+            values: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, name: &str, line: usize, value: &str) {
+        let cut = statscraft_data::cut_to(value, self.width);
+        if cut.len() < value.trim_end().len() {
+            self.warnings.push(format!(
+                "line {line}: {name} is cut to {} bytes",
+                self.width
+            ));
+        }
+        self.values.push(cut.to_string());
+    }
+}
+
+/// A numeric variable read in one input format.
+struct NumberColumn {
+    format: Format,
+    /// The type was chosen by AUTO: a value that is no number is expected, not a warning.
+    auto: bool,
+    /// The decimals of the format are implied (fixed columns, a stated format).
+    implied: bool,
+    values: Vec<Option<f64>>,
+    odd: usize,
+    warnings: Vec<String>,
+}
+
+impl NumberColumn {
+    fn new(format: Format, auto: bool, fixed: bool) -> Self {
+        NumberColumn {
+            format,
+            auto,
+            implied: fixed && !auto,
+            values: Vec::new(),
+            odd: 0,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// `settings`: the decimal comma and the SET values of the reading.
+    fn push(
+        &mut self,
+        name: &str,
+        line: usize,
+        value: Option<&str>,
+        (comma, reading): (bool, &crate::data_list::Reading),
+    ) {
+        let value = value.filter(|v| !v.trim().is_empty());
+        let read =
+            match value.map(|v| number_in(v, self.format, comma, reading.epoch, self.implied)) {
+                // an empty value is a blank field
+                None => reading.blanks,
+                Some(Ok(None)) => None,
+                Some(Ok(value)) => value,
+                // AUTO chose the type by the share of numbers, so the others are expected
+                Some(Err(_)) if self.auto => {
+                    self.odd += 1;
+                    None
+                }
+                Some(Err(why)) => {
+                    self.warnings.push(format!(
+                        "line {line}: {name} is system-missing: the value {why}"
+                    ));
+                    None
+                }
+            };
+        self.values.push(read);
+    }
+
+    fn finish(
+        self,
+        variable: &statscraft_syntax::GetDataVariable,
+        data: &mut Dataset,
+        warnings: &mut Vec<String>,
+    ) -> Result<(), Error> {
+        let format = self.format;
+        warnings.extend(self.warnings);
+        if self.odd > 0 {
+            warnings.push(format!(
+                "{} values of {} are not numbers and are system-missing",
+                self.odd, variable.name
+            ));
+        }
+        data.set_numeric_values(&variable.name, self.values)?;
+        let shown = match (format.width, format.kind) {
+            (0, FormatType::F) => "F8.2".to_string(),
+            (0, kind) => kind.name().to_string(),
+            (w, kind) if format.decimals > 0 => {
+                format!("{}{w}.{}", kind.name(), format.decimals)
+            }
+            (w, kind) => format!("{}{w}", kind.name()),
+        };
+        // a format without a width takes the type's own
+        if data.set_format(&variable.name, &shown).is_err() {
+            data.set_format(&variable.name, "F8.2")?;
+        }
+        Ok(())
+    }
+}
+
 impl Engine {
     pub(crate) fn get_data(&mut self, command: &GetData) -> Result<(), Error> {
         if let Some(options) = &command.spreadsheet {
@@ -169,191 +345,200 @@ impl Engine {
             .or(handle.as_deref())
             .filter(|e| !e.eq_ignore_ascii_case("locale"));
         // columns of a code page or UTF-16 file count letters, of a UTF-8 file bytes
-        let (text, by_chars) = statscraft_syntax::decode_text(&bytes, encoding).map_err(Error)?;
+        let (text, by_chars) =
+            statscraft_syntax::decode_text_owned(bytes, encoding).map_err(Error)?;
         let comma = self.setting("DECIMAL").eq_ignore_ascii_case("COMMA");
         let reading = self.reading();
-        let wanted = |count: usize| command.first_cases.map_or(count, |n| count.min(n as usize));
-        // the values of every case, each with the line it starts on
-        let mut cases: Vec<(usize, Vec<Option<String>>)> = Vec::new();
+        let wanted = command.first_cases.map_or(usize::MAX, |n| n as usize);
+        // each value goes to its variable's column as its case is read, so a large file is
+        // never held as text twice
+        let mut columns: Vec<Column> = command
+            .variables
+            .iter()
+            .map(|variable| match variable.format {
+                _ if variable.skip => Column::Skipped,
+                Some(format) if matches!(format.kind, FormatType::A | FormatType::Ahex) => {
+                    match format.width {
+                        0 => Column::Raw(Vec::new()),
+                        w => Column::Text(TextColumn::new(usize::from(w))),
+                    }
+                }
+                Some(format) => Column::Number(NumberColumn::new(format, false, command.fixed)),
+                None => Column::Raw(Vec::new()),
+            })
+            .collect();
+        let mut lines: Vec<usize> = Vec::new();
+        let mut take = |line: usize, values: &[Option<&str>]| -> bool {
+            if lines.len() >= wanted {
+                return false;
+            }
+            for (index, column) in columns.iter_mut().enumerate() {
+                let value = values.get(index).copied().flatten();
+                let (name, number) = (&command.variables[index].name, (comma, &reading));
+                match column {
+                    Column::Skipped => {}
+                    Column::Raw(raw) => raw.push(value.map(str::to_string)),
+                    Column::Text(text) => text.push(name, line, value.unwrap_or_default()),
+                    Column::Number(numbers) => numbers.push(name, line, value, number),
+                }
+            }
+            lines.push(line);
+            lines.len() < wanted
+        };
         if command.fixed {
-            let lines: Vec<&str> = text.lines().collect();
-            let start = (command.first_case as usize - 1).min(lines.len());
+            let rows: Vec<&str> = text.lines().collect();
+            let start = (command.first_case as usize - 1).min(rows.len());
             let per_case = command.lines_per_case as usize;
-            for (k, chunk) in lines[start..].chunks(per_case).enumerate() {
+            for (k, chunk) in rows[start..].chunks(per_case).enumerate() {
                 if chunk.len() < per_case {
                     break;
                 }
-                let values = command.variables.iter().map(|v| {
-                    let line = chunk.get(v.record as usize - 1).copied().unwrap_or("");
-                    let (first, last) = v.columns.unwrap_or((0, 0));
-                    let text = if by_chars {
-                        let letters = line.chars().skip(first as usize);
-                        letters
-                            .take((last as usize + 1).saturating_sub(first as usize))
-                            .collect()
-                    } else {
-                        let bytes = line.as_bytes();
-                        let a = (first as usize).min(bytes.len());
-                        let b = (last as usize + 1).min(bytes.len());
-                        String::from_utf8_lossy(&bytes[a..b]).into_owned()
-                    };
-                    (!text.trim().is_empty()).then_some(text)
-                });
-                cases.push((start + k * per_case + 1, values.collect()));
+                let values: Vec<Option<String>> = command
+                    .variables
+                    .iter()
+                    .map(|v| {
+                        let line = chunk.get(v.record as usize - 1).copied().unwrap_or("");
+                        let (first, last) = v.columns.unwrap_or((0, 0));
+                        let text = if by_chars {
+                            let letters = line.chars().skip(first as usize);
+                            letters
+                                .take((last as usize + 1).saturating_sub(first as usize))
+                                .collect()
+                        } else {
+                            let bytes = line.as_bytes();
+                            let a = (first as usize).min(bytes.len());
+                            let b = (last as usize + 1).min(bytes.len());
+                            String::from_utf8_lossy(&bytes[a..b]).into_owned()
+                        };
+                        (!text.trim().is_empty()).then_some(text)
+                    })
+                    .collect();
+                let values: Vec<Option<&str>> = values.iter().map(Option::as_deref).collect();
+                if !take(start + k * per_case + 1, &values) {
+                    break;
+                }
             }
         } else {
             let default = [',', '\t'];
             let delimiters = command.delimiters.as_deref().unwrap_or(&default);
-            let records = delimited(
+            let first_case = command.first_case as usize;
+            let mut pending: Vec<Option<String>> = Vec::new();
+            let mut first_line = 0;
+            delimited_each(
                 &text,
                 delimiters,
                 command.qualifier,
                 command.ignore_multiple_spaces,
-            );
-            let records = records
-                .into_iter()
-                .filter(|(line, _)| *line >= command.first_case as usize);
-            match command.values_per_case {
-                None => cases = records.collect(),
-                Some(n) => {
-                    let mut pending: Vec<Option<String>> = Vec::new();
-                    let mut first_line = 0;
-                    for (line, values) in records {
-                        for value in values {
-                            if pending.is_empty() {
-                                first_line = line;
-                            }
-                            pending.push(value);
-                            if pending.len() == n as usize {
-                                cases.push((first_line, std::mem::take(&mut pending)));
-                            }
-                        }
+                &mut |line, values| {
+                    if line < first_case {
+                        return true;
                     }
-                }
-            }
-            if command.ignore_leading_spaces {
-                for (_, values) in &mut cases {
-                    for v in values.iter_mut().flatten() {
-                        *v = v.trim_start().to_string();
-                    }
-                }
-            }
-        }
-        cases.truncate(wanted(cases.len()));
-        let mut data = Dataset::new(cases.len());
-        let mut warnings = Vec::new();
-        for (index, variable) in command.variables.iter().enumerate() {
-            if variable.skip {
-                continue;
-            }
-            let column = || {
-                cases
-                    .iter()
-                    .map(move |(line, values)| (*line, values.get(index).cloned().flatten()))
-            };
-            let format = match variable.format {
-                Some(format) => format,
-                None => {
-                    // AUTO: a number when DATATYPEMIN percent (95 unless given) of the non-blank
-                    // values read as one; the others are then system-missing
-                    let (mut filled, mut numbers) = (0_usize, 0_usize);
-                    for (_, v) in column() {
-                        // a blank and a lone period (system-missing) say nothing about the type
-                        let Some(v) = v.filter(|v| !matches!(v.trim(), "" | ".")) else {
-                            continue;
-                        };
-                        filled += 1;
-                        let format = Format {
-                            kind: FormatType::F,
-                            width: 8,
-                            decimals: 2,
-                        };
-                        if number(&v, format, comma, reading.epoch).is_ok() {
-                            numbers += 1;
-                        }
-                    }
-                    let needed = command.type_min.unwrap_or(95.0);
-                    let numeric = numbers as f64 * 100.0 >= needed * filled as f64;
-                    let kind = if numeric {
-                        FormatType::F
+                    let trimmed: Vec<Option<&str>>;
+                    let values = if command.ignore_leading_spaces {
+                        trimmed = values.iter().map(|v| v.map(str::trim_start)).collect();
+                        &trimmed[..]
                     } else {
-                        FormatType::A
+                        values
                     };
-                    Format {
-                        kind,
-                        width: 0,
-                        decimals: if numeric { 2 } else { 0 },
-                    }
-                }
-            };
-            if matches!(format.kind, FormatType::A | FormatType::Ahex) {
-                let values: Vec<String> = column().map(|(_, v)| v.unwrap_or_default()).collect();
-                let longest = values.iter().map(|v| v.trim_end().len()).max().unwrap_or(0);
-                let width = match format.width {
-                    0 => longest.max(1),
-                    w => usize::from(w),
-                };
-                let values = values
-                    .into_iter()
-                    .zip(column())
-                    .map(|(v, (line, _))| {
-                        let cut = statscraft_data::cut_to(&v, width);
-                        if cut.len() < v.trim_end().len() {
-                            warnings.push(format!(
-                                "line {line}: {} is cut to {width} bytes",
-                                variable.name
-                            ));
+                    let Some(n) = command.values_per_case else {
+                        return take(line, values);
+                    };
+                    for &value in values {
+                        if pending.is_empty() {
+                            first_line = line;
                         }
-                        cut.to_string()
-                    })
-                    .collect();
-                data.set_string_values(&variable.name, width, values)?;
-            } else {
-                // an AUTO number has no decimals of its own to imply
-                let auto = variable.format.is_none();
-                let implied = command.fixed && !auto;
-                let mut odd = 0_usize;
-                let values = column()
-                    .map(|(line, v)| (line, v.filter(|v| !v.trim().is_empty())))
-                    .map(|(line, v)| {
-                        match v.map(|v| number_in(&v, format, comma, reading.epoch, implied)) {
-                            // an empty value is a blank field
-                            None => reading.blanks,
-                            Some(Ok(None)) => None,
-                            Some(Ok(value)) => value,
-                            // AUTO chose the type by the share of numbers, so the others are expected
-                            Some(Err(_)) if auto => {
-                                odd += 1;
-                                None
-                            }
-                            Some(Err(why)) => {
-                                warnings.push(format!(
-                                    "line {line}: {} is system-missing: the value {why}",
-                                    variable.name
-                                ));
-                                None
+                        pending.push(value.map(str::to_string));
+                        if pending.len() == n as usize {
+                            let case = std::mem::take(&mut pending);
+                            let case: Vec<Option<&str>> =
+                                case.iter().map(Option::as_deref).collect();
+                            if !take(first_line, &case) {
+                                return false;
                             }
                         }
-                    })
-                    .collect();
-                if odd > 0 {
-                    warnings.push(format!(
-                        "{odd} values of {} are not numbers and are system-missing",
-                        variable.name
-                    ));
-                }
-                data.set_numeric_values(&variable.name, values)?;
-                let shown = match (format.width, format.kind) {
-                    (0, FormatType::F) => "F8.2".to_string(),
-                    (0, kind) => kind.name().to_string(),
-                    (w, kind) if format.decimals > 0 => {
-                        format!("{}{w}.{}", kind.name(), format.decimals)
                     }
-                    (w, kind) => format!("{}{w}", kind.name()),
-                };
-                // a format without a width takes the type's own
-                if data.set_format(&variable.name, &shown).is_err() {
-                    data.set_format(&variable.name, "F8.2")?;
+                    true
+                },
+            );
+        }
+        drop(text);
+        let cases = lines.len();
+        let mut data = Dataset::new(cases);
+        let mut warnings = Vec::new();
+        for (variable, column) in command.variables.iter().zip(columns) {
+            match column {
+                Column::Skipped => {}
+                Column::Text(mut text) => {
+                    warnings.append(&mut text.warnings);
+                    data.set_string_values(&variable.name, text.width, text.values)?;
+                }
+                Column::Number(numbers) => {
+                    numbers.finish(variable, &mut data, &mut warnings)?;
+                }
+                Column::Raw(raw) => {
+                    let column = || {
+                        lines
+                            .iter()
+                            .zip(&raw)
+                            .map(|(line, v)| (*line, v.as_deref()))
+                    };
+                    let format = match variable.format {
+                        Some(format) => format,
+                        None => {
+                            // AUTO: a number when DATATYPEMIN percent (95 unless given) of the
+                            // non-blank values read as one; the others are then system-missing
+                            let (mut filled, mut numbers) = (0_usize, 0_usize);
+                            for (_, v) in column() {
+                                // a blank and a lone period (system-missing) say nothing about the type
+                                let Some(v) = v.filter(|v| !matches!(v.trim(), "" | ".")) else {
+                                    continue;
+                                };
+                                filled += 1;
+                                let format = Format {
+                                    kind: FormatType::F,
+                                    width: 8,
+                                    decimals: 2,
+                                };
+                                if number(v, format, comma, reading.epoch).is_ok() {
+                                    numbers += 1;
+                                }
+                            }
+                            let needed = command.type_min.unwrap_or(95.0);
+                            let numeric = numbers as f64 * 100.0 >= needed * filled as f64;
+                            let kind = if numeric {
+                                FormatType::F
+                            } else {
+                                FormatType::A
+                            };
+                            Format {
+                                kind,
+                                width: 0,
+                                decimals: if numeric { 2 } else { 0 },
+                            }
+                        }
+                    };
+                    if matches!(format.kind, FormatType::A | FormatType::Ahex) {
+                        // a width left out: as wide as the longest value
+                        let longest = raw
+                            .iter()
+                            .map(|v| v.as_deref().unwrap_or_default().trim_end().len())
+                            .max()
+                            .unwrap_or(0);
+                        let mut text = TextColumn::new(longest.max(1));
+                        for (line, v) in column() {
+                            text.push(&variable.name, line, v.unwrap_or_default());
+                        }
+                        warnings.append(&mut text.warnings);
+                        data.set_string_values(&variable.name, text.width, text.values)?;
+                    } else {
+                        // an AUTO number has no decimals of its own to imply
+                        let auto = variable.format.is_none();
+                        let mut numbers = NumberColumn::new(format, auto, command.fixed);
+                        for (line, v) in column() {
+                            numbers.push(&variable.name, line, v, (comma, &reading));
+                        }
+                        numbers.finish(variable, &mut data, &mut warnings)?;
+                    }
                 }
             }
         }
@@ -405,6 +590,53 @@ mod tests {
             blanks[0].1,
             [Some("1".to_string()), None, Some("2".to_string())]
         );
+    }
+
+    #[test]
+    fn delimited_each_stops_when_told_and_keeps_the_values_of_delimited() {
+        let text = " a , 'b ' ,c\n\n1,,'x'y\n3,4\n";
+        let mut seen = Vec::new();
+        delimited_each(text, &[','], Some('\''), false, &mut |line, values| {
+            seen.push((
+                line,
+                values
+                    .iter()
+                    .map(|v| v.map(str::to_string))
+                    .collect::<Vec<_>>(),
+            ));
+            seen.len() < 3
+        });
+        let owned = |values: &[Option<&str>]| -> Vec<Option<String>> {
+            values.iter().map(|v| v.map(str::to_string)).collect()
+        };
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen[0], (1, owned(&[Some("a"), Some("b "), Some("c")])));
+        assert_eq!(seen[1], (3, owned(&[Some("1"), None, Some("x")])));
+        assert_eq!(seen[2], (4, owned(&[Some("3"), Some("4")])));
+        // the same records as `delimited` gives, which reads on to the end
+        assert_eq!(delimited(text, &[','], Some('\''), false).len(), 3);
+    }
+
+    #[test]
+    fn numbers_without_an_exponent_read_as_written() {
+        let f = Format {
+            kind: FormatType::F,
+            width: 8,
+            decimals: 2,
+        };
+        for (text, want) in [
+            ("5.", 5.0),
+            (".5", 0.5),
+            ("-1.50", -1.5),
+            ("+12", 12.0),
+            ("1e3", 1000.0),
+            ("1.5E-2", 0.015),
+            ("007", 7.0),
+        ] {
+            assert_eq!(number(text, f, false, None), Ok(Some(want)), "{text}");
+        }
+        assert!(number("1.2.3", f, false, None).is_err());
+        assert!(number("-", f, false, None).is_err());
     }
 
     #[test]

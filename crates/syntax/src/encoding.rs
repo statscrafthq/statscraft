@@ -106,9 +106,59 @@ pub fn decode_text(bytes: &[u8], encoding: Option<&str>) -> Result<(String, bool
     Ok((text, encoding != encoding_rs::UTF_8))
 }
 
+/// `decode_text` for bytes that are no longer needed: a UTF-8 file (with or without its byte
+/// order mark) becomes the text without a second copy of it in memory.
+pub fn decode_text_owned(bytes: Vec<u8>, encoding: Option<&str>) -> Result<(String, bool), String> {
+    let utf8 = match encoding {
+        None => true,
+        Some(name) => encoding_for(name) == Some(encoding_rs::UTF_8),
+    };
+    let mark = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
+    let other_mark = !mark && Encoding::for_bom(&bytes).is_some();
+    if !utf8 || other_mark {
+        return decode_text(&bytes, encoding);
+    }
+    match String::from_utf8(bytes) {
+        Ok(mut text) => {
+            if mark {
+                text.replace_range(..3, "");
+            }
+            Ok((text, false))
+        }
+        Err(wrong) => decode_text(wrong.as_bytes(), encoding),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owned_bytes_decode_as_borrowed_ones_do() {
+        let cases: [(&[u8], Option<&str>); 13] = [
+            ("ÕÄ,1\n".as_bytes(), None),
+            (b"\xEF\xBB\xBFa,b\n", None),
+            (b"\xEF\xBB\xBFa\xFF\n", None),
+            (b"a\xE4\n", None),
+            (b"a\xE4\n", Some("1257")),
+            ("ÕÄ".as_bytes(), Some("windows-1252")),
+            ("ÕÄ".as_bytes(), Some("UTF8")),
+            (b"\xFF\xFEa\x00", None),
+            (b"", None),
+            (b"\xEF\xBB\xBFa,b\n", Some("UTF16LE")),
+            (b"\xFE\xFFa\x00", Some("UTF8")),
+            (b"a\xFFb", Some("UTF8")),
+            (b"a\xFFb", Some("windows-1252")),
+        ];
+        for (bytes, name) in cases {
+            assert_eq!(
+                decode_text_owned(bytes.to_vec(), name),
+                decode_text(bytes, name),
+                "{bytes:?} {name:?}"
+            );
+        }
+        assert!(decode_text_owned(b"x".to_vec(), Some("klingon")).is_err());
+    }
 
     #[test]
     fn utf8_with_and_without_bom_and_legacy_code_pages() {
