@@ -208,4 +208,5 @@ fn every_test_file_is_built() {
         }
     }
 }
+mod examine_cells_r;
 mod glm_emmeans_r;
