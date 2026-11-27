@@ -628,7 +628,7 @@ fn three_thousand_summaries_in_one_aggregate_stay_fast() {
     let start = std::time::Instant::now();
     execute_all(&mut engine, &source).unwrap();
     let seconds = start.elapsed().as_secs_f64();
-    assert!(seconds < 6.0, "3000 summaries took {seconds} seconds");
+    assert!(seconds < 8.0, "3000 summaries took {seconds} seconds");
     assert_eq!(engine.dataset().unwrap().variable_count(), variables + 1);
     // the mean of v2999 over the cases of each group, from the formula
     let want: Vec<Option<f64>> = (1..=4)

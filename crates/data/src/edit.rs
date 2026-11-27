@@ -443,9 +443,10 @@ impl Dataset {
     /// least one is needed. References to the other variables end as in `delete_variables`.
     pub fn keep_variables(&mut self, names: &[&str]) -> Result<(), Error> {
         let mut indices = Vec::with_capacity(names.len());
+        let mut seen = vec![false; self.columns.len()];
         for name in names {
             let index = self.index_of(name)?;
-            if indices.contains(&index) {
+            if std::mem::replace(&mut seen[index], true) {
                 return Err(Error::DuplicateName(name.to_string()));
             }
             indices.push(index);

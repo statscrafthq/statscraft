@@ -30,12 +30,23 @@ pub struct Dataset {
     dict: Arc<Dictionary>,
 }
 
-/// Where each variable name stands, for a lookup that does not scan: the lowercase of every name
-/// to its position, built when a lookup first needs it and dropped (`Default`) by every change
-/// of the names or of their order. Cloning gives an empty one and equality ignores it, so it never
-/// shows in a dataset.
+/// The names of the variables and where they stand, for a lookup that does not scan.
 #[derive(Default)]
-struct NameIndex(std::sync::OnceLock<(usize, std::collections::HashMap<String, usize>)>);
+struct Names {
+    /// How many variables the maps were made for.
+    built_for: usize,
+    /// A name as it is written, to its position.
+    exact: std::collections::HashMap<String, usize>,
+    /// The lowercase of a name to the positions with it, lowest first (two names that differ
+    /// only in case can come from a file).
+    folded: std::collections::HashMap<String, Vec<usize>>,
+}
+
+/// `Names`, built when a lookup first needs it. A change of the names keeps it up to date
+/// (adding at the end, renaming) or drops it (deleting, reordering); cloning gives an empty one
+/// and equality ignores it, so it never shows in a dataset.
+#[derive(Default)]
+struct NameIndex(std::sync::OnceLock<Names>);
 
 impl Clone for NameIndex {
     fn clone(&self) -> Self {
@@ -44,22 +55,55 @@ impl Clone for NameIndex {
 }
 
 impl NameIndex {
+    fn build(variables: &[VariableDef]) -> Names {
+        let mut names = Names {
+            built_for: variables.len(),
+            ..Names::default()
+        };
+        for (position, v) in variables.iter().enumerate() {
+            names.exact.entry(v.name.clone()).or_insert(position);
+            names
+                .folded
+                .entry(folded(&v.name))
+                .or_default()
+                .push(position);
+        }
+        names
+    }
+
     /// A variable was added at the end: the index, if built, takes it in.
     fn pushed(&mut self, name: &str, position: usize) {
-        if let Some((built_for, index)) = self.0.get_mut() {
-            index.entry(folded(name)).or_insert(position);
-            *built_for = position + 1;
+        let Some(names) = self.0.get_mut() else {
+            return;
+        };
+        if names.built_for != position {
+            self.0 = Default::default();
+            return;
         }
+        names.built_for = position + 1;
+        names.exact.entry(name.to_string()).or_insert(position);
+        names.folded.entry(folded(name)).or_default().push(position);
     }
 
     /// The variable at `position` was renamed.
     fn renamed(&mut self, old: &str, new: &str, position: usize) {
-        if let Some((_, index)) = self.0.get_mut() {
-            if index.get(&folded(old)) == Some(&position) {
-                index.remove(&folded(old));
-            }
-            index.insert(folded(new), position);
+        let Some(names) = self.0.get_mut() else {
+            return;
+        };
+        if names.exact.get(old) == Some(&position) {
+            names.exact.remove(old);
         }
+        names.exact.entry(new.to_string()).or_insert(position);
+        let key = folded(old);
+        if let Some(positions) = names.folded.get_mut(&key) {
+            positions.retain(|&p| p != position);
+            if positions.is_empty() {
+                names.folded.remove(&key);
+            }
+        }
+        let positions = names.folded.entry(folded(new)).or_default();
+        positions.push(position);
+        positions.sort_unstable();
     }
 }
 
@@ -479,17 +523,24 @@ impl Dataset {
     /// Position of a variable: an exact name match wins, otherwise case is ignored.
     pub fn variable_index(&self, name: &str) -> Option<usize> {
         let variables = &self.dict.variables;
-        let (built_for, index) = self.dict.names.0.get_or_init(|| {
-            let mut index = std::collections::HashMap::with_capacity(variables.len());
-            for (i, v) in variables.iter().enumerate() {
-                index.entry(folded(&v.name)).or_insert(i);
+        let names = self
+            .dict
+            .names
+            .0
+            .get_or_init(|| NameIndex::build(variables));
+        if names.built_for == variables.len() {
+            let found = names.exact.get(name).copied().or_else(|| {
+                names
+                    .folded
+                    .get(&folded(name))
+                    .and_then(|p| p.first().copied())
+            });
+            // a miss stands; a hit is checked, and one that fails goes to the scan
+            match found {
+                None => return None,
+                Some(i) if same_name(&variables[i].name, name) => return Some(i),
+                Some(_) => {}
             }
-            (variables.len(), index)
-        });
-        // an index made for another number of variables is not trusted: scan
-        if *built_for == variables.len() {
-            let found = index.get(&folded(name)).copied();
-            return found.filter(|&i| same_name(&variables[i].name, name));
         }
         variables
             .iter()
@@ -690,4 +741,104 @@ fn text_or_number<S: Serializer>(value: &Option<String>, serializer: S) -> Resul
 
 fn non_empty(s: &str) -> Option<String> {
     (!s.is_empty()).then(|| s.to_string())
+}
+
+#[cfg(test)]
+mod name_index_tests {
+    use super::*;
+
+    /// A dataset with the given names as they can come from a file, case duplicates included
+    /// (the commands refuse to make those).
+    fn from_file(names: &[&str]) -> Dataset {
+        let mut data = Dataset::new(1);
+        for name in names {
+            let dict = Arc::make_mut(&mut data.dict);
+            dict.variables.push(VariableDef {
+                name: name.to_string(),
+                label: None,
+                format: "F8.2".into(),
+                width: None,
+                measure: Measure::Scale,
+                value_labels: Vec::new(),
+                missing: MissingValues::None,
+                extras: Default::default(),
+            });
+            let column: ArrayRef = Arc::new(arrow::array::Float64Array::from(vec![Some(1.0)]));
+            data.columns.push(column);
+        }
+        data
+    }
+
+    /// An exact name wins, else the first name that is the same ignoring case.
+    fn scan(data: &Dataset, name: &str) -> Option<usize> {
+        let names: Vec<&str> = data.variable_names().collect();
+        names
+            .iter()
+            .position(|n| *n == name)
+            .or_else(|| names.iter().position(|n| same_name(n, name)))
+    }
+
+    fn agrees(data: &Dataset) {
+        let probes = ["ID", "id", "Id", "iD", "b", "B", "c", "õ", "Õ", "nope", "x"];
+        for name in data.variable_names().chain(probes) {
+            assert_eq!(data.variable_index(name), scan(data, name), "{name}");
+        }
+    }
+
+    #[test]
+    fn names_that_differ_only_in_case_keep_the_exact_one_first() {
+        let mut data = from_file(&["ID", "id", "b", "Õ"]);
+        assert_eq!(data.variable_index("id"), Some(1));
+        assert_eq!(data.variable_index("ID"), Some(0));
+        assert_eq!(data.variable_index("iD"), Some(0));
+        agrees(&data);
+        // renaming the first leaves the second findable, exactly and in any case
+        data.rename_variable("ID", "c").unwrap();
+        assert_eq!(data.variable_index("id"), Some(1));
+        assert_eq!(data.variable_index("ID"), Some(1));
+        assert_eq!(data.variable_index("c"), Some(0));
+        agrees(&data);
+        data.rename_variable("id", "B2").unwrap();
+        agrees(&data);
+        data.rename_variable("Õ", "õx").unwrap();
+        agrees(&data);
+    }
+
+    #[test]
+    fn a_run_of_changes_agrees_with_a_scan_at_every_step() {
+        let mut data = from_file(&["A", "a", "b", "B", "c"]);
+        let mut seed = 12345u64;
+        let mut next = |n: usize| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) as usize) % n
+        };
+        let pool = ["a", "A", "b", "B", "c", "C", "d", "D", "õ", "Õ", "e1", "E1"];
+        for _ in 0..300 {
+            agrees(&data);
+            let count = data.variable_count();
+            match next(4) {
+                0 => {
+                    let name = pool[next(pool.len())];
+                    let _ = data.set_numeric_values(name, vec![Some(1.0)]);
+                }
+                1 => {
+                    let from = data.variable_names().nth(next(count)).unwrap().to_string();
+                    let _ = data.rename_variable(&from, pool[next(pool.len())]);
+                }
+                2 if count > 2 => {
+                    let name = data.variable_names().nth(next(count)).unwrap().to_string();
+                    data.delete_variables(&[&name]).unwrap();
+                }
+                _ => {
+                    let mut names: Vec<String> = data.variable_names().map(String::from).collect();
+                    names.rotate_left(next(count));
+                    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+                    data.keep_variables(&refs).unwrap();
+                }
+            }
+        }
+        agrees(&data);
+    }
 }
