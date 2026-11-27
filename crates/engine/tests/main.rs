@@ -272,6 +272,7 @@ mod frequencies_more_r;
 mod glm_emmeans_r;
 mod glm_repeated_r;
 mod glm_repeated_r2;
+mod glm_wsdesign_r;
 mod logistic_options_r;
 mod means_layers_r;
 mod mult_response_r;
