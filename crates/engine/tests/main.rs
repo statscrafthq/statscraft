@@ -60,6 +60,7 @@ mod dm_aliases;
 mod edge_basic_r;
 mod edge_coxreg_r;
 mod edge_crosstabs_r;
+mod edge_ctables_r;
 mod edge_dm_r;
 mod edge_examine_r;
 mod edge_genlin_r;
