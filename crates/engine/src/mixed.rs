@@ -800,9 +800,18 @@ impl Model {
     /// The parameters that are variances (not standard deviations) and so stay at or above 0.
     fn non_negative(&self) -> Vec<bool> {
         let mut out = vec![false; self.np];
+        // with the residual fixed at W^-1 (GENLINMIXED) a matrix of variances at 0 may be singular
+        if self.unit_residual || self.case_blocks.is_some() {
+            return out;
+        }
         for b in &self.blocks {
-            for (k, flag) in b.kinds().iter().zip(&mut out[b.start..b.start + b.count]) {
-                *flag = matches!(k, Kind::Variance) && !b.uses_sd();
+            // only a block of variances alone: a variance of 0 beside covariances that are not
+            // would leave the matrix without a positive definite value
+            if b.uses_sd() || !b.kinds().iter().all(|k| matches!(k, Kind::Variance)) {
+                continue;
+            }
+            for flag in &mut out[b.start..b.start + b.count] {
+                *flag = true;
             }
         }
         out
