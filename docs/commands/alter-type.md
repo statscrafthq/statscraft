@@ -16,7 +16,7 @@ input = (A=, F=, A10=) limits the change to variables of that type and width.
 
 AMIN gives a string variable the width of its longest value, plus n bytes or n percent of that width (rounded).
 
-/PRINT is accepted; no report is shown.
+/PRINT=ALTEREDTYPES (the default) lists the variables whose format changed, with the old and the new format; ALTEREDVALUES lists the values that changed with the type or the width (every value when the type changed, the cut ones when only the width did), the first 25 of each variable, by case number; NONE shows no report and does not go with the others.
 
 ## Example
 

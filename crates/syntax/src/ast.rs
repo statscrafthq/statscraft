@@ -569,6 +569,16 @@ pub struct AlterType {
     /// `(F = A8)`: only variables of this format type, and of this width when given.
     pub only: Option<(FormatType, Option<u16>)>,
     pub to: AlterTarget,
+    /// `/PRINT` of the whole command, the same on every group.
+    pub print: AlterPrint,
+}
+
+/// What ALTER TYPE reports: the variables whose format changed (the default), and the values
+/// that changed with the type or the width. `/PRINT=NONE` reports neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AlterPrint {
+    pub types: bool,
+    pub values: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
