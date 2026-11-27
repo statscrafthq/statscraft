@@ -413,11 +413,15 @@ fn value(i: usize, j: usize) -> Option<f64> {
 
 /// 24 cases of id, g and 1200 variables v1 to v1200, from the formula.
 fn big_data() -> String {
-    let names: String = (1..=NV).map(|j| format!(" v{j} (F6.2)")).collect();
+    data_of(NV)
+}
+
+fn data_of(variables: usize) -> String {
+    let names: String = (1..=variables).map(|j| format!(" v{j} (F6.2)")).collect();
     let mut s = format!("DATA LIST LIST /id (F3) g (F2){names}.\nBEGIN DATA\n");
     for i in 1..=NC {
         s += &format!("{i} {}", i % 4 + 1);
-        for j in 1..=NV {
+        for j in 1..=variables {
             s += &value(i, j).map_or(" .".to_string(), |v| format!(" {v}"));
         }
         s += "\n";
@@ -605,5 +609,44 @@ fn a_string_of_32767_bytes_survives_sav_and_workbook() {
     assert_eq!(show(&engine, "n").unwrap(), "32767 16386");
     if kept.is_none() {
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// 3000 summaries in one AGGREGATE took 14 seconds when a variable was found by scanning the
+/// dictionary (the time grew with the square of their number); now about one second.
+#[test]
+fn three_thousand_summaries_in_one_aggregate_stay_fast() {
+    let variables = 3000;
+    let aggregates: String = (1..=variables)
+        .map(|j| format!(" /m{j}=MEAN(v{j})"))
+        .collect();
+    let source = format!(
+        "{}SORT CASES BY g.\nAGGREGATE OUTFILE=* /BREAK=g{aggregates}.\n",
+        data_of(variables)
+    );
+    let mut engine = Engine::default();
+    let start = std::time::Instant::now();
+    execute_all(&mut engine, &source).unwrap();
+    let seconds = start.elapsed().as_secs_f64();
+    assert!(seconds < 8.0, "3000 summaries took {seconds} seconds");
+    assert_eq!(engine.dataset().unwrap().variable_count(), variables + 1);
+    // the mean of v2999 over the cases of each group, from the formula
+    let want: Vec<Option<f64>> = (1..=4)
+        .map(|g| {
+            let values: Vec<f64> = (1..=NC)
+                .filter(|i| i % 4 + 1 == g)
+                .filter_map(|i| value(i, 2999))
+                .collect();
+            (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+        })
+        .collect();
+    let got = column(&engine, "m2999");
+    for (g, w) in got.iter().zip(&want) {
+        let close = match (g, w) {
+            (Some(g), Some(w)) => (g - w).abs() < 1e-9,
+            (None, None) => true,
+            _ => false,
+        };
+        assert!(close, "{got:?} against {want:?}");
     }
 }

@@ -1167,6 +1167,7 @@ fn parse(raw: &[u8]) -> Result<Dataset, String> {
         columns,
         case_count: cases,
         dict: Arc::new(Dictionary {
+            names: Default::default(),
             encoding: "UTF-8".to_string(),
             compression: "none",
             file_label: None,

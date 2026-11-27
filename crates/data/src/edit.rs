@@ -361,7 +361,9 @@ impl Dataset {
             return Err(Error::DuplicateName(def.name));
         }
         let column = taken(&from.columns[index], cases)?;
-        Arc::make_mut(&mut self.dict).variables.push(def);
+        let dict = Arc::make_mut(&mut self.dict);
+        dict.names.pushed(&def.name, dict.variables.len());
+        dict.variables.push(def);
         self.columns.push(column);
         Ok(())
     }
@@ -398,6 +400,7 @@ impl Dataset {
         }
         let dict = Arc::make_mut(&mut self.dict);
         let old = std::mem::replace(&mut dict.variables[index].name, new_name.to_string());
+        dict.names.renamed(&old, new_name, index);
         let references = dict
             .multiple_response_sets
             .iter_mut()
@@ -427,6 +430,7 @@ impl Dataset {
             return Err(Error::Invalid("cannot delete every variable".to_string()));
         }
         let dict = Arc::make_mut(&mut self.dict);
+        dict.names = Default::default();
         let mut kept = keep.iter();
         dict.variables.retain(|_| *kept.next().unwrap());
         let mut kept = keep.iter();
@@ -439,9 +443,10 @@ impl Dataset {
     /// least one is needed. References to the other variables end as in `delete_variables`.
     pub fn keep_variables(&mut self, names: &[&str]) -> Result<(), Error> {
         let mut indices = Vec::with_capacity(names.len());
+        let mut seen = vec![false; self.columns.len()];
         for name in names {
             let index = self.index_of(name)?;
-            if indices.contains(&index) {
+            if std::mem::replace(&mut seen[index], true) {
                 return Err(Error::DuplicateName(name.to_string()));
             }
             indices.push(index);
@@ -450,6 +455,7 @@ impl Dataset {
             return Err(Error::Invalid("cannot delete every variable".to_string()));
         }
         let dict = Arc::make_mut(&mut self.dict);
+        dict.names = Default::default();
         dict.variables = indices
             .iter()
             .map(|&index| dict.variables[index].clone())
@@ -613,6 +619,8 @@ impl Dataset {
         Ok(())
     }
 
+    /// The definition of a variable to change. Not its name: `rename_variable` does that and keeps
+    /// the name index.
     pub(crate) fn def_mut(&mut self, name: &str) -> Result<&mut VariableDef, Error> {
         let index = self.index_of(name)?;
         Ok(&mut Arc::make_mut(&mut self.dict).variables[index])
@@ -636,7 +644,9 @@ impl Dataset {
         column: ArrayRef,
     ) -> Result<(), Error> {
         check_name(name)?;
-        Arc::make_mut(&mut self.dict).variables.push(VariableDef {
+        let dict = Arc::make_mut(&mut self.dict);
+        dict.names.pushed(name, dict.variables.len());
+        dict.variables.push(VariableDef {
             name: name.to_string(),
             label: None,
             format,
