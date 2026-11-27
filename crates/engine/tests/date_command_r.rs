@@ -5,7 +5,9 @@
 //! the increment from its starting value, each one carries into the next higher at its periodicity,
 //! hours, minutes and seconds count from 0 and the others from 1, a month implies its quarter (and a
 //! quarter its first month), and the highest keyword with a periodicity gets a CYCLE_ above it.
-//! The variables the command makes are those of the table, in its order.
+//! The variables the command makes are those of the table, in its order, and DATE_ (a text made for
+//! every command: its values are compared for the calendar series, the others only have to exist).
+//! Keywords are tried in full and abbreviated (Y, M, Q, D, H, MI, S, W, OBS).
 
 use statscraft_data::Values;
 use statscraft_engine::Engine;
@@ -14,7 +16,7 @@ use statscraft_syntax::parse;
 struct Case {
     label: &'static str,
     command: &'static str,
-    /// The variables the command makes, in order; DATE_ may be left out of the values.
+    /// The variables the command makes, in order, without DATE_ (checked on its own).
     order: &'static [&'static str],
     columns: &'static [(&'static str, &'static str)],
 }
@@ -249,7 +251,7 @@ const CASES: &[Case] = &[
         ],
     },
     Case {
-        label: r####"DATE D H MI: default periodicities of the short keywords"####,
+        label: r####"DATE DAY HOUR MINUTE: the default periodicities of the short keywords"####,
         command: r####"DATE DAY HOUR MINUTE."####,
         order: &[r####"DAY_"####, r####"HOUR_"####, r####"MINUTE_"####],
         columns: &[
@@ -264,6 +266,53 @@ const CASES: &[Case] = &[
             (
                 r####"MINUTE_"####,
                 r####"0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39"####,
+            ),
+        ],
+    },
+    Case {
+        label: r####"the same with the abbreviations D H MI"####,
+        command: r####"DATE D H MI."####,
+        order: &[r####"DAY_"####, r####"HOUR_"####, r####"MINUTE_"####],
+        columns: &[
+            (
+                r####"DAY_"####,
+                r####"1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"####,
+            ),
+            (
+                r####"HOUR_"####,
+                r####"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"####,
+            ),
+            (
+                r####"MINUTE_"####,
+                r####"0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39"####,
+            ),
+        ],
+    },
+    Case {
+        label: r####"SECOND and its abbreviation S count on from the start, and BY steps them"####,
+        command: r####"DATE S 5 BY 5."####,
+        order: &[r####"SECOND_"####],
+        columns: &[(
+            r####"SECOND_"####,
+            r####"5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80 85 90 95 100 105 110 115 120 125 130 135 140 145 150 155 160 165 170 175 180 185 190 195 200"####,
+        )],
+    },
+    Case {
+        label: r####"DATE YEAR 1960 MONTH, the keywords in full"####,
+        command: r####"DATE YEAR 1960 MONTH."####,
+        order: &[r####"YEAR_"####, r####"MONTH_"####],
+        columns: &[
+            (
+                r####"YEAR_"####,
+                r####"1960 1960 1960 1960 1960 1960 1960 1960 1960 1960 1960 1960 1961 1961 1961 1961 1961 1961 1961 1961 1961 1961 1961 1961 1962 1962 1962 1962 1962 1962 1962 1962 1962 1962 1962 1962 1963 1963 1963 1963"####,
+            ),
+            (
+                r####"MONTH_"####,
+                r####"1 2 3 4 5 6 7 8 9 10 11 12 1 2 3 4 5 6 7 8 9 10 11 12 1 2 3 4 5 6 7 8 9 10 11 12 1 2 3 4"####,
+            ),
+            (
+                r####"DATE_"####,
+                r####"JAN 1960|FEB 1960|MAR 1960|APR 1960|MAY 1960|JUN 1960|JUL 1960|AUG 1960|SEP 1960|OCT 1960|NOV 1960|DEC 1960|JAN 1961|FEB 1961|MAR 1961|APR 1961|MAY 1961|JUN 1961|JUL 1961|AUG 1961|SEP 1961|OCT 1961|NOV 1961|DEC 1961|JAN 1962|FEB 1962|MAR 1962|APR 1962|MAY 1962|JUN 1962|JUL 1962|AUG 1962|SEP 1962|OCT 1962|NOV 1962|DEC 1962|JAN 1963|FEB 1963|MAR 1963|APR 1963"####,
             ),
         ],
     },
