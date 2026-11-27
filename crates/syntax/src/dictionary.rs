@@ -279,6 +279,7 @@ pub(crate) fn alter_type(p: &mut Parser) -> PResult<Command> {
             return Err(p.unexpected(&["PRINT"]));
         }
         p.eat(Punct::Eq);
+        let start = p.pos;
         let (mut types, mut values, mut none) = (false, false, false);
         loop {
             if p.eat_keyword("ALTEREDTYPES") {
@@ -291,9 +292,12 @@ pub(crate) fn alter_type(p: &mut Parser) -> PResult<Command> {
                 break;
             }
         }
+        if !(types || values || none) {
+            return Err(p.unexpected(&["ALTEREDTYPES", "ALTEREDVALUES", "NONE"]));
+        }
         if none && (types || values) {
             return Err(SyntaxError::new(
-                p.span(),
+                p.span_from(start),
                 "NONE cannot be used together with ALTEREDTYPES or ALTEREDVALUES",
             ));
         }

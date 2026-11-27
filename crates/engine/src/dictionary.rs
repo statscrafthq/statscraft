@@ -287,7 +287,9 @@ impl Engine {
             let to_string = matches!(format.kind, FormatType::A | FormatType::Ahex);
             let new_width = usize::from(format.width).max(1);
             let old_format = v.format().to_string();
-            if old_format != text {
+            // F5 and F5.0 are one format
+            let plain = |f: &str| f.trim_end_matches(".0").to_ascii_uppercase();
+            if plain(&old_format) != plain(&text) {
                 altered.push((name.clone(), old_format, text.clone()));
             }
             match (v.values(), to_string) {
@@ -305,7 +307,7 @@ impl Engine {
                             note(
                                 &mut changed,
                                 &name,
-                                pairs.map(|(i, (o, n))| (i, o.to_string(), n.clone())),
+                                pairs.map(|(i, (o, n))| (i, o.trim_end().to_string(), n.clone())),
                             );
                         }
                     }
@@ -320,13 +322,17 @@ impl Engine {
                 }
                 (Values::Numeric(values), true) => {
                     let old = v.format().to_string();
-                    let old_shown: Vec<String> = values
-                        .iter()
-                        .map(|x| match x {
-                            Some(x) => format_value(x, &old, true),
-                            None => ".".to_string(),
-                        })
-                        .collect();
+                    let old_shown: Vec<String> = if print.values {
+                        values
+                            .iter()
+                            .map(|x| match x {
+                                Some(x) => format_value(x, &old, true),
+                                None => ".".to_string(),
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
                     let values: Vec<String> = values
                         .iter()
                         .map(|x| match x {

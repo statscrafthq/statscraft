@@ -378,3 +378,15 @@ fn the_report_of_values_holds_the_first_25_of_each_variable() {
     assert_eq!(text(&table.rows[0][1]), "1");
     assert_eq!(text(&table.rows[24][1]), "25");
 }
+
+#[test]
+fn a_format_that_stays_is_not_reported_and_an_empty_print_is_refused() {
+    // n2 is F5.0 already: ALTER TYPE n2 (F5) changes nothing and lists nothing
+    assert!(
+        tables_of(&format!("{DATA}ALTER TYPE n2 (F5)."))
+            .unwrap()
+            .is_empty()
+    );
+    let error = tables_of(&format!("{DATA}ALTER TYPE n2 (F6) /PRINT=.")).unwrap_err();
+    assert!(error.contains("ALTEREDTYPES"), "{error}");
+}
