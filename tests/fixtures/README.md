@@ -17,6 +17,10 @@ software of the format's original vendor and no GNU PSPP code or test file was u
 | `edge_cases.sav` | pyreadstat | bytecode | 12 x 12 | See "Edge cases" below |
 | `empty.sav` | pyreadstat | none | 0 x 4 | Valid dictionary (labels, value labels, a missing value, a date format), zero cases |
 | `wide.sav` | pyreadstat | bytecode | 10 x 300 | 300 numeric variables `v001..v300`, about 2% system-missing |
+| `haven/haven_made.sav`, `haven/haven_made_plain.sav`, `haven/haven_made_zsav.zsav` | R haven 2.5.5 | bytecode, none, zlib (ZSAV) | 12 x 16 | One invented data frame in three compressions, for the tests in `sav_haven_r.rs`: value labels for numbers and strings (also negative and decimal values, and a 94-byte label), discrete user-missing numbers and strings, a user-missing range with one more code, F, COMMA, PCT, DATE, DATETIME and TIME formats, strings of width 1, 8, 30 and 300 (empty values, values of 255 and 256 bytes), a 33-character variable name, a 250-character variable label and non-ASCII text. The product word was cut out of the 60-byte product field of the header, as for the other files |
+| `haven/statscraft_made.sav`, `haven/statscraft_made_plain.sav`, `haven/statscraft_made_zsav.zsav` | Statscraft | bytecode, none, zlib (ZSAV) | 12 x 16 | The same content built from syntax and saved by Statscraft; haven reads each of them as it reads its own files. A fresh write must give the same bytes apart from the product name and the creation date and time, except for the ZSAV file (`UPDATE_FIXTURES=1` writes them again) |
+
+The six files in the `haven` folder are for `sav_haven_r.rs` only: the tests of the reader crate take every file of this folder itself for a fixture with an `.expected.json`, so these live one level down.
 
 Other files:
 
