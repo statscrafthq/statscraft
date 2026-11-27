@@ -238,5 +238,6 @@ mod ratio_statistics_r;
 mod regression_extras_r;
 mod regression_more_r;
 mod reliability_missing_r;
+mod reliability_more_r;
 mod response_rate_r;
 mod ttest_missing_r;
