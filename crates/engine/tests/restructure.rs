@@ -70,6 +70,32 @@ END DATA.
 ";
 
 #[test]
+fn varstocases_with_every_variable_on_a_from_list_and_with_a_few_kept_of_many() {
+    // no variable is left to copy: the new file holds the MAKE variable alone
+    let mut e = engine(REPEATED);
+    run(
+        &mut e,
+        "VARSTOCASES /MAKE v FROM caseid var1 var2 var3 var4.",
+    );
+    assert_eq!(names(&e), "v");
+    assert_eq!(show(&e, "v"), "1 0 0.05 5 3 2 7 1 5 4 3 6 3 6 2");
+    // one kept variable of a wide file; the others are not gathered, and their count shows
+    // only in the result
+    let mut e = engine(REPEATED);
+    run(
+        &mut e,
+        "COMPUTE other = caseid * 10.\nVARSTOCASES /MAKE v FROM var1 var2 /KEEP=other /INDEX=k.",
+    );
+    assert_eq!(names(&e), "other k v");
+    assert_eq!(show(&e, "other"), "10 10 20 20 30 30");
+    assert_eq!(show(&e, "v"), "0 0.05 7 1 6 3");
+    // CASESTOVARS copies only the variables it carries
+    run(&mut e, "CASESTOVARS /ID=other /INDEX=k.");
+    assert_eq!(names(&e), "other v.1 v.2");
+    assert_eq!(show(&e, "v.2"), "0.05 1 3");
+}
+
+#[test]
 fn varstocases_makes_a_case_per_variable_of_the_from_list() {
     let mut e = engine(REPEATED);
     run(

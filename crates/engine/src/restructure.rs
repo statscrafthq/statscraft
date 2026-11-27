@@ -47,9 +47,19 @@ struct Rebuild {
 
 impl Rebuild {
     /// `cases`: for every new case, the case of `source` the copied variables take their
-    /// values from.
-    fn new(source: &Dataset, cases: &[Option<usize>]) -> Result<Self, Error> {
+    /// values from. `keep`: the variables of `source` that stay as they are; only their values
+    /// are gathered (the first variable stays too when there are none, `finish` drops it).
+    fn new(source: &Dataset, cases: &[Option<usize>], keep: &[String]) -> Result<Self, Error> {
         let mut data = source.clone();
+        let first;
+        let names: Vec<&str> = match keep {
+            [] => {
+                first = data.variable_names().next().map(str::to_string);
+                first.as_deref().into_iter().collect()
+            }
+            _ => keep.iter().map(String::as_str).collect(),
+        };
+        data.keep_variables(&names)?;
         data.take_cases(cases)?;
         Ok(Rebuild {
             data,
@@ -265,7 +275,7 @@ impl Engine {
             new_names.push(name);
         }
 
-        let mut out = Rebuild::new(data, &vec![None; flipped.len()])?;
+        let mut out = Rebuild::new(data, &vec![None; flipped.len()], &[])?;
         let width = flipped.iter().map(String::len).max().unwrap_or(0).max(8);
         out.string(&plain("CASE_LBL"), width, flipped.clone())?;
         let columns: Vec<Variable> = flipped
@@ -453,7 +463,7 @@ impl Engine {
         }
 
         let cases: Vec<Option<usize>> = rows.iter().map(|&(case, _)| Some(case)).collect();
-        let mut out = Rebuild::new(data, &cases)?;
+        let mut out = Rebuild::new(data, &cases, &kept)?;
         if let Some(id) = &command.id {
             let values = rows.iter().map(|&(case, _)| Some(case as f64 + 1.0));
             out.numeric(id, values.collect(), "F8.0", Measure::Nominal)?;
@@ -721,7 +731,6 @@ impl Engine {
         }
 
         let first: Vec<Option<usize>> = groups.iter().map(|g| Some(g[0])).collect();
-        let mut out = Rebuild::new(data, &first)?;
         let carried: Vec<String> = data
             .variable_names()
             .filter(|n| {
@@ -731,6 +740,7 @@ impl Engine {
             })
             .map(str::to_string)
             .collect();
+        let mut out = Rebuild::new(data, &first, &carried)?;
         for name in &carried {
             out.keep(name);
             if copied.contains(name) {
