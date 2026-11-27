@@ -83,6 +83,7 @@ mod factor_r;
 mod file_handle;
 mod file_map;
 mod filetype_r;
+mod filetype_warn_r;
 mod fit;
 mod flip_r;
 mod flow_r;
