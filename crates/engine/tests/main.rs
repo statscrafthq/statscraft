@@ -235,6 +235,7 @@ mod npar_options_r;
 mod oneway_r;
 mod quick_cluster_r;
 mod ratio_statistics_r;
+mod regression_extras_r;
 mod regression_more_r;
 mod reliability_missing_r;
 mod response_rate_r;
