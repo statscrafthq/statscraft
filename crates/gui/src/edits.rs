@@ -505,7 +505,7 @@ impl FormatChoice {
             );
         }
         Ok(if self.string || self.kind == STRING_KIND {
-            format!("ALTER TYPE {name} ({format}).")
+            format!("ALTER TYPE {name} ({format}) /PRINT=NONE.")
         } else {
             format!("FORMATS {name} ({format}).")
         })
@@ -1058,8 +1058,11 @@ mod tests {
         assert_eq!((d.kind, d.width.as_str()), (STRING_KIND, "10"));
         d.width = "20".into();
         let syntax = d.syntax().unwrap();
-        assert_eq!(syntax, "ALTER TYPE plan (A20).");
-        session.run(&syntax, None).unwrap();
+        assert_eq!(syntax, "ALTER TYPE plan (A20) /PRINT=NONE.");
+        // an edit leaves no table in the output, only the change
+        let run = session.run(&syntax, None).unwrap();
+        assert!(!run.commands.is_empty());
+        assert!(run.commands.iter().all(|c| c.tables.is_empty()));
         with(&session, "plan", |v| assert_eq!(v.string_width(), Some(20)));
         d = choice(&session, "plan");
         d.kind = index("DOLLAR").unwrap();
@@ -1072,15 +1075,21 @@ mod tests {
         d.kind = 0;
         d.fit();
         let syntax = d.syntax().unwrap();
-        assert_eq!(syntax, "ALTER TYPE plan (F20).");
-        session.run(&syntax, None).unwrap();
+        assert_eq!(syntax, "ALTER TYPE plan (F20) /PRINT=NONE.");
+        // an edit leaves no table in the output, only the change
+        let run = session.run(&syntax, None).unwrap();
+        assert!(!run.commands.is_empty());
+        assert!(run.commands.iter().all(|c| c.tables.is_empty()));
         with(&session, "plan", |v| assert!(!v.is_string()));
         let mut d = choice(&session, "q1_satisfaction");
         d.kind = STRING_KIND;
         d.fit();
         let syntax = d.syntax().unwrap();
-        assert_eq!(syntax, "ALTER TYPE q1_satisfaction (A2).");
-        session.run(&syntax, None).unwrap();
+        assert_eq!(syntax, "ALTER TYPE q1_satisfaction (A2) /PRINT=NONE.");
+        // an edit leaves no table in the output, only the change
+        let run = session.run(&syntax, None).unwrap();
+        assert!(!run.commands.is_empty());
+        assert!(run.commands.iter().all(|c| c.tables.is_empty()));
         with(&session, "q1_satisfaction", |v| assert!(v.is_string()));
 
         // what cannot be
