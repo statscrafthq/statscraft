@@ -227,6 +227,7 @@ mod correlations_missing_r;
 mod ctables_ci_r;
 mod ctables_r;
 mod examine_cells_r;
+mod frequencies_charts_r;
 mod frequencies_more_r;
 mod glm_emmeans_r;
 mod glm_repeated_r;
