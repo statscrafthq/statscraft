@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- SAVE TRANSLATE writes CSV and tab-delimited text in pieces instead of building the whole file in memory: a file of 1,000,000 cases and 200 variables (3.5 GB) took 156 seconds and 12 GB of memory and now takes about a minute and the memory of the data itself. A file that fails halfway (a letter the encoding cannot hold) leaves an existing file as it was. Workbooks write about a quarter faster.
 - ADD FILES and UPDATE of wide files are several times faster: stacking two files of 500,000 cases and 200 variables took 66 seconds and now takes about 11.
 - Commands that handle thousands of variables are much faster: a variable is found by its name without scanning the list, so an AGGREGATE with 3000 summaries takes about a second instead of fourteen, and the time grows in step with the number of variables.
 - Changing a variable's type or string width in the data window no longer adds an Altered Types table to the output for each edit.

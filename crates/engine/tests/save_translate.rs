@@ -181,6 +181,74 @@ fn encodings_and_byte_order_marks() {
 }
 
 #[test]
+fn a_file_larger_than_a_piece_is_written_whole_and_a_failure_leaves_the_old_file() {
+    let dir = temp_dir("pieces");
+    let mut s = Session::default();
+    s.set_base_dir(Some(dir.clone()));
+    let source = format!(
+        "CD '{}'.
+INPUT PROGRAM.
+STRING name (A12).
+LOOP #i = 1 TO 90000.
+COMPUTE id = #i.
+COMPUTE name = CONCAT('Jüri', STRING(#i, F5)).
+END CASE.
+END LOOP.
+END FILE.
+END INPUT PROGRAM.",
+        dir.display()
+    );
+    run(&mut s, &source);
+    run(
+        &mut s,
+        "SAVE TRANSLATE OUTFILE='a.csv' /TYPE=CSV /ENCODING='UTF8' BOM=NO.
+         SAVE TRANSLATE OUTFILE='b.csv' /TYPE=CSV /ENCODING='UTF16LE'.
+         SAVE TRANSLATE OUTFILE='c.csv' /TYPE=CSV /ENCODING='windows-1257' BOM=NO.",
+    );
+    let lines = |letter: &str| -> String {
+        (1..=90_000)
+            .map(|i| format!("J{letter}ri{i:5},{i}\r\n"))
+            .collect()
+    };
+    assert!(lines("ü").len() > 1 << 20);
+    assert_eq!(
+        std::fs::read(dir.join("a.csv")).unwrap(),
+        lines("ü").as_bytes()
+    );
+    let units: Vec<u8> = lines("ü")
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    assert_eq!(
+        std::fs::read(dir.join("b.csv")).unwrap(),
+        [&[0xFF, 0xFE][..], &units].concat()
+    );
+    let mut baltic = Vec::new();
+    for i in 1..=90_000 {
+        baltic.push(b'J');
+        baltic.push(0xFC);
+        baltic.extend(format!("ri{i:5},{i}\r\n").bytes());
+    }
+    assert_eq!(std::fs::read(dir.join("c.csv")).unwrap(), baltic);
+    // a letter the code page lacks, after the first piece: the old file stays, no part is left
+    std::fs::write(dir.join("keep.csv"), b"old").unwrap();
+    run(&mut s, "IF (id = 90000) name = 'Ωmega'.");
+    let message = error(
+        &mut s,
+        "SAVE TRANSLATE OUTFILE='keep.csv' /TYPE=CSV /ENCODING='windows-1257' /REPLACE.",
+    );
+    assert!(message.contains("cannot hold"), "{message}");
+    assert_eq!(std::fs::read(dir.join("keep.csv")).unwrap(), b"old");
+    let left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".part"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_workbook_round_trip_keeps_numbers_dates_and_missing_values() {
     let dir = temp_dir("xlsx");
     let mut s = session(&dir);
