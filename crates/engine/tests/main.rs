@@ -63,6 +63,7 @@ mod edge_crosstabs_r;
 mod edge_ctables_r;
 mod edge_dm_r;
 mod edge_examine_r;
+mod edge_factor_r;
 mod edge_genlin_r;
 mod edge_km_r;
 mod edge_logistic_r;
