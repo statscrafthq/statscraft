@@ -303,6 +303,23 @@ fn leave_takes_a_to_list_of_variables_the_waiting_commands_create() {
     );
     let data = session.dataset().unwrap();
     assert_eq!(show(data, "r2"), "2 7");
+    // RECODE into a TO list of new variables
+    let mut session = self::session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "DO IF x > 0.\nRECODE x y z (1 THRU 3 = 1) (ELSE = 2) INTO n1 TO n3.\nEND IF.\n\
+         COMPUTE m1 = m1 + n1.\nLEAVE n1 TO n3.\nLEAVE m1.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "n3"), "1 2");
+    assert_eq!(show(data, "m1"), "1 3");
+    // a data pass inside DO REPEAT: the commands of the structure still run once under LEAVE
+    let mut session = self::session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "DO REPEAT r = r1 TO r2 / v = x y.\nCOMPUTE r = r + v.\nEND REPEAT.\nLEAVE r1 r2.",
+    );
+    assert_eq!(show(session.dataset().unwrap(), "r1"), "1 5");
     // LEAVE inside an input program, with variables declared there
     let mut session = self::session("1 2 3");
     run(

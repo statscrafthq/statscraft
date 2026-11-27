@@ -213,19 +213,23 @@ pub(crate) struct Clean {
     vectors: std::collections::HashMap<String, Vec<String>>,
     /// The commands since then, which LEAVE runs again.
     commands: Vec<Command>,
+    /// Which list this is: a number no other list has had.
+    generation: u64,
 }
 
+static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl Clean {
-    /// Which list this is and how many commands it holds: the address tells a list that a data
-    /// pass has dropped and started again from the one that was there.
-    pub(crate) fn mark(&self) -> (usize, usize) {
-        (std::ptr::from_ref(self) as usize, self.commands.len())
+    /// Which list this is and how many commands it holds, for `keep_commands`: a data pass drops
+    /// the list and the next change starts another, with another generation.
+    pub(crate) fn mark(&self) -> (u64, usize) {
+        (self.generation, self.commands.len())
     }
 
     /// Forgets the commands after the first `n` of the list that `mark` named; another list is
     /// left alone.
-    pub(crate) fn keep_commands(&mut self, mark: (usize, usize)) {
-        if std::ptr::from_ref(self) as usize == mark.0 {
+    pub(crate) fn keep_commands(&mut self, mark: (u64, usize)) {
+        if self.generation == mark.0 {
             self.commands.truncate(mark.1);
         }
     }
@@ -291,6 +295,8 @@ impl Engine {
                         temporary: self.temporary.clone(),
                         vectors: self.vectors.clone(),
                         commands: Vec::new(),
+                        generation: NEXT_GENERATION
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                     }))
                 }
                 Stage::Pass => self.clean = None,
@@ -344,8 +350,13 @@ impl Engine {
                 Command::Recode(groups) => {
                     for group in groups {
                         for item in &group.into {
-                            if let VarItem::Name(name) = item {
-                                made.push(name.clone());
+                            match item {
+                                VarItem::Name(name) => made.push(name.clone()),
+                                VarItem::Range(..) => made.extend(
+                                    crate::variables::new_names(std::slice::from_ref(item))
+                                        .unwrap_or_default(),
+                                ),
+                                VarItem::All => {}
                             }
                         }
                     }
