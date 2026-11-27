@@ -562,6 +562,10 @@ fn structure_name(t: CovType) -> &'static str {
 /// The model in the form the likelihood needs.
 struct Model {
     y: Vec<f64>,
+    /// Taken from every y inside the likelihood when the first fixed column is the constant:
+    /// y'V^-1 y of values far from 0 and close together loses every digit, and the shift moves
+    /// only the intercept's coefficient, which gets it back.
+    y_shift: f64,
     /// The fixed design without its redundant columns.
     x: Vec<Vec<f64>>,
     p: usize,
@@ -816,7 +820,7 @@ impl Model {
             let (vi, ld) = cholesky_inverse(&v)?;
             logdet += ld;
             let xb: Matrix = cases.iter().map(|&i| self.x[i].clone()).collect();
-            let yb: Vec<f64> = cases.iter().map(|&i| self.y[i]).collect();
+            let yb: Vec<f64> = cases.iter().map(|&i| self.y[i] - self.y_shift).collect();
             let u = product(&vi, &xb);
             let vy = mat_vec(&vi, &yb);
             add_to(&mut a, &cross(&xb, &u));
@@ -832,8 +836,11 @@ impl Model {
         } else {
             (Vec::new(), 0.0)
         };
-        let beta = mat_vec(&a_inv, &c);
+        let mut beta = mat_vec(&a_inv, &c);
         let rvr = yy - dot(&c, &beta);
+        if self.y_shift != 0.0 && !beta.is_empty() {
+            beta[0] += self.y_shift;
+        }
         let two_pi = (2.0 * std::f64::consts::PI).ln();
         let f = if self.ml {
             logdet + rvr + n * two_pi
@@ -2436,7 +2443,7 @@ impl Engine {
         }
         let mut fixed_effects = effects_of(&terms, &factor_names, &covariate_names)?;
         relabel(&mut fixed_effects);
-        let fixed = Fit::new(&d, fixed_effects, &d.y, command.singular);
+        let fixed = Fit::new_centered(&d, fixed_effects, &d.y, command.singular);
         let kept: Vec<usize> = (0..fixed.p).filter(|&j| !fixed.redundant[j]).collect();
         let p = kept.len();
         if n <= p {
@@ -2594,9 +2601,21 @@ impl Engine {
                 group_of[i] = g;
             }
         }
+        let y_values: Vec<f64> = d.y.iter().map(|y| y[0]).collect();
+        let constant_first =
+            glmm.is_none() && p > 0 && fixed.x.iter().all(|row| row[kept[0]] == 1.0);
         let mut model = Model {
             unit_residual: glmm.is_some_and(|g| g.unit_scale),
-            y: d.y.iter().map(|y| y[0]).collect(),
+            y_shift: if constant_first {
+                y_values
+                    .iter()
+                    .copied()
+                    .find(|v| v.is_finite())
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            },
+            y: y_values,
             x: fixed
                 .x
                 .iter()
