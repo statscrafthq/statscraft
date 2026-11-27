@@ -162,6 +162,7 @@ mod save_dbf;
 mod save_sas;
 mod save_translate;
 mod scratch;
+mod series_r;
 mod settings;
 mod shift_values;
 mod simulation;
