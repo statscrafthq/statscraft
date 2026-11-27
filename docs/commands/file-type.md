@@ -7,7 +7,7 @@ Start the definition of a file with several kinds of records.
 ## Syntax
 
 ```text
-FILE TYPE MIXED | GROUPED | NESTED [FILE='path' | handle] [ENCODING='UTF-8']
+FILE TYPE MIXED | GROUPED | NESTED [FILE='path' | handle] [ENCODING='name']
     RECORD=[var] columns [(format)] [CASE=[var] columns [(format)]]
     [WILD=WARN | NOWARN] [DUPLICATE=WARN | NOWARN | CASE] [MISSING=WARN | NOWARN]
     [ORDERED=YES | NO].

@@ -119,6 +119,7 @@ mod meta_r;
 mod missing_split_r;
 mod mixed;
 mod mult_response;
+mod multibyte_files_r;
 mod multibyte_r;
 mod multiple_correspondence;
 mod multiple_imputation;

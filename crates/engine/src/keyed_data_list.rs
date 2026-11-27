@@ -51,15 +51,17 @@ impl Engine {
         encoding: Option<&str>,
     ) -> Result<Vec<Record>, Error> {
         let Some(name) = encoding else {
-            return self.file_records(file);
+            return self.file_records(file, None);
         };
         let bytes = std::fs::read(self.path(file))
             .map_err(|e| Error(format!("cannot read {file}: {e}")))?;
         let text = statscraft_syntax::decode_syntax(&bytes, Some(name)).map_err(Error)?;
+        let by_chars = !["utf8", "utf-8"].contains(&name.to_ascii_lowercase().as_str());
         Ok(text
             .lines()
             .enumerate()
             .map(|(i, line)| Record {
+                by_chars,
                 place: format!("record {} of {file}", i + 1),
                 text: line.to_string(),
             })
@@ -110,7 +112,7 @@ impl Engine {
                 .iter()
                 .map(|record| match record {
                     Some(record) => {
-                        let text = data_list::columns(&record.text, field);
+                        let text = data_list::columns(record, field);
                         data_list::read(&text, field, true, reading, &record.place, &mut warnings)
                     }
                     None => match string {

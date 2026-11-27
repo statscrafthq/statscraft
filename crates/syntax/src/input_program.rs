@@ -258,6 +258,7 @@ pub(crate) fn file_type(p: &mut Parser) -> PResult<Command> {
         return Err(p.unexpected(&["MIXED", "GROUPED", "NESTED"]));
     };
     let mut file = None;
+    let mut encoding = None;
     let (mut record, mut case) = (None, None);
     let (mut wild, mut dup, mut missing, mut ordered) = (None, None, None, None);
     let not_for = |p: &Parser, what: &str, kinds: &str| {
@@ -271,7 +272,8 @@ pub(crate) fn file_type(p: &mut Parser) -> PResult<Command> {
             p.eat(Punct::Eq);
             file = Some(p.file("a quoted file path or a file handle")?);
         } else if p.eat_keyword("ENCODING") {
-            encoding(p)?;
+            p.eat(Punct::Eq);
+            encoding = Some(p.string("a quoted encoding")?);
         } else if p.eat_keyword("RECORD") {
             p.eat(Punct::Eq);
             record = Some(id_field(p)?);
@@ -332,6 +334,7 @@ pub(crate) fn file_type(p: &mut Parser) -> PResult<Command> {
     Ok(Command::FileType(Box::new(FileType {
         kind,
         file,
+        encoding,
         record,
         case,
         wild,

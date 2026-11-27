@@ -86,14 +86,19 @@ impl Program {
         }
     }
 
-    fn files(&self) -> Vec<String> {
-        let mut files: Vec<String> = match &self.kind {
-            Kind::FileType(file_type) => file_type.file.iter().cloned().collect(),
+    /// The files read, each with the ENCODING its first mention gave.
+    fn files(&self) -> Vec<(String, Option<String>)> {
+        let mut files: Vec<(String, Option<String>)> = match &self.kind {
+            Kind::FileType(file_type) => file_type
+                .file
+                .iter()
+                .map(|f| (f.clone(), file_type.encoding.clone()))
+                .collect(),
             Kind::Input => Vec::new(),
         };
         for command in &self.body {
             if let Command::DataList(list) = command {
-                files.extend(list.file.iter().cloned());
+                files.extend(list.file.iter().map(|f| (f.clone(), list.encoding.clone())));
             }
         }
         files
@@ -221,6 +226,13 @@ fn refused(program: &Program, command: &Command) -> Option<&'static str> {
 
 /// The text of a record from `column` (1-based) on.
 fn from_column(record: &Record, column: usize) -> Record {
+    if record.by_chars {
+        return Record {
+            place: record.place.clone(),
+            text: record.text.chars().skip(column - 1).collect(),
+            by_chars: true,
+        };
+    }
     let mut start = (column - 1).min(record.text.len());
     while !record.text.is_char_boundary(start) {
         start += 1;
@@ -228,6 +240,7 @@ fn from_column(record: &Record, column: usize) -> Record {
     Record {
         place: record.place.clone(),
         text: record.text[start..].to_string(),
+        by_chars: false,
     }
 }
 
@@ -275,7 +288,7 @@ fn read_id(
     reading: data_list::Reading,
     warnings: &mut Vec<String>,
 ) -> Read {
-    let text = data_list::columns(&record.text, field);
+    let text = data_list::columns(record, field);
     data_list::read(&text, field, true, reading, &record.place, warnings)
 }
 
@@ -378,11 +391,11 @@ impl Engine {
         if let Some(records) = inline {
             sources.insert(String::new(), Source::new(records));
         }
-        for file in program.files() {
+        for (file, encoding) in program.files() {
             if let std::collections::hash_map::Entry::Vacant(entry) =
                 sources.entry(source_key(Some(&file)))
             {
-                entry.insert(Source::new(self.file_records(&file)?));
+                entry.insert(Source::new(self.file_records(&file, encoding.as_deref())?));
             }
         }
         // the records a KEYED DATA LIST picks from, read here where the file handles are known
@@ -1133,7 +1146,7 @@ impl Engine {
                     column: column as u32,
                     ..field.clone()
                 };
-                let text = data_list::columns(&record.text, &at);
+                let text = data_list::columns(&record, &at);
                 data_list::read(&text, field, true, reading, &record.place, &mut warnings)
             });
             groups.push(values.collect());
