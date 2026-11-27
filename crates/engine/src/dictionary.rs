@@ -8,7 +8,7 @@
 //! - ALTER TYPE from string to numeric reads F, COMMA and DOT values (thousands separators
 //!   allowed); other numeric formats are refused for now.
 
-use crate::{Engine, Error, format_value};
+use crate::{Cell, Engine, Error, Table, format_value};
 use statscraft_data::{Dataset, MissingValues, NewValues, Values, cut_to};
 use statscraft_syntax::{
     AlterTarget, AlterType, ApplyDictionary, AttributeChange, Command, FileOption, FormatType,
@@ -105,6 +105,32 @@ fn read_formatted(
     read.ok().flatten()
 }
 
+/// The values ALTER TYPE changed in one variable, for its report: the first 25, as rows of
+/// variable, case number, old value and new value. `pairs` are (case index, old, new).
+fn note(
+    rows: &mut Vec<Vec<Cell>>,
+    name: &str,
+    pairs: impl Iterator<Item = (usize, String, String)>,
+) {
+    for (case, old, new) in pairs.take(25) {
+        rows.push(vec![
+            Cell::Text(name.to_string()),
+            Cell::Number((case + 1) as f64),
+            Cell::Text(old),
+            Cell::Text(new),
+        ]);
+    }
+}
+
+fn report(title: &str, columns: &[&str], rows: Vec<Vec<Cell>>) -> Table {
+    Table {
+        title: title.into(),
+        columns: columns.iter().map(|c| c.to_string()).collect(),
+        rows,
+        ..Table::default()
+    }
+}
+
 /// A number written in a string, for ALTER TYPE to a numeric format; None when it is none.
 fn read_number(text: &str, comma_decimal: bool) -> Option<f64> {
     let text = text.trim();
@@ -191,14 +217,14 @@ impl Engine {
                     }
                 }
             }
-            Command::AlterType(groups) => self.alter_type(groups)?,
             Command::ApplyDictionary(apply) => self.apply_dictionary(apply)?,
             _ => unreachable!("only dictionary commands come here"),
         }
         Ok(())
     }
 
-    fn alter_type(&mut self, groups: &[AlterType]) -> Result<(), Error> {
+    /// ALTER TYPE; the reports of its /PRINT are the tables it returns.
+    pub(crate) fn alter_type(&mut self, groups: &[AlterType]) -> Result<Vec<Table>, Error> {
         // a variable named in several groups takes the last one
         let mut plan: Vec<(String, &AlterType)> = Vec::new();
         for group in groups {
@@ -208,8 +234,12 @@ impl Engine {
             }
         }
         if plan.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
+        let print = plan[0].1.print;
+        // the variables whose format changed, and the values that changed (the first 25 of each)
+        let mut altered: Vec<(String, String, String)> = Vec::new();
+        let mut changed: Vec<Vec<Cell>> = Vec::new();
         self.begin_pass()?;
         let comma = self.setting("DECIMAL").eq_ignore_ascii_case("COMMA");
         let epoch = self.reading().epoch;
@@ -256,13 +286,31 @@ impl Engine {
             }
             let to_string = matches!(format.kind, FormatType::A | FormatType::Ahex);
             let new_width = usize::from(format.width).max(1);
+            let old_format = v.format().to_string();
+            // F5 and F5.0 are one format
+            let plain = |f: &str| f.trim_end_matches(".0").to_ascii_uppercase();
+            if plain(&old_format) != plain(&text) {
+                altered.push((name.clone(), old_format, text.clone()));
+            }
             match (v.values(), to_string) {
                 (Values::Numeric(_), false) => data.set_format(&name, &text)?,
                 (Values::String(values), true) => {
-                    let values = values
+                    let values: Vec<String> = values
                         .iter()
                         .map(|s| cut_to(s, new_width).to_string())
                         .collect();
+                    if print.values {
+                        let old = v.values();
+                        if let Values::String(old) = old {
+                            let pairs = old.iter().zip(&values).enumerate();
+                            let pairs = pairs.filter(|(_, (o, n))| o != n);
+                            note(
+                                &mut changed,
+                                &name,
+                                pairs.map(|(i, (o, n))| (i, o.trim_end().to_string(), n.clone())),
+                            );
+                        }
+                    }
                     data.retype_variable(
                         &name,
                         NewValues::String {
@@ -274,13 +322,32 @@ impl Engine {
                 }
                 (Values::Numeric(values), true) => {
                     let old = v.format().to_string();
-                    let values = values
+                    let old_shown: Vec<String> = if print.values {
+                        values
+                            .iter()
+                            .map(|x| match x {
+                                Some(x) => format_value(x, &old, true),
+                                None => ".".to_string(),
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let values: Vec<String> = values
                         .iter()
                         .map(|x| match x {
                             Some(x) => cut_to(&format_value(x, &old, true), new_width).to_string(),
                             None => String::new(),
                         })
                         .collect();
+                    if print.values {
+                        let pairs = values.iter().zip(old_shown).enumerate();
+                        note(
+                            &mut changed,
+                            &name,
+                            pairs.map(|(i, (n, o))| (i, o, n.clone())),
+                        );
+                    }
                     data.retype_variable(
                         &name,
                         NewValues::String {
@@ -291,7 +358,12 @@ impl Engine {
                     )?;
                 }
                 (Values::String(values), false) => {
-                    let values = match format.kind {
+                    let old_strings: Vec<String> = if print.values {
+                        values.iter().map(|s| s.trim_end().to_string()).collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let values: Vec<Option<f64>> = match format.kind {
                         FormatType::F | FormatType::Comma | FormatType::Dot => {
                             let comma = comma || format.kind == FormatType::Dot;
                             values.iter().map(|s| read_number(s, comma)).collect()
@@ -323,11 +395,39 @@ impl Engine {
                             )));
                         }
                     };
+                    if print.values {
+                        let shown = |x: &Option<f64>| match x {
+                            Some(x) => format_value(*x, &text, true),
+                            None => ".".to_string(),
+                        };
+                        let pairs = old_strings.into_iter().zip(&values).enumerate();
+                        note(
+                            &mut changed,
+                            &name,
+                            pairs.map(|(i, (o, n))| (i, o, shown(n))),
+                        );
+                    }
                     data.retype_variable(&name, NewValues::Numeric(values), &text)?;
                 }
             }
         }
-        Ok(())
+        let mut tables = Vec::new();
+        if print.types && !altered.is_empty() {
+            let rows = altered
+                .into_iter()
+                .map(|(name, old, new)| vec![Cell::Text(name), Cell::Text(old), Cell::Text(new)])
+                .collect();
+            tables.push(report(
+                "Altered Types",
+                &["Variable", "Old Format", "New Format"],
+                rows,
+            ));
+        }
+        if print.values && !changed.is_empty() {
+            let columns = ["Variable", "Case Number", "Old Value", "New Value"];
+            tables.push(report("Altered Values", &columns, changed));
+        }
+        Ok(tables)
     }
 
     fn apply_dictionary(&mut self, apply: &ApplyDictionary) -> Result<(), Error> {

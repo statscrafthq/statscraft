@@ -7033,7 +7033,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  input = (A=, F=, A10=) limits the change to variables of that type and width.\n\
                  AMIN gives a string variable the width of its longest value, plus n bytes or n percent of\n\
                  that width (rounded).\n\
-                 /PRINT is accepted; no report is shown.",
+                 /PRINT=ALTEREDTYPES (the default) lists the variables whose format changed, with the old and the new\n\
+                 format; ALTEREDVALUES lists the values that changed with the type or the width (every value when the\n\
+                 type changed, the cut ones when only the width did), the first 25 of each variable, by case number;\n\
+                 NONE shows no report and does not go with the others.",
         example: "ALTER TYPE comment (A500) code (A=AMIN).",
         parse: dictionary::alter_type,
     },

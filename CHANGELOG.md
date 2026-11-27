@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- ALTER TYPE shows the report its /PRINT asks for: a table of the variables whose format changed with the old and new format (the default), and with ALTEREDVALUES a table of the values that changed, 25 at most for each variable; /PRINT=NONE shows nothing. Before, no report was shown.
 - A .sav file whose text value ends inside a letter (cut at its width by another program) opens with the fragment dropped instead of a replacement character at the end, as other readers open it.
 - DATA LIST and FILE TYPE take ENCODING (a code page such as '1257', UTF16LE, UTF16BE); before, only UTF-8 was accepted there. Fixed columns of a file read in a code page or UTF-16 count letters, as the format does, also in GET DATA and through a FILE HANDLE encoding; before they counted the bytes of the converted text and shifted after the first accented letter.
 - UPCASE and LOWER change each letter into one letter and leave a letter that has no one-letter form as it is (ß, the fi ligature); before, ß became SS and the text grew past its string width.

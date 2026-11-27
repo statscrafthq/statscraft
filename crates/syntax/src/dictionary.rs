@@ -3,7 +3,8 @@
 //! DATAFILE ATTRIBUTE, ALTER TYPE and APPLY DICTIONARY.
 
 use crate::ast::{
-    AlterTarget, AlterType, ApplyDictionary, AttributeChange, Command, FormatType, VarItem,
+    AlterPrint, AlterTarget, AlterType, ApplyDictionary, AttributeChange, Command, FormatType,
+    VarItem,
 };
 use crate::commands::{format, value_labels};
 use crate::error::SyntaxError;
@@ -260,7 +261,15 @@ pub(crate) fn alter_type(p: &mut Parser) -> PResult<Command> {
             AlterTarget::Format(parsed)
         };
         p.expect(Punct::RParen)?;
-        groups.push(AlterType { vars, only, to });
+        groups.push(AlterType {
+            vars,
+            only,
+            to,
+            print: AlterPrint {
+                types: true,
+                values: false,
+            },
+        });
     }
     if groups.is_empty() {
         return Err(p.unexpected(&["a variable name"]));
@@ -270,10 +279,31 @@ pub(crate) fn alter_type(p: &mut Parser) -> PResult<Command> {
             return Err(p.unexpected(&["PRINT"]));
         }
         p.eat(Punct::Eq);
-        while p.eat_keyword("ALTEREDTYPES")
-            || p.eat_keyword("ALTEREDVALUES")
-            || p.eat_keyword("NONE")
-        {}
+        let start = p.pos;
+        let (mut types, mut values, mut none) = (false, false, false);
+        loop {
+            if p.eat_keyword("ALTEREDTYPES") {
+                types = true;
+            } else if p.eat_keyword("ALTEREDVALUES") {
+                values = true;
+            } else if p.eat_keyword("NONE") {
+                none = true;
+            } else {
+                break;
+            }
+        }
+        if !(types || values || none) {
+            return Err(p.unexpected(&["ALTEREDTYPES", "ALTEREDVALUES", "NONE"]));
+        }
+        if none && (types || values) {
+            return Err(SyntaxError::new(
+                p.span_from(start),
+                "NONE cannot be used together with ALTEREDTYPES or ALTEREDVALUES",
+            ));
+        }
+        for group in &mut groups {
+            group.print = AlterPrint { types, values };
+        }
     }
     p.finish(&["/PRINT"])?;
     Ok(Command::AlterType(groups))

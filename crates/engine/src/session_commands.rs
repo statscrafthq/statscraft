@@ -574,8 +574,8 @@ impl Engine {
             | Command::VariableRole(_)
             | Command::VariableAlignment(_)
             | Command::Attribute(_)
-            | Command::AlterType(_)
             | Command::ApplyDictionary(_) => self.execute_dictionary(command)?,
+            Command::AlterType(groups) => return self.alter_type(groups),
             _ => return self.execute_output(command),
         }
         Ok(Vec::new())
