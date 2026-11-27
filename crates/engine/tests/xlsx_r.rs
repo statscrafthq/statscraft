@@ -5,6 +5,11 @@
 //! sheets) is read by readxl, and the engine's GET DATA gives the same numbers, text, instants
 //! (seconds from 1582-10-14, as the date formats count them), and true and false as 1 and 0, for
 //! the first sheet, a sheet by name and by index, and a cell range with and without names.
+//! Writing: the engine's SAVE TRANSLATE files (every kind of value, with and without names, value
+//! labels as text, a sheet name, KEEP and RENAME) are read by readxl, and what it finds is the
+//! table of values the engine reads back: a system-missing value is an empty cell, a user-missing
+//! code a value, the dates and times Excel dates. Empty text and an empty cell both read as empty
+//! text; readxl calls both NA.
 //! What readxl does that the engine does not copy: it guesses a column's type from the cells
 //! and trims text (switched off here), and the engine's names follow its own rules.
 
