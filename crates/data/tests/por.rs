@@ -146,7 +146,7 @@ fn text_keeps_its_characters_and_long_values_are_cut() {
             "a portable file holds names of at most 8 bytes: a_rather_long_name as A_RATHER \
              in the file",
             "küsimus: a portable file holds strings of at most 255 bytes; longer values are cut",
-            "a portable file has no code for 6 characters outside its character set, such as \
+            "a portable file has no code for 5 characters outside its character set, such as \
              letters with accents: written as ?, so texts that differ only in them become equal"
         ]
     );
@@ -160,8 +160,8 @@ fn text_keeps_its_characters_and_long_values_are_cut() {
         ["K_SIMUS", "A_RATHER"]
     );
     let text = copy.variable("K_SIMUS").unwrap();
-    // a letter with an accent and the plus-minus sign are not in the format's character set
-    assert_eq!(text.label(), Some("K?simus ? ?"));
+    // a letter with an accent is not in the format's character set; the plus-minus sign is
+    assert_eq!(text.label(), Some("K?simus \u{b1} ?"));
     let values: Vec<&str> = text.string().unwrap().iter().collect();
     // a tab is a control character, which the file cannot carry; # is in the character set
     assert_eq!(values, ["?un ja ?", &"x".repeat(255), "tab0here #1"]);
@@ -305,11 +305,11 @@ fn text_goes_in_by_the_character_table() {
         vec!["Zoë #1".into(), "ÄÖÜõ".into(), "plain".into()],
     )
     .unwrap();
-    data.set_variable_label("note", Some("Märkus ≥ 5, no. #2"))
+    data.set_variable_label("note", Some("Märkus € 5, no. #2"))
         .unwrap();
     let file = scratch("table.por");
     let warnings = data.write_por(&file, None).unwrap();
-    // one ? for each character, not for each byte: ë, Ä, Ö, Ü and õ in the values, ä and ≥ in
+    // one ? for each character, not for each byte: ë, Ä, Ö, Ü and õ in the values, ä and € in
     // the label
     assert_eq!(
         warnings,
@@ -319,9 +319,12 @@ fn text_goes_in_by_the_character_table() {
         ]
     );
     let bytes = std::fs::read(&file).unwrap();
-    assert!(bytes.is_ascii(), "every byte of the file is in the table");
     // the table names the character set's # (code 151), which text may hold
     let stream = stream_of(&bytes);
+    assert!(
+        stream[464..].is_ascii(),
+        "this text holds no symbol, so no byte past ASCII"
+    );
     assert_eq!(stream[200 + 151], b'#');
     let copy = Dataset::read_por(&file).unwrap();
     let note = copy.variable("NOTE").unwrap();
@@ -419,4 +422,93 @@ fn only_the_characters_that_are_written_are_counted_and_cut() {
     );
     let copy = Dataset::read_por(&file).unwrap();
     assert_eq!(copy.documents(), ["?".repeat(80)]);
+}
+
+/// A string of the symbols the character set has besides ASCII, each as one character.
+const SYMBOLS: &str = "\u{b1}\u{b0}\u{b2}\u{b3}\u{2264}\u{2265}\u{2260}\u{2022}\u{2014}\u{2013}\u{a2}\u{2020}\u{2074}\u{2079}";
+
+#[test]
+fn symbols_of_the_character_set_are_written_and_read_as_one_byte_each() {
+    let mut data = Dataset::new(3);
+    // the dataset counts a symbol as the bytes of its UTF-8, the file as one byte
+    data.set_string_values(
+        "unit",
+        14,
+        vec![
+            "5\u{b0}C".into(),
+            "\u{b1}2 \u{2264}4".into(),
+            SYMBOLS.chars().take(6).collect(),
+        ],
+    )
+    .unwrap();
+    data.set_variable_label("unit", Some(&format!("Range {SYMBOLS}")))
+        .unwrap();
+    data.set_documents(vec![format!("Note {SYMBOLS}")]);
+    data.set_value_labels(
+        "unit",
+        vec![(Value::String("5\u{b0}C".into()), "at 5\u{b0}".into())],
+    )
+    .unwrap();
+    let file = scratch("symbols.por");
+    let warnings = data.write_por(&file, None).unwrap();
+    assert!(warnings.is_empty(), "no code is missing: {warnings:?}");
+    let bytes = std::fs::read(&file).unwrap();
+    // the table gives each symbol a byte of its own from 0x80 on, and the text uses it
+    let stream = stream_of(&bytes);
+    assert_eq!(stream[200 + 158], 0x82, "plus-minus is the third symbol");
+    assert_eq!(stream[200 + 160], 0x84);
+    assert!(stream[464..].contains(&0x82));
+    assert!(
+        !stream[464..].windows(2).any(|w| w == [0xc2, 0xb1]),
+        "no UTF-8 bytes"
+    );
+    let copy = Dataset::read_por(&file).unwrap();
+    let unit = copy.variable("UNIT").unwrap();
+    let values: Vec<&str> = unit.string().unwrap().iter().collect();
+    assert_eq!(
+        values,
+        [
+            "5\u{b0}C",
+            "\u{b1}2 \u{2264}4",
+            &SYMBOLS.chars().take(6).collect::<String>()
+        ]
+    );
+    assert_eq!(unit.label(), Some(format!("Range {SYMBOLS}").as_str()));
+    assert_eq!(copy.documents(), [format!("Note {SYMBOLS}")]);
+    assert_eq!(unit.value_labels()[0].1, "at 5\u{b0}");
+}
+
+#[test]
+fn a_file_that_gives_the_symbols_other_bytes_is_read_by_its_own_table() {
+    // another writer names the same codes with its own bytes (here three that ours does not use):
+    // plus-minus is code 158, degree 160 and the bullet 188; the table of the file decides
+    let mut data = Dataset::new(1);
+    data.set_string_values("s", 9, vec!["\u{b1}\u{b0}\u{2022}x".into()])
+        .unwrap();
+    let file = scratch("own_bytes.por");
+    data.write_por(&file, None).unwrap();
+    let mut stream = stream_of(&std::fs::read(&file).unwrap());
+    let ours = [stream[200 + 158], stream[200 + 160], stream[200 + 188]];
+    let theirs = [0xe1u8, 0xe2, 0xe3];
+    for (from, to) in ours.iter().zip(theirs) {
+        for byte in &mut stream[464..] {
+            if byte == from {
+                *byte = to;
+            }
+        }
+    }
+    stream[200 + 158] = theirs[0];
+    stream[200 + 160] = theirs[1];
+    stream[200 + 188] = theirs[2];
+    let other = scratch("own_bytes_other.por");
+    std::fs::write(&other, file_of(stream)).unwrap();
+    let copy = Dataset::read_por(&other).unwrap();
+    let values: Vec<&str> = copy
+        .variable("S")
+        .unwrap()
+        .string()
+        .unwrap()
+        .iter()
+        .collect();
+    assert_eq!(values, ["\u{b1}\u{b0}\u{2022}x"]);
 }
