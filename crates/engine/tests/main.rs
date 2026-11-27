@@ -213,6 +213,7 @@ fn every_test_file_is_built() {
         }
     }
 }
+mod cluster_measures_r;
 mod correlations_missing_r;
 mod examine_cells_r;
 mod frequencies_more_r;
