@@ -186,3 +186,65 @@ fn display_formats_make_room_for_punctuation() {
     assert_eq!(list.fields[0].display, list.fields[0].format);
     assert_eq!(list.fields[1].display.width, 9);
 }
+
+#[test]
+fn format_groups_have_a_depth_and_a_size_limit() {
+    // a long run of opening parentheses or a repeat of a repeat of a repeat used to overflow the
+    // stack or fill the memory; each is an error with a position now
+    let deep = format!("DATA LIST LIST / city {}.", "( ".repeat(5000));
+    assert!(
+        err(&deep).message.contains("nested more than"),
+        "{}",
+        err(&deep).message
+    );
+    let bomb = "DATA LIST FIXED / a (10000(10000(10000(F1)))).";
+    assert!(
+        err(bomb).message.contains("at most"),
+        "{}",
+        err(bomb).message
+    );
+    // the same for the items of PRINT and WRITE
+    let print_deep = format!("PRINT / x {}.", "( ".repeat(5000));
+    assert!(err(&print_deep).message.contains("nested more than"));
+    let print_bomb = "PRINT / x (30000(30000(F8))).";
+    assert!(
+        err(print_bomb).message.contains("at most"),
+        "{}",
+        err(print_bomb).message
+    );
+    // a plain repeat is counted as the formats it stands for, and an empty group repeated
+    // billions of times is nothing
+    let wide = "DATA LIST LIST / a (4000000000F1).";
+    assert!(
+        err(wide).message.contains("at most"),
+        "{}",
+        err(wide).message
+    );
+    let wide_group = "DATA LIST FIXED / a (1000000(1000000(F1))).";
+    assert!(err(wide_group).message.contains("at most"));
+    // PRINT reads such a number as invalid, a group repeat above its limit as unexpected
+    let print_wide = "PRINT / x (4000000000F8).";
+    assert!(
+        err(print_wide).message.contains("invalid number"),
+        "{}",
+        err(print_wide).message
+    );
+    let print_group = "PRINT / x (4000000000(F8)).";
+    assert!(
+        err(print_group).message.contains("unexpected number"),
+        "{}",
+        err(print_group).message
+    );
+    // an empty group repeated as often as is allowed is nothing, and no error of its own
+    let (_, errors) = parse("PRINT / x (30000()).");
+    assert!(
+        errors.iter().all(|e| !e.message.contains("at most")),
+        "{errors:?}"
+    );
+    // twenty thousand repeats of a group are neither cut short nor an error
+    let list = data_list("DATA LIST FIXED / v1 TO v10000 w1 TO w10000 (20000(F1)).");
+    assert_eq!(list.fields.len(), 20000);
+    // ordinary groups still work, nested a few deep
+    let list = data_list("DATA LIST FIXED / a b c d e f (2(F1.0, 2(F1.0))).");
+    assert_eq!(list.fields.len(), 6);
+}

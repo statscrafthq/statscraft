@@ -158,9 +158,42 @@ enum Item {
     Record,
 }
 
+/// Groups inside groups that a format list may have, and formats it may expand to: a repeat of a
+/// repeat of a repeat would otherwise fill the memory, and a long run of parentheses the stack.
+/// PRINT and WRITE keep their lists within the same limits.
+pub(crate) const MAX_DEPTH: usize = 32;
+pub(crate) const MAX_ITEMS: usize = 1_000_000;
+
+pub(crate) fn too_deep(p: &Parser) -> SyntaxError {
+    SyntaxError::new(
+        p.span(),
+        format!("format groups are nested more than {MAX_DEPTH} deep"),
+    )
+}
+
+pub(crate) fn too_long(p: &Parser) -> SyntaxError {
+    SyntaxError::new(
+        p.span(),
+        format!("a format list holds at most {MAX_ITEMS} formats"),
+    )
+}
+
+/// The formats an item stands for once its repeat is expanded.
+fn weight(item: &Item) -> usize {
+    match item {
+        Item::Format(n, _) => *n as usize,
+        _ => 1,
+    }
+}
+
 /// `(item, item ...)` after the opening parenthesis, up to and including the closing one.
-fn format_items(p: &mut Parser, fixed: bool) -> PResult<Vec<Item>> {
+fn format_items(p: &mut Parser, fixed: bool, depth: usize) -> PResult<Vec<Item>> {
+    if depth > MAX_DEPTH {
+        return Err(too_deep(p));
+    }
     let mut items = Vec::new();
+    // the formats the list expands to so far
+    let mut total = 0_usize;
     while !p.eat(Punct::RParen) {
         if p.eat(Punct::Comma) {
             continue;
@@ -176,8 +209,17 @@ fn format_items(p: &mut Parser, fixed: bool) -> PResult<Vec<Item>> {
         };
         // n(...) repeats a group of items
         if p.eat(Punct::LParen) {
-            let group = format_items(p, fixed)?;
-            for _ in 0..repeat.unwrap_or(1).min(10_000) {
+            let group = format_items(p, fixed, depth + 1)?;
+            let group_weight: usize = group.iter().map(weight).sum();
+            // an empty group, however often it is repeated, adds nothing
+            if group_weight == 0 {
+                continue;
+            }
+            for _ in 0..repeat.unwrap_or(1) {
+                total = total.saturating_add(group_weight);
+                if total > MAX_ITEMS {
+                    return Err(too_long(p));
+                }
                 items.extend(group.iter().cloned());
             }
             continue;
@@ -201,6 +243,10 @@ fn format_items(p: &mut Parser, fixed: bool) -> PResult<Vec<Item>> {
             }
         };
         p.pos += 1;
+        total = total.saturating_add(weight(&item));
+        if total > MAX_ITEMS {
+            return Err(too_long(p));
+        }
         items.push(item);
     }
     Ok(items)
@@ -328,7 +374,7 @@ pub(crate) fn fixed_fields(
             reach = reach.max(last);
         } else if p.eat(Punct::LParen) {
             let start = p.pos;
-            let items = format_items(p, true)?;
+            let items = format_items(p, true, 0)?;
             let mut names = names.into_iter();
             for item in items {
                 match item {
@@ -402,7 +448,7 @@ fn free_fields(p: &mut Parser) -> PResult<Vec<DataField>> {
         if p.eat(Punct::LParen) {
             let start = p.pos;
             let mut formats = Vec::new();
-            for item in format_items(p, false)? {
+            for item in format_items(p, false, 0)? {
                 if let Item::Format(repeat, format) = item {
                     formats.extend(std::iter::repeat_n(format, repeat as usize));
                 }
