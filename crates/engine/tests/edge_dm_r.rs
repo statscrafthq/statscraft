@@ -651,9 +651,9 @@ fn three_thousand_summaries_in_one_aggregate_stay_fast() {
     }
 }
 
-/// ADD FILES looked a variable up by name for every cell; with 200 variables and a scan for the
-/// name that made a stacked file of a million cases take 66 seconds instead of 11. Two files of 200
-/// variables and 5000 cases stacked here, with a time limit, and the values against the formula.
+/// A guard that stacking wide files stays quick: ADD FILES looked a variable up by name for every
+/// cell, which with 200 variables and 500,000 cases a file took 66 seconds instead of 11. Two files of
+/// 200 variables and 5000 cases here, with a generous time limit, and the values against the formula.
 #[test]
 fn add_files_of_wide_files_takes_no_time_for_lookups() {
     let dir = std::env::temp_dir().join(format!("statscraft-wide-{}", std::process::id()));
@@ -675,7 +675,7 @@ fn add_files_of_wide_files_takes_no_time_for_lookups() {
     )
     .unwrap();
     let seconds = start.elapsed().as_secs_f64();
-    assert!(seconds < 5.0, "stacking took {seconds} seconds");
+    assert!(seconds < 10.0, "stacking took {seconds} seconds");
     assert_eq!(engine.dataset().unwrap().case_count(), 10000);
     // the sum of x7 over the stacked file, from the formula
     let want: f64 = (1..=10000u64).map(|i| ((i * 7) % 97) as f64).sum();

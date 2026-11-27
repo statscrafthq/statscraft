@@ -380,7 +380,7 @@ impl Engine {
             // the transaction variables once, not for every case
             let transactions: Vec<(usize, Variable)> = holders
                 .iter()
-                .filter(|&&h| h != 0)
+                .filter(|&&h| h != 0 && !key)
                 .map(|&h| (h, inputs[h].data.variable(name).expect("a holder has it")))
                 .collect();
             let sources: Vec<Option<(usize, usize)>> = (0..outputs)
