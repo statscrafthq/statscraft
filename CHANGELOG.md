@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- UPCASE and LOWER change each letter into one letter and leave a letter that has no one-letter form as it is (ß, the fi ligature); before, ß became SS and the text grew past its string width.
 - LEAVE after a DO REPEAT no longer runs the commands of the structure twice; running totals made inside it came out doubled.
 - LEAVE takes a TO list of variables that COMPUTE, IF, COUNT, STRING, NUMERIC or RECODE before it create (LEAVE total1 TO total3); before, such a list was refused as unknown variables.
 - EXPORT keeps in portable files, and IMPORT reads from them by the file's own table, the symbols the format has a code for (plus-minus, degree, superscript digits, less-or-equal, greater-or-equal, not-equal, dagger, dashes, cent, bullet and a few more) in text; before, they became ?.
