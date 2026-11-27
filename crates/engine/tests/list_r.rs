@@ -1,4 +1,4 @@
-//! LIST against R on 14 invented cases: which cases are listed (CASES FROM, TO and BY, a number alone
+//! LIST against R on 14 invented rows in 11 runs: which cases are listed (CASES FROM, TO and BY, a number alone
 //! meaning TO, after SELECT IF and N OF CASES, chosen again in each SPLIT FILE group), the case numbers
 //! of FORMAT NUMBERED (counting the cases that remain, starting again in each split), VARIABLES in the
 //! order written with a variable named twice listed twice and ALL after some, a system-missing
@@ -12,6 +12,8 @@ use statscraft_syntax::parse;
 struct Case {
     label: &'static str,
     command: &'static str,
+    /// SPLIT FILE is on: the first column holds the group value, on the first row of the group only.
+    split: bool,
     columns: &'static [&'static str],
     /// The cells of a row, separated by tabs.
     rows: &'static [&'static str],
@@ -40,6 +42,7 @@ const CASES: &[Case] = &[
     Case {
         label: r####"LIST of every variable, a missing number as a period"####,
         command: r####"LIST."####,
+        split: false,
         columns: &[r####"g"####, r####"x"####, r####"y"####, r####"s"####],
         rows: &[
             r####"1	5.00	10.50	a"####,
@@ -61,6 +64,7 @@ const CASES: &[Case] = &[
     Case {
         label: r####"VARIABLES in the order written, a variable twice listed twice, case numbers"####,
         command: r####"LIST VARIABLES=s x s /FORMAT=NUMBERED."####,
+        split: false,
         columns: &[r####"Case"####, r####"s"####, r####"x"####, r####"s"####],
         rows: &[
             r####"1	a	5.00	a"####,
@@ -82,6 +86,7 @@ const CASES: &[Case] = &[
     Case {
         label: r####"ALL after some variables lists them again"####,
         command: r####"LIST VARIABLES=x ALL."####,
+        split: false,
         columns: &[
             r####"x"####,
             r####"g"####,
@@ -109,12 +114,14 @@ const CASES: &[Case] = &[
     Case {
         label: r####"CASES FROM 3 TO 12 BY 4"####,
         command: r####"LIST VARIABLES=g x /CASES=FROM 3 TO 12 BY 4."####,
+        split: false,
         columns: &[r####"g"####, r####"x"####],
         rows: &[r####"1	."####, r####"2	."####, r####"3	7.00"####],
     },
     Case {
         label: r####"CASES with a number alone is TO that number"####,
         command: r####"LIST VARIABLES=g y /CASES=5."####,
+        split: false,
         columns: &[r####"g"####, r####"y"####],
         rows: &[
             r####"1	10.50"####,
@@ -127,6 +134,7 @@ const CASES: &[Case] = &[
     Case {
         label: r####"CASES BY 3 with numbers"####,
         command: r####"LIST VARIABLES=x s /CASES=BY 3 /FORMAT=NUMBERED."####,
+        split: false,
         columns: &[r####"Case"####, r####"x"####, r####"s"####],
         rows: &[
             r####"1	5.00	a"####,
@@ -139,6 +147,7 @@ const CASES: &[Case] = &[
     Case {
         label: r####"TO beyond the file ends at the last case"####,
         command: r####"LIST VARIABLES=g /CASES=FROM 12 TO 100."####,
+        split: false,
         columns: &[r####"g"####],
         rows: &[r####"3"####, r####"4"####, r####"4"####],
     },
@@ -147,6 +156,7 @@ const CASES: &[Case] = &[
         command: r####"COMPUTE k = $CASENUM.
 SELECT IF (k <> 2 AND k <> 3 AND k <> 7).
 LIST VARIABLES=g x /CASES=FROM 2 TO 6 /FORMAT=NUMBERED."####,
+        split: false,
         columns: &[r####"Case"####, r####"g"####, r####"x"####],
         rows: &[
             r####"2	2	8.00"####,
@@ -160,6 +170,7 @@ LIST VARIABLES=g x /CASES=FROM 2 TO 6 /FORMAT=NUMBERED."####,
         label: r####"N OF CASES limits the list"####,
         command: r####"N OF CASES 6.
 LIST VARIABLES=g /FORMAT=NUMBERED."####,
+        split: false,
         columns: &[r####"Case"####, r####"g"####],
         rows: &[
             r####"1	1"####,
@@ -174,6 +185,7 @@ LIST VARIABLES=g /FORMAT=NUMBERED."####,
         label: r####"SPLIT FILE: the cases are chosen again in each group and the numbers start again"####,
         command: r####"SPLIT FILE BY g.
 LIST VARIABLES=g x /CASES=FROM 2 TO 3 /FORMAT=NUMBERED."####,
+        split: true,
         columns: &[r####"g"####, r####"Case"####, r####"g"####, r####"x"####],
         rows: &[
             r####"1	2	1	3.00"####,
@@ -189,6 +201,7 @@ LIST VARIABLES=g x /CASES=FROM 2 TO 3 /FORMAT=NUMBERED."####,
         label: r####"SPLIT FILE with BY 2"####,
         command: r####"SPLIT FILE BY g.
 LIST VARIABLES=x /CASES=BY 2 /FORMAT=NUMBERED."####,
+        split: true,
         columns: &[r####"g"####, r####"Case"####, r####"x"####],
         rows: &[
             r####"1	1	5.00"####,
@@ -259,19 +272,26 @@ fn list_agrees_with_r() {
         }
         // under SPLIT FILE the group value stands on the first row of its group only
         let mut above = String::new();
-        let mut got: Vec<String> = Vec::new();
+        let mut got: Vec<Vec<String>> = Vec::new();
         for table in &lists {
             for row in &table.rows {
                 let mut cells: Vec<String> = row.iter().map(cell_text).collect();
-                if case.columns.first() == Some(&"g") && matches!(row.first(), Some(Cell::Empty)) {
-                    cells[0] = above.clone();
-                } else if case.columns.first() == Some(&"g") {
-                    above = cells[0].clone();
+                if case.split {
+                    if matches!(row.first(), Some(Cell::Empty)) {
+                        cells[0] = above.clone();
+                    } else {
+                        above = cells[0].clone();
+                    }
                 }
-                got.push(cells.join("\t").trim_end().to_string());
+                got.push(cells);
             }
         }
-        let want: Vec<String> = case.rows.iter().map(|r| r.trim_end().to_string()).collect();
+        // cell by cell: an empty string at the end of a row is a cell, not nothing
+        let want: Vec<Vec<String>> = case
+            .rows
+            .iter()
+            .map(|r| r.split('\t').map(str::to_string).collect())
+            .collect();
         if got != want {
             failures.push(format!("{}:\n  got  {got:?}\n  R has {want:?}", case.label));
         }
