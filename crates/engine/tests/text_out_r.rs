@@ -19,7 +19,7 @@
 //! format's marker word); a hash of its bytes, without the creation date and time and the product
 //! version, says it is the file haven read. Text goes in by the file's character table: a letter
 //! with an accent has no code in it and is written as ? with a warning, a symbol the character set
-//! has (plus-minus, degree, less-or-equal, the dagger) is written as its byte in the table, and
+//! has (all 27 are in a label here) is written as its byte in the table, and
 //! haven reads the text as it stands (the UTF-8 bytes of earlier versions were not in the table,
 //! and haven made replacement characters of them).
 
@@ -224,7 +224,7 @@ const PORTABLE_FACTS: &[Var] = &[
     },
     Var {
         name: r#"GRP"#,
-        label: r#"Group"#,
+        label: r#"Group ≤□±■°†–└┌≥⁰ⁱ²³⁴⁵⁶⁷⁸⁹┘┐≠—⸸¢•"#,
         format: r#"F1.0"#,
         labels: r#"1=low;2=high ±1"#,
         missing: r#""#,
@@ -357,7 +357,11 @@ fn portable_data() -> String {
     DATA.replace(" lead pad", " lead #1 \u{b1}2\u{b0}")
         .replace("'Case id'", "'Case id \u{2264} 6 \u{2020}'")
         .replace("2 'high'", "2 'high \u{b1}1'")
+        .replace("/grp 'Group'", &format!("/grp 'Group {ALL_SYMBOLS}'"))
 }
+
+/// Every symbol the writer has a code for, in the order of the codes.
+const ALL_SYMBOLS: &str = "\u{2264}\u{25a1}\u{b1}\u{25a0}\u{b0}\u{2020}\u{2013}\u{2514}\u{250c}\u{2265}\u{2070}\u{2071}\u{b2}\u{b3}\u{2074}\u{2075}\u{2076}\u{2077}\u{2078}\u{2079}\u{2518}\u{2510}\u{2260}\u{2014}\u{2e38}\u{a2}\u{2022}";
 
 /// The bytes of a portable file as text without line breaks, and without the creation date and
 /// time and the product text with its version, which follow the marker at character 464.
@@ -470,4 +474,4 @@ fn the_portable_file_is_read_by_haven() {
 }
 
 /// The hash of the portable file as haven read it.
-const PORTABLE_HASH: u64 = 6702505346293743288;
+const PORTABLE_HASH: u64 = 16555969707745577416;
