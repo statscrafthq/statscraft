@@ -93,6 +93,7 @@ mod matrix_data;
 mod matrix_files;
 mod mconvert;
 mod means_r;
+mod merge_reshape_r;
 mod missing_split_r;
 mod mixed;
 mod mult_response;
