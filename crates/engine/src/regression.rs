@@ -1486,6 +1486,7 @@ fn equation_tables(
                         let q = if i == 0 { f.p } else { q_in }.max(1) as f64;
                         (change * f.df_res / (q * (1.0 - f.r2)), q, f.df_res)
                     };
+                    let fc = if df2 > 0.0 { fc } else { f64::NAN };
                     row.extend([
                         number(Some(change)),
                         number(Some(fc)),
@@ -1527,7 +1528,12 @@ fn equation_tables(
         for (i, f) in fits.iter().enumerate() {
             let df_reg = f.p as f64;
             let ms_reg = f.ss_reg / df_reg;
-            let fv = ms_reg / f.mse;
+            // no residual degrees of freedom: no F
+            let fv = if f.df_res > 0.0 {
+                ms_reg / f.mse
+            } else {
+                f64::NAN
+            };
             let df_total = eq.c - f64::from(u8::from(!eq.origin));
             rows.push(vec![
                 model_cell(i),
@@ -1588,7 +1594,11 @@ fn equation_tables(
             let smaller = fit(eq, &without);
             let ss = full.ss_reg - smaller.ss_reg;
             let df = subset.len() as f64;
-            let f = ss / df / full.mse;
+            let f = if full.df_res > 0.0 {
+                ss / df / full.mse
+            } else {
+                f64::NAN
+            };
             let label = subset
                 .iter()
                 .map(|&k| eq.texts[k].as_str())

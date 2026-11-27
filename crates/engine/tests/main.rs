@@ -61,6 +61,7 @@ mod edge_basic_r;
 mod edge_crosstabs_r;
 mod edge_means_r;
 mod edge_npar_r;
+mod edge_regression_r;
 mod engine;
 mod examine;
 mod examine_normality_r;
