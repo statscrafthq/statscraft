@@ -81,6 +81,7 @@ mod input_program;
 mod keyed_data_list;
 mod km_survival;
 mod knn;
+mod lag_sample_r;
 mod large_offsets;
 mod legacy_scaling;
 mod logic_r;
