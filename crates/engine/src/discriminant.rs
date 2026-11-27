@@ -23,7 +23,7 @@
 
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, f_p};
-use crate::matrix::{Matrix, cholesky, inverse, symmetric_eigen};
+use crate::matrix::{Matrix, cholesky, symmetric_eigen};
 use crate::matrix_file::{Materials, MatrixRows};
 use crate::means::is_valid;
 use crate::npar_tests::text;
@@ -294,6 +294,39 @@ fn sub(m: &Matrix, set: &[usize]) -> Matrix {
         .collect()
 }
 
+/// The inverse and determinant of a matrix whose rows have very different sizes, found on the
+/// matrix with each row and column divided by the root of its diagonal (so a variable measured in
+/// millions and one in millionths are judged by their correlation, not by their sizes); None when
+/// singular or when a diagonal element is 0.
+fn scaled_inverse(a: &Matrix) -> Option<(Matrix, f64)> {
+    let d: Vec<f64> = (0..a.len()).map(|i| a[i][i].abs().sqrt()).collect();
+    if d.iter().any(|v| *v == 0.0 || !v.is_finite()) {
+        return None;
+    }
+    let scaled: Matrix = a
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(j, v)| v / (d[i] * d[j]))
+                .collect()
+        })
+        .collect();
+    let (inv, det) = crate::matrix::inverse(&scaled)?;
+    let inv = inv
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(j, v)| v / (d[i] * d[j]))
+                .collect()
+        })
+        .collect();
+    Some((inv, det * d.iter().map(|v| v * v).product::<f64>()))
+}
+
 /// The log determinant and rank of a symmetric matrix by Cholesky, None when singular.
 fn log_det(a: &Matrix) -> Option<f64> {
     let l = cholesky(a)?;
@@ -338,7 +371,7 @@ impl Analysis<'_> {
         if set.iter().any(|&i| self.sums.w[i][i] <= 0.0) {
             return None;
         }
-        let (inv, _) = inverse(&sub(&self.sums.w, set))?;
+        let (inv, _) = scaled_inverse(&sub(&self.sums.w, set))?;
         Some(
             set.iter()
                 .enumerate()
@@ -350,7 +383,7 @@ impl Analysis<'_> {
     /// The pairwise D squared and F of the groups over the set.
     fn pairs(&self, set: &[usize]) -> Vec<(usize, usize, f64, f64)> {
         let s = self.sums;
-        let Some((inv, _)) = inverse(&sub(&s.w, set)) else {
+        let Some((inv, _)) = scaled_inverse(&sub(&s.w, set)) else {
             return Vec::new();
         };
         let q = set.len() as f64;
@@ -373,7 +406,7 @@ impl Analysis<'_> {
     fn criteria(&self, set: &[usize]) -> Option<Criteria> {
         let s = self.sums;
         let (wd, td) = (log_det(&sub(&s.w, set))?, log_det(&sub(&s.t, set))?);
-        let (inv, _) = inverse(&sub(&s.w, set))?;
+        let (inv, _) = scaled_inverse(&sub(&s.w, set))?;
         let mut v = 0.0;
         for (a, &i) in set.iter().enumerate() {
             for (b, &l) in set.iter().enumerate() {
@@ -415,7 +448,7 @@ impl Analysis<'_> {
             if others.is_empty() {
                 return m[i][i];
             }
-            let Some((inv, _)) = inverse(&sub(m, others)) else {
+            let Some((inv, _)) = scaled_inverse(&sub(m, others)) else {
                 return f64::NAN;
             };
             let c: Vec<f64> = others.iter().map(|&o| m[i][o]).collect();
@@ -713,7 +746,7 @@ fn rotated_tables(
                 .iter()
                 .map(|&i| set.iter().map(|&j| s.w[i][j]).collect())
                 .collect();
-            let divisors: Vec<f64> = match inverse(&sub) {
+            let divisors: Vec<f64> = match scaled_inverse(&sub) {
                 Some((inv, _)) => (0..q)
                     .map(|a| (1.0 - 1.0 / (sub[a][a] * inv[a][a])).max(1e-12).sqrt())
                     .collect(),
@@ -1309,7 +1342,7 @@ impl Engine {
                     "DISCRIMINANT: the within-groups matrix is singular".into(),
                 ));
             };
-            let (linv, _) = inverse(&l).expect("a Cholesky factor is regular");
+            let (linv, _) = scaled_inverse(&l).expect("a Cholesky factor is regular");
             let between: Matrix = (0..q)
                 .map(|i| (0..q).map(|j| t11[i][j] - w11[i][j]).collect())
                 .collect();
@@ -1638,7 +1671,7 @@ impl Engine {
                                     .collect()
                             })
                             .collect();
-                        let Some((inv, det)) = inverse(&dj).filter(|(_, d)| *d > 0.0) else {
+                        let Some((inv, det)) = scaled_inverse(&dj).filter(|(_, d)| *d > 0.0) else {
                             return Err(Error(format!(
                                 "DISCRIMINANT /CLASSIFY=SEPARATE: the functions have a singular covariance matrix in group {}",
                                 group_labels[j]
@@ -1789,7 +1822,7 @@ impl Engine {
                 ));
             }
             if command.statistics.coeff {
-                let inv = inverse(&w11).expect("regular").0;
+                let inv = scaled_inverse(&w11).expect("regular").0;
                 let coef: Vec<Vec<f64>> = (0..g)
                     .map(|j| {
                         (0..q)
@@ -2858,7 +2891,7 @@ fn cross_validate(sample: &Sample, s: &Sums, set: &[usize], priors: &[f64]) -> V
                         .collect()
                 })
                 .collect();
-            let Some((inv, _)) = inverse(&cov) else {
+            let Some((inv, _)) = scaled_inverse(&cov) else {
                 return Classified {
                     scores: Vec::new(),
                     posterior: vec![f64::NAN; g],
