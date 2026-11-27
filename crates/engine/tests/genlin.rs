@@ -2279,10 +2279,10 @@ fn repeated_errors() {
         assert!(e.contains(message), "{tail}: {e}");
     }
     let e = run_error(&format!(
-        "{PANEL}GENLIN visits BY arm /MODEL arm DISTRIBUTION=MULTINOMIAL /REPEATED SUBJECT=id CORRTYPE=EXCHANGEABLE.
+        "{PANEL}GENLIN visits BY arm /MODEL arm DISTRIBUTION=MULTINOMIAL /REPEATED SUBJECT=id CORRTYPE=FIXED(0.2).
 "
     ));
-    assert!(e.contains("INDEPENDENT working correlation only"), "{e}");
+    assert!(e.contains("does not allow CORRTYPE=FIXED"), "{e}");
     let e = run_error(&format!(
         "{PANEL}COMPUTE w = 1 + (wave = 2).
 WEIGHT BY w.
@@ -3904,9 +3904,9 @@ fn ordinal_multinomial_with_repeated_leaves_out_cases_consistently() {
 #[test]
 fn ordinal_multinomial_with_repeated_refuses_what_it_cannot_do() {
     let e = run_error(&format!(
-        "{ORDINAL_PANEL}GENLIN y BY g /MODEL g DISTRIBUTION=MULTINOMIAL /REPEATED SUBJECT=id CORRTYPE=AR(1)."
+        "{ORDINAL_PANEL}GENLIN y BY g /MODEL g DISTRIBUTION=MULTINOMIAL /REPEATED SUBJECT=id CORRTYPE=FIXED(0.2)."
     ));
-    assert!(e.contains("INDEPENDENT working correlation only"), "{e}");
+    assert!(e.contains("does not allow CORRTYPE=FIXED"), "{e}");
     let e = run_error(&format!(
         "{ORDINAL_PANEL}GENLIN y BY g /MODEL g DISTRIBUTION=MULTINOMIAL /CRITERIA ANALYSISTYPE=3(LR) /REPEATED SUBJECT=id."
     ));
