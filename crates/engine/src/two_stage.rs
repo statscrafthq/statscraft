@@ -87,10 +87,9 @@ pub(crate) fn estimate(
         return estimate_raw(y, z, x, w, used);
     };
     let constant = |c: &[f64]| used.iter().all(|&k| c[k] == c[first]);
-    let (Some(cz), true) = (
-        z.iter().position(|c| constant(c)),
-        x.iter().any(|c| constant(c)),
-    ) else {
+    // a column of zeros is constant too, but is no intercept
+    let intercept = |c: &Vec<f64>| constant(c) && c[first] != 0.0;
+    let (Some(cz), true) = (z.iter().position(intercept), x.iter().any(intercept)) else {
         return estimate_raw(y, z, x, w, used);
     };
     let total: f64 = used.iter().map(|&k| w[k]).sum();
