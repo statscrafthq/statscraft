@@ -68,7 +68,7 @@ const CASES: &[Case] = &[
                 r####"c"####,
                 r####"Gamma"####,
                 r####"x=ex"####,
-                r####""####,
+                r####"s:z"####,
                 r####"A3"####,
             ),
             (
@@ -117,7 +117,7 @@ const CASES: &[Case] = &[
                 r####"c"####,
                 r####"Gamma"####,
                 r####"x=ex"####,
-                r####""####,
+                r####"s:z"####,
                 r####"A3"####,
             ),
             (
@@ -195,7 +195,7 @@ const CASES: &[Case] = &[
     Case {
         label: r####"VARINFO with only MISSING and FORMATS leaves the labels"####,
         command: r####"APPLY DICTIONARY FROM '{SRC}/src.sav' /VARINFO MISSING FORMATS."####,
-        file: r####"p5.sav"####,
+        file: r####"p4.sav"####,
         vars: &[
             (
                 r####"a"####,
@@ -222,7 +222,7 @@ const CASES: &[Case] = &[
                 r####"c"####,
                 r####""####,
                 r####""####,
-                r####""####,
+                r####"s:z"####,
                 r####"A3"####,
             ),
             (
@@ -244,7 +244,7 @@ const CASES: &[Case] = &[
     Case {
         label: r####"one source variable on several target variables of its type"####,
         command: r####"APPLY DICTIONARY FROM '{SRC}/src.sav' /SOURCE VARIABLES=a /TARGET VARIABLES=b d."####,
-        file: r####"p4.sav"####,
+        file: r####"p5.sav"####,
         vars: &[
             (
                 r####"a"####,
