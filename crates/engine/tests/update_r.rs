@@ -407,3 +407,24 @@ fn update_agrees_with_r() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn the_result_keeps_the_missing_value_declarations() {
+    let case = Case {
+        label: "dictionary",
+        setup: SETUP,
+        command: "UPDATE FILE=pu /FILE=tu /BY k.",
+        order: &[],
+        variables: &[],
+        columns: &[],
+    };
+    let engine = run(&case).unwrap();
+    let data = engine.dataset().unwrap();
+    for name in ["u", "v"] {
+        assert_eq!(
+            data.variable(name).unwrap().missing_values(),
+            &statscraft_data::MissingValues::Numbers(vec![99.0]),
+            "{name}"
+        );
+    }
+}
