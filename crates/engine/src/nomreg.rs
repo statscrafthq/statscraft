@@ -52,7 +52,7 @@ use crate::format::category_text;
 use crate::glm::{
     Effect, Part, default_terms, effects_of, ginverse, intercept_term, sweep_in_order,
 };
-use crate::matrix::{Matrix, inverse};
+use crate::matrix::{Matrix, inverse, multiply, transpose};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
@@ -79,6 +79,9 @@ struct Fit {
     /// The parameters, logit by logit: `b[l * cols.len() + s]`.
     b: Vec<f64>,
     info: Matrix,
+    /// The inverse of the information matrix, found on centred and scaled columns and mapped
+    /// back (None when it is singular).
+    cov: Option<Matrix>,
     /// The kernel of the log likelihood.
     ll: f64,
     converged: bool,
@@ -113,6 +116,127 @@ fn log_probs(row: &[f64], cols: &[usize], b: &[f64], base: usize, others: &[usiz
         out[j] = eta[l] - top - log_denominator;
     }
     out
+}
+
+/// The columns of a fit centred (when there is an intercept) and scaled to unit spread, so that
+/// the information matrix is well conditioned whatever the size of the values: Newton's steps
+/// are the same in either parameterisation, only the rounding differs. `back` maps the
+/// parameters of the scaled columns to those of the original ones, `forward` the other way.
+struct Rescale {
+    back: Matrix,
+    forward: Matrix,
+}
+
+impl Rescale {
+    fn new(model: &Model, cols: &[usize], intercept: bool) -> (Rescale, Model) {
+        let q = cols.len();
+        let weights: Vec<f64> = model.n.iter().map(|r| r.iter().sum()).collect();
+        let total: f64 = weights.iter().sum();
+        let mut back: Matrix = (0..q)
+            .map(|r| (0..q).map(|c| f64::from(u8::from(r == c))).collect())
+            .collect();
+        let mut x = model.x.clone();
+        let centred = intercept && cols.first() == Some(&0);
+        for (k, &col) in cols.iter().enumerate() {
+            if centred && k == 0 {
+                continue;
+            }
+            let Some(first) = model
+                .x
+                .iter()
+                .zip(&weights)
+                .find(|(_, w)| **w > 0.0)
+                .map(|(row, _)| row[col])
+            else {
+                continue;
+            };
+            let mean = if centred {
+                first
+                    + model
+                        .x
+                        .iter()
+                        .zip(&weights)
+                        .map(|(row, w)| w * (row[col] - first))
+                        .sum::<f64>()
+                        / total
+            } else {
+                0.0
+            };
+            let squares: f64 = model
+                .x
+                .iter()
+                .zip(&weights)
+                .map(|(row, w)| w * (row[col] - mean).powi(2))
+                .sum();
+            let spread = (squares / total).sqrt();
+            let spread = if spread.is_finite() && spread > 0.0 {
+                spread
+            } else {
+                1.0
+            };
+            for row in &mut x {
+                row[col] = (row[col] - mean) / spread;
+            }
+            back[k][k] = 1.0 / spread;
+            if centred {
+                back[0][k] = -mean / spread;
+            }
+        }
+        let forward = inverse(&back).map_or_else(|| back.clone(), |(inv, _)| inv);
+        let scaled = Model {
+            x,
+            n: model.n.clone(),
+            base: model.base,
+            others: model.others.clone(),
+        };
+        (Rescale { back, forward }, scaled)
+    }
+
+    /// Applies `m` (or its transpose) to each of the logits' blocks of `v`.
+    fn blocks(m: &Matrix, v: &[f64], transpose: bool) -> Vec<f64> {
+        let q = m.len();
+        let mut out = Vec::with_capacity(v.len());
+        for block in v.chunks(q) {
+            out.extend((0..q).map(|r| {
+                block
+                    .iter()
+                    .enumerate()
+                    .map(|(c, value)| if transpose { m[c][r] } else { m[r][c] } * value)
+                    .sum::<f64>()
+            }));
+        }
+        out
+    }
+
+    fn to_raw(&self, beta: &[f64]) -> Vec<f64> {
+        Rescale::blocks(&self.back, beta, false)
+    }
+
+    fn to_scaled(&self, b: &[f64]) -> Vec<f64> {
+        Rescale::blocks(&self.forward, b, false)
+    }
+
+    /// The gradient with respect to the raw parameters from that with respect to the scaled.
+    fn raw_gradient(&self, g: &[f64]) -> Vec<f64> {
+        Rescale::blocks(&self.forward, g, true)
+    }
+
+    fn covariance(&self, cov: &Matrix) -> Matrix {
+        let q = self.back.len();
+        let size = cov.len();
+        let blocks = size / q.max(1);
+        let mut t = vec![vec![0.0; size]; size];
+        for l in 0..blocks {
+            for r in 0..q {
+                for c in 0..q {
+                    t[l * q + r][l * q + c] = self.back[r][c];
+                }
+            }
+        }
+        let left = multiply(&t, cov);
+        let tt = transpose(&t);
+        multiply(&left, &tt)
+    }
 }
 
 impl Model {
@@ -176,18 +300,59 @@ impl Model {
     }
 
     /// The columns of `wanted` that are not redundant, in order.
-    fn independent(&self, wanted: &[usize], singular: f64) -> Vec<usize> {
+    fn independent(&self, wanted: &[usize], intercept: bool, singular: f64) -> Vec<usize> {
         let k = wanted.len();
+        let weights: Vec<f64> = self.n.iter().map(|r| r.iter().sum()).collect();
+        let total: f64 = weights.iter().sum();
+        // each column but the intercept is judged on its deviations from its mean, in units of
+        // its spread: a column far from 0 and close together is then no multiple of the
+        // intercept unless it is one
+        let columns: Vec<Vec<f64>> = wanted
+            .iter()
+            .enumerate()
+            .map(|(a, &col)| {
+                let values: Vec<f64> = self.x.iter().map(|row| row[col]).collect();
+                if a == 0 && col == 0 && intercept {
+                    return values;
+                }
+                let first = values
+                    .iter()
+                    .zip(&weights)
+                    .find(|(_, w)| **w > 0.0)
+                    .map_or(0.0, |(v, _)| *v);
+                let mean = first
+                    + values
+                        .iter()
+                        .zip(&weights)
+                        .map(|(v, w)| w * (v - first))
+                        .sum::<f64>()
+                        / total.max(f64::MIN_POSITIVE);
+                let centred = intercept && wanted.first() == Some(&0);
+                let origin = if centred { mean } else { 0.0 };
+                let spread = (values
+                    .iter()
+                    .zip(&weights)
+                    .map(|(v, w)| w * (v - origin).powi(2))
+                    .sum::<f64>()
+                    / total.max(f64::MIN_POSITIVE))
+                .sqrt();
+                let spread = if spread.is_finite() && spread > 0.0 {
+                    spread
+                } else {
+                    1.0
+                };
+                values.iter().map(|v| (v - origin) / spread).collect()
+            })
+            .collect();
         let mut xwx = vec![vec![0.0; k]; k];
-        for (row, counts) in self.x.iter().zip(&self.n) {
-            let w: f64 = counts.iter().sum();
+        for (i, w) in weights.iter().enumerate() {
             for a in 0..k {
-                let va = row[wanted[a]];
+                let va = columns[a][i];
                 if va == 0.0 {
                     continue;
                 }
                 for c in 0..k {
-                    xwx[a][c] += w * va * row[wanted[c]];
+                    xwx[a][c] += w * va * columns[c][i];
                 }
             }
         }
@@ -232,6 +397,7 @@ impl Model {
                 cols,
                 b: Vec::new(),
                 info: Vec::new(),
+                cov: Some(Vec::new()),
                 converged: true,
                 iterations: 0,
                 history: Vec::new(),
@@ -239,19 +405,22 @@ impl Model {
         }
         let q = cols.len();
         let l_count = self.others.len();
-        let mut b = vec![0.0; l_count * q];
+        let (rescale, scaled) = Rescale::new(self, &cols, intercept);
+        let model = &scaled;
+        let mut raw = vec![0.0; l_count * q];
         if intercept && cols.first() == Some(&0) {
             let totals: Vec<f64> = (0..self.categories())
                 .map(|j| self.n.iter().map(|r| r[j]).sum())
                 .collect();
             for (l, &j) in self.others.iter().enumerate() {
                 if totals[j] > 0.0 && totals[self.base] > 0.0 {
-                    b[l * q] = (totals[j] / totals[self.base]).ln();
+                    raw[l * q] = (totals[j] / totals[self.base]).ln();
                 }
             }
         }
-        let mut ll = self.log_likelihood(&cols, &b);
-        let mut history = vec![(ll, b.clone())];
+        let mut b = rescale.to_scaled(&raw);
+        let mut ll = model.log_likelihood(&cols, &b);
+        let mut history = vec![(ll, rescale.to_raw(&b))];
         let gradient_tolerance = [c.lconverge, c.pconverge]
             .into_iter()
             .filter(|&v| v > 0.0)
@@ -259,10 +428,10 @@ impl Model {
         let mut converged = false;
         let mut iterations = 0;
         loop {
-            let (info, g) = self.information(&cols, &b);
+            let (info, g) = model.information(&cols, &b);
             if iterations > 0
                 && let Some(t) = gradient_tolerance
-                && g.iter().all(|v| v.abs() < t)
+                && rescale.raw_gradient(&g).iter().all(|v| v.abs() < t)
             {
                 converged = true;
                 break;
@@ -271,7 +440,7 @@ impl Model {
                 break;
             }
             let Some((inv, _)) = inverse(&info) else {
-                let (perfect, _) = self.perfect(&cols, &b);
+                let (perfect, _) = model.perfect(&cols, &b);
                 warnings.push(if perfect > 0 {
                     "NOMREG: quasi-complete separation: some subpopulations are predicted perfectly and the information matrix is singular; the estimates of the last iteration are shown".to_string()
                 } else {
@@ -287,7 +456,7 @@ impl Model {
             let mut xi = 1.0;
             for _ in 0..c.mxstep.max(1) {
                 let candidate: Vec<f64> = b.iter().zip(&step).map(|(v, s)| v + xi * s).collect();
-                let lc = self.log_likelihood(&cols, &candidate);
+                let lc = model.log_likelihood(&cols, &candidate);
                 if lc >= ll - 1e-10 * (1.0 + ll.abs()) {
                     accepted = Some((candidate, lc));
                     break;
@@ -302,15 +471,16 @@ impl Model {
                 ));
                 break;
             };
-            let change = b
+            let change = rescale
+                .to_raw(&b)
                 .iter()
-                .zip(&candidate)
+                .zip(rescale.to_raw(&candidate))
                 .map(|(a, v)| (a - v).abs())
                 .fold(0.0_f64, f64::max);
             let ll_change = (lc - ll).abs();
             b = candidate;
             ll = lc;
-            history.push((ll, b.clone()));
+            history.push((ll, rescale.to_raw(&b)));
             if (c.lconverge > 0.0 && ll_change < c.lconverge)
                 || (c.pconverge > 0.0 && change < c.pconverge)
             {
@@ -318,7 +488,7 @@ impl Model {
                 break;
             }
             if iterations >= c.chksep as usize {
-                let (perfect, used) = self.perfect(&cols, &b);
+                let (perfect, used) = model.perfect(&cols, &b);
                 if used > 0 && perfect == used {
                     warnings.push(format!(
                         "NOMREG: complete separation at iteration {iterations}: every subpopulation is predicted perfectly, so the estimates are not reliable"
@@ -327,11 +497,14 @@ impl Model {
                 }
             }
         }
-        let (info, _) = self.information(&cols, &b);
+        let (info_scaled, _) = model.information(&cols, &b);
+        let cov = inverse(&info_scaled).map(|(inv, _)| rescale.covariance(&inv));
+        let (info, _) = self.information(&cols, &rescale.to_raw(&b));
         Fit {
             cols,
-            b,
+            b: rescale.to_raw(&b),
             info,
+            cov,
             ll,
             converged,
             iterations,
@@ -436,7 +609,7 @@ fn select(
             .filter(|(_, on)| **on)
             .flat_map(|(e, _)| e.range())
             .collect();
-        let cols = model.independent(&wanted, c.singular);
+        let cols = model.independent(&wanted, intercept, c.singular);
         let mut quiet = Vec::new();
         let fit = model.fit(cols, intercept, c, &mut quiet);
         troubled |= !quiet.is_empty() || !fit.converged;
@@ -476,7 +649,7 @@ fn select(
             let (chi, df) = if rules.score_entry {
                 let mut wanted = fit.cols.clone();
                 wanted.extend(effects[e].range());
-                let cols = model.independent(&wanted, c.singular);
+                let cols = model.independent(&wanted, intercept, c.singular);
                 let (q0, q1) = (fit.cols.len(), cols.len());
                 let mut b = vec![0.0; l_count * q1];
                 for l in 0..l_count {
@@ -1121,7 +1294,7 @@ impl Engine {
         let l_count = others.len() as f64;
         // the fit
         let all: Vec<usize> = (0..p).collect();
-        let cols = model.independent(&all, c.singular);
+        let cols = model.independent(&all, command.intercept, c.singular);
         let fit = model.fit(cols, command.intercept, &c, &mut warnings);
         if !fit.converged && fit.iterations >= c.mxiter as usize {
             warnings.push(format!(
@@ -1185,9 +1358,9 @@ impl Engine {
                 1.0
             }
         };
-        let cov: Option<Matrix> = inverse(&fit.info).map(|(inv, _)| {
-            inv.into_iter()
-                .map(|r| r.into_iter().map(|v| v * kappa).collect())
+        let cov: Option<Matrix> = fit.cov.as_ref().map(|inv| {
+            inv.iter()
+                .map(|r| r.iter().map(|v| v * kappa).collect())
                 .collect()
         });
         if cov.is_none() {
@@ -1444,7 +1617,7 @@ impl Engine {
                     .copied()
                     .filter(|c| !e.range().contains(c))
                     .collect();
-                let cols = model.independent(&wanted, c.singular);
+                let cols = model.independent(&wanted, command.intercept, c.singular);
                 let mut sub_warnings = Vec::new();
                 let reduced = model.fit(cols, command.intercept, &c, &mut sub_warnings);
                 let chi = 2.0 * (fit.ll - reduced.ll);
