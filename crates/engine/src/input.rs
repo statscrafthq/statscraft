@@ -650,6 +650,11 @@ impl Engine {
                         )));
                     }
                     (Some(_), None) | (None, Some(_)) => {
+                        // one end made here and one in the data: the data's own order may say
+                        if let Ok(list) = self.expand(std::slice::from_ref(item)) {
+                            names.extend(list);
+                            continue;
+                        }
                         let (made, other) = if at(first).is_some() {
                             (first, last)
                         } else {
@@ -672,13 +677,8 @@ impl Engine {
             })?);
         }
         // a name given twice (also through overlapping lists) is left once
-        let mut seen: Vec<String> = Vec::new();
-        names.retain(|n| {
-            let key = n.to_lowercase();
-            let fresh = !seen.contains(&key);
-            seen.push(key);
-            fresh
-        });
+        let mut seen = std::collections::HashSet::new();
+        names.retain(|n| seen.insert(n.to_lowercase()));
         if let Some(name) = names.iter().find(|n| is_scratch(n)) {
             return Err(Error(format!(
                 "LEAVE cannot name the scratch variable {name}: a scratch variable keeps its \

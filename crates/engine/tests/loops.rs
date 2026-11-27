@@ -252,13 +252,12 @@ fn leave_takes_a_to_list_of_variables_the_waiting_commands_create() {
     );
     let data = session.dataset().unwrap();
     assert_eq!(show(data, "a3"), "3");
-    // one end made and one that exists is refused
+    // a range from a variable of the data to a made one runs over the data's order, and LEAVE
+    // refuses what existed
     let mut session = self::session("1 2 3");
     let message = error(&mut session, "COMPUTE n1 = n1 + x.\nLEAVE y TO n1.");
-    assert!(
-        message.contains("n1 is made by the commands before LEAVE"),
-        "{message}"
-    );
+    // (y is a variable of the data, which LEAVE does not take)
+    assert!(message.contains("existed before"), "{message}");
     // the unknown end is the one named
     let mut session = self::session("1 2 3");
     let message = error(&mut session, "COMPUTE n1 = n1 + x.\nLEAVE n1 TO tyop.");

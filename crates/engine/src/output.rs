@@ -216,13 +216,18 @@ pub(crate) struct Clean {
 }
 
 impl Clean {
-    pub(crate) fn command_count(&self) -> usize {
-        self.commands.len()
+    /// Which list this is and how many commands it holds: the address tells a list that a data
+    /// pass has dropped and started again from the one that was there.
+    pub(crate) fn mark(&self) -> (usize, usize) {
+        (std::ptr::from_ref(self) as usize, self.commands.len())
     }
 
-    /// Forgets the commands after the first `n`.
-    pub(crate) fn keep_commands(&mut self, n: usize) {
-        self.commands.truncate(n);
+    /// Forgets the commands after the first `n` of the list that `mark` named; another list is
+    /// left alone.
+    pub(crate) fn keep_commands(&mut self, mark: (usize, usize)) {
+        if std::ptr::from_ref(self) as usize == mark.0 {
+            self.commands.truncate(mark.1);
+        }
     }
 }
 

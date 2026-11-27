@@ -479,7 +479,7 @@ impl Engine {
         let mut warnings = std::mem::take(&mut self.warnings);
         // the commands made from the structure are not kept for a LEAVE that runs the commands
         // again: the structure itself, kept already, makes them again
-        let kept = self.clean.as_ref().map(|clean| clean.command_count());
+        let kept = self.clean.as_ref().map(|clean| clean.mark());
         let result = (|| -> Result<(), Error> {
             for i in 0..count {
                 let items: Vec<(&str, &RepeatItem)> = lists
