@@ -217,6 +217,7 @@ fn every_test_file_is_built() {
     }
 }
 mod cluster_measures_r;
+mod codebook_r;
 mod correlations_missing_r;
 mod ctables_ci_r;
 mod ctables_r;
