@@ -737,6 +737,8 @@ pub struct DataList {
     pub skip: u32,
     /// `END=var`: in an input program, the variable that turns 1 at the end of the data.
     pub end: Option<String>,
+    /// `ENCODING='name'`: how the text of FILE is encoded; None is UTF-8 or the file handle's.
+    pub encoding: Option<String>,
     /// In the order of the dictionary.
     pub fields: Vec<DataField>,
 }
@@ -822,6 +824,8 @@ pub struct IdField {
 pub struct FileType {
     pub kind: FileKind,
     pub file: Option<String>,
+    /// `ENCODING='name'`, as on DATA LIST.
+    pub encoding: Option<String>,
     pub record: IdField,
     pub case: Option<IdField>,
     /// WILD, MISSING: true is WARN.

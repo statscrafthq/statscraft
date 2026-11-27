@@ -243,8 +243,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "DATA LIST",
         summary: "Define text data, inline or in a file, and read it as the new active dataset.",
-        syntax: "DATA LIST [FILE='path'] [FIXED | FREE [(delimiters)] | LIST [(delimiters)]] [RECORDS=n] [SKIP=n]\n\
-                 \x20         [END=var] /[record] var [TO var] columns [(type[,decimals])] | (formats) [/ ...].\n\
+        syntax: "DATA LIST [FILE='path'] [ENCODING='name'] [FIXED | FREE [(delimiters)] | LIST [(delimiters)]]\n\
+                 \x20         [RECORDS=n] [SKIP=n] [END=var] /[record] var [TO var] columns [(type[,decimals])] | (formats) [/ ...].\n\
                  FIXED (the default): columns such as 1-3, or formats such as (F2.0, 1X, A10) with Tn and nX.\n\
                  FREE and LIST: var [(format)], values separated by blanks and commas or by the delimiters\n\
                  given as quoted characters or TAB; LIST reads one case per line. * ends a run of F8.2 variables.\n\
@@ -259,6 +259,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  may be written with blanks, dashes, slashes, periods or commas between its parts, a month as a\n\
                  number, a Roman numeral or a name, or with no delimiter at all (28OCT1990, 10281990); a two-digit\n\
                  year falls in the 100 years from SET EPOCH; a time with no colons is hhmm or hhmmss.\n\
+                 ENCODING is how the text of FILE is encoded: UTF8 (the default, or the encoding a FILE HANDLE gives),\n\
+                 a code page such as '1257' or 'windows-1252', UTF16LE, UTF16BE (ignored without FILE). Fixed columns and the\n\
+                 widths of A formats count bytes in a UTF-8 file (a letter with an accent takes two); columns count\n\
+                 letters in a code page or UTF-16 file, but the width of a string is still in bytes of UTF-8.\n\
                  A value that cannot be read is system-missing, with a warning naming its line.",
         example: "DATA LIST LIST /id (F3) name (A12) score.",
         parse: data_list::data_list,
@@ -374,7 +378,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "FILE TYPE",
         summary: "Start the definition of a file with several kinds of records.",
-        syntax: "FILE TYPE MIXED | GROUPED | NESTED [FILE='path' | handle] [ENCODING='UTF-8']\n\
+        syntax: "FILE TYPE MIXED | GROUPED | NESTED [FILE='path' | handle] [ENCODING='name']\n\
                  \x20   RECORD=[var] columns [(format)] [CASE=[var] columns [(format)]]\n\
                  \x20   [WILD=WARN | NOWARN] [DUPLICATE=WARN | NOWARN | CASE] [MISSING=WARN | NOWARN]\n\
                  \x20   [ORDERED=YES | NO].\n\

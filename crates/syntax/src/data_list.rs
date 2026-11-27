@@ -483,6 +483,7 @@ fn free_fields(p: &mut Parser) -> PResult<Vec<DataField>> {
 
 pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
     let mut file = None;
+    let mut encoding = None;
     let mut layout = None;
     let mut delimiters = Vec::new();
     let mut records = None;
@@ -497,17 +498,7 @@ pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
             file = Some(p.file("a quoted file path or a file handle")?);
         } else if p.eat_keyword("ENCODING") {
             p.eat(Punct::Eq);
-            let start = p.pos;
-            let encoding = p.string("a quoted encoding")?;
-            let utf8 = ["UTF8", "UTF-8"]
-                .iter()
-                .any(|u| u.eq_ignore_ascii_case(&encoding));
-            if !utf8 {
-                return Err(SyntaxError::new(
-                    p.span_from(start),
-                    "only UTF-8 text can be read yet",
-                ));
-            }
+            encoding = Some(p.string("a quoted encoding")?);
         } else if p.eat_keyword("FIXED") {
             layout = Some(DataLayout::Fixed { records: 1 });
         } else if p.eat_keyword("FREE") || p.at_keyword("LIST") {
@@ -600,6 +591,7 @@ pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
         delimiters,
         skip,
         end,
+        encoding,
         fields,
     }))
 }

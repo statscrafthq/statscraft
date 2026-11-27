@@ -82,19 +82,28 @@ pub fn legacy_encoding() -> &'static Encoding {
 /// order mark still wins); without, UTF-8 when they are valid UTF-8, else the system's legacy
 /// code page. The byte order mark is removed. Fails only on an unknown encoding name.
 pub fn decode_syntax(bytes: &[u8], encoding: Option<&str>) -> Result<String, String> {
+    decode_text(bytes, encoding).map(|(text, _)| text)
+}
+
+/// `decode_syntax`, and whether the columns of fixed data in that text count letters: true for
+/// a code page or UTF-16 (whichever the bytes were really read in), false for UTF-8, whose
+/// columns count bytes.
+pub fn decode_text(bytes: &[u8], encoding: Option<&str>) -> Result<(String, bool), String> {
     let named = match encoding {
         Some(name) => Some(encoding_for(name).ok_or_else(|| format!("unknown encoding {name}"))?),
         None => None,
     };
     if let Some((bom, _)) = Encoding::for_bom(bytes) {
-        return Ok(bom.decode_with_bom_removal(bytes).0.into_owned());
+        let text = bom.decode_with_bom_removal(bytes).0.into_owned();
+        return Ok((text, bom != encoding_rs::UTF_8));
     }
     let encoding = match (named, std::str::from_utf8(bytes)) {
         (Some(encoding), _) => encoding,
-        (None, Ok(text)) => return Ok(text.to_string()),
+        (None, Ok(text)) => return Ok((text.to_string(), false)),
         (None, Err(_)) => legacy_encoding(),
     };
-    Ok(encoding.decode_without_bom_handling(bytes).0.into_owned())
+    let text = encoding.decode_without_bom_handling(bytes).0.into_owned();
+    Ok((text, encoding != encoding_rs::UTF_8))
 }
 
 #[cfg(test)]

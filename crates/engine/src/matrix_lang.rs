@@ -1039,7 +1039,7 @@ impl Machine<'_> {
         if !self.reads.contains_key(&key) {
             let records = self
                 .engine
-                .file_records(&read.file)
+                .file_records(&read.file, None)
                 .map_err(|e| fault(span, e.0))?;
             self.reads.insert(
                 key.clone(),

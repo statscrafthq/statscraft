@@ -48,6 +48,9 @@ pub(crate) struct Reading {
 pub(crate) struct Record {
     pub place: String,
     pub text: String,
+    /// The text came from a code page or UTF-16 file: its columns count letters, not the bytes
+    /// of the UTF-8 it was turned into (in a UTF-8 file they count bytes).
+    pub by_chars: bool,
 }
 
 /// What waits for BEGIN DATA: a DATA LIST, or an input program that reads inline data.
@@ -76,25 +79,36 @@ impl Engine {
             self.pending_data = Some(Pending::List(list.clone()));
             return Ok(());
         };
-        let records = self.file_records(file)?;
+        let records = self.file_records(file, list.encoding.as_deref())?;
         self.read_data(list, records)
     }
 
     /// The lines of a text file as records.
-    pub(crate) fn file_records(&self, file: &str) -> Result<Vec<Record>, Error> {
+    /// `encoding` is the ENCODING of the command; without it FILE HANDLE /ENCODING, else UTF-8.
+    pub(crate) fn file_records(
+        &self,
+        file: &str,
+        encoding: Option<&str>,
+    ) -> Result<Vec<Record>, Error> {
         let bytes = std::fs::read(self.path(file))
             .map_err(|e| Error(format!("cannot read {file}: {e}")))?;
-        let text = match self.handle_encoding(file) {
-            // FILE HANDLE /ENCODING
+        let encoding = encoding
+            .map(str::to_string)
+            .or_else(|| self.handle_encoding(file));
+        let (text, by_chars) = match encoding {
             Some(encoding) => {
-                statscraft_syntax::decode_syntax(&bytes, Some(&encoding)).map_err(Error)?
+                statscraft_syntax::decode_text(&bytes, Some(&encoding)).map_err(Error)?
             }
-            None => String::from_utf8(bytes)
-                .map_err(|_| Error(format!("{file} is not UTF-8 text; save it as UTF-8")))?,
+            None => (
+                String::from_utf8(bytes)
+                    .map_err(|_| Error(format!("{file} is not UTF-8 text; save it as UTF-8")))?,
+                false,
+            ),
         };
         let records = text.lines().enumerate().map(|(i, line)| Record {
             place: format!("record {} of {file}", i + 1),
             text: line.to_string(),
+            by_chars,
         });
         Ok(records.collect())
     }
@@ -111,6 +125,7 @@ impl Engine {
         let records = lines.iter().map(|(line, text)| Record {
             place: format!("line {line}"),
             text: text.clone(),
+            by_chars: false,
         });
         let mut tables = match pending {
             Pending::List(list) => {
@@ -200,7 +215,7 @@ pub(crate) fn fixed(
         }
         let case = list.fields.iter().map(|field| {
             let record = &chunk[field.record as usize - 1];
-            let text = columns(&record.text, field);
+            let text = columns(record, field);
             read(&text, field, true, reading, &record.place, warnings)
         });
         cases.push(case.collect());
@@ -209,8 +224,13 @@ pub(crate) fn fixed(
 }
 
 /// The text of a field's columns; columns past the end of the line are blank.
-pub(crate) fn columns(line: &str, field: &DataField) -> String {
-    let bytes = line.as_bytes();
+pub(crate) fn columns(record: &Record, field: &DataField) -> String {
+    if record.by_chars {
+        let start = field.column as usize - 1;
+        let letters = record.text.chars().skip(start);
+        return letters.take(usize::from(field.format.width)).collect();
+    }
+    let bytes = record.text.as_bytes();
     let start = (field.column as usize - 1).min(bytes.len());
     let end = (start + usize::from(field.format.width)).min(bytes.len());
     String::from_utf8_lossy(&bytes[start..end]).into_owned()

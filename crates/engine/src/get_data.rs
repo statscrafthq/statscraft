@@ -168,7 +168,8 @@ impl Engine {
             .as_deref()
             .or(handle.as_deref())
             .filter(|e| !e.eq_ignore_ascii_case("locale"));
-        let text = statscraft_syntax::decode_syntax(&bytes, encoding).map_err(Error)?;
+        // columns of a code page or UTF-16 file count letters, of a UTF-8 file bytes
+        let (text, by_chars) = statscraft_syntax::decode_text(&bytes, encoding).map_err(Error)?;
         let comma = self.setting("DECIMAL").eq_ignore_ascii_case("COMMA");
         let reading = self.reading();
         let wanted = |count: usize| command.first_cases.map_or(count, |n| count.min(n as usize));
@@ -185,10 +186,17 @@ impl Engine {
                 let values = command.variables.iter().map(|v| {
                     let line = chunk.get(v.record as usize - 1).copied().unwrap_or("");
                     let (first, last) = v.columns.unwrap_or((0, 0));
-                    let bytes = line.as_bytes();
-                    let a = (first as usize).min(bytes.len());
-                    let b = (last as usize + 1).min(bytes.len());
-                    let text = String::from_utf8_lossy(&bytes[a..b]).into_owned();
+                    let text = if by_chars {
+                        let letters = line.chars().skip(first as usize);
+                        letters
+                            .take((last as usize + 1).saturating_sub(first as usize))
+                            .collect()
+                    } else {
+                        let bytes = line.as_bytes();
+                        let a = (first as usize).min(bytes.len());
+                        let b = (last as usize + 1).min(bytes.len());
+                        String::from_utf8_lossy(&bytes[a..b]).into_owned()
+                    };
                     (!text.trim().is_empty()).then_some(text)
                 });
                 cases.push((start + k * per_case + 1, values.collect()));

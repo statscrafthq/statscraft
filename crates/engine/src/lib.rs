@@ -1809,7 +1809,7 @@ impl Engine {
                 match &matrix.file {
                     None => self.pending_data = Some(data_list::Pending::Matrix(matrix.clone())),
                     Some(file) => {
-                        let records = self.file_records(file)?;
+                        let records = self.file_records(file, None)?;
                         self.read_matrix(matrix, records)?;
                     }
                 }
