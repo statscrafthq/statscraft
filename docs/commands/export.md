@@ -15,9 +15,9 @@ KEEP, DROP and RENAME shape the file only, in the order written; KEEP sets the o
 
 UNSELECTED=DELETE leaves out the cases FILTER leaves out. DIGITS rounds values that are not whole to n significant digits; without it every value is written exactly.
 
-The file holds names (upper case, at most 8 bytes: longer ones are shortened and made unique, as MYLONGRO and MYLONG\_2), variable and value labels, missing values, formats, the weight variable and documents. Strings hold at most 255 bytes; text is UTF-8.
+The file holds names (upper case, at most 8 bytes: longer ones are shortened and made unique, as MYLONGRO and MYLONG\_2), variable and value labels, missing values, formats, the weight variable and documents. Strings hold at most 255 bytes.
 
-TYPE is accepted and changes nothing; control characters in text are written as 0.
+Text goes in by the file's character table: the letters, digits and marks of ASCII. A character the table has no code for, such as a letter with an accent, is written as ? and a warning counts them (texts that differ only in such characters become equal), so every program that reads the file reads the same text. Control characters are written as 0; TYPE is accepted and changes nothing.
 
 ## Example
 

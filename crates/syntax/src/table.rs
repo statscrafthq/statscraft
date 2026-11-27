@@ -7179,8 +7179,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  not whole to n significant digits; without it every value is written exactly.\n\
                  The file holds names (upper case, at most 8 bytes: longer ones are shortened and made\n\
                  unique, as MYLONGRO and MYLONG_2), variable and value labels, missing values, formats,\n\
-                 the weight variable and documents. Strings hold at most 255 bytes; text is UTF-8.\n\
-                 TYPE is accepted and changes nothing; control characters in text are written as 0.",
+                 the weight variable and documents. Strings hold at most 255 bytes.\n\
+                 Text goes in by the file's character table: the letters, digits and marks of ASCII. A\n\
+                 character the table has no code for, such as a letter with an accent, is written as ? and\n\
+                 a warning counts them (texts that differ only in such characters become equal), so every\n\
+                 program that reads the file reads the same text. Control\n\
+                 characters are written as 0; TYPE is accepted and changes nothing.",
         example: "EXPORT OUTFILE='wave2.por' /RENAME=(v1 TO v3 = id sex age) /MAP.",
         parse: portable::export,
     },

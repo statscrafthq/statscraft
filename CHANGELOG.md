@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- EXPORT writes text by the character table of the portable file: a letter with an accent or a symbol the table has no code for becomes ? with a warning (before, its UTF-8 bytes went in as they were and other programs could not read them), and # now has its code. Files written before still open.
 - GET DATA /TYPE=TXT: an AUTO variable is numeric when DATATYPEMIN PERCENTAGE (95 unless given) of its non-blank values are numbers, and the others become system-missing; before, every value had to be a number and DATATYPEMIN was ignored for text files. In fixed columns a number format with decimals implies them in a value without a decimal point, as DATA LIST does (F5.2 reads 12345 as 123.45).
 - NOMREG with both DELTA and BIAS gives an empty cell both, as PLUM does; before, DELTA had no effect once BIAS was above 0.
 - DATA LIST reads the Z (zoned decimal) and PIBHEX (hexadecimal) formats, and STRING, PRINT and WRITE write PIBHEX; NUMBER reads JDATE, QYR, MOYR, WKYR, DATETIME, YMDHMS, TIME, MTIME, Z and PIBHEX.
