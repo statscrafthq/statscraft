@@ -1418,3 +1418,61 @@ fn outfile_errors() {
     ));
     assert!(message.contains("active dataset"), "{message}");
 }
+
+/// The Wald tests of the model effects as (df1, df2, F) per source row.
+fn effect_tests(tables: &[Table]) -> Vec<(String, f64, f64, f64)> {
+    let t = find(tables, "Tests of Model Effects", 0);
+    row_keys(t)
+        .into_iter()
+        .map(|k| {
+            (
+                k.clone(),
+                value(t, &k, "df1"),
+                value(t, &k, "df2"),
+                value(t, &k, "Wald F"),
+            )
+        })
+        .collect()
+}
+
+/// A covariate in hundred millions or in hundred-millionths of its unit gives the tests of the
+/// unscaled one (their numbers are those of the package's survey library, checked above): the
+/// covariance matrices of the estimates differ by 1E16 between the covariates, and a rank decided
+/// by the largest element dropped the scaled covariate from the corrected model's test (3 df
+/// instead of 4 in CSGLM) and called the information matrix of CSORDINAL and CSCOXREG singular.
+#[test]
+fn a_covariate_in_other_units_gives_the_same_wald_tests() {
+    for (command, covariate) in [
+        (
+            "CSGLM food BY heat WITH members earn /PLAN FILE='wr.json'.",
+            "earn",
+        ),
+        (
+            "CSORDINAL heat BY town WITH members /PLAN FILE='wr.json'.",
+            "members",
+        ),
+    ] {
+        let base = effect_tests(&run(&format!("{}{command}\n", data("units-base"))).1);
+        for (name, factor) in [("big", "1E8"), ("small", "1E-8")] {
+            let scaled = effect_tests(
+                &run(&format!(
+                    "{}COMPUTE {covariate} = {covariate} * {factor}.\n{command}\n",
+                    data(&format!("units-{name}"))
+                ))
+                .1,
+            );
+            assert_eq!(scaled.len(), base.len(), "{command} {name}");
+            for (a, b) in scaled.iter().zip(&base) {
+                assert_eq!(a.0, b.0, "{command} {name}");
+                assert_eq!((a.1, a.2), (b.1, b.2), "{command} {name}: {}", a.0);
+                assert!(
+                    (a.3 - b.3).abs() <= 1e-6 * b.3.abs().max(1e-3),
+                    "{command} {name}: {} F {} is not {}",
+                    a.0,
+                    a.3,
+                    b.3
+                );
+            }
+        }
+    }
+}
