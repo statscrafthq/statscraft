@@ -25,7 +25,7 @@
 
 use crate::descriptives::{case_weights, number};
 use crate::dist::{f_p, t_p};
-use crate::matrix::inverse;
+use crate::matrix::inverse_scaled;
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::timeseries::read_series;
@@ -72,6 +72,10 @@ pub(crate) struct Estimates {
 }
 
 /// Two-stage least squares of column `y` on the columns `z` with instruments `x`, weights `w`.
+/// With a constant column among both the predictors and the instruments the model is the same
+/// after centring every other column (and y) on its weighted mean, and the centred cross-products
+/// keep their digits where raw ones of columns far from 0 would not; the slopes stay, the
+/// constant takes the means back, and so do the predictors' fitted values.
 pub(crate) fn estimate(
     y: &[f64],
     z: &[Vec<f64>],
@@ -79,13 +83,76 @@ pub(crate) fn estimate(
     w: &[f64],
     used: &[usize],
 ) -> Option<Estimates> {
-    let (xx_inv, _) = inverse(&cross(x, x, w, used))?;
+    let Some(&first) = used.first() else {
+        return estimate_raw(y, z, x, w, used);
+    };
+    let constant = |c: &[f64]| used.iter().all(|&k| c[k] == c[first]);
+    let (Some(cz), true) = (
+        z.iter().position(|c| constant(c)),
+        x.iter().any(|c| constant(c)),
+    ) else {
+        return estimate_raw(y, z, x, w, used);
+    };
+    let total: f64 = used.iter().map(|&k| w[k]).sum();
+    let mean = |c: &[f64]| used.iter().map(|&k| w[k] * c[k]).sum::<f64>() / total;
+    let centre = |cols: &[Vec<f64>]| -> Vec<Vec<f64>> {
+        cols.iter()
+            .map(|c| {
+                if constant(c) {
+                    c.clone()
+                } else {
+                    let m = mean(c);
+                    c.iter().map(|v| v - m).collect()
+                }
+            })
+            .collect()
+    };
+    let means: Vec<f64> = z
+        .iter()
+        .map(|c| if constant(c) { 0.0 } else { mean(c) })
+        .collect();
+    let my = mean(y);
+    let centred_y: Vec<f64> = y.iter().map(|v| v - my).collect();
+    let mut e = estimate_raw(&centred_y, &centre(z), &centre(x), w, used)?;
+    // beta = A beta* + (my / kappa) on the constant: the constant column holds kappa
+    let kappa = z[cz][first];
+    let q = z.len();
+    let mut a: Matrix = (0..q)
+        .map(|i| (0..q).map(|j| f64::from(u8::from(i == j))).collect())
+        .collect();
+    for j in 0..q {
+        if j != cz {
+            a[cz][j] = -means[j] / kappa;
+        }
+    }
+    let star = e.beta.clone();
+    e.beta = (0..q)
+        .map(|i| (0..q).map(|j| a[i][j] * star[j]).sum::<f64>())
+        .collect();
+    e.beta[cz] += my / kappa;
+    e.inverse = product(&product(&a, &e.inverse), &transpose(&a));
+    for (col, m) in e.projected.iter_mut().zip(&means) {
+        for v in col.iter_mut() {
+            *v += m;
+        }
+    }
+    Some(e)
+}
+
+fn estimate_raw(
+    y: &[f64],
+    z: &[Vec<f64>],
+    x: &[Vec<f64>],
+    w: &[f64],
+    used: &[usize],
+) -> Option<Estimates> {
+    let (xx_inv, _) = inverse_scaled(&cross(x, x, w, used))?;
     let zx = cross(z, x, w, used);
     let xy = cross(x, &[y.to_vec()], w, used);
     // the first stage: coefficients of each predictor on the instruments
     let gamma = product(&xx_inv, &transpose(&zx));
     let middle = product(&zx, &gamma);
-    let (inv, _) = inverse(&middle)?;
+    let (inv, _) = inverse_scaled(&middle)?;
     let right = product(&product(&zx, &xx_inv), &xy);
     let beta: Vec<f64> = product(&inv, &right).iter().map(|r| r[0]).collect();
     let rows = y.len();
@@ -395,7 +462,7 @@ impl Engine {
                             .collect()
                     })
                     .collect();
-                inverse(&cov).map(|(inv, _)| inv)
+                inverse_scaled(&cov).map(|(inv, _)| inv)
             };
             let sd_y = wsum(&|c| (y[c] - center).powi(2)).sqrt();
             let rows = (0..k)

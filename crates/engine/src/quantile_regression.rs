@@ -315,6 +315,115 @@ fn interior_point(
     (beta.iter().map(|b| b * scale).collect(), converged)
 }
 
+/// How the coefficients of the standardised design map back: beta = T beta*.
+struct Back {
+    /// Each column's divisor.
+    spread: Vec<f64>,
+    /// Each column's centre (0 unless the model has an intercept) and the intercept's column.
+    centre: Vec<f64>,
+    intercept: Option<usize>,
+}
+
+impl Back {
+    fn apply(&self, b: &[f64]) -> Vec<f64> {
+        let mut out: Vec<f64> = b.iter().zip(&self.spread).map(|(v, s)| v / s).collect();
+        if let Some(c) = self.intercept {
+            let shift: f64 = (0..b.len())
+                .filter(|&j| j != c)
+                .map(|j| self.centre[j] * out[j])
+                .sum();
+            out[c] = b[c] / self.spread[c] - shift;
+        }
+        out
+    }
+
+    fn matrix(&self) -> Matrix {
+        let q = self.spread.len();
+        let mut t = vec![vec![0.0; q]; q];
+        for j in 0..q {
+            t[j][j] = 1.0 / self.spread[j];
+        }
+        if let Some(c) = self.intercept {
+            for j in (0..q).filter(|&j| j != c) {
+                t[c][j] = -self.centre[j] / self.spread[j];
+            }
+        }
+        t
+    }
+
+    fn cov(&self, c: &Matrix) -> Matrix {
+        let t = self.matrix();
+        let tt: Matrix = (0..t.len())
+            .map(|i| (0..t.len()).map(|j| t[j][i]).collect())
+            .collect();
+        crate::matrix::multiply(&crate::matrix::multiply(&t, c), &tt)
+    }
+}
+
+/// The design with every column but the intercept centred (when there is one) and every column
+/// divided by its weighted spread.
+fn standardised(x: Vec<Vec<f64>>, w: &[f64]) -> (Vec<Vec<f64>>, Back) {
+    let k = x.first().map_or(0, Vec::len);
+    let intercept = (0..k).find(|&j| x.iter().all(|row| row[j] == 1.0));
+    let total: f64 = w.iter().sum();
+    let mut centre = vec![0.0; k];
+    let mut spread = vec![1.0; k];
+    for j in 0..k {
+        if Some(j) == intercept || total <= 0.0 {
+            continue;
+        }
+        if intercept.is_some() {
+            centre[j] = x.iter().zip(w).map(|(r, wi)| wi * r[j]).sum::<f64>() / total;
+        }
+        let ms = x
+            .iter()
+            .zip(w)
+            .map(|(r, wi)| wi * (r[j] - centre[j]).powi(2))
+            .sum::<f64>()
+            / total;
+        if ms > 0.0 && ms.is_finite() {
+            spread[j] = ms.sqrt();
+        }
+    }
+    // shortcut: only a design whose columns differ in size by more than 1E4 or lie farther from
+    // 0 than 1E4 spreads is standardised; on any other the simplex keeps the vertex it picks on
+    // the columns as given when the optimum is not unique
+    let varying: Vec<f64> = (0..k)
+        .filter(|&j| Some(j) != intercept)
+        .map(|j| spread[j])
+        .collect();
+    let widest = varying.iter().copied().fold(0.0, f64::max);
+    let narrowest = varying.iter().copied().fold(f64::INFINITY, f64::min);
+    let far = (0..k).any(|j| centre[j].abs() > 1e4 * spread[j]);
+    if varying.is_empty() || (widest <= 1e4 * narrowest && !far) {
+        return (
+            x,
+            Back {
+                spread: vec![1.0; k],
+                centre: vec![0.0; k],
+                intercept,
+            },
+        );
+    }
+    let scaled = x
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .map(|(j, v)| (v - centre[j]) / spread[j])
+                .collect()
+        })
+        .collect();
+    (
+        scaled,
+        Back {
+            spread,
+            centre,
+            intercept,
+        },
+    )
+}
+
 fn bandwidth(p: f64, n: f64, hall_sheather: bool, cilevel: f64) -> f64 {
     let z = normal_quantile(p);
     let phi = (-0.5 * z * z).exp() / (2.0 * std::f64::consts::PI).sqrt();
@@ -555,6 +664,11 @@ impl Engine {
             .iter()
             .map(|row| kept.iter().map(|&j| row[j]).collect())
             .collect();
+        // The fit runs on columns scaled to unit spread (and centred when the model has an
+        // intercept), whose units and distance from 0 then cannot upset the simplex steps; the
+        // coefficients and their covariances are mapped back at the end. beta = T beta*.
+        let x_raw = x.clone();
+        let (x, back) = standardised(x, &w);
         let xs: Vec<Vec<f64>> = x
             .iter()
             .zip(&w)
@@ -681,13 +795,14 @@ impl Engine {
                 }
                 spread = Some((bh, bl, hi - lo));
             }
+            let objective_here = objective(&b, p);
             fits.push(QuantileFit {
                 p: q,
-                objective: objective(&b, p),
-                b,
-                covariance,
+                objective: objective_here,
+                b: back.apply(&b),
+                covariance: covariance.map(|c| back.cov(&c)),
                 sparsity,
-                spread,
+                spread: spread.map(|(bh, bl, gap)| (back.apply(&bh), back.apply(&bl), gap)),
                 exact,
             });
         }
@@ -766,7 +881,7 @@ impl Engine {
                     .map_or(intercept_y[n - 1], |(v, _)| *v);
                 let v0: f64 = (0..n).map(|i| w[i] * rho(y[i] - m, p)).sum();
                 let mae: f64 = (0..n)
-                    .map(|i| w[i] * (y[i] - dot(&x[i], &f.b)).abs())
+                    .map(|i| w[i] * (y[i] - dot(&x_raw[i], &f.b)).abs())
                     .sum::<f64>()
                     / big_n;
                 vec![
@@ -1115,7 +1230,7 @@ impl Engine {
                     points: (0..n)
                         .map(|i| Point {
                             x: y[i],
-                            y: dot(&x[i], &f.b),
+                            y: dot(&x_raw[i], &f.b),
                             z: None,
                             label: None,
                         })
