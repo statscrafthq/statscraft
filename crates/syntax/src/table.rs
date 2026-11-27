@@ -260,9 +260,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  number, a Roman numeral or a name, or with no delimiter at all (28OCT1990, 10281990); a two-digit\n\
                  year falls in the 100 years from SET EPOCH; a time with no colons is hhmm or hhmmss.\n\
                  ENCODING is how the text of FILE is encoded: UTF8 (the default, or the encoding a FILE HANDLE gives),\n\
-                 a code page such as '1257' or 'windows-1252', UTF16LE, UTF16BE (ENCODING needs FILE). Fixed columns count\n\
-                 bytes in a UTF-8 file (a letter with an accent takes two) and letters in a code page or UTF-16 file,\n\
-                 whose string variables get three times the width given (ALTER TYPE with AMIN takes it back).\n\
+                 a code page such as '1257' or 'windows-1252', UTF16LE, UTF16BE (ignored without FILE). Fixed columns and the\n\
+                 widths of A formats count bytes in a UTF-8 file (a letter with an accent takes two); columns count\n\
+                 letters in a code page or UTF-16 file, but the width of a string is still in bytes of UTF-8.\n\
                  A value that cannot be read is system-missing, with a warning naming its line.",
         example: "DATA LIST LIST /id (F3) name (A12) score.",
         parse: data_list::data_list,

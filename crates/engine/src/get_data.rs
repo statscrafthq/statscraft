@@ -291,8 +291,6 @@ impl Engine {
                 let longest = values.iter().map(|v| v.trim_end().len()).max().unwrap_or(0);
                 let width = match format.width {
                     0 => longest.max(1),
-                    // a code page or UTF-16 file: three times the width, as the guide says
-                    w if by_chars => (usize::from(w) * 3).min(32767),
                     w => usize::from(w),
                 };
                 let values = values
