@@ -80,6 +80,7 @@ mod km_survival;
 mod knn;
 mod large_offsets;
 mod legacy_scaling;
+mod logic_r;
 mod logistic;
 mod logistic_audit_r;
 mod logistic_r;
