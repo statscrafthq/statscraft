@@ -1442,18 +1442,39 @@ fn effect_tests(tables: &[Table]) -> Vec<(String, f64, f64, f64)> {
 /// instead of 4 in CSGLM) and called the information matrix of CSORDINAL and CSCOXREG singular.
 #[test]
 fn a_covariate_in_other_units_gives_the_same_wald_tests() {
-    for (command, covariate) in [
+    // CSLOGISTIC stops on an absolute change of its parameters (as the manual has it), so a
+    // covariate in hundred millions ends the iterations early: its cases use the small factor only
+    const BOTH: [(&str, &str); 2] = [("big", "1E8"), ("small", "1E-8")];
+    const SMALL: [(&str, &str); 1] = [("small", "1E-8")];
+    for (command, covariate, factors) in [
         (
             "CSGLM food BY heat WITH members earn /PLAN FILE='wr.json'.",
             "earn",
+            &BOTH[..],
         ),
         (
             "CSORDINAL heat BY town WITH members /PLAN FILE='wr.json'.",
             "members",
+            &BOTH[..],
+        ),
+        (
+            "CSLOGISTIC online(LOW) BY town WITH members earn /PLAN FILE='wr.json'.",
+            "earn",
+            &SMALL[..],
+        ),
+        (
+            "CSLOGISTIC online BY heat WITH members /PLAN FILE='wr.json'.",
+            "members",
+            &SMALL[..],
+        ),
+        (
+            "CSLOGISTIC heat(LOW) BY town WITH members /PLAN FILE='wr.json'.",
+            "members",
+            &SMALL[..],
         ),
     ] {
         let base = effect_tests(&run(&format!("{}{command}\n", data("units-base"))).1);
-        for (name, factor) in [("big", "1E8"), ("small", "1E-8")] {
+        for &(name, factor) in factors {
             let scaled = effect_tests(
                 &run(&format!(
                     "{}COMPUTE {covariate} = {covariate} * {factor}.\n{command}\n",

@@ -401,11 +401,37 @@ impl Fit {
         self.raw_y.clone()
     }
 
+    /// G X'WX: row j is 1 at j and 0 at the other kept columns, and the coefficients of a
+    /// redundant column in the kept ones. The unit entries are set exactly, and a coefficient of
+    /// a redundant column is dropped when it is rounding residue in the units of the two columns
+    /// (a covariate in hundred-millionths of its unit leaves residue of 1e-7 in the entries of
+    /// the other columns, above any fixed tolerance a caller could use).
     pub(crate) fn h(&self) -> Matrix {
         let xwx: Matrix = (0..self.p)
             .map(|i| self.zwz[i][..self.p].to_vec())
             .collect();
-        multiply(&self.ginv, &xwx)
+        let mut h = multiply(&self.ginv, &xwx);
+        let spread = |i: usize| match xwx[i][i].abs().sqrt() {
+            v if v > 0.0 && v.is_finite() => v,
+            _ => 1.0,
+        };
+        for (r, row) in h
+            .iter_mut()
+            .enumerate()
+            .filter(|(r, _)| !self.redundant[*r])
+        {
+            for (c, v) in row.iter_mut().enumerate() {
+                if !self.redundant[c] {
+                    *v = f64::from(u8::from(r == c));
+                } else if (*v * spread(r) / spread(c)).abs() <= 1e-10 {
+                    *v = 0.0;
+                } else if (*v - v.round()).abs() <= 1e-12 * v.abs() {
+                    // a whole number, as the coefficients of a factor column are
+                    *v = v.round();
+                }
+            }
+        }
+        h
     }
 
     /// The hypothesis SSCP of L B M = K (M the identity when None) and its degrees of freedom
