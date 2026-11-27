@@ -94,6 +94,7 @@ mod knn;
 mod lag_sample_r;
 mod large_offsets;
 mod legacy_scaling;
+mod list_r;
 mod logic_r;
 mod logistic;
 mod logistic_audit_r;
