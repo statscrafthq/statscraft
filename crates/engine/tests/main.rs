@@ -232,6 +232,7 @@ mod discriminant_options_r;
 mod discriminant_stepwise_r;
 mod examine_cells_r;
 mod factor_options_r;
+mod factor_rotation_r;
 mod frequencies_charts_r;
 mod frequencies_more_r;
 mod glm_emmeans_r;
