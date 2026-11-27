@@ -238,6 +238,7 @@ mod varcomp;
 mod vega_lite;
 mod verify;
 mod weights_r;
+mod weights_replication;
 mod workbook;
 mod xgraph;
 mod xlsx_r;
