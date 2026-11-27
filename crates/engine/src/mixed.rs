@@ -797,6 +797,26 @@ impl Model {
         })
     }
 
+    /// The parameters that are variances (not standard deviations) and so stay at or above 0.
+    fn non_negative(&self) -> Vec<bool> {
+        let mut out = vec![false; self.np];
+        // with the residual fixed at W^-1 (GENLINMIXED) a matrix of variances at 0 may be singular
+        if self.unit_residual || self.case_blocks.is_some() {
+            return out;
+        }
+        for b in &self.blocks {
+            // only a block of variances alone: a variance of 0 beside covariances that are not
+            // would leave the matrix without a positive definite value
+            if b.uses_sd() || !b.kinds().iter().all(|k| matches!(k, Kind::Variance)) {
+                continue;
+            }
+            for flag in &mut out[b.start..b.start + b.count] {
+                *flag = true;
+            }
+        }
+        out
+    }
+
     fn block_of(&self, s: usize) -> usize {
         self.blocks
             .iter()
@@ -2090,16 +2110,51 @@ fn fit_model(
         }
         let mut step = solve_pd(&e.hess, &e.grad);
         let mut update = if scoring { "Scoring" } else { "Newton" };
+        let mut hess_used = &e.hess;
         if step.is_none() && !scoring {
             step = solve_pd(&e.hess_expected, &e.grad);
+            hess_used = &e.hess_expected;
             update = "Scoring";
         }
-        let Some(step) = step else {
+        let Some(mut step) = step else {
             warnings.push(format!(
                 "MIXED stopped at iteration {iteration}: the Hessian is not positive definite. The estimates may not be final."
             ));
             break;
         };
+        // a variance the step would take below 0 stays at 0 and the others are stepped without
+        // it: the estimate on the boundary of the parameter space
+        {
+            let nonneg = model.non_negative();
+            let n = th.len();
+            let mut pinned = vec![false; n];
+            for _ in 0..n {
+                let out: Vec<usize> = (0..n)
+                    .filter(|&j| nonneg[j] && !pinned[j] && th[j] - step[j] < 0.0)
+                    .collect();
+                if out.is_empty() {
+                    break;
+                }
+                for j in out {
+                    pinned[j] = true;
+                }
+                let free: Vec<usize> = (0..n).filter(|&j| !pinned[j]).collect();
+                let h: Matrix = free
+                    .iter()
+                    .map(|&a| free.iter().map(|&b| hess_used[a][b]).collect())
+                    .collect();
+                let g: Vec<f64> = free.iter().map(|&a| e.grad[a]).collect();
+                let Some(reduced) = solve_pd(&h, &g) else {
+                    break;
+                };
+                step = (0..n)
+                    .map(|j| if pinned[j] { th[j] } else { 0.0 })
+                    .collect();
+                for (&j, v) in free.iter().zip(reduced) {
+                    step[j] = v;
+                }
+            }
+        }
         let l_now = -e.f / 2.0;
         if command.hconverge.value > 0.0 {
             let mut crit = dot(&e.grad, &step);

@@ -218,3 +218,57 @@ fn y_near_one_billion_keeps_its_digits() {
         ],
     );
 }
+
+const BOUNDARY: &str = "DATA LIST FREE /y x s (3F8.2).\nBEGIN DATA.\n5.1 1.2 1\n5.9 2.1 1\n7.2 3.3 1\n4.8 0.8 2\n5.4 1.9 2\n7.0 3.1 2\n5.3 1.1 3\n6.4 2.4 3\n7.1 3.2 3\n5.2 1.4 4\n5.7 2.0 4\n7.4 3.0 4\nEND DATA.\n";
+
+#[test]
+fn a_variance_on_the_boundary_is_zero_and_the_rest_is_least_squares() {
+    // the groups differ no more than chance: the REML estimate of the intercept variance is 0,
+    // the residual variance that of the regression, the fixed effects those of least squares
+    let t = run_on(
+        BOUNDARY,
+        "MIXED y WITH x /FIXED=x /RANDOM=INTERCEPT | SUBJECT(s) /METHOD=REML /PRINT=SOLUTION.",
+    );
+    check(
+        &t,
+        &[
+            (
+                "Estimates of Covariance Parameters",
+                "Residual",
+                "Estimate",
+                0.0571280706865,
+            ),
+            (
+                "Estimates of Covariance Parameters",
+                "Intercept [subject = s]",
+                "Estimate",
+                0.0,
+            ),
+            (
+                "Information Criteria",
+                "-2 Restricted Log Likelihood",
+                "Value",
+                4.38880578622,
+            ),
+            (
+                "Estimates of Fixed Effects",
+                "Intercept",
+                "Estimate",
+                3.86343334304,
+            ),
+            (
+                "Estimates of Fixed Effects",
+                "Intercept",
+                "Std. Error",
+                0.186596422906,
+            ),
+            ("Estimates of Fixed Effects", "x", "Estimate", 1.02505097582),
+            (
+                "Estimates of Fixed Effects",
+                "x",
+                "Std. Error",
+                0.0815864192294,
+            ),
+        ],
+    );
+}
