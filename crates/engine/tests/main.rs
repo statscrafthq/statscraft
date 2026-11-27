@@ -226,6 +226,7 @@ mod glm_emmeans_r;
 mod glm_repeated_r;
 mod glm_repeated_r2;
 mod means_layers_r;
+mod mult_response_r;
 mod npar_options_r;
 mod oneway_r;
 mod quick_cluster_r;
