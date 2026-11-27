@@ -108,6 +108,19 @@ pub(crate) fn number(
     comma_decimal: bool,
     epoch: Option<f64>,
 ) -> Result<Option<f64>, &'static str> {
+    number_in(text, format, comma_decimal, epoch, false)
+}
+
+/// As `number`; the decimals of the format are implied in a number without a decimal point when
+/// the columns are fixed, as in DATA LIST (delimited values are read as they are written).
+pub(crate) fn number_in(
+    text: &str,
+    format: Format,
+    comma_decimal: bool,
+    epoch: Option<f64>,
+    fixed: bool,
+) -> Result<Option<f64>, &'static str> {
+    let decimals = if fixed { format.decimals } else { 0 };
     let text = text.trim();
     if text.is_empty() || text == "." {
         return Ok(None);
@@ -128,9 +141,14 @@ pub(crate) fn number(
         | FormatType::Moyr
         | FormatType::Wkyr => crate::data_list::date(text, format.kind, epoch),
         FormatType::F | FormatType::N | FormatType::E if comma_decimal => {
-            crate::data_list::number(&text.replace('.', "").replace(',', "."), FormatType::F, 0)
+            let point = text.contains(',');
+            crate::data_list::number(
+                &text.replace('.', "").replace(',', "."),
+                FormatType::F,
+                if point { 0 } else { decimals },
+            )
         }
-        kind => crate::data_list::number(text, kind, 0),
+        kind => crate::data_list::number(text, kind, decimals),
     }
 }
 
@@ -228,22 +246,26 @@ impl Engine {
             let format = match variable.format {
                 Some(format) => format,
                 None => {
-                    // AUTO: a number when every value reads as one
-                    let numeric = column().all(|(_, v)| {
-                        v.is_none_or(|v| {
-                            number(
-                                &v,
-                                Format {
-                                    kind: FormatType::F,
-                                    width: 8,
-                                    decimals: 2,
-                                },
-                                comma,
-                                reading.epoch,
-                            )
-                            .is_ok()
-                        })
-                    });
+                    // AUTO: a number when DATATYPEMIN percent (95 unless given) of the non-blank
+                    // values read as one; the others are then system-missing
+                    let (mut filled, mut numbers) = (0_usize, 0_usize);
+                    for (_, v) in column() {
+                        // a blank and a lone period (system-missing) say nothing about the type
+                        let Some(v) = v.filter(|v| !matches!(v.trim(), "" | ".")) else {
+                            continue;
+                        };
+                        filled += 1;
+                        let format = Format {
+                            kind: FormatType::F,
+                            width: 8,
+                            decimals: 2,
+                        };
+                        if number(&v, format, comma, reading.epoch).is_ok() {
+                            numbers += 1;
+                        }
+                    }
+                    let needed = command.type_min.unwrap_or(95.0);
+                    let numeric = numbers as f64 * 100.0 >= needed * filled as f64;
                     let kind = if numeric {
                         FormatType::F
                     } else {
@@ -279,14 +301,23 @@ impl Engine {
                     .collect();
                 data.set_string_values(&variable.name, width, values)?;
             } else {
+                // an AUTO number has no decimals of its own to imply
+                let auto = variable.format.is_none();
+                let implied = command.fixed && !auto;
+                let mut odd = 0_usize;
                 let values = column()
                     .map(|(line, v)| (line, v.filter(|v| !v.trim().is_empty())))
-                    .map(
-                        |(line, v)| match v.map(|v| number(&v, format, comma, reading.epoch)) {
+                    .map(|(line, v)| {
+                        match v.map(|v| number_in(&v, format, comma, reading.epoch, implied)) {
                             // an empty value is a blank field
                             None => reading.blanks,
                             Some(Ok(None)) => None,
                             Some(Ok(value)) => value,
+                            // AUTO chose the type by the share of numbers, so the others are expected
+                            Some(Err(_)) if auto => {
+                                odd += 1;
+                                None
+                            }
                             Some(Err(why)) => {
                                 warnings.push(format!(
                                     "line {line}: {} is system-missing: the value {why}",
@@ -294,9 +325,15 @@ impl Engine {
                                 ));
                                 None
                             }
-                        },
-                    )
+                        }
+                    })
                     .collect();
+                if odd > 0 {
+                    warnings.push(format!(
+                        "{odd} values of {} are not numbers and are system-missing",
+                        variable.name
+                    ));
+                }
                 data.set_numeric_values(&variable.name, values)?;
                 let shown = match (format.width, format.kind) {
                     (0, FormatType::F) => "F8.2".to_string(),

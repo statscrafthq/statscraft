@@ -7066,8 +7066,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20        [/TRAILINGSPACES IGNORE=NO | YES] [/DATATYPEMIN PERCENTAGE=n].\n\
                  Text files. FIXED: /VARIABLES=[/record] name first-last format ..., columns counted from 0.\n\
                  format: F, A, DATE, ADATE, SDATE, DATETIME, DOLLAR, COMMA and the other input formats, with\n\
-                 or without a width; AUTO reads a number when every value is one, else a string as wide as the\n\
-                 longest value; X skips the field. DELIMITERS: \\t is a tab, \\\\ a backslash; two delimiters\n\
+                 or without a width; AUTO reads a number when DATATYPEMIN PERCENTAGE (95 unless given) of the\n\
+                 non-blank values are numbers, the others becoming system-missing, else a string as wide as the\n\
+                 longest value; in fixed columns the decimals of a number format are implied when the value has\n\
+                 no decimal point, as in DATA LIST; X skips the field. DELIMITERS: \\t is a tab, \\\\ a backslash; two delimiters\n\
                  in a row leave a value empty. Default delimiters: tab and comma. A value between\n\
                  qualifiers may hold delimiters and line breaks; a doubled qualifier is one. SET DECIMAL=COMMA\n\
                  reads a comma as the decimal mark. ENCODING as for INSERT; a byte order mark wins. MAP, the\n\
