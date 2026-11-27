@@ -27,6 +27,8 @@ use rust_xlsxwriter::{Format, Formula, Workbook};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{SaveTranslate, TranslateType};
 use std::collections::HashMap;
+use std::fmt::Write as _;
+use std::io::Write;
 
 /// The rows and columns of an Excel 2007 sheet.
 const SHEET_ROWS: usize = 1_048_576;
@@ -52,7 +54,11 @@ fn out(variable: &Variable, case: usize, command: &SaveTranslate) -> Out {
         Values::Numeric(values) => match values.get(case) {
             None => Out::Blank,
             Some(x) if command.recode_missing && variable.is_user_missing(x) => Out::Blank,
-            Some(x) => match label(variable, &Value::Number(x)).filter(|_| command.labels) {
+            Some(x) => match command
+                .labels
+                .then(|| label(variable, &Value::Number(x)))
+                .flatten()
+            {
                 Some(label) => Out::Text(label),
                 None => Out::Number(x),
             },
@@ -76,50 +82,112 @@ pub(crate) fn kind(format: &str) -> String {
     format[..letters.unwrap_or(format.len())].to_ascii_uppercase()
 }
 
-/// A number as FORMAT=PLAIN writes it.
-fn plain(x: f64, format: &str, comma: bool) -> String {
-    let date = |x: f64| {
-        let (y, m, d) = civil_from_days((x / 86_400.0).floor() as i64 - DAYS_TO_1970);
-        format!("{m:02}/{d:02}/{y:04}")
-    };
-    match kind(format).as_str() {
-        "DATE" | "ADATE" | "EDATE" | "JDATE" | "SDATE" | "QYR" | "MOYR" | "WKYR" => date(x),
-        "DATETIME" | "YMDHMS" => format!("{} {}", date(x), clock(x.rem_euclid(86_400.0))),
-        "TIME" | "DTIME" | "MTIME" => clock(x),
-        _ if comma => format!("{x}").replace('.', ","),
-        _ => format!("{x}"),
+/// How FORMAT=PLAIN writes the numbers of one variable.
+#[derive(Clone, Copy)]
+enum PlainKind {
+    Date,
+    DateTime,
+    Time,
+    Number,
+}
+
+impl PlainKind {
+    fn of(kind: &str) -> Self {
+        match kind {
+            "DATE" | "ADATE" | "EDATE" | "JDATE" | "SDATE" | "QYR" | "MOYR" | "WKYR" => Self::Date,
+            "DATETIME" | "YMDHMS" => Self::DateTime,
+            "TIME" | "DTIME" | "MTIME" => Self::Time,
+            _ => Self::Number,
+        }
+    }
+
+    /// Appends a number as FORMAT=PLAIN writes it.
+    fn write(self, text: &mut String, x: f64, comma: bool) {
+        let date = |x: f64| {
+            let (y, m, d) = civil_from_days((x / 86_400.0).floor() as i64 - DAYS_TO_1970);
+            format!("{m:02}/{d:02}/{y:04}")
+        };
+        match self {
+            Self::Date => text.push_str(&date(x)),
+            Self::DateTime => {
+                let _ = write!(text, "{} {}", date(x), clock(x.rem_euclid(86_400.0)));
+            }
+            Self::Time => text.push_str(&clock(x)),
+            Self::Number => {
+                let start = text.len();
+                let _ = write!(text, "{x}");
+                if comma {
+                    // the only period is the decimal mark
+                    if let Some(at) = text[start..].find('.') {
+                        text.replace_range(start + at..start + at + 1, ",");
+                    }
+                }
+            }
+        }
     }
 }
 
-/// `text` in the encoding `name` (UTF-8 when None), with a byte order mark for a UTF encoding
-/// when `bom`.
-fn encode(text: &str, name: Option<&str>, bom: bool) -> Result<Vec<u8>, String> {
-    let encoding = match name {
-        None => statscraft_syntax::encoding_for("UTF8"),
-        Some(name) => statscraft_syntax::encoding_for(name),
+/// What the text writer works out for each variable once.
+struct Form {
+    plain: PlainKind,
+    /// The display format carries its own decimal mark (dates, times, currencies).
+    own_mark: bool,
+    /// The display format, for FORMAT=VARIABLE.
+    format: Option<String>,
+}
+
+/// The size at which the text writer hands a piece to the encoder and the file.
+const CHUNK: usize = 1 << 20;
+
+/// A text encoding for the output, applied piece by piece so a large file never sits in memory
+/// twice.
+struct Encoder {
+    encoding: &'static encoding_rs::Encoding,
+    bom: bool,
+}
+
+impl Encoder {
+    /// The encoding `name` (UTF-8 when None), with a byte order mark for a UTF encoding when
+    /// `bom`.
+    fn new(name: Option<&str>, bom: bool) -> Result<Self, String> {
+        let encoding = match name {
+            None => statscraft_syntax::encoding_for("UTF8"),
+            Some(name) => statscraft_syntax::encoding_for(name),
+        }
+        .ok_or_else(|| format!("unknown encoding {}", name.unwrap_or_default()))?;
+        Ok(Encoder { encoding, bom })
     }
-    .ok_or_else(|| format!("unknown encoding {}", name.unwrap_or_default()))?;
-    let mark = |bytes: &[u8]| if bom { bytes.to_vec() } else { Vec::new() };
-    Ok(match encoding.name() {
-        "UTF-8" => [mark(&[0xEF, 0xBB, 0xBF]), text.as_bytes().to_vec()].concat(),
-        "UTF-16LE" => {
-            let units = text.encode_utf16().flat_map(u16::to_le_bytes);
-            mark(&[0xFF, 0xFE]).into_iter().chain(units).collect()
+
+    /// The bytes that open the file.
+    fn start(&self) -> &'static [u8] {
+        match (self.bom, self.encoding.name()) {
+            (true, "UTF-8") => &[0xEF, 0xBB, 0xBF],
+            (true, "UTF-16LE") => &[0xFF, 0xFE],
+            (true, "UTF-16BE") => &[0xFE, 0xFF],
+            _ => &[],
         }
-        "UTF-16BE" => {
-            let units = text.encode_utf16().flat_map(u16::to_be_bytes);
-            mark(&[0xFE, 0xFF]).into_iter().chain(units).collect()
-        }
-        other => {
-            let (bytes, _, lost) = encoding.encode(text);
-            if lost {
-                return Err(format!(
-                    "the data has characters that {other} cannot hold; use /ENCODING='UTF8'"
-                ));
+    }
+
+    /// Appends `text` to `bytes`. Every encoding offered here is stateless (encoding_rs writes
+    /// the ISO-2022 family as UTF-8), so each piece encodes alone; keep one encoder across
+    /// pieces if a stateful encoding is ever added.
+    fn push(&self, text: &str, bytes: &mut Vec<u8>) -> Result<(), String> {
+        match self.encoding.name() {
+            "UTF-8" => bytes.extend_from_slice(text.as_bytes()),
+            "UTF-16LE" => bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes)),
+            "UTF-16BE" => bytes.extend(text.encode_utf16().flat_map(u16::to_be_bytes)),
+            other => {
+                let (encoded, _, lost) = self.encoding.encode(text);
+                if lost {
+                    return Err(format!(
+                        "the data has characters that {other} cannot hold; use /ENCODING='UTF8'"
+                    ));
+                }
+                bytes.extend_from_slice(&encoded);
             }
-            bytes.into_owned()
         }
-    })
+        Ok(())
+    }
 }
 
 impl Engine {
@@ -222,47 +290,104 @@ impl Engine {
             false => '\t',
         };
         let q = command.qualifier;
-        let field = |text: String| {
-            if csv && text.contains([delimiter, q, '\n', '\r']) {
-                format!("{q}{}{q}", text.replace(q, &format!("{q}{q}")))
-            } else {
-                text
-            }
-        };
         let variables: Vec<Variable> = data.variables().collect();
-        let mut text = String::new();
-        let line = |values: Vec<String>, text: &mut String| {
-            let values: Vec<String> = values.into_iter().map(field).collect();
-            text.push_str(&values.join(&delimiter.to_string()));
-            text.push_str("\r\n");
-        };
-        if let Some(labels) = command.field_names {
-            let names = variables.iter().map(|v| match v.label() {
-                Some(label) if labels => label.to_string(),
-                _ => v.name().to_string(),
-            });
-            line(names.collect(), &mut text);
-        }
-        for case in 0..data.case_count() {
-            let values = variables.iter().map(|v| match out(v, case, command) {
-                Out::Blank => String::new(),
-                Out::Text(s) => s,
-                Out::Number(x) if command.print_formats => {
-                    let shown = format_value(x, &currencies.resolve(v.format()), true);
-                    let shown = shown.trim().to_string();
-                    let own_mark = is_date_time_or_currency(v.format())
-                        || ["COMMA", "DOLLAR", "DOT"].contains(&kind(v.format()).as_str());
-                    match comma && !own_mark {
-                        true => shown.replace('.', ","),
-                        false => shown,
-                    }
+        let encoder = Encoder::new(command.encoding.as_deref(), command.bom)?;
+        // the form of each variable's numbers, found once instead of for every cell
+        let forms: Vec<Form> = variables
+            .iter()
+            .map(|v| {
+                let kind = kind(v.format());
+                let own_mark = is_date_time_or_currency(v.format())
+                    || ["COMMA", "DOLLAR", "DOT"].contains(&kind.as_str());
+                Form {
+                    plain: PlainKind::of(&kind),
+                    own_mark,
+                    format: command
+                        .print_formats
+                        .then(|| currencies.resolve(v.format())),
                 }
-                Out::Number(x) => plain(x, v.format(), comma),
-            });
-            line(values.collect(), &mut text);
+            })
+            .collect();
+        // the file is written beside its name and renamed, so a failure leaves no half file
+        let mut part = path.as_os_str().to_owned();
+        part.push(format!(".{}.part", std::process::id()));
+        let part = std::path::PathBuf::from(part);
+        let result = (|| -> Result<(), String> {
+            let file = std::fs::File::create(&part).map_err(|e| e.to_string())?;
+            let mut file = std::io::BufWriter::new(file);
+            let mut bytes = encoder.start().to_vec();
+            let mut text = String::new();
+            let mut flush = |text: &mut String, bytes: &mut Vec<u8>, last: bool| {
+                if text.len() >= CHUNK || (last && !text.is_empty()) {
+                    encoder.push(text, bytes)?;
+                    text.clear();
+                }
+                if bytes.len() >= CHUNK || (last && !bytes.is_empty()) {
+                    file.write_all(bytes).map_err(|e| e.to_string())?;
+                    bytes.clear();
+                }
+                Ok::<(), String>(())
+            };
+            // one value after the text so far; a CSV value that holds the delimiter, the
+            // qualifier or a line break goes between qualifiers, the qualifier doubled
+            let field = |text: &mut String, start: usize| {
+                if csv && text[start..].contains([delimiter, q, '\n', '\r']) {
+                    let value = text.split_off(start);
+                    text.push(q);
+                    text.push_str(&value.replace(q, &format!("{q}{q}")));
+                    text.push(q);
+                }
+            };
+            if let Some(labels) = command.field_names {
+                for (k, v) in variables.iter().enumerate() {
+                    if k > 0 {
+                        text.push(delimiter);
+                    }
+                    let start = text.len();
+                    match v.label() {
+                        Some(label) if labels => text.push_str(label),
+                        _ => text.push_str(v.name()),
+                    }
+                    field(&mut text, start);
+                }
+                text.push_str("\r\n");
+            }
+            for case in 0..data.case_count() {
+                for (k, (v, form)) in variables.iter().zip(&forms).enumerate() {
+                    if k > 0 {
+                        text.push(delimiter);
+                    }
+                    let start = text.len();
+                    match out(v, case, command) {
+                        Out::Blank => {}
+                        Out::Text(s) => text.push_str(&s),
+                        Out::Number(x) => match &form.format {
+                            Some(format) => {
+                                let shown = format_value(x, format, true);
+                                let shown = shown.trim();
+                                match comma && !form.own_mark {
+                                    true => text.push_str(&shown.replace('.', ",")),
+                                    false => text.push_str(shown),
+                                }
+                            }
+                            None => form.plain.write(&mut text, x, comma),
+                        },
+                    }
+                    field(&mut text, start);
+                }
+                text.push_str("\r\n");
+                flush(&mut text, &mut bytes, false)?;
+            }
+            flush(&mut text, &mut bytes, true)?;
+            file.flush().map_err(|e| e.to_string())
+        })();
+        match result.and_then(|()| std::fs::rename(&part, path).map_err(|e| e.to_string())) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let _ = std::fs::remove_file(&part);
+                Err(e)
+            }
         }
-        let bytes = encode(&text, command.encoding.as_deref(), command.bom)?;
-        std::fs::write(path, bytes).map_err(|e| e.to_string())
     }
 
     fn write_workbook(
@@ -288,6 +413,18 @@ impl Engine {
         let mut book = Workbook::new();
         // one Format per Excel number format
         let mut formats: HashMap<String, Format> = HashMap::new();
+        // a number format that is no date, time or currency gives every cell of its variable the
+        // same Excel format (except no format at all, which depends on the value): found once
+        let plain: Vec<Option<Format>> = variables
+            .iter()
+            .map(|v| {
+                let format = currencies.resolve(v.format());
+                (!format.is_empty() && !is_date_time_or_currency(&format)).then(|| {
+                    let (_, code) = excel_number(&format, 0.0, "").expect("a plain format");
+                    Format::new().set_num_format(code)
+                })
+            })
+            .collect();
         let xe = |e: rust_xlsxwriter::XlsxError| e.to_string();
         for k in 0..sheets {
             let sheet = book.add_worksheet();
@@ -322,6 +459,12 @@ impl Engine {
                         }
                         Out::Text(s) => {
                             sheet.write_string(row, c, s).map_err(xe)?;
+                        }
+                        Out::Number(x) if plain[c as usize].is_some() => {
+                            let style = plain[c as usize].as_ref().expect("checked");
+                            sheet
+                                .write_number_with_format(row, c, x, style)
+                                .map_err(xe)?;
                         }
                         Out::Number(x) => {
                             let format = currencies.resolve(v.format());
