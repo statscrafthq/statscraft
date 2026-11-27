@@ -8,14 +8,18 @@
 //!
 //! Choices:
 //! - Text is written by the file's table: a character the format's character set has (the ASCII
-//!   letters, digits and marks of `CODES`) goes in as the byte the table gives it, and any other
-//!   character, a letter with an accent or a symbol, becomes `?` with a warning, as such a
-//!   character cannot be named in the file (the manual says only that characters without a match
-//!   are lost in translation, and that control characters become `0` with TYPE=COMM, which is
-//!   done always). Readers that follow the table, such as R's haven, read the text right;
-//!   anything else they would turn into a replacement character. Files made by earlier versions
-//!   hold UTF-8 bytes the table does not name; a byte the table does not name is still read as
-//!   itself, and text that is not valid UTF-8 is read as windows-1252.
+//!   letters, digits and marks of `CODES`, and the symbols of `SYMBOLS`: plus-minus, degree,
+//!   the superscript digits, the signs of order and difference, the dash, the bullet and a few
+//!   more) goes in as one byte, the one the table gives it, and any other character, a letter
+//!   with an accent for one, becomes `?` with a warning, as such a character cannot be named in
+//!   the file (the manual says only that characters without a match are lost in translation, and
+//!   that control characters become `0` with TYPE=COMM, which is done always). The symbols have
+//!   no ASCII character, so the table gives them bytes from 0x80 on. Readers that follow the
+//!   table, such as R's haven, read the text right; anything else they would turn into a
+//!   replacement character. The reader follows the table too: a byte that stands for a symbol
+//!   is that symbol, whatever byte the writer chose. Files made by earlier versions hold UTF-8
+//!   bytes the table does not name; a byte the table does not name is still read as itself, and
+//!   text that is not valid UTF-8 is read as windows-1252.
 //! - Numbers are written with the fewest base-30 digits (at most 12) that give back exactly the
 //!   same value, and read with exact arithmetic, so values survive a round trip unchanged.
 //! - Names become upper case and at most 8 bytes, unique as the manual shows (MYLONGRO,
@@ -44,10 +48,66 @@ const TAG: [u8; 8] = [92, 89, 92, 92, 89, 88, 91, 93];
 const CODES: &[u8; 125] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz \
 .<(+|&[]!$*);^-/0,%_>?`:#@'=\"000000~000000000000000000000{}\\00";
 
-/// The 256-byte table this writer puts in the file: ASCII for every code that has a character.
+/// The symbols the character set has besides ASCII, as (code, character), found by reading files
+/// with R's haven that name each free code in the table. The writer gives the n-th of them the
+/// file byte 0x80 + n.
+const SYMBOLS: [(u8, char); 27] = [
+    (156, '\u{2264}'),
+    (157, '\u{25a1}'),
+    (158, '\u{b1}'),
+    (159, '\u{25a0}'),
+    (160, '\u{b0}'),
+    (161, '\u{2020}'),
+    (163, '\u{2013}'),
+    (164, '\u{2514}'),
+    (165, '\u{250c}'),
+    (166, '\u{2265}'),
+    (167, '\u{2070}'),
+    (168, '\u{2071}'),
+    (169, '\u{b2}'),
+    (170, '\u{b3}'),
+    (171, '\u{2074}'),
+    (172, '\u{2075}'),
+    (173, '\u{2076}'),
+    (174, '\u{2077}'),
+    (175, '\u{2078}'),
+    (176, '\u{2079}'),
+    (177, '\u{2518}'),
+    (178, '\u{2510}'),
+    (179, '\u{2260}'),
+    (180, '\u{2014}'),
+    (183, '\u{2e38}'),
+    (187, '\u{a2}'),
+    (188, '\u{2022}'),
+];
+/// A second code of the vertical bar, which is ASCII: read, never written.
+const READ_ONLY: [(u8, char); 1] = [(143, '|')];
+
+/// The file byte the writer gives a symbol.
+fn symbol_byte(c: char) -> Option<u8> {
+    SYMBOLS
+        .iter()
+        .position(|&(_, s)| s == c)
+        .map(|n| 0x80 + n as u8)
+}
+
+/// The character of a code beyond ASCII, whatever byte a file gives it.
+fn symbol_of_code(code: usize) -> Option<char> {
+    SYMBOLS
+        .iter()
+        .chain(&READ_ONLY)
+        .find(|&&(c, _)| usize::from(c) == code)
+        .map(|&(_, s)| s)
+}
+
+/// The 256-byte table this writer puts in the file: ASCII for every code that has a character,
+/// and for the symbols a byte from 0x80 on.
 fn table() -> [u8; 256] {
     let mut table = [b'0'; 256];
     table[64..64 + CODES.len()].copy_from_slice(CODES);
+    for &(code, c) in &SYMBOLS {
+        table[usize::from(code)] = symbol_byte(c).expect("a symbol has a byte");
+    }
     table
 }
 
@@ -385,29 +445,36 @@ fn push_number(out: &mut Vec<u8>, x: f64, decimals: Option<u32>) {
     out.push(b'/');
 }
 
-/// A string field: the length, then the bytes, control characters replaced by `0`. An empty
-/// text is one blank, since GNU PSPP misreads a string of length 0.
+/// A string field: the length in characters, then a byte for each, control characters replaced
+/// by `0` and a symbol written as its byte in the table. The text has been through
+/// `portable_prefix`, so every other character is in ASCII. An empty text is one blank, since
+/// GNU PSPP misreads a string of length 0.
 fn push_string(out: &mut Vec<u8>, text: &str) {
     let text = if text.is_empty() { " " } else { text };
-    push_integer(out, text.len() as u64);
+    push_integer(out, text.chars().count() as u64);
     out.push(b'/');
-    out.extend(
-        text.bytes()
-            .map(|b| if b < 0x20 || b == 0x7f { b'0' } else { b }),
-    );
+    out.extend(text.chars().map(|c| match c {
+        c if c.is_ascii_control() => b'0',
+        c if c.is_ascii() => c as u8,
+        c => symbol_byte(c).unwrap_or(b'?'),
+    }));
 }
 
 /// The first `max` characters of the text as the file's character table can carry them, and how
 /// many of those had no code and became `?`: a character the format's character set has stays, a
 /// control character is left for `push_string` to turn into `0`, and any other character becomes
-/// `?`. Each written character is one byte, so `max` is a number of bytes in the file too.
+/// `?`. Each written character is one byte in the file, symbols too, so `max` is a number of
+/// bytes there as well.
 fn portable_prefix(text: &str, max: usize) -> (String, usize) {
     let mut replaced = 0;
     let text = text
         .chars()
         .take(max)
         .map(|c| {
-            if c.is_ascii_control() || (c.is_ascii() && CODES.contains(&(c as u8))) {
+            if c.is_ascii_control()
+                || (c.is_ascii() && CODES.contains(&(c as u8)))
+                || symbol_byte(c).is_some()
+            {
                 c
             } else {
                 replaced += 1;
@@ -497,7 +564,7 @@ impl Dataset {
             let width = width.min(MAX_STRING);
             // a letter the table has no code for is one `?`, so the text is made right first
             let s = fixed(s, width);
-            let blanks = " ".repeat(width - s.len());
+            let blanks = " ".repeat(width - s.chars().count());
             s + &blanks
         };
 
@@ -687,6 +754,9 @@ impl Dataset {
 
 struct Reader {
     bytes: Vec<u8>,
+    /// The stream positions that hold a symbol of the character set, in order, with the symbol;
+    /// the byte there is a placeholder. Rare, so a list is enough.
+    symbols: Vec<(usize, char)>,
     pos: usize,
 }
 
@@ -784,7 +854,22 @@ impl Reader {
 
     fn string(&mut self) -> Result<String, String> {
         let bytes = self.bytes()?;
-        Ok(decode(bytes))
+        // the string starts after its length and the slash
+        let first = self.pos - bytes.len();
+        let from = self.symbols.partition_point(|&(at, _)| at < first);
+        let inside = self.symbols[from..]
+            .iter()
+            .take_while(|&&(at, _)| at < self.pos);
+        let mut text = String::new();
+        let mut done = 0;
+        for &(at, symbol) in inside {
+            let at = at - first;
+            text.push_str(&decode(bytes[done..at].to_vec()));
+            text.push(symbol);
+            done = at + 1;
+        }
+        text.push_str(&decode(bytes[done..].to_vec()));
+        Ok(text)
     }
 
     fn value(&mut self, string: bool) -> Result<Option<Value>, String> {
@@ -846,18 +931,33 @@ fn parse(raw: &[u8]) -> Result<Dataset, String> {
     {
         return Err("not a portable file: its tag is missing".into());
     }
-    // the rest in ASCII; a byte the table does not name stays as it is
-    let bytes = stream[464..]
-        .iter()
-        .map(|&b| match code_of[usize::from(b)] {
+    // the rest in ASCII, one byte for each byte of the file: a symbol of the character set is
+    // noted with its position and a placeholder; a byte the table does not name stays as it is
+    let mut symbols = Vec::new();
+    let mut bytes = Vec::with_capacity(stream.len() - 464);
+    for (at, &b) in stream[464..].iter().enumerate() {
+        let code = code_of[usize::from(b)];
+        bytes.push(match code {
             Some(code) if code >= 64 && code - 64 < CODES.len() && CODES[code - 64] != b'0' => {
                 CODES[code - 64]
             }
             Some(64) => b'0',
-            _ => b,
-        })
-        .collect();
-    let mut r = Reader { bytes, pos: 0 };
+            Some(code) => match symbol_of_code(code) {
+                Some(c) if c.is_ascii() => c as u8,
+                Some(c) => {
+                    symbols.push((at, c));
+                    b'?'
+                }
+                None => b,
+            },
+            None => b,
+        });
+    }
+    let mut r = Reader {
+        bytes,
+        symbols,
+        pos: 0,
+    };
     if r.peek() != Some(b'A') {
         return r.fail("unknown version");
     }
@@ -1170,6 +1270,7 @@ mod tests {
     fn read_number(text: &str) -> Option<f64> {
         let mut r = Reader {
             bytes: text.as_bytes().to_vec(),
+            symbols: Vec::new(),
             pos: 0,
         };
         r.number().unwrap()
@@ -1219,6 +1320,7 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         let mut r = Reader {
             bytes: text.into_bytes(),
+            symbols: Vec::new(),
             pos: 0,
         };
         assert_eq!(r.number().unwrap(), Some(12.35));

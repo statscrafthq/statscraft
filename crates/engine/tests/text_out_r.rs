@@ -18,9 +18,10 @@
 //! data and its reading of the file agree with it. The file itself is not kept (it holds the
 //! format's marker word); a hash of its bytes, without the creation date and time and the product
 //! version, says it is the file haven read. Text goes in by the file's character table: a letter
-//! with an accent has no code in it and is written as ? with a warning, and haven reads the text as
-//! it stands (the UTF-8 bytes of earlier versions were not in the table, and haven made
-//! replacement characters of them).
+//! with an accent has no code in it and is written as ? with a warning, a symbol the character set
+//! has (plus-minus, degree, less-or-equal, the dagger) is written as its byte in the table, and
+//! haven reads the text as it stands (the UTF-8 bytes of earlier versions were not in the table,
+//! and haven made replacement characters of them).
 
 use statscraft_data::{Dataset, MissingValues, Value, Values};
 use statscraft_engine::Engine;
@@ -191,7 +192,7 @@ fn text_written_is_read_back_by_r() {
 const PORTABLE_FACTS: &[Var] = &[
     Var {
         name: r#"ID"#,
-        label: r#"Case id"#,
+        label: r#"Case id ≤ 6 †"#,
         format: r#"F3.0"#,
         labels: r#""#,
         missing: r#""#,
@@ -203,7 +204,7 @@ const PORTABLE_FACTS: &[Var] = &[
         format: r#"A14"#,
         labels: r#""#,
         missing: r#""#,
-        values: r#"Ann Lee|Smith, Bo|say "hi"|| lead #1 pad|Zo?; ?ie"#,
+        values: r#"Ann Lee|Smith, Bo|say "hi"|| lead #1 ±2°|Zo?; ?ie"#,
     },
     Var {
         name: r#"SCORE"#,
@@ -225,7 +226,7 @@ const PORTABLE_FACTS: &[Var] = &[
         name: r#"GRP"#,
         label: r#"Group"#,
         format: r#"F1.0"#,
-        labels: r#"1=low;2=high"#,
+        labels: r#"1=low;2=high ±1"#,
         missing: r#""#,
         values: r#"1 2 3 1 2 1"#,
     },
@@ -349,38 +350,42 @@ fn differences(data: &Dataset, facts: &[Var], what: &str) -> Vec<String> {
     out
 }
 
-/// The portable file: the same cases, with a # in one name. A letter outside ASCII has no code
-/// in the file's character table and is written as ?; a # has one.
+/// The portable file: the same cases, with a # and symbols in a name, a label and a value label.
+/// A letter outside ASCII has no code in the file's character table and is written as ?; a #
+/// and the symbols plus-minus, degree, less-or-equal and the dagger have one.
 fn portable_data() -> String {
-    DATA.replace(" lead pad", " lead #1 pad")
+    DATA.replace(" lead pad", " lead #1 \u{b1}2\u{b0}")
+        .replace("'Case id'", "'Case id \u{2264} 6 \u{2020}'")
+        .replace("2 'high'", "2 'high \u{b1}1'")
 }
 
 /// The bytes of a portable file as text without line breaks, and without the creation date and
 /// time and the product text with its version, which follow the marker at character 464.
-fn portable_normalized(bytes: &[u8]) -> String {
-    let text: String = String::from_utf8(bytes.to_vec())
-        .unwrap()
-        .chars()
-        .filter(|c| *c != '\n' && *c != '\r')
+fn portable_normalized(bytes: &[u8]) -> Vec<u8> {
+    // the file's symbols are bytes from 0x80 on, so this works on bytes
+    let text: Vec<u8> = bytes
+        .iter()
+        .copied()
+        .filter(|c| *c != b'\n' && *c != b'\r')
         .collect();
     let (head, rest) = text.split_at(464);
     // A8/yyyymmdd, 6/hhmmss, then 1 and a base 30 length and / and that many characters
-    let rest = rest.strip_prefix("A8/").unwrap()[8..]
-        .strip_prefix("6/")
+    let rest = rest.strip_prefix(b"A8/").unwrap()[8..]
+        .strip_prefix(b"6/")
         .unwrap()[6..]
-        .strip_prefix('1')
+        .strip_prefix(b"1")
         .unwrap();
     // the length is written in base 30, as many digits as it needs, up to the slash
-    let slash = rest.find('/').unwrap();
-    let length = rest[..slash]
-        .chars()
-        .fold(0, |sum, c| sum * 30 + c.to_digit(30).unwrap() as usize);
-    format!("{head}{}", &rest[slash + 1 + length..])
+    let slash = rest.iter().position(|&c| c == b'/').unwrap();
+    let length = rest[..slash].iter().fold(0, |sum, &c| {
+        sum * 30 + char::from(c).to_digit(30).unwrap() as usize
+    });
+    [head, &rest[slash + 1 + length..]].concat()
 }
 
-fn fnv(text: &str) -> u64 {
-    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+fn fnv(text: &[u8]) -> u64 {
+    text.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
     })
 }
 
@@ -439,7 +444,7 @@ fn the_portable_file_is_read_by_haven() {
             "Smith, Bo",
             "say \"hi\"",
             "",
-            " lead #1 pad",
+            " lead #1 \u{b1}2\u{b0}",
             "Zo\u{eb}; \u{d5}ie"
         ]
     );
@@ -465,4 +470,4 @@ fn the_portable_file_is_read_by_haven() {
 }
 
 /// The hash of the portable file as haven read it.
-const PORTABLE_HASH: u64 = 12175553612236538676;
+const PORTABLE_HASH: u64 = 6702505346293743288;
