@@ -107,6 +107,39 @@ pub(crate) fn inverse(a: &Matrix) -> Option<(Matrix, f64)> {
     Some((inv, det))
 }
 
+/// The inverse and determinant of a matrix whose rows have very different sizes, found on the
+/// matrix with each row and column divided by the root of its diagonal (so a variable measured in
+/// millions and one in millionths are judged by their correlation, not by their sizes); None when
+/// singular or when a diagonal element is 0.
+pub(crate) fn inverse_scaled(a: &Matrix) -> Option<(Matrix, f64)> {
+    let d: Vec<f64> = (0..a.len()).map(|i| a[i][i].abs().sqrt()).collect();
+    if d.iter().any(|v| *v == 0.0 || !v.is_finite()) {
+        return None;
+    }
+    let scaled: Matrix = a
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(j, v)| v / (d[i] * d[j]))
+                .collect()
+        })
+        .collect();
+    let (inv, det) = inverse(&scaled)?;
+    let inv = inv
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(j, v)| v / (d[i] * d[j]))
+                .collect()
+        })
+        .collect();
+    Some((inv, det * d.iter().map(|v| v * v).product::<f64>()))
+}
+
 /// The eigenvalues of a symmetric matrix in descending order, each with its unit eigenvector,
 /// by Jacobi rotations.
 pub(crate) fn symmetric_eigen(a: &Matrix) -> Vec<(f64, Vec<f64>)> {
