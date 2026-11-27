@@ -650,9 +650,15 @@ impl Engine {
                         )));
                     }
                     (Some(_), None) | (None, Some(_)) => {
+                        let (made, other) = if at(first).is_some() {
+                            (first, last)
+                        } else {
+                            (last, first)
+                        };
                         return Err(Error(format!(
-                            "LEAVE: {first} TO {last} must name variables that all exist, or \
-                             all are made by the commands before it"
+                            "LEAVE: {first} TO {last}: {made} is made by the commands before \
+                             LEAVE, so {other} must be made by them too (a TO list runs over \
+                             variables that exist, or over ones made in order)"
                         )));
                     }
                     (None, None) => {}

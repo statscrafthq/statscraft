@@ -243,8 +243,7 @@ fn leave_takes_a_to_list_of_variables_the_waiting_commands_create() {
         message.contains("must be made before the second"),
         "{message}"
     );
-    // a name that is only read is no creation: typo is not in the list, and the list ends
-    // where a3 is made
+    // the list ends where a3 is made, although a4 is made after it
     let mut session = self::session("1 2 3");
     run(
         &mut session,
@@ -257,9 +256,28 @@ fn leave_takes_a_to_list_of_variables_the_waiting_commands_create() {
     let mut session = self::session("1 2 3");
     let message = error(&mut session, "COMPUTE n1 = n1 + x.\nLEAVE y TO n1.");
     assert!(
-        message.contains("must name variables that all exist"),
+        message.contains("n1 is made by the commands before LEAVE"),
         "{message}"
     );
+    // the unknown end is the one named
+    let mut session = self::session("1 2 3");
+    let message = error(&mut session, "COMPUTE n1 = n1 + x.\nLEAVE n1 TO tyop.");
+    assert!(
+        message.contains("so tyop must be made by them too"),
+        "{message}"
+    );
+    // variables made inside DO IF and LOOP, with the names in another case
+    let mut session = self::session("1 2 3\n-1 5 6");
+    run(
+        &mut session,
+        "DO IF x > 0.\nCOMPUTE t1 = t1 + x.\nCOMPUTE t2 = t2 + y.\nEND IF.\n\
+         LOOP #i = 1 TO 2.\nCOMPUTE u1 = u1 + 1.\nCOMPUTE u2 = u2 + #i.\nEND LOOP.\n\
+         LEAVE T1 TO t2.\nLEAVE u1 TO U2.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "t2"), "2 2");
+    assert_eq!(show(data, "u1"), "2 4");
+    assert_eq!(show(data, "u2"), "3 6");
     // LEAVE inside an input program, with variables declared there
     let mut session = self::session("1 2 3");
     run(
