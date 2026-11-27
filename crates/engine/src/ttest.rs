@@ -31,6 +31,8 @@ use statscraft_syntax::{Standardizer, TTest, TTestGroups, Value};
 struct Moments {
     w: f64,
     mean: f64,
+    /// The sum of squares about the mean, which a group of one case still has (as 0).
+    squares: f64,
     variance: f64,
 }
 
@@ -41,7 +43,23 @@ fn moments(pairs: &[(f64, f64)]) -> Moments {
     Moments {
         w,
         mean,
-        variance: squares / (w - 1.0),
+        squares,
+        // a group of weight 1 or less has no spread (an empty one would print 0)
+        variance: if w > 1.0 {
+            squares / (w - 1.0)
+        } else {
+            f64::NAN
+        },
+    }
+}
+
+/// The standard deviation of a variance that rounding left a hair below 0; NaN stays NaN (the
+/// differences of a single pair have no spread), which `max` would turn into 0.
+fn spread(variance: f64) -> f64 {
+    if variance.is_nan() {
+        variance
+    } else {
+        variance.max(0.0).sqrt()
     }
 }
 
@@ -544,13 +562,19 @@ fn independent(
             .sum();
         let levene = (w - 2.0) * spread / inside;
         let levene_p = crate::dist::f_p(levene, 1.0, w - 2.0);
-        let pooled = ((m[0].w - 1.0) * m[0].variance + (m[1].w - 1.0) * m[1].variance) / (w - 2.0);
-        let pooled_se = (pooled * (1.0 / m[0].w + 1.0 / m[1].w)).sqrt();
+        let empty = m[0].w == 0.0 || m[1].w == 0.0;
+        let pooled = (m[0].squares + m[1].squares) / (w - 2.0);
+        let pooled_se = if empty {
+            f64::NAN
+        } else {
+            (pooled * (1.0 / m[0].w + 1.0 / m[1].w)).sqrt()
+        };
         let separate = [m[0].variance / m[0].w, m[1].variance / m[1].w];
         let separate_se = (separate[0] + separate[1]).sqrt();
         let share = |g: usize| (separate[g] / (separate[0] + separate[1])).powi(2) / (m[g].w - 1.0);
         let welch_df = 1.0 / (share(0) + share(1));
-        for (row, (se, df)) in [(pooled_se, w - 2.0), (separate_se, welch_df)]
+        let pooled_df = if empty { f64::NAN } else { w - 2.0 };
+        for (row, (se, df)) in [(pooled_se, pooled_df), (separate_se, welch_df)]
             .into_iter()
             .enumerate()
         {
@@ -584,8 +608,11 @@ fn independent(
             let r = [0, 1].map(|g| moments(&run.pairs(variable, &cases[g], true)));
             let d = r[0].mean - r[1].mean;
             let df = r[0].w + r[1].w - 2.0;
-            let sp =
-                (((r[0].w - 1.0) * r[0].variance + (r[1].w - 1.0) * r[1].variance) / df).sqrt();
+            let sp = if r[0].w == 0.0 || r[1].w == 0.0 {
+                f64::NAN
+            } else {
+                ((r[0].squares + r[1].squares) / df).sqrt()
+            };
             let tilde = 1.0 / (1.0 / r[0].w + 1.0 / r[1].w);
             let t = d / (sp / tilde.sqrt());
             let limits = noncentral_limits(t, df, run.alpha, tilde.sqrt());
@@ -710,7 +737,7 @@ fn paired(run: &mut Run, command: &TTest, pairs: &[(Variable, Variable)]) -> Vec
             number(Some(t_p(tr, w - 2.0))),
         ]);
         let d = mx.mean - my.mean;
-        let sd = (mx.variance + my.variance - 2.0 * sxy).max(0.0).sqrt();
+        let sd = spread(mx.variance + my.variance - 2.0 * sxy);
         let se = sd / w.sqrt();
         let t = d / se;
         let df = w - 1.0;
@@ -735,7 +762,7 @@ fn paired(run: &mut Run, command: &TTest, pairs: &[(Variable, Variable)]) -> Vec
             let (rx, ry, rxy) = summary(true);
             let w = rx.w;
             let d = rx.mean - ry.mean;
-            let sd = (rx.variance + ry.variance - 2.0 * rxy).max(0.0).sqrt();
+            let sd = spread(rx.variance + ry.variance - 2.0 * rxy);
             let r = rxy / (rx.sd() * ry.sd());
             let j = hedges_j(2.0 * w - 2.0);
             let rows = match command.standardizer {

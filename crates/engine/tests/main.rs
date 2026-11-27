@@ -58,6 +58,7 @@ mod discriminant_r;
 mod distributions_r;
 mod dm_aliases;
 mod edge_basic_r;
+mod edge_means_r;
 mod engine;
 mod examine;
 mod examine_normality_r;
