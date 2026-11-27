@@ -774,7 +774,14 @@ pub(crate) fn cmh(strata: &[[f64; 4]], null_odds: f64) -> Cmh {
 /// the second column, each as value, lower and upper 95% limit.
 pub(crate) fn risk(f: &[Vec<f64>]) -> [(f64, f64, f64); 3] {
     let z = crate::dist::normal_quantile(0.975);
-    let interval = |value: f64, v: f64| (value, value * (-z * v).exp(), value * (z * v).exp());
+    // a zero cell leaves the standard error without an end: no interval
+    let interval = |value: f64, v: f64| {
+        if v.is_finite() {
+            (value, value * (-z * v).exp(), value * (z * v).exp())
+        } else {
+            (value, f64::NAN, f64::NAN)
+        }
+    };
     let (a, b, c, d) = (f[0][0], f[0][1], f[1][0], f[1][1]);
     let odds = interval(
         a * d / (b * c),
