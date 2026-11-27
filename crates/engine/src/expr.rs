@@ -334,6 +334,16 @@ fn map_text(values: Vec<String>, f: impl Fn(&str) -> String) -> Column {
     Column::String(values.iter().map(|v| f(v)).collect())
 }
 
+/// A letter's case mapping when it is one letter (the simple mapping, as a C library's towupper
+/// gives it); a letter that would become two or more (ß, the fi ligature, a dotted capital I)
+/// stays as it is, so a text keeps its length in characters.
+fn one_to_one(mut mapped: impl Iterator<Item = char>, letter: char) -> char {
+    match (mapped.next(), mapped.next()) {
+        (Some(one), None) => one,
+        _ => letter,
+    }
+}
+
 /// How an operand is named in a type error.
 fn describe(expr: &Expr) -> String {
     match expr {
@@ -1210,8 +1220,12 @@ impl Evaluator<'_> {
                 let length = |v: &String| Some(v.trim_end_matches(' ').chars().count() as f64);
                 Column::Number(text(0)?.iter().map(length).collect())
             }
-            ("UPCASE", 1) => map_text(text(0)?, str::to_uppercase),
-            ("LOWER", 1) => map_text(text(0)?, str::to_lowercase),
+            ("UPCASE", 1) => map_text(text(0)?, |v| {
+                v.chars().map(|c| one_to_one(c.to_uppercase(), c)).collect()
+            }),
+            ("LOWER", 1) => map_text(text(0)?, |v| {
+                v.chars().map(|c| one_to_one(c.to_lowercase(), c)).collect()
+            }),
             ("LTRIM", 1) => map_text(text(0)?, |v| v.trim_start_matches(' ').to_string()),
             ("RTRIM", 1) => map_text(text(0)?, |v| v.trim_end_matches(' ').to_string()),
             ("LTRIM" | "RTRIM", 2) => {
