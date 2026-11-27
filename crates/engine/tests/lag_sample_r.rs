@@ -403,10 +403,60 @@ fn sampling_follows_the_rules_of_the_manual() {
 
 #[test]
 fn n_of_cases_gives_the_same_cases_whichever_comes_first() {
+    // the manual says the order makes no difference: the same seed gives the same cases either way
     for seed in [3, 99] {
         let one = sampled(seed, "N OF CASES 7.\nSAMPLE 20 FROM 100.").unwrap();
         let two = sampled(seed, "SAMPLE 20 FROM 100.\nN OF CASES 7.").unwrap();
         assert_eq!(one.len(), 7);
         assert_eq!(one, two, "seed {seed}");
     }
+}
+
+/// The N that DESCRIPTIVES of `id` shows after the commands, and the cases left in the file.
+fn procedure_n(setup: &str, command: &str) -> (f64, usize) {
+    let source = format!("{setup}{command}");
+    let (commands, errors) = parse(&source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut shown = None;
+    for command in &commands {
+        let tables = engine.execute(&command.command).unwrap();
+        if let Some(table) = tables
+            .into_iter()
+            .find(|t| t.columns.iter().any(|c| c == "N"))
+        {
+            shown = Some(table);
+        }
+    }
+    let table = shown.unwrap();
+    let at = table.columns.iter().position(|c| c == "N").unwrap();
+    let n = match &table.rows[0][at] {
+        statscraft_engine::Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    (n, engine.dataset().unwrap().case_count())
+}
+
+#[test]
+fn a_temporary_limit_or_sample_shows_in_the_procedure_and_leaves_the_file_whole() {
+    let ids = "INPUT PROGRAM.\nLOOP #i = 1 TO 2000.\nCOMPUTE id = #i.\nEND CASE.\nEND LOOP.\nEND FILE.\n\
+               END INPUT PROGRAM.\nSET SEED=5.\n";
+    // the file is whole after the procedure
+    assert_eq!(
+        procedure_n(DATA, "TEMPORARY.\nN OF CASES 4.\nDESCRIPTIVES id."),
+        (4.0, 14)
+    );
+    assert_eq!(
+        procedure_n(ids, "TEMPORARY.\nSAMPLE 10 FROM 100.\nDESCRIPTIVES id."),
+        (10.0, 2000)
+    );
+    // a permanent limit and sample stay
+    assert_eq!(
+        procedure_n(DATA, "N OF CASES 4.\nDESCRIPTIVES id."),
+        (4.0, 4)
+    );
+    assert_eq!(
+        procedure_n(ids, "SAMPLE 10 FROM 100.\nDESCRIPTIVES id."),
+        (10.0, 10)
+    );
 }
