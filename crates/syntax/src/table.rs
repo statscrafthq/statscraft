@@ -4930,10 +4930,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Correlated Data Summary, and WORKINGCORR (used only here) the working correlation matrix. (LR) gives\n\
                  generalized score chi-squares. SAVE gives no leverage, deviance-based or standardized residuals, or\n\
                  Cook's distance.\n\
-                 With the ordinal MULTINOMIAL distribution REPEATED takes CORRTYPE=INDEPENDENT only: the estimates\n\
-                 are those of the model without REPEATED, the covariance is the inverse of the expected\n\
-                 information (COVB=MODEL) or the sandwich over the subjects (ROBUST), and the Wald tests, not the\n\
-                 omnibus test, goodness of fit or (LR), are given.\n\
+                 With the ordinal MULTINOMIAL distribution REPEATED takes every CORRTYPE but FIXED. INDEPENDENT gives\n\
+                 the estimates of the model without REPEATED, the covariance is the inverse of the expected\n\
+                 information (COVB=MODEL) or the sandwich over the subjects (ROBUST). EXCHANGEABLE, AR(1),\n\
+                 MDEPENDENT(m) and UNSTRUCTURED estimate a matrix of association between the residuals of each pair\n\
+                 of the first categories at two measurements, from the Pearson-like residuals, and solve the\n\
+                 estimating equations by iteration; a subject whose working matrix is not positive definite is moved\n\
+                 toward the identity and a warning counts them. WORKINGCORR shows those association matrices. The\n\
+                 Wald tests, not the omnibus test, goodness of fit or (LR), are given.\n\
                  LAGRANGE tests a fixed scale (NORMAL, GAMMA or IGAUSS) or a fixed NEGBIN k with 1 df; for k = 0 it\n\
                  gives the z of the dispersion regression. HISTORY(n) lists every n-th iteration and the last, then\n\
                  the final gradient and Hessian. GEF shows the general estimable function and LMATRIX the L' matrix\n\
