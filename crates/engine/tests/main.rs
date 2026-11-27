@@ -197,6 +197,7 @@ mod verify;
 mod weights_r;
 mod workbook;
 mod xgraph;
+mod xlsx_r;
 
 /// A test file left out of this list or of reference_main.rs would never be built.
 #[test]
