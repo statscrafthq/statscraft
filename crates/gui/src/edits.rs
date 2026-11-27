@@ -1061,6 +1061,7 @@ mod tests {
         assert_eq!(syntax, "ALTER TYPE plan (A20) /PRINT=NONE.");
         // an edit leaves no table in the output, only the change
         let run = session.run(&syntax, None).unwrap();
+        assert!(!run.commands.is_empty());
         assert!(run.commands.iter().all(|c| c.tables.is_empty()));
         with(&session, "plan", |v| assert_eq!(v.string_width(), Some(20)));
         d = choice(&session, "plan");
@@ -1077,6 +1078,7 @@ mod tests {
         assert_eq!(syntax, "ALTER TYPE plan (F20) /PRINT=NONE.");
         // an edit leaves no table in the output, only the change
         let run = session.run(&syntax, None).unwrap();
+        assert!(!run.commands.is_empty());
         assert!(run.commands.iter().all(|c| c.tables.is_empty()));
         with(&session, "plan", |v| assert!(!v.is_string()));
         let mut d = choice(&session, "q1_satisfaction");
@@ -1086,6 +1088,7 @@ mod tests {
         assert_eq!(syntax, "ALTER TYPE q1_satisfaction (A2) /PRINT=NONE.");
         // an edit leaves no table in the output, only the change
         let run = session.run(&syntax, None).unwrap();
+        assert!(!run.commands.is_empty());
         assert!(run.commands.iter().all(|c| c.tables.is_empty()));
         with(&session, "q1_satisfaction", |v| assert!(v.is_string()));
 
