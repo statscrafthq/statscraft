@@ -102,21 +102,26 @@ pub(crate) fn statistic(function: F, cells: &[(f64, f64)]) -> Option<f64> {
     let result = match function {
         F::Sum => (!cells.is_empty()).then_some(sum),
         F::Mean => (total > 0.0).then(|| sum / total),
-        F::Sd => (total > 1.0).then(|| {
-            // the mean is updated case by case: equal values then give exactly 0, where
-            // subtracting a mean computed from the sums leaves rounding noise
-            let (mut seen, mut mean, mut squares) = (0.0, 0.0, 0.0);
-            for &(x, w) in cells.iter().filter(|(_, w)| *w > 0.0) {
-                seen += w;
-                let delta = x - mean;
-                mean += delta * (w / seen);
-                squares += w * delta * (x - mean);
-            }
-            (squares / (total - 1.0)).sqrt()
-        }),
+        F::Sd => (total > 1.0).then(|| (shifted_squares(cells, 2) / (total - 1.0)).sqrt()),
         _ => median(cells),
     };
     result.filter(|value| value.is_finite())
+}
+
+/// The sum of w (x - mean)^power of the valid pairs, with the deviations taken from the first
+/// value and then from the mean of those: values far from 0 and close together (1000000000.25
+/// and the like) keep every digit, equal values give exactly 0, and the mean is never rounded
+/// at the size of the values.
+pub(crate) fn shifted_squares(cells: &[(f64, f64)], power: i32) -> f64 {
+    let kept = || cells.iter().filter(|(_, w)| *w > 0.0);
+    let Some(&(shift, _)) = kept().next() else {
+        return 0.0;
+    };
+    let total: f64 = kept().map(|(_, w)| w).sum();
+    let mean = kept().map(|(x, w)| w * (x - shift)).sum::<f64>() / total;
+    kept()
+        .map(|(x, w)| w * ((x - shift) - mean).powi(power))
+        .sum()
 }
 
 /// The weighted median: the value at position (W + 1) / 2 of the cumulated weights,

@@ -41,15 +41,10 @@ pub(crate) fn summarize(cells: &[(f64, f64)]) -> Summary {
     let w: f64 = cells.iter().map(|(_, w)| w).sum();
     let mean = statistic(F::Mean, cells);
     let sd = statistic(F::Sd, cells);
-    let moment = |power: i32| {
-        let mean = mean.unwrap_or(0.0);
-        cells
-            .iter()
-            .map(|(x, w)| w * (x - mean).powi(power))
-            .sum::<f64>()
-    };
-    // without spread neither skewness nor kurtosis nor their standard errors are computed
-    let spread = sd.filter(|sd| sd * sd >= 1e-20);
+    let moment = |power: i32| crate::aggregate::shifted_squares(cells, power);
+    // without spread neither skewness nor kurtosis nor their standard errors are computed; the
+    // spread of equal values is exactly 0, whatever the size of the values
+    let spread = sd.filter(|sd| *sd > 0.0);
     let se_skewness = spread
         .filter(|_| w > 2.0)
         .map(|_| (6.0 * w * (w - 1.0) / ((w - 2.0) * (w + 1.0) * (w + 3.0))).sqrt());

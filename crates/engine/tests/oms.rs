@@ -90,7 +90,7 @@ fn frequencies_and_descriptives_tables_become_data_files() {
     assert_eq!(
         desc_cases,
         [
-            "Command_=DESCRIPTIVES Subtype_=Descriptive Statistics Label_=Descriptive Statistics TableNumber_=1 Var1=score Var2= N=5 Mean=2.6 StdDev=1.51657508881031 Minimum=1 Maximum=5",
+            "Command_=DESCRIPTIVES Subtype_=Descriptive Statistics Label_=Descriptive Statistics TableNumber_=1 Var1=score Var2= N=5 Mean=2.6 StdDev=1.5165750888103102 Minimum=1 Maximum=5",
             "Command_=DESCRIPTIVES Subtype_=Descriptive Statistics Label_=Descriptive Statistics TableNumber_=1 Var1=Valid N (listwise) Var2= N=5 Mean=. StdDev=. Minimum=. Maximum=.",
             "Command_=DESCRIPTIVES Subtype_=Descriptive Statistics Label_=Descriptive Statistics TableNumber_=1 Var1=Missing N (listwise) Var2= N=0 Mean=. StdDev=. Minimum=. Maximum=.",
         ]
@@ -303,7 +303,7 @@ fn columns_pivot_the_file_and_the_log_records_start_and_end() {
             format!("{start} Var2=N score=5 grp=5 ValidNlistwise=5 MissingNlistwise=0"),
             format!("{start} Var2=Mean score=2.6 grp=1.4 ValidNlistwise=. MissingNlistwise=."),
             format!(
-                "{start} Var2=Std Dev score=1.51657508881031 grp=0.5477225575051661 ValidNlistwise=. MissingNlistwise=."
+                "{start} Var2=Std Dev score=1.5165750888103102 grp=0.5477225575051662 ValidNlistwise=. MissingNlistwise=."
             ),
             format!("{start} Var2=Minimum score=1 grp=1 ValidNlistwise=. MissingNlistwise=."),
             format!("{start} Var2=Maximum score=5 grp=2 ValidNlistwise=. MissingNlistwise=."),
