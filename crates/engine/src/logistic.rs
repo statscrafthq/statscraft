@@ -161,14 +161,111 @@ fn information(design: &Design, cols: &[usize], constant: bool, b: &[f64]) -> (M
     (info, score)
 }
 
+/// The columns of a fit centred (when there is a constant) and scaled to unit spread, so that
+/// the information matrix is well conditioned whatever the size of the values: Newton's steps
+/// are the same in either parameterisation, only the rounding differs. `back` maps the
+/// coefficients of the scaled columns to those of the original ones.
+struct Rescale {
+    /// The matrix T with b = T beta.
+    back: Matrix,
+}
+
+impl Rescale {
+    fn new(design: &Design, cols: &[usize], constant: bool) -> (Rescale, Design) {
+        let p = cols.len() + usize::from(constant);
+        let offset = usize::from(constant);
+        let weights: Vec<(usize, f64)> = (0..design.x.len())
+            .filter(|&i| design.fitted(i))
+            .map(|i| (i, design.c[i]))
+            .collect();
+        let total: f64 = weights.iter().map(|(_, w)| w).sum();
+        let mut back: Matrix = (0..p)
+            .map(|r| (0..p).map(|c| f64::from(u8::from(r == c))).collect())
+            .collect();
+        let mut scaled = Design {
+            case: design.case.clone(),
+            x: design.x.clone(),
+            y: design.y.clone(),
+            c: design.c.clone(),
+            sel: design.sel.clone(),
+            names: design.names.clone(),
+        };
+        for (k, &col) in cols.iter().enumerate() {
+            let Some(&(first, _)) = weights.first() else {
+                break;
+            };
+            let origin = design.x[first][col];
+            let mean = if constant {
+                origin
+                    + weights
+                        .iter()
+                        .map(|&(i, w)| w * (design.x[i][col] - origin))
+                        .sum::<f64>()
+                        / total
+            } else {
+                0.0
+            };
+            let squares: f64 = weights
+                .iter()
+                .map(|&(i, w)| w * (design.x[i][col] - mean).powi(2))
+                .sum();
+            let spread = (squares / total).sqrt();
+            let spread = if spread.is_finite() && spread > 0.0 {
+                spread
+            } else {
+                1.0
+            };
+            for row in &mut scaled.x {
+                row[col] = (row[col] - mean) / spread;
+            }
+            // eta = (b0 + b_k m_k) + b_k s_k z: b_k = beta_k / s_k, b0 = beta0 - sum b_k m_k
+            back[offset + k][offset + k] = 1.0 / spread;
+            if constant {
+                back[0][offset + k] = -mean / spread;
+            }
+        }
+        (Rescale { back }, scaled)
+    }
+
+    fn vector(&self, beta: &[f64]) -> Vec<f64> {
+        self.back
+            .iter()
+            .map(|row| row.iter().zip(beta).map(|(t, b)| t * b).sum())
+            .collect()
+    }
+
+    fn covariance(&self, cov: &Matrix) -> Matrix {
+        let p = cov.len();
+        let left: Matrix = self
+            .back
+            .iter()
+            .map(|row| {
+                (0..p)
+                    .map(|c| (0..p).map(|k| row[k] * cov[k][c]).sum())
+                    .collect()
+            })
+            .collect();
+        left.iter()
+            .map(|row| {
+                self.back
+                    .iter()
+                    .map(|other| row.iter().zip(other).map(|(a, b)| a * b).sum())
+                    .collect()
+            })
+            .collect()
+    }
+}
+
 fn fit(design: &Design, cols: &[usize], constant: bool, criteria: &LogisticCriteria) -> Fit {
     let p = cols.len() + usize::from(constant);
-    let mut b = vec![0.0; p];
-    let mut ll = design.log_likelihood(cols, constant, &b);
+    let (rescale, scaled) = Rescale::new(design, cols, constant);
+    let design = &scaled;
+    let mut beta = vec![0.0; p];
+    let mut ll = design.log_likelihood(cols, constant, &beta);
     let mut history = Vec::new();
     let mut note = String::new();
     for iteration in 1..=criteria.iterate {
-        let (info, score) = information(design, cols, constant, &b);
+        let (info, score) = information(design, cols, constant, &beta);
         let Some((inv, _)) = inverse(&info) else {
             note = format!(
                 "Estimation terminated at iteration number {iteration} because the information matrix is singular."
@@ -178,14 +275,14 @@ fn fit(design: &Design, cols: &[usize], constant: bool, criteria: &LogisticCrite
         let delta: Vec<f64> = (0..p)
             .map(|r| (0..p).map(|s| inv[r][s] * score[s]).sum())
             .collect();
-        for (b, d) in b.iter_mut().zip(&delta) {
+        for (b, d) in beta.iter_mut().zip(&delta) {
             *b += d;
         }
         let previous = ll;
-        ll = design.log_likelihood(cols, constant, &b);
-        history.push((-2.0 * ll, b.clone()));
+        ll = design.log_likelihood(cols, constant, &beta);
+        history.push((-2.0 * ll, rescale.vector(&beta)));
         let all_certain = (0..design.x.len()).filter(|&i| design.fitted(i)).all(|i| {
-            let pi = logistic(design.eta(i, cols, constant, &b));
+            let pi = logistic(design.eta(i, cols, constant, &beta));
             pi * (1.0 - pi) < 1e-8
         });
         if all_certain {
@@ -194,7 +291,11 @@ fn fit(design: &Design, cols: &[usize], constant: bool, criteria: &LogisticCrite
             );
             break;
         }
-        if delta.iter().all(|d| d.abs() < criteria.bcon) {
+        if rescale
+            .vector(&delta)
+            .iter()
+            .all(|d| d.abs() < criteria.bcon)
+        {
             note = format!(
                 "Estimation terminated at iteration number {iteration} because parameter estimates changed by less than {}.",
                 criteria.bcon
@@ -214,12 +315,15 @@ fn fit(design: &Design, cols: &[usize], constant: bool, criteria: &LogisticCrite
             );
         }
     }
-    let (info, _) = information(design, cols, constant, &b);
-    let cov = inverse(&info).map_or_else(|| vec![vec![f64::NAN; p]; p], |(inv, _)| inv);
+    let (info, _) = information(design, cols, constant, &beta);
+    let cov = inverse(&info).map_or_else(
+        || vec![vec![f64::NAN; p]; p],
+        |(inv, _)| rescale.covariance(&inv),
+    );
     Fit {
         cols: cols.to_vec(),
         constant,
-        b,
+        b: rescale.vector(&beta),
         cov,
         ll,
         history,
