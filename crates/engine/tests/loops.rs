@@ -239,5 +239,36 @@ fn leave_takes_a_to_list_of_variables_the_waiting_commands_create() {
         &mut session,
         "COMPUTE b1 = b1 + x.\nCOMPUTE b2 = b2 + y.\nLEAVE b2 TO b1.",
     );
-    assert!(message.contains("must come before the second"), "{message}");
+    assert!(
+        message.contains("must be made before the second"),
+        "{message}"
+    );
+    // a name that is only read is no creation: typo is not in the list, and the list ends
+    // where a3 is made
+    let mut session = self::session("1 2 3");
+    run(
+        &mut session,
+        "COMPUTE a1 = a1 + x.\nCOMPUTE a2 = a2 + y.\nCOMPUTE a3 = a3 + z.\nCOMPUTE a4 = a4 + 1.\n\
+         LEAVE a2 TO a3.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "a3"), "3");
+    // one end made and one that exists is refused
+    let mut session = self::session("1 2 3");
+    let message = error(&mut session, "COMPUTE n1 = n1 + x.\nLEAVE y TO n1.");
+    assert!(
+        message.contains("must name variables that all exist"),
+        "{message}"
+    );
+    // LEAVE inside an input program, with variables declared there
+    let mut session = self::session("1 2 3");
+    run(
+        &mut session,
+        "NEW FILE.\nINPUT PROGRAM.\nNUMERIC t1 t2.\nLEAVE t1 TO t2.\nLOOP #i = 1 TO 3.\n\
+         COMPUTE t1 = t1 + #i.\nCOMPUTE t2 = t2 + 1.\nEND CASE.\nEND LOOP.\nEND FILE.\n\
+         END INPUT PROGRAM.\nEXECUTE.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "t1"), "1 3 6");
+    assert_eq!(show(data, "t2"), "1 2 3");
 }

@@ -306,18 +306,45 @@ impl Engine {
         })
     }
 
-    /// The variables the commands since the last data pass will create, oldest first:
-    /// ordered by first mention, since a command names its target first.
+    /// The variables the commands since the last data pass will create, in the order they are
+    /// made: the targets of COMPUTE, IF and COUNT, the names declared by STRING and NUMERIC
+    /// and the new variables of RECODE. A name that is only read is no creation.
     pub(crate) fn new_since_pass(&self) -> Vec<String> {
+        use statscraft_syntax::{Command, VarItem};
         let Some(clean) = self.clean.as_ref() else {
             return Vec::new();
         };
-        let refs = crate::rows::Refs::of(&clean.commands);
+        let mut made: Vec<String> = Vec::new();
+        for command in &clean.commands {
+            match command {
+                Command::Compute { target, .. } | Command::If { target, .. } => {
+                    made.push(target.clone());
+                }
+                Command::Count(counts) => made.extend(counts.iter().map(|c| c.target.clone())),
+                Command::String(groups) => made.extend(groups.iter().flat_map(|(n, _)| n.clone())),
+                Command::Numeric(groups) => {
+                    made.extend(groups.iter().flat_map(|(n, _)| n.clone()));
+                }
+                Command::Recode(groups) => {
+                    for group in groups {
+                        for item in &group.into {
+                            if let VarItem::Name(name) = item {
+                                made.push(name.clone());
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         let mut out: Vec<String> = Vec::new();
-        for name in refs.names {
-            let known = self
-                .active()
-                .is_ok_and(|d| d.variable_index(&name).is_some());
+        for name in made {
+            // new means not in the data as they were when the waiting commands began (the data
+            // in hand may have run some of them already)
+            let known = clean
+                .dataset
+                .as_ref()
+                .is_some_and(|d| d.variable_index(&name).is_some());
             if !known && !out.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
                 out.push(name);
             }

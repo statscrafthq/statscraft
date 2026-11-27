@@ -631,23 +631,31 @@ impl Engine {
                 names.push(name.clone());
                 continue;
             }
-            // a TO list of variables the waiting transformations create: in order of creation
+            // a TO list of variables the waiting transformations create: in the order they are
+            // made, and both ends must be among them
             if let VarItem::Range(first, last) = item
                 && self.input.is_none()
-                && self.defined_since_pass(first)
-                && self.defined_since_pass(last)
             {
                 let new = self.new_since_pass();
                 let at = |name: &String| new.iter().position(|n| n.eq_ignore_ascii_case(name));
-                if let (Some(a), Some(b)) = (at(first), at(last)) {
-                    if a > b {
+                match (at(first), at(last)) {
+                    (Some(a), Some(b)) if a <= b => {
+                        names.extend(new[a..=b].iter().cloned());
+                        continue;
+                    }
+                    (Some(_), Some(_)) => {
                         return Err(Error(format!(
-                            "in a TO list the first variable must come before the second in the \
-                             file ({first} TO {last})"
+                            "LEAVE: in a TO list the first variable must be made before the \
+                             second ({first} TO {last})"
                         )));
                     }
-                    names.extend(new[a..=b].iter().cloned());
-                    continue;
+                    (Some(_), None) | (None, Some(_)) => {
+                        return Err(Error(format!(
+                            "LEAVE: {first} TO {last} must name variables that all exist, or \
+                             all are made by the commands before it"
+                        )));
+                    }
+                    (None, None) => {}
                 }
             }
             names.extend(self.expand(std::slice::from_ref(item)).map_err(|e| {
