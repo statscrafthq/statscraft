@@ -176,6 +176,41 @@ pub(crate) fn ginverse(a: &Matrix, eps: f64) -> (Matrix, usize) {
     (out, swept.iter().filter(|&&s| s).count())
 }
 
+/// `ginverse` of a symmetric matrix whose rows differ greatly in size, found on the matrix with
+/// each row and column divided by the root of its diagonal (a row with a diagonal that is not
+/// positive stays out, as there): a pivot is then judged against its own variable, not against the
+/// largest element of the matrix.
+pub(crate) fn ginverse_scaled(a: &Matrix, eps: f64) -> (Matrix, usize) {
+    let d: Vec<f64> = (0..a.len())
+        .map(|i| {
+            let v = a[i][i].abs().sqrt();
+            if v > 0.0 && v.is_finite() { v } else { 1.0 }
+        })
+        .collect();
+    let scaled: Matrix = a
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(j, v)| v / (d[i] * d[j]))
+                .collect()
+        })
+        .collect();
+    let (g, rank) = ginverse(&scaled, eps);
+    let out = g
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(j, v)| v / (d[i] * d[j]))
+                .collect()
+        })
+        .collect();
+    (out, rank)
+}
+
 /// Sets the columns of each effect (the level combinations that occur) and returns the design
 /// row of every case.
 pub(crate) fn design(data: &Data, effects: &mut [Effect]) -> Vec<Vec<f64>> {

@@ -65,9 +65,9 @@ use crate::dist::{chi_square_p, f_p, t_p, t_quantile};
 use crate::genlin::value_matches;
 use crate::glm::{
     Data, Fit, Part, combinations, covariate_note, covariate_values, effects_of, emmeans_l,
-    gef_basis, ginverse, intercept_term, key_value_text, l_row,
+    gef_basis, ginverse, ginverse_scaled, intercept_term, key_value_text, l_row,
 };
-use crate::matrix::{Matrix, inverse, multiply, transpose};
+use crate::matrix::{Matrix, inverse_scaled, multiply, transpose};
 use crate::npar_tests::text;
 use crate::plum::{cdf, cell_probabilities, link_name};
 use crate::regression::{plain, table};
@@ -171,7 +171,7 @@ fn wald(est: &Estimates, l: &Matrix, k: &[f64]) -> Option<Wald> {
         .collect();
     let lt = transpose(l);
     let a = multiply(&multiply(l, &est.v), &lt);
-    let (ainv, r) = ginverse(&a, 1e-10);
+    let (ainv, r) = ginverse_scaled(&a, 1e-10);
     if r == 0 {
         return None;
     }
@@ -180,7 +180,7 @@ fn wald(est: &Estimates, l: &Matrix, k: &[f64]) -> Option<Wald> {
     let x2 = form(&ainv);
     let adjusted = est.vs.as_ref().and_then(|vs| {
         let s = multiply(&multiply(l, vs), &lt);
-        let (sinv, _) = ginverse(&s, 1e-10);
+        let (sinv, _) = ginverse_scaled(&s, 1e-10);
         let x2s = form(&sinv);
         let delta = multiply(&sinv, &a);
         let tr = trace(&delta);
@@ -407,7 +407,7 @@ impl LogitModel<'_> {
 /// The inverse of the information matrix, or a generalized inverse when it is singular (with
 /// one warning however often that happens).
 fn information_inverse(name: &str, info: &Matrix, warnings: &mut Vec<String>) -> Matrix {
-    match inverse(info) {
+    match inverse_scaled(info) {
         Some((m, _)) => m,
         None => {
             let note = format!(
