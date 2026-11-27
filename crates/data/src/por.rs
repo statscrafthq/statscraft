@@ -7,9 +7,15 @@
 //! and end with a slash; a string is its length as such a number, then its bytes.
 //!
 //! Choices:
-//! - Text is written as UTF-8. Only control characters are replaced (by `0`, as the manual's
-//!   TYPE=COMM does), since line ends in the file carry no meaning. A byte the table does not
-//!   name is read as itself, and text that is not valid UTF-8 is read as windows-1252.
+//! - Text is written by the file's table: a character the format's character set has (the ASCII
+//!   letters, digits and marks of `CODES`) goes in as the byte the table gives it, and any other
+//!   character, a letter with an accent or a symbol, becomes `?` with a warning, as such a
+//!   character cannot be named in the file (the manual says only that characters without a match
+//!   are lost in translation, and that control characters become `0` with TYPE=COMM, which is
+//!   done always). Readers that follow the table, such as R's haven, read the text right;
+//!   anything else they would turn into a replacement character. Files made by earlier versions
+//!   hold UTF-8 bytes the table does not name; a byte the table does not name is still read as
+//!   itself, and text that is not valid UTF-8 is read as windows-1252.
 //! - Numbers are written with the fewest base-30 digits (at most 12) that give back exactly the
 //!   same value, and read with exact arithmetic, so values survive a round trip unchanged.
 //! - Names become upper case and at most 8 bytes, unique as the manual shows (MYLONGRO,
@@ -36,7 +42,7 @@ const TAG: [u8; 8] = [92, 89, 92, 92, 89, 88, 91, 93];
 /// The ASCII character of each code of the format's character set from 64 on; `0` where ASCII
 /// has none (unused codes are written as the character of code 64, which is `0`).
 const CODES: &[u8; 125] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz \
-.<(+|&[]!$*);^-/0,%_>?`:0@'=\"000000~000000000000000000000{}\\00";
+.<(+|&[]!$*);^-/0,%_>?`:#@'=\"000000~000000000000000000000{}\\00";
 
 /// The 256-byte table this writer puts in the file: ASCII for every code that has a character.
 fn table() -> [u8; 256] {
@@ -391,6 +397,27 @@ fn push_string(out: &mut Vec<u8>, text: &str) {
     );
 }
 
+/// The first `max` characters of the text as the file's character table can carry them, and how
+/// many of those had no code and became `?`: a character the format's character set has stays, a
+/// control character is left for `push_string` to turn into `0`, and any other character becomes
+/// `?`. Each written character is one byte, so `max` is a number of bytes in the file too.
+fn portable_prefix(text: &str, max: usize) -> (String, usize) {
+    let mut replaced = 0;
+    let text = text
+        .chars()
+        .take(max)
+        .map(|c| {
+            if c.is_ascii_control() || (c.is_ascii() && CODES.contains(&(c as u8))) {
+                c
+            } else {
+                replaced += 1;
+                '?'
+            }
+        })
+        .collect();
+    (text, replaced)
+}
+
 /// The names the variables get in a portable file: upper case, at most 8 bytes and unique.
 /// Characters the format has no letter for become `_`, a name that would not start with a
 /// letter is V and its position, and a name cut short gets `_2`, `_3` and so on when its first
@@ -446,6 +473,13 @@ impl Dataset {
         let path = path.as_ref();
         let names = portable_names(self.variable_names());
         let mut warnings = Vec::new();
+        // the characters that had no code in the file's table, counted for one warning
+        let replaced = std::cell::Cell::new(0_usize);
+        let fixed = |text: &str, max: usize| {
+            let (text, n) = portable_prefix(text, max);
+            replaced.set(replaced.get() + n);
+            text
+        };
         let renamed: Vec<String> = self
             .variable_names()
             .zip(&names)
@@ -461,8 +495,10 @@ impl Dataset {
         // strings are padded to the width, as GNU PSPP misreads shorter ones
         let padded = |s: &str, width: usize| {
             let width = width.min(MAX_STRING);
-            let s = crate::cut_to(s, width);
-            s.to_string() + &" ".repeat(width - s.len())
+            // a letter the table has no code for is one `?`, so the text is made right first
+            let s = fixed(s, width);
+            let blanks = " ".repeat(width - s.len());
+            s + &blanks
         };
 
         let mut body = Vec::new();
@@ -552,7 +588,7 @@ impl Dataset {
             }
             if let Some(label) = &def.label {
                 body.push(b'C');
-                push_string(&mut body, label);
+                push_string(&mut body, &fixed(label, usize::MAX));
             }
         }
         for (def, name) in self.dict.variables.iter().zip(&names) {
@@ -570,7 +606,7 @@ impl Dataset {
                     Value::Number(v) => push_number(&mut body, *v, None),
                     Value::String(s) => push_string(&mut body, &padded(s, def.width.unwrap_or(1))),
                 }
-                push_string(&mut body, label);
+                push_string(&mut body, &fixed(label, usize::MAX));
             }
         }
         if !self.dict.documents.is_empty() {
@@ -578,7 +614,7 @@ impl Dataset {
             push_integer(&mut body, self.dict.documents.len() as u64);
             body.push(b'/');
             for line in &self.dict.documents {
-                push_string(&mut body, crate::cut_to(line, LINE));
+                push_string(&mut body, &fixed(line, LINE));
             }
         }
         body.push(b'F');
@@ -598,6 +634,18 @@ impl Dataset {
             }
         }
         body.push(b'Z');
+        let replaced = replaced.get();
+        if replaced > 0 {
+            warnings.push(format!(
+                "a portable file has no code for {replaced} {} outside its character set, such as \
+                 letters with accents: written as ?, so texts that differ only in them become equal",
+                if replaced == 1 {
+                    "character"
+                } else {
+                    "characters"
+                }
+            ));
+        }
 
         let table = table();
         let mut stream = Vec::with_capacity(464 + body.len());

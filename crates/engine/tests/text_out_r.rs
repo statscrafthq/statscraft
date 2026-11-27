@@ -17,8 +17,10 @@
 //! user-missing codes, formats and values it finds are the table of facts, and the engine's own
 //! data and its reading of the file agree with it. The file itself is not kept (it holds the
 //! format's marker word); a hash of its bytes, without the creation date and time and the product
-//! version, says it is the file haven read. Text is ASCII there: the file's character table has
-//! no room for the UTF-8 bytes of other letters, which haven reads as garbage.
+//! version, says it is the file haven read. Text goes in by the file's character table: a letter
+//! with an accent has no code in it and is written as ? with a warning, and haven reads the text as
+//! it stands (the UTF-8 bytes of earlier versions were not in the table, and haven made
+//! replacement characters of them).
 
 use statscraft_data::{Dataset, MissingValues, Value, Values};
 use statscraft_engine::Engine;
@@ -201,7 +203,7 @@ const PORTABLE_FACTS: &[Var] = &[
         format: r#"A14"#,
         labels: r#""#,
         missing: r#""#,
-        values: r#"Ann Lee|Smith, Bo|say "hi"|| lead pad|Zoe; Oie"#,
+        values: r#"Ann Lee|Smith, Bo|say "hi"|| lead #1 pad|Zo?; ?ie"#,
     },
     Var {
         name: r#"SCORE"#,
@@ -347,10 +349,10 @@ fn differences(data: &Dataset, facts: &[Var], what: &str) -> Vec<String> {
     out
 }
 
-/// The portable file: the same cases with ASCII text only (the file's character table has no
-/// room for the UTF-8 bytes of the other letters, which haven then cannot read).
+/// The portable file: the same cases, with a # in one name. A letter outside ASCII has no code
+/// in the file's character table and is written as ?; a # has one.
 fn portable_data() -> String {
-    DATA.replace("Zo\u{eb}; \u{d5}ie", "Zoe; Oie")
+    DATA.replace(" lead pad", " lead #1 pad")
 }
 
 /// The bytes of a portable file as text without line breaks, and without the creation date and
@@ -396,9 +398,20 @@ fn the_portable_file_is_read_by_haven() {
         portable_data(),
         path.display()
     );
-    session
+    let result = session
         .run(&source, None)
         .unwrap_or_else(|e| panic!("{e:?}"));
+    let warnings: Vec<String> = result
+        .commands
+        .iter()
+        .flat_map(|c| c.warnings.clone())
+        .collect();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("no code for 2 characters")),
+        "{warnings:?}"
+    );
     let bytes = std::fs::read(&path).unwrap();
     if let Some(dump) = std::env::var_os("DUMP_DIR") {
         std::fs::remove_dir_all(&dir).ok();
@@ -407,12 +420,30 @@ fn the_portable_file_is_read_by_haven() {
         println!("hash {}", fnv(&portable_normalized(&bytes)));
         return;
     }
-    // the data as haven read the file, before it is written and after it is read back
-    let mut failures = differences(
-        session.dataset().unwrap(),
-        PORTABLE_FACTS,
-        "before the export",
+    // the data as haven read the file, and as the engine reads it back
+    // the dataset keeps its letters; what the file holds, as haven reads it, is what comes back
+    let names: Vec<&str> = match session
+        .dataset()
+        .unwrap()
+        .variable("name")
+        .unwrap()
+        .values()
+    {
+        Values::String(v) => v.iter().collect(),
+        Values::Numeric(_) => panic!("name is a string"),
+    };
+    assert_eq!(
+        names,
+        [
+            "Ann Lee",
+            "Smith, Bo",
+            "say \"hi\"",
+            "",
+            " lead #1 pad",
+            "Zo\u{eb}; \u{d5}ie"
+        ]
     );
+    let mut failures = Vec::new();
     let mut again = Engine::default();
     let (commands, errors) = parse(&format!("IMPORT FILE='{}'.", path.display()));
     assert!(errors.is_empty(), "{errors:?}");
@@ -434,4 +465,4 @@ fn the_portable_file_is_read_by_haven() {
 }
 
 /// The hash of the portable file as haven read it.
-const PORTABLE_HASH: u64 = 4754350339035654707;
+const PORTABLE_HASH: u64 = 12175553612236538676;
