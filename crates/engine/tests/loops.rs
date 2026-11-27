@@ -144,6 +144,30 @@ fn vectors_read_and_assign_elements() {
 }
 
 #[test]
+fn a_vector_element_follows_the_index_of_each_case() {
+    let mut session = session("1 2 3\n4 5 6\n7 8 9\n1 -9 3");
+    run(
+        &mut session,
+        "MISSING VALUES y (-9).\nVECTOR v = x TO z.\nCOMPUTE k = x.\nIF (x > 3) k = 2.\n\
+         COMPUTE pick = v(k).\nCOMPUTE past = v(4).\nIF (z = 3) k = 2.\nCOMPUTE again = v(k).",
+    );
+    let data = session.dataset().unwrap();
+    // case 1 reads v(1), cases 2 and 3 v(2), case 4 v(1); an index past the vector reads
+    // missing, and so does an element that is user-missing
+    assert_eq!(show(data, "pick"), "1 5 8 1");
+    assert_eq!(show(data, "past"), ". . . .");
+    assert_eq!(show(data, "again"), "2 5 8 .");
+    // a string vector reads the element each case names
+    run(
+        &mut session,
+        "STRING a b r (A4).\nCOMPUTE a = 'ab'.\nCOMPUTE b = 'cdef'.\nVECTOR t = a TO b.\n\
+         COMPUTE r = t(1 + (x > 3)).",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "r"), "ab|cdef|cdef|ab");
+}
+
+#[test]
 fn vector_errors() {
     let mut session = session("1 2 3");
     run(&mut session, "STRING s (A3).");

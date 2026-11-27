@@ -536,11 +536,18 @@ pub(crate) fn element_values(
         (i.fract() == 0.0 && i >= 1.0 && i <= variables.len() as f64).then(|| i as usize - 1)
     };
     let cases = indexes.len();
+    // the variables some case names, found once instead of for every case
+    let mut resolved: Vec<Option<statscraft_data::Variable>> = vec![None; variables.len()];
+    let mut wanted = vec![false; variables.len()];
+    (0..cases).filter_map(pick).for_each(|k| wanted[k] = true);
+    for (k, name) in variables.iter().enumerate().filter(|(k, _)| wanted[*k]) {
+        resolved[k] = data.variable(name).ok();
+    }
     Ok(match first.values() {
         Values::Numeric(_) => Column::Number(
             (0..cases)
                 .map(|case| {
-                    let variable = data.variable(&variables[pick(case)?]).ok()?;
+                    let variable = resolved[pick(case)?].as_ref()?;
                     let value = variable.numeric().ok()?.get(case)?;
                     (!variable.is_user_missing(value)).then_some(value)
                 })
@@ -552,7 +559,7 @@ pub(crate) fn element_values(
                 (0..cases)
                     .map(|case| {
                         let text = pick(case)
-                            .and_then(|k| data.variable(&variables[k]).ok())
+                            .and_then(|k| resolved[k].as_ref())
                             .and_then(|v| v.string().ok().map(|s| s.get(case).to_string()))
                             .unwrap_or_default();
                         format!("{text}{:1$}", "", width.saturating_sub(text.len()))
