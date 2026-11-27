@@ -477,6 +477,9 @@ impl Engine {
         let mut tables = Vec::new();
         let mut generated = Vec::new();
         let mut warnings = std::mem::take(&mut self.warnings);
+        // the commands made from the structure are not kept for a LEAVE that runs the commands
+        // again: the structure itself, kept already, makes them again
+        let kept = self.clean.as_ref().map(|clean| clean.command_count());
         let result = (|| -> Result<(), Error> {
             for i in 0..count {
                 let items: Vec<(&str, &RepeatItem)> = lists
@@ -501,6 +504,9 @@ impl Engine {
             Ok(())
         })();
         self.warnings = warnings;
+        if let (Some(kept), Some(clean)) = (kept, self.clean.as_mut()) {
+            clean.keep_commands(kept);
+        }
         result?;
         if repeat.print {
             let rows = generated.into_iter().map(|text| vec![Cell::Text(text)]);

@@ -278,6 +278,32 @@ fn leave_takes_a_to_list_of_variables_the_waiting_commands_create() {
     assert_eq!(show(data, "t2"), "2 2");
     assert_eq!(show(data, "u1"), "2 4");
     assert_eq!(show(data, "u2"), "3 6");
+    // a scratch variable made between the ends is not in the list, and a name twice is one
+    let mut session = self::session("1 2 3");
+    run(
+        &mut session,
+        "COMPUTE a1 = a1 + x.\nCOMPUTE #t = 1.\nCOMPUTE a2 = a2 + y.\nCOMPUTE a3 = a3 + z.\n\
+         LEAVE a1 TO a2 a2 TO a3 a1.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "a3"), "3");
+    // variables made by DO REPEAT
+    let mut session = self::session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "DO REPEAT r = r1 TO r3 / v = x y z.\nCOMPUTE r = r + v.\nEND REPEAT.\nLEAVE r1 TO r3.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "r1"), "1 5");
+    assert_eq!(show(data, "r3"), "3 9");
+    // the same with the names one by one: the commands the structure made ran once
+    let mut session = self::session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "DO REPEAT r = r1 TO r3 / v = x y z.\nCOMPUTE r = r + v.\nEND REPEAT.\nLEAVE r1 r2 r3.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "r2"), "2 7");
     // LEAVE inside an input program, with variables declared there
     let mut session = self::session("1 2 3");
     run(

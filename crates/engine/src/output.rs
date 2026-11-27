@@ -215,6 +215,17 @@ pub(crate) struct Clean {
     commands: Vec<Command>,
 }
 
+impl Clean {
+    pub(crate) fn command_count(&self) -> usize {
+        self.commands.len()
+    }
+
+    /// Forgets the commands after the first `n`.
+    pub(crate) fn keep_commands(&mut self, n: usize) {
+        self.commands.truncate(n);
+    }
+}
+
 fn one_line(title: &str, text: &str) -> Table {
     Table {
         title: title.into(),
@@ -345,7 +356,11 @@ impl Engine {
                 .dataset
                 .as_ref()
                 .is_some_and(|d| d.variable_index(&name).is_some());
-            if !known && !out.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+            // a scratch variable is never in a TO list of LEAVE (it keeps its value anyway)
+            if !known
+                && !crate::rows::is_scratch(&name)
+                && !out.iter().any(|n| n.eq_ignore_ascii_case(&name))
+            {
                 out.push(name);
             }
         }

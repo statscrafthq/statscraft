@@ -671,6 +671,14 @@ impl Engine {
                 ))
             })?);
         }
+        // a name given twice (also through overlapping lists) is left once
+        let mut seen: Vec<String> = Vec::new();
+        names.retain(|n| {
+            let key = n.to_lowercase();
+            let fresh = !seen.contains(&key);
+            seen.push(key);
+            fresh
+        });
         if let Some(name) = names.iter().find(|n| is_scratch(n)) {
             return Err(Error(format!(
                 "LEAVE cannot name the scratch variable {name}: a scratch variable keeps its \
