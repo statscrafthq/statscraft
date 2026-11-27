@@ -884,7 +884,11 @@ fn casewise(p: &mut Parser) -> PResult<Casewise> {
             c.limit = checked(p, start, limit, limit > 0.0, "OUTLIERS must be above 0")?;
         } else if p.eat_keyword("PLOT") {
             let allowed = [T::Zresid, T::Resid, T::Dresid, T::Sresid, T::Sdresid];
-            c.plot = temp_vars(p, &allowed, "CASEWISE PLOT", T::Zresid)?[0];
+            // PLOT() with nothing in it keeps the default
+            c.plot = temp_vars(p, &allowed, "CASEWISE PLOT", T::Zresid)?
+                .first()
+                .copied()
+                .unwrap_or(T::Zresid);
         } else if p.eat_keyword("DEPENDENT") {
             listed.get_or_insert((false, Vec::new())).0 = true;
         } else {

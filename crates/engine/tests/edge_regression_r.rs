@@ -480,3 +480,12 @@ fn zero_weight_and_weight_of_two() {
         ],
     );
 }
+
+#[test]
+fn an_empty_casewise_plot_list_keeps_the_default_instead_of_panicking() {
+    // found by the mutated-syntax smoke test once new literals moved its mutants
+    let (_, errors) = statscraft_syntax::parse(
+        "REGRESSION /DEPENDENT=y /METHOD=ENTER x1 x2 /CASEWISE=PLOT() OUTLIERS(1.5) DEPENDENT PRED.",
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+}
