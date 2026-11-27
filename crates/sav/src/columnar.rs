@@ -350,6 +350,6 @@ fn push_string_from_raw_slots(
 
     string_buf.truncate(width);
     let trimmed = io_utils::trim_trailing_padding(string_buf);
-    let decoded = encoding::decode_str_lossy(trimmed, file_encoding);
+    let decoded = encoding::decode_value(trimmed, file_encoding);
     builder.append_value(&*decoded);
 }

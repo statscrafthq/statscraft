@@ -156,9 +156,41 @@ pub fn decode_str_lossy<'a>(bytes: &'a [u8], encoding: &'static Encoding) -> Cow
     decoded
 }
 
+/// The text of a string value. As `decode_str_lossy`, but a UTF-8 value that ends inside a letter
+/// (a value cut at its width by a program that counts bytes) loses the fragment instead of ending in
+/// a replacement character, as the guide's STRUNC removes a fragment of a character.
+pub fn decode_value<'a>(bytes: &'a [u8], encoding: &'static Encoding) -> Cow<'a, str> {
+    if encoding == encoding_rs::UTF_8 && std::str::from_utf8(bytes).is_err() {
+        for n in 1..=3.min(bytes.len()) {
+            let tail = &bytes[bytes.len() - n..];
+            // a lead byte of a longer letter, and no more bytes than that letter has
+            let incomplete = tail[0] >= 0xC0
+                && std::str::from_utf8(tail).is_err_and(|e| e.error_len().is_none());
+            if incomplete {
+                return decode_str_lossy(&bytes[..bytes.len() - n], encoding);
+            }
+        }
+    }
+    decode_str_lossy(bytes, encoding)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_value_cut_inside_a_letter_loses_the_fragment() {
+        let utf8 = encoding_rs::UTF_8;
+        // "ab" and the first two of the three bytes of a Telugu letter
+        assert_eq!(decode_value(b"ab\xe0\xb0", utf8), "ab");
+        assert_eq!(decode_value(b"ab\xe0", utf8), "ab");
+        assert_eq!(decode_value("abల".as_bytes(), utf8), "abల");
+        // a broken byte inside the text is still a replacement character, and the fragment goes
+        assert_eq!(decode_value(b"a\xffb\xc3", utf8), "a\u{fffd}b");
+        // a code page has no fragments
+        assert_eq!(decode_value(b"a\xe4", encoding_rs::WINDOWS_1252), "a\u{e4}");
+        assert_eq!(decode_value(b"", utf8), "");
+    }
 
     #[test]
     fn test_utf8_passthrough() {
