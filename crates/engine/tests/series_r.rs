@@ -1,5 +1,5 @@
 //! CREATE (CSUM, DIFF, SDIFF, LAG, LEAD, MA, RMED, PMA), SHIFT VALUES and RMV against R on 30
-//! invented cases with embedded, leading and trailing gaps, a user-missing code, SPLIT FILE
+//! invented rows with embedded, leading and trailing gaps, a user-missing code, SPLIT FILE
 //! groups and TSET MISSING=INCLUDE. Spans odd and even, with minimum spans of every parity
 //! (an even minimum under an odd span, and the other way round, takes the next higher span),
 //! lags and leads from 1 to past the length of the series, offsets both ways, MEAN and MEDIAN
