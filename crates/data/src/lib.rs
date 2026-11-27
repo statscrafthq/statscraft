@@ -30,8 +30,57 @@ pub struct Dataset {
     dict: Arc<Dictionary>,
 }
 
+/// Where each variable name stands, for a lookup that does not scan: the lowercase of every name
+/// to its position, built when a lookup first needs it and dropped (`Default`) by every change
+/// of the names or of their order. Cloning gives an empty one and equality ignores it, so it never
+/// shows in a dataset.
+#[derive(Default)]
+struct NameIndex(std::sync::OnceLock<(usize, std::collections::HashMap<String, usize>)>);
+
+impl Clone for NameIndex {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl NameIndex {
+    /// A variable was added at the end: the index, if built, takes it in.
+    fn pushed(&mut self, name: &str, position: usize) {
+        if let Some((built_for, index)) = self.0.get_mut() {
+            index.entry(folded(name)).or_insert(position);
+            *built_for = position + 1;
+        }
+    }
+
+    /// The variable at `position` was renamed.
+    fn renamed(&mut self, old: &str, new: &str, position: usize) {
+        if let Some((_, index)) = self.0.get_mut() {
+            if index.get(&folded(old)) == Some(&position) {
+                index.remove(&folded(old));
+            }
+            index.insert(folded(new), position);
+        }
+    }
+}
+
+impl PartialEq for NameIndex {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+/// Names are the same when their lowercase is.
+fn folded(name: &str) -> String {
+    if name.is_ascii() {
+        name.to_ascii_lowercase()
+    } else {
+        name.chars().flat_map(char::to_lowercase).collect()
+    }
+}
+
 #[derive(Clone, PartialEq)]
 struct Dictionary {
+    names: NameIndex,
     encoding: String,
     compression: &'static str,
     file_label: Option<String>,
@@ -386,6 +435,7 @@ impl Dataset {
             columns: Vec::new(),
             case_count,
             dict: Arc::new(Dictionary {
+                names: Default::default(),
                 encoding: "UTF-8".to_string(),
                 compression: "none",
                 file_label: None,
@@ -428,9 +478,19 @@ impl Dataset {
 
     /// Position of a variable: an exact name match wins, otherwise case is ignored.
     pub fn variable_index(&self, name: &str) -> Option<usize> {
-        // shortcut: linear scan per lookup, add a name index when datasets with thousands of
-        // variables make lookups show up in a profile
         let variables = &self.dict.variables;
+        let (built_for, index) = self.dict.names.0.get_or_init(|| {
+            let mut index = std::collections::HashMap::with_capacity(variables.len());
+            for (i, v) in variables.iter().enumerate() {
+                index.entry(folded(&v.name)).or_insert(i);
+            }
+            (variables.len(), index)
+        });
+        // an index made for another number of variables is not trusted: scan
+        if *built_for == variables.len() {
+            let found = index.get(&folded(name)).copied();
+            return found.filter(|&i| same_name(&variables[i].name, name));
+        }
         variables
             .iter()
             .position(|v| v.name == name)

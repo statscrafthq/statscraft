@@ -210,6 +210,7 @@ impl Dataset {
             columns,
             case_count: batch.num_rows(),
             dict: Arc::new(Dictionary {
+                names: Default::default(),
                 encoding: meta.file_encoding,
                 compression: match meta.compression {
                     statscraft_sav::Compression::None => "none",
