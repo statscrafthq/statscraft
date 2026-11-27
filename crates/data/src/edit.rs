@@ -619,6 +619,8 @@ impl Dataset {
         Ok(())
     }
 
+    /// The definition of a variable to change. Not its name: `rename_variable` does that and keeps
+    /// the name index.
     pub(crate) fn def_mut(&mut self, name: &str) -> Result<&mut VariableDef, Error> {
         let index = self.index_of(name)?;
         Ok(&mut Arc::make_mut(&mut self.dict).variables[index])
