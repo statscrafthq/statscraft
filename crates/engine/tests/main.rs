@@ -218,4 +218,5 @@ mod glm_emmeans_r;
 mod means_layers_r;
 mod oneway_r;
 mod regression_more_r;
+mod reliability_missing_r;
 mod ttest_missing_r;
