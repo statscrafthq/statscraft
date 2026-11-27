@@ -234,6 +234,7 @@ mod means_layers_r;
 mod mult_response_r;
 mod npar_options_r;
 mod oneway_r;
+mod oneway_waller_r;
 mod quick_cluster_r;
 mod ratio_statistics_r;
 mod regression_extras_r;
