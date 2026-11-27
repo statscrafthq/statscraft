@@ -1,6 +1,6 @@
 //! FLIP against R's `t()` on six invented cases with a string variable, system-missing values and a
-//! user-missing code: every variable, a subset (VARIABLES), the names from a string variable
-//! (upper case) and from a number (K_ and the value), a second FLIP that takes the names from the
+//! user-missing code (seven runs): every variable, a subset (VARIABLES), the names from a string variable
+//! (upper case) and from a number (K_ and the value), a second FLIP that takes the names (upper case) from the
 //! CASE_LBL of the first and gives the data back, SELECT IF (obeyed) and TEMPORARY (not).
 //! What R computes itself: the transposed values (`t()` of the matrix of the variables, a string
 //! variable and a user-missing code as NA). What follows the manual's words, written out in the R
@@ -87,10 +87,10 @@ const FLIP_CASES: &[FlipCase] = &[
 FLIP."####,
         columns: &[
             (r####"CASE_LBL"####, r####"ANN|BO|CY|DI|ED|FY"####),
-            (r####"a"####, r####"5 7 . 2 9 1"####),
-            (r####"b"####, r####"2.5 . 1 2 8 ."####),
-            (r####"c"####, r####". 3 4 2 . 6"####),
-            (r####"w"####, r####"10 . 30 . 50 60"####),
+            (r####"A"####, r####"5 7 . 2 9 1"####),
+            (r####"B"####, r####"2.5 . 1 2 8 ."####),
+            (r####"C"####, r####". 3 4 2 . 6"####),
+            (r####"W"####, r####"10 . 30 . 50 60"####),
         ],
     },
     FlipCase {
@@ -180,9 +180,9 @@ fn flip_agrees_with_r() {
         // the variables of the result are the columns, in order, and no others
         let names: Vec<String> = engine
             .dataset()
-            .map(|d| d.variable_names().map(str::to_lowercase).collect())
+            .map(|d| d.variable_names().map(str::to_string).collect())
             .unwrap_or_default();
-        let wanted: Vec<String> = case.columns.iter().map(|(n, _)| n.to_lowercase()).collect();
+        let wanted: Vec<String> = case.columns.iter().map(|(n, _)| n.to_string()).collect();
         if names != wanted {
             failures.push(format!(
                 "{}: the variables are {names:?}, R has {wanted:?}",

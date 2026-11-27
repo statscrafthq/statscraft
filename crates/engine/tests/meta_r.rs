@@ -4,9 +4,10 @@
 //! VALUES (each command replaces; () clears; discrete codes, a range, a range with one more code,
 //! LO THRU and THRU HI), RENAME VARIABLES and DELETE VARIABLES (the metadata goes with the
 //! variable), and variables made by COMPUTE and RECODE (none).
-//! The engine saves each case; the test reads the file back and compares the dictionary with the
-//! table below, which an R model of the rules (from the manual) gave and which haven and labelled
-//! read in the very files too (set `META_DIR` to keep the files for that check). What R has no
+//! The engine saves each case; the test compares the dictionary the session holds and the one it
+//! reads back from the file with the table below, which an R model of the rules (from the manual)
+//! gave. haven and labelled were shown the very files the engine saved (set `META_DIR` to keep them
+//! for that check) and read the same table; the test itself does not run R. What R has no
 //! counterpart for: the measurement level and the custom attributes, which haven does not give,
 //! and the display width and alignment, which it gives only when they are not the default.
 
@@ -227,7 +228,7 @@ fn facts(engine: &Engine) -> Vec<(String, String, String, String)> {
 }
 
 #[test]
-fn variable_metadata_goes_through_a_sav_file_as_haven_and_labelled_read_it() {
+fn variable_metadata_goes_through_a_sav_file_as_the_table_says() {
     let kept = std::env::var_os("META_DIR").map(std::path::PathBuf::from);
     let dir = kept.clone().unwrap_or_else(|| {
         std::env::temp_dir().join(format!("statscraft-meta-{}", std::process::id()))
