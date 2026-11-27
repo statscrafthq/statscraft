@@ -216,6 +216,7 @@ fn every_test_file_is_built() {
         }
     }
 }
+mod anova_r;
 mod cluster_measures_r;
 mod codebook_r;
 mod correlations_missing_r;
