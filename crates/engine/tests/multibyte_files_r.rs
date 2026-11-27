@@ -339,3 +339,69 @@ fn file_type_reads_a_code_page_file_with_its_encoding() {
     assert_eq!(show(&engine, "town").unwrap(), "Tähtvere|Põlva");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_byte_order_mark_and_a_utf8_name_decide_how_columns_count() {
+    let dir = std::env::temp_dir().join(format!("statscraft-mb4-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // UTF-16 with a mark and no ENCODING: letters; a name that means UTF-8: bytes
+    let utf16: Vec<u8> = [0xff, 0xfe]
+        .into_iter()
+        .chain("Õlu 12\nÄri 34\n".encode_utf16().flat_map(u16::to_le_bytes))
+        .collect();
+    std::fs::write(dir.join("u16.txt"), utf16).unwrap();
+    std::fs::write(dir.join("u8.txt"), "Õlu 12\nÄri 34\n").unwrap();
+    let run = |source: String| {
+        let mut engine = Engine::default();
+        execute_all(&mut engine, &source).unwrap();
+        (show(&engine, "a").unwrap(), show(&engine, "b").unwrap())
+    };
+    let d = dir.display();
+    let (a, b) = run(format!(
+        "DATA LIST FILE='{d}/u16.txt' ENCODING='UTF16LE' FIXED /a 1-3 (A) b 5-6 (F2)."
+    ));
+    assert_eq!((a.as_str(), b.as_str()), ("Õlu|Äri", "12 34"));
+    // no ENCODING: the mark shows UTF-16, and the file is read by letters
+    let (a, b) = run(format!(
+        "FILE HANDLE h /NAME='{d}/u16.txt' /ENCODING='UTF16LE'.\nDATA LIST FILE=h FIXED /a 1-3 (A) b 5-6 (F2)."
+    ));
+    assert_eq!((a.as_str(), b.as_str()), ("Õlu|Äri", "12 34"));
+    // 65001 is UTF-8: columns count bytes, a letter takes two, so 1-4 hold Õlu
+    let (a, b) = run(format!(
+        "DATA LIST FILE='{d}/u8.txt' ENCODING='65001' FIXED /a 1-4 (A) b 6-7 (F2)."
+    ));
+    assert_eq!((a.as_str(), b.as_str()), ("Õlu|Äri", "12 34"));
+    let (a, _) = run(format!(
+        "DATA LIST FILE='{d}/u8.txt' ENCODING='UTF8' FIXED /a 1-4 (A) b 6-7 (F2)."
+    ));
+    assert_eq!(a, "Õlu|Äri");
+    // ENCODING without FILE is refused
+    let (commands, errors) = parse("DATA LIST ENCODING='1257' /a 1-4 (A).");
+    assert!(commands.is_empty() || !errors.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn text_in_a_code_page_or_utf16_has_strings_of_three_times_the_width() {
+    let width = |source: &str, name: &str| {
+        let mut engine = Engine::default();
+        execute_all(&mut engine, &source.replace("{FIX}", &fixtures())).unwrap();
+        let data = engine.dataset().unwrap();
+        data.variable(name).unwrap().format().to_string()
+    };
+    let list = |file: &str, encoding: &str| {
+        format!(
+            "DATA LIST FILE='{{FIX}}/{file}' {encoding} LIST (';') SKIP=1 /id (F2) name (A24) city (A24)."
+        )
+    };
+    assert_eq!(
+        width(&list("ee_1257.csv", "ENCODING='1257'"), "name"),
+        "A72"
+    );
+    assert_eq!(width(&list("ee_utf8.csv", ""), "name"), "A24");
+    let get = "GET DATA /TYPE=TXT /FILE='{FIX}/ee_1257.csv' /ENCODING='windows-1257' /DELIMITERS=';' /FIRSTCASE=2 /VARIABLES=id F2 name A24 city A24.";
+    assert_eq!(width(get, "city"), "A72");
+    // ALTER TYPE takes the width back to the longest value in bytes: Tähtvere and Ülenurme, 9
+    let narrow = format!("{get}\nALTER TYPE city (A=AMIN).");
+    assert_eq!(width(&narrow, "city"), "A9");
+}

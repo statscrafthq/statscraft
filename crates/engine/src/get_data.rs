@@ -168,10 +168,8 @@ impl Engine {
             .as_deref()
             .or(handle.as_deref())
             .filter(|e| !e.eq_ignore_ascii_case("locale"));
-        let text = statscraft_syntax::decode_syntax(&bytes, encoding).map_err(Error)?;
         // columns of a code page or UTF-16 file count letters, of a UTF-8 file bytes
-        let by_chars =
-            encoding.is_some_and(|e| !["utf8", "utf-8"].contains(&e.to_ascii_lowercase().as_str()));
+        let (text, by_chars) = statscraft_syntax::decode_text(&bytes, encoding).map_err(Error)?;
         let comma = self.setting("DECIMAL").eq_ignore_ascii_case("COMMA");
         let reading = self.reading();
         let wanted = |count: usize| command.first_cases.map_or(count, |n| count.min(n as usize));
@@ -293,6 +291,8 @@ impl Engine {
                 let longest = values.iter().map(|v| v.trim_end().len()).max().unwrap_or(0);
                 let width = match format.width {
                     0 => longest.max(1),
+                    // a code page or UTF-16 file: three times the width, as the guide says
+                    w if by_chars => (usize::from(w) * 3).min(32767),
                     w => usize::from(w),
                 };
                 let values = values

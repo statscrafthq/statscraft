@@ -55,8 +55,7 @@ impl Engine {
         };
         let bytes = std::fs::read(self.path(file))
             .map_err(|e| Error(format!("cannot read {file}: {e}")))?;
-        let text = statscraft_syntax::decode_syntax(&bytes, Some(name)).map_err(Error)?;
-        let by_chars = !["utf8", "utf-8"].contains(&name.to_ascii_lowercase().as_str());
+        let (text, by_chars) = statscraft_syntax::decode_text(&bytes, Some(name)).map_err(Error)?;
         Ok(text
             .lines()
             .enumerate()

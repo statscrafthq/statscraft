@@ -19,7 +19,7 @@ Without FILE the data follow between BEGIN DATA and END DATA; transformations ma
 
 Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, Z (zoned decimal: 1234A is 12341, 1234J is -12341), PIBHEX (hexadecimal digits, the whole width), A, DATE, ADATE, EDATE, SDATE, JDATE (yyddd or yyyyddd), QYR (4Q90, Q4 1990), MOYR (Oct-1990), WKYR (43WK90, 43 1990), DATETIME, YMDHMS (year first), TIME (hours:minutes:seconds), MTIME (minutes:seconds), DTIME (days, then time). A date may be written with blanks, dashes, slashes, periods or commas between its parts, a month as a number, a Roman numeral or a name, or with no delimiter at all (28OCT1990, 10281990); a two-digit year falls in the 100 years from SET EPOCH; a time with no colons is hhmm or hhmmss.
 
-ENCODING is how the text of FILE is encoded: UTF8 (the default, or the encoding a FILE HANDLE gives), a code page such as '1257' or 'windows-1252', UTF16LE, UTF16BE. Fixed columns and the widths of A formats count bytes in a UTF-8 file (a letter with an accent takes two), letters in a code page or UTF-16 file.
+ENCODING is how the text of FILE is encoded: UTF8 (the default, or the encoding a FILE HANDLE gives), a code page such as '1257' or 'windows-1252', UTF16LE, UTF16BE (ENCODING needs FILE). Fixed columns count bytes in a UTF-8 file (a letter with an accent takes two) and letters in a code page or UTF-16 file, whose string variables get three times the width given (ALTER TYPE with AMIN takes it back).
 
 A value that cannot be read is system-missing, with a warning naming its line.
 

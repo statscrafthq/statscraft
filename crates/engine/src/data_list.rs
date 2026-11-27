@@ -95,15 +95,15 @@ impl Engine {
         let encoding = encoding
             .map(str::to_string)
             .or_else(|| self.handle_encoding(file));
-        let by_chars = encoding
-            .as_deref()
-            .is_some_and(|e| !["utf8", "utf-8"].contains(&e.to_ascii_lowercase().as_str()));
-        let text = match encoding {
+        let (text, by_chars) = match encoding {
             Some(encoding) => {
-                statscraft_syntax::decode_syntax(&bytes, Some(&encoding)).map_err(Error)?
+                statscraft_syntax::decode_text(&bytes, Some(&encoding)).map_err(Error)?
             }
-            None => String::from_utf8(bytes)
-                .map_err(|_| Error(format!("{file} is not UTF-8 text; save it as UTF-8")))?,
+            None => (
+                String::from_utf8(bytes)
+                    .map_err(|_| Error(format!("{file} is not UTF-8 text; save it as UTF-8")))?,
+                false,
+            ),
         };
         let records = text.lines().enumerate().map(|(i, line)| Record {
             place: format!("record {} of {file}", i + 1),
@@ -169,7 +169,8 @@ impl Engine {
                     Read::Text(text) => text.clone(),
                     Read::Number(_) => String::new(),
                 };
-                let width = usize::from(field.format.width);
+                let wide = widened(field, records.first().is_some_and(|r| r.by_chars));
+                let width = usize::from(wide.format.width);
                 data.set_string_values(&field.name, width, values.map(text).collect())?;
             } else {
                 let number = |read: &Read| match read {
@@ -216,11 +217,24 @@ pub(crate) fn fixed(
         let case = list.fields.iter().map(|field| {
             let record = &chunk[field.record as usize - 1];
             let text = columns(record, field);
-            read(&text, field, true, reading, &record.place, warnings)
+            let wide = widened(field, record.by_chars);
+            read(&text, &wide, true, reading, &record.place, warnings)
         });
         cases.push(case.collect());
     }
     cases
+}
+
+/// A string field of text read in a code page or UTF-16 gets three times its width (the longest
+/// letter takes three bytes in UTF-8, and the guide tripling the width of such files), so the
+/// letters that take more bytes there are not cut; the columns stay as they are.
+fn widened(field: &DataField, by_chars: bool) -> std::borrow::Cow<'_, DataField> {
+    if !by_chars || field.format.kind != FormatType::A {
+        return std::borrow::Cow::Borrowed(field);
+    }
+    let mut wide = field.clone();
+    wide.format.width = wide.format.width.saturating_mul(3).min(32767);
+    std::borrow::Cow::Owned(wide)
 }
 
 /// The text of a field's columns; columns past the end of the line are blank.
@@ -328,7 +342,10 @@ pub(crate) fn free(
             }
             let mut found = found.into_iter();
             let case = fields.iter().map(|field| match found.next() {
-                Some(Some(text)) => read(&text, field, false, reading, &record.place, warnings),
+                Some(Some(text)) => {
+                    let wide = widened(field, record.by_chars);
+                    read(&text, &wide, false, reading, &record.place, warnings)
+                }
                 Some(None) => empty(field),
                 // a value missing at the end of the line is not a blank field
                 None if field.format.kind == FormatType::A => Read::Text(String::new()),
@@ -340,7 +357,10 @@ pub(crate) fn free(
         for value in found {
             let field = &fields[case.len()];
             case.push(match value {
-                Some(text) => read(&text, field, false, reading, &record.place, warnings),
+                Some(text) => {
+                    let wide = widened(field, record.by_chars);
+                    read(&text, &wide, false, reading, &record.place, warnings)
+                }
                 None => empty(field),
             });
             if case.len() == fields.len() {

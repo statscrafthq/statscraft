@@ -293,7 +293,7 @@ pub use discriminant::{
     ClassifyCases, Discriminant, DiscriminantAnalysis, DiscriminantMethod, DiscriminantPlots,
     DiscriminantRotate, DiscriminantSave, DiscriminantStatistics, Priors,
 };
-pub use encoding::{decode_syntax, encoding_for, legacy_encoding};
+pub use encoding::{decode_syntax, decode_text, encoding_for, legacy_encoding};
 pub use error::{Span, SyntaxError};
 pub use example_output::example_output;
 pub use factor::{

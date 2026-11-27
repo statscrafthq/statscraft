@@ -585,6 +585,12 @@ pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
     if fields.is_empty() && !matches!(layout, DataLayout::Fixed { .. }) {
         return Err(p.unexpected(&["a variable name"]));
     }
+    if encoding.is_some() && file.is_none() {
+        return Err(SyntaxError::new(
+            p.span(),
+            "ENCODING is for a text file: give FILE as well (inline data are the syntax's own text)",
+        ));
+    }
     Ok(Command::DataList(DataList {
         file,
         layout,
