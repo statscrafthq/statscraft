@@ -245,3 +245,4 @@ mod reliability_missing_r;
 mod reliability_more_r;
 mod response_rate_r;
 mod ttest_missing_r;
+mod uniano_options_r;
