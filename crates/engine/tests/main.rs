@@ -13,6 +13,7 @@ mod alscal_fixed;
 mod alscal_gemscal;
 mod alscal_rectangular;
 mod alscal_stimulus_weights;
+mod alter_type_r;
 mod anova;
 mod autorecode;
 mod bayes;
