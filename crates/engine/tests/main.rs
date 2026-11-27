@@ -157,6 +157,7 @@ mod robustness;
 mod roc_analysis;
 mod roc_r;
 mod sav_haven_r;
+mod series_r;
 mod save_codepage;
 mod save_dbf;
 mod save_sas;
