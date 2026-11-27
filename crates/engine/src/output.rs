@@ -306,6 +306,25 @@ impl Engine {
         })
     }
 
+    /// The variables the commands since the last data pass will create, oldest first:
+    /// ordered by first mention, since a command names its target first.
+    pub(crate) fn new_since_pass(&self) -> Vec<String> {
+        let Some(clean) = self.clean.as_ref() else {
+            return Vec::new();
+        };
+        let refs = crate::rows::Refs::of(&clean.commands);
+        let mut out: Vec<String> = Vec::new();
+        for name in refs.names {
+            let known = self
+                .active()
+                .is_ok_and(|d| d.variable_index(&name).is_some());
+            if !known && !out.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+                out.push(name);
+            }
+        }
+        out
+    }
+
     /// LEAVE outside an input program. The variables are new in this pass, so the
     /// transformations since the last pass run again, case by case, with the variables kept
     /// from case to case.

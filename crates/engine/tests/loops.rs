@@ -221,3 +221,23 @@ fn do_repeat_errors() {
         "{message}"
     );
 }
+
+#[test]
+fn leave_takes_a_to_list_of_variables_the_waiting_commands_create() {
+    let mut session = session("1 2 3\n4 5 6");
+    run(
+        &mut session,
+        "COMPUTE a1 = a1 + x.\nCOMPUTE a2 = a2 + y.\nCOMPUTE a3 = a3 + z.\nLEAVE a1 TO a3.",
+    );
+    let data = session.dataset().unwrap();
+    // the running totals of each column, in the order the variables were made
+    assert_eq!(show(data, "a1"), "1 5");
+    assert_eq!(show(data, "a2"), "2 7");
+    assert_eq!(show(data, "a3"), "3 9");
+    let mut session = self::session("1 2 3");
+    let message = error(
+        &mut session,
+        "COMPUTE b1 = b1 + x.\nCOMPUTE b2 = b2 + y.\nLEAVE b2 TO b1.",
+    );
+    assert!(message.contains("must come before the second"), "{message}");
+}

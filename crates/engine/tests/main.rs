@@ -63,6 +63,7 @@ mod factor_r;
 mod file_handle;
 mod file_map;
 mod fit;
+mod flow_r;
 mod frequencies;
 mod frequencies_r;
 mod genlin;
