@@ -139,6 +139,8 @@ mod proxscal;
 mod quantile_regression;
 mod random;
 mod rank;
+mod rank_r;
+mod recode_r;
 mod regression;
 mod regression_more;
 mod regression_r;
