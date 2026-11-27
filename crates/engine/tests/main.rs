@@ -215,6 +215,7 @@ fn every_test_file_is_built() {
 }
 mod correlations_missing_r;
 mod examine_cells_r;
+mod frequencies_more_r;
 mod glm_emmeans_r;
 mod means_layers_r;
 mod oneway_r;
