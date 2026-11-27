@@ -4,6 +4,7 @@
 
 use crate::ast::{Command, Compression, Expr, FileOption, Format, FormatType, VarItem};
 use crate::commands::{file_option, format};
+use crate::data_list::{MAX_DEPTH, MAX_ITEMS, too_deep, too_long};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
@@ -439,7 +440,10 @@ fn count(p: &mut Parser, what: &str) -> PResult<u32> {
 
 /// `item, item ...` of a format list, after its opening parenthesis, up to and including the
 /// closing one. `n(...)` repeats a group.
-fn format_items(p: &mut Parser) -> PResult<Vec<FormatItem>> {
+fn format_items(p: &mut Parser, depth: usize) -> PResult<Vec<FormatItem>> {
+    if depth > MAX_DEPTH {
+        return Err(too_deep(p));
+    }
     let mut items = Vec::new();
     while !p.eat(Punct::RParen) {
         if p.eat(Punct::Comma) {
@@ -450,8 +454,15 @@ fn format_items(p: &mut Parser) -> PResult<Vec<FormatItem>> {
             _ => None,
         };
         if p.eat(Punct::LParen) {
-            let group = format_items(p)?;
+            let group = format_items(p, depth + 1)?;
+            // an empty group, however often it is repeated, adds nothing
+            if group.is_empty() {
+                continue;
+            }
             for _ in 0..repeat.unwrap_or(1) {
+                if items.len() + group.len() > MAX_ITEMS {
+                    return Err(too_long(p));
+                }
                 items.extend(group.iter().copied());
             }
             continue;
@@ -464,6 +475,9 @@ fn format_items(p: &mut Parser) -> PResult<Vec<FormatItem>> {
         let (glued, rest) = upper.split_at(digits);
         let number = |text: &str| text.parse::<u32>().ok().filter(|n| *n >= 1);
         let repeat = number(glued).or(repeat);
+        if items.len() >= MAX_ITEMS {
+            return Err(too_long(p));
+        }
         if let Some(n) = repeat.filter(|_| rest == "X") {
             items.push(FormatItem::Skip(n));
         } else if let Some(column) = rest.strip_prefix('T').and_then(number)
@@ -473,6 +487,9 @@ fn format_items(p: &mut Parser) -> PResult<Vec<FormatItem>> {
         } else {
             let format = output_format(p, rest)?;
             for _ in 0..repeat.unwrap_or(1) {
+                if items.len() >= MAX_ITEMS {
+                    return Err(too_long(p));
+                }
                 items.push(FormatItem::Format(format));
             }
         }
@@ -551,7 +568,7 @@ fn print_line(p: &mut Parser) -> PResult<Vec<PrintItem>> {
                     Some(TokenKind::Number(_)) => Some(columns(p)?),
                     Some(TokenKind::Punct(Punct::LParen)) => {
                         p.pos += 1;
-                        Some(Placement::Formats(format_items(p)?))
+                        Some(Placement::Formats(format_items(p, 0)?))
                     }
                     _ => None,
                 };
