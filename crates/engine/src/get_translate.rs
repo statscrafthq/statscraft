@@ -409,6 +409,7 @@ impl Engine {
             first_cases: None,
             ignore_multiple_spaces: false,
             ignore_leading_spaces: false,
+            type_min: None,
             variables: Vec::new(),
             spreadsheet: Some(options.clone()),
         };

@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- GET DATA /TYPE=TXT: an AUTO variable is numeric when DATATYPEMIN PERCENTAGE (95 unless given) of its non-blank values are numbers, and the others become system-missing; before, every value had to be a number and DATATYPEMIN was ignored for text files. In fixed columns a number format with decimals implies them in a value without a decimal point, as DATA LIST does (F5.2 reads 12345 as 123.45).
 - NOMREG with both DELTA and BIAS gives an empty cell both, as PLUM does; before, DELTA had no effect once BIAS was above 0.
 - DATA LIST reads the Z (zoned decimal) and PIBHEX (hexadecimal) formats, and STRING, PRINT and WRITE write PIBHEX; NUMBER reads JDATE, QYR, MOYR, WKYR, DATETIME, YMDHMS, TIME, MTIME, Z and PIBHEX.
 - DATA LIST, GET DATA and ALTER TYPE read the date formats JDATE, QYR, MOYR and WKYR; DATE, ADATE, EDATE and SDATE dates and TIME, MTIME and YMDHMS values with no delimiters (28OCT1990, 10281990, 0530, 20110317140645); a plus sign on a time; a month spelled out or in Roman numerals after any delimiter in DATETIME, which reads a slash date with a first number above 12 day first; and they refuse minutes of 60 or more and seconds of 60 or more in a time. A bare four-digit MTIME value is now minutes and seconds (0719 is 7:19), as the format's form without a colon; other bare numbers stay minutes.

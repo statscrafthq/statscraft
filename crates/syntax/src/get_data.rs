@@ -150,6 +150,7 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
         first_cases: None,
         ignore_multiple_spaces: false,
         ignore_leading_spaces: false,
+        type_min: None,
         variables: Vec::new(),
         spreadsheet: None,
     };
@@ -245,7 +246,10 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
             equals(p);
             let start = p.pos;
             match p.number() {
-                Some(n) if n > 50.0 && n <= 100.0 => sheet.type_min = Some(n),
+                Some(n) if n > 50.0 && n <= 100.0 => {
+                    sheet.type_min = Some(n);
+                    command.type_min = Some(n);
+                }
                 _ => {
                     return Err(SyntaxError::new(
                         p.span_from(start),

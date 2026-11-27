@@ -457,6 +457,9 @@ pub struct GetData {
     pub ignore_multiple_spaces: bool,
     /// LEADINGSPACES IGNORE=YES
     pub ignore_leading_spaces: bool,
+    /// DATATYPEMIN PERCENTAGE: the share of non-blank values that must read as numbers for an
+    /// AUTO variable of a text file to be numeric; None is 95.
+    pub type_min: Option<f64>,
     pub variables: Vec<GetDataVariable>,
     /// TYPE=XLS, XLSX or XLSM; None is TYPE=TXT.
     pub spreadsheet: Option<Spreadsheet>,

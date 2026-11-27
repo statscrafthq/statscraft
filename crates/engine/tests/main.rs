@@ -171,6 +171,7 @@ mod string_date_functions_r;
 mod summarize_codebook;
 mod table_labels;
 mod temporary_names;
+mod text_files_r;
 mod timeseries;
 mod transform;
 mod tree;
