@@ -1392,3 +1392,212 @@ fn under_a_decimal_comma_the_cells_show_and_edit_with_a_comma_and_keep_every_bit
         same("retyped under a comma", &syntax, &after, &before);
     }
 }
+
+/// The session with a length of time in each of the three duration formats and a date in each
+/// of the date formats the editor types as a date.
+fn with_times(comma: bool) -> Session {
+    let mut session = plain();
+    run(
+        &mut session,
+        "COMPUTE m = dur.\nCOMPUTE d = dur.\nCOMPUTE jd = joined.\nCOMPUTE q = joined.\nCOMPUTE my = joined.\n\
+         COMPUTE wk = joined.\nCOMPUTE ymd = joined.\n\
+         FORMATS m (MTIME11.2) d (DTIME13.2) jd (JDATE7) q (QYR8) my (MOYR8) wk (WKYR10) ymd (YMDHMS19).",
+    );
+    if comma {
+        run(&mut session, "SET DECIMAL=COMMA.");
+    }
+    session
+}
+
+fn typed(
+    session: &Session,
+    name: &str,
+    case: usize,
+    text: &str,
+    comma: bool,
+) -> Result<String, String> {
+    edits::cell_edit(&data(session).variable(name).unwrap(), case, text, comma)
+}
+
+#[test]
+fn a_typed_length_of_time_is_those_seconds() {
+    // hh:mm:ss, hh:mm, a fraction as typed, a negative one, many hours, and plain seconds
+    let clock = [
+        ("01:02:03", 3723.0),
+        ("00:10", 600.0),
+        ("12:5", 43_500.0),
+        ("-01:00:00", -3600.0),
+        ("30:00:00", 108_000.0),
+        ("01:02:03.5", 3723.5),
+        ("00:00:00.1", 0.1),
+        ("99:59:59.999", 359_999.999),
+        (" 7:08:09 ", 25_689.0),
+        ("3600", 3600.0),
+        ("-0.25", -0.25),
+    ];
+    let minutes = [
+        ("10:30", 630.0),
+        ("90:15.25", 5415.25),
+        ("01:02:03", 3723.0),
+        ("-0:30", -30.0),
+    ];
+    let days = [
+        ("1 02:03:04", 93_784.0),
+        ("-2 00:00:00", -172_800.0),
+        ("0 23:59:59.5", 86_399.5),
+        ("2:30", 9000.0),
+        ("12:34:56", 45_296.0),
+    ];
+    for comma in [false, true] {
+        let mut session = with_times(comma);
+        let before = table(&session);
+        let shown = |s: &str| {
+            if comma {
+                s.replace('.', ",")
+            } else {
+                s.to_string()
+            }
+        };
+        for (name, cases) in [("dur", &clock[..]), ("m", &minutes[..]), ("d", &days[..])] {
+            for (i, (text, seconds)) in cases.iter().enumerate() {
+                let case = i % 5;
+                let syntax = typed(&session, name, case, &shown(text), comma).unwrap();
+                let (_, after) = op(&mut session, &syntax);
+                same(
+                    &format!("comma {comma}: {text:?} into {name}"),
+                    &syntax,
+                    &after,
+                    &set(&before, name, case, num(Some(*seconds))),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_length_of_time_that_is_not_one_is_refused() {
+    let session = with_times(false);
+    for (name, text) in [
+        ("dur", "01:60:00"),
+        ("dur", "01:02:60"),
+        ("dur", "1:2:3:4"),
+        ("dur", "a:b"),
+        ("dur", "01:02:03."),
+        ("dur", "01:02:03,5"),
+        ("dur", "::"),
+        ("dur", ":"),
+        ("dur", "01::02"),
+        ("dur", "1 02:03:04"),
+        ("dur", "--1:00"),
+        ("dur", "01:-2:00"),
+        ("m", "10:60"),
+        ("m", "1:10:60"),
+        ("m", "1:60:00"),
+        ("d", "1 24:00:00"),
+        ("d", "x 01:00:00"),
+        ("d", "99999999999999999999 00:00:00"),
+    ] {
+        assert!(
+            typed(&session, name, 0, text, false).is_err(),
+            "{name} {text:?}"
+        );
+    }
+    let comma = with_times(true);
+    assert!(typed(&comma, "dur", 0, "01:02:03.5", true).is_err());
+    assert!(typed(&comma, "dur", 0, "01:02:03,5", true).is_ok());
+}
+
+#[test]
+fn a_length_of_time_is_edited_as_it_is_shown_and_keeps_every_bit() {
+    // values that need care: fractions, negatives, more than a day, zero, large
+    let values = [
+        0.1,
+        3723.1,
+        86_399.999,
+        1e10,
+        -7261.25,
+        0.0,
+        59.9999,
+        359_999.5,
+        -0.5,
+        123_456_789.25,
+    ];
+    for comma in [false, true] {
+        let mut session = with_times(comma);
+        for (i, v) in values.iter().enumerate() {
+            let case = i % 5;
+            run(
+                &mut session,
+                &format!(
+                    "IF ($CASENUM = {}) dur = {v}.\nIF ($CASENUM = {}) m = {v}.\nIF ($CASENUM = {}) d = {v}.",
+                    case + 1,
+                    case + 1,
+                    case + 1
+                ),
+            );
+            let before = table(&session);
+            let mut syntax = String::new();
+            let data = data(&session);
+            for name in ["dur", "m", "d"] {
+                let var = data.variable(name).unwrap();
+                for c in 0..data.case_count() {
+                    let text = edits::edit_text(&var, c, comma);
+                    syntax.push_str(&edits::cell_edit(&var, c, &text, comma).unwrap());
+                    syntax.push('\n');
+                }
+            }
+            let (_, after) = op(&mut session, &syntax);
+            same(
+                &format!("comma {comma}: retyped times after {v}"),
+                &syntax,
+                &after,
+                &before,
+            );
+        }
+    }
+    // the text shown
+    let session = with_times(false);
+    let v = |n: &str| data(&session).variable(n).unwrap();
+    assert_eq!(edits::edit_text(&v("dur"), 0, false), "01:02:03");
+    assert_eq!(edits::edit_text(&v("m"), 0, false), "62:03");
+    assert_eq!(edits::edit_text(&v("d"), 0, false), "0 01:02:03");
+    assert_eq!(edits::edit_text(&v("dur"), 1, false), "00:10:00");
+    assert_eq!(edits::edit_text(&v("dur"), 3, false), "00:00:01");
+    assert_eq!(edits::edit_text(&v("dur"), 4, false), "12:00:00");
+}
+
+#[test]
+fn the_date_formats_that_show_a_part_of_a_date_take_a_whole_date() {
+    let texts = [
+        ("2024-02-29", seconds(2024, 2, 29, 0)),
+        ("1999-12-31", seconds(1999, 12, 31, 0)),
+        ("9999-12-31", seconds(9999, 12, 31, 0)),
+    ];
+    let mut session = with_times(false);
+    let before = table(&session);
+    for name in ["jd", "q", "my", "wk"] {
+        for (i, (text, value)) in texts.iter().enumerate() {
+            let syntax = typed(&session, name, i, text, false).unwrap();
+            let (_, after) = op(&mut session, &syntax);
+            same(
+                &format!("{text:?} into {name}"),
+                &syntax,
+                &after,
+                &set(&before, name, i, num(Some(*value))),
+            );
+        }
+        // the editor starts with the whole date
+        let var = data(&session).variable(name).unwrap();
+        assert_eq!(edits::edit_text(&var, 0, false), "2020-03-15", "{name}");
+    }
+    let syntax = typed(&session, "ymd", 1, "2024-02-29 10:30:15", false).unwrap();
+    let (_, after) = op(&mut session, &syntax);
+    same(
+        "ymd",
+        &syntax,
+        &after,
+        &set(&before, "ymd", 1, num(Some(seconds(2024, 2, 29, 37_815)))),
+    );
+    let var = data(&session).variable("ymd").unwrap();
+    assert_eq!(edits::edit_text(&var, 0, false), "2020-03-15 00:00:00");
+}

@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- A time cell in the data window is edited as a time: TIME as 01:02:03, MTIME as 62:03 and DTIME as 0 01:02:03 (with the seconds' fraction as typed, and a minus sign), and plain seconds are still taken; before, the editor showed 3723 and refused 01:02:03. Cells in JDATE, QYR, MOYR, WKYR and YMDHMS formats are typed as a date, as DATE cells are.
 - With SET DECIMAL=COMMA the data window shows numbers with a decimal comma (3,5), the cell editor starts with and takes a comma (a period is refused with the reason), and Copy puts the comma on the clipboard; before, cells showed a period and 3,5 was refused.
 - Deleting a case in the data window of a large file is fast: on 1,000,000 cases and 200 variables it took 15 seconds and 2.5 GB more memory, and now takes under a second beyond opening the file.
 - The data window refuses a date that does not exist (2023-02-29, 2024-04-31) instead of storing the first of the next month, a Decimals or Width edit in the Variables tab is checked like the Type and Format dialog (a width of 3 with 9 decimals is refused), and deleting a variable the split file is by says so before it ends the split.
