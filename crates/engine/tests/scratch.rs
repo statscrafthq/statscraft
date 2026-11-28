@@ -164,3 +164,48 @@ fn an_error_case_by_case_names_the_case() {
         "{message}"
     );
 }
+
+/// The kept cases are joined in pieces as they come; 20,000 cases cross the piece boundary twice
+/// and leave a short last piece, and the values must be those of a plain loop in Rust.
+#[test]
+fn a_pass_case_by_case_over_many_cases_gives_the_values_of_a_plain_loop() {
+    let session = data(
+        "INPUT PROGRAM.\nLOOP #i = 1 TO 20000.\nCOMPUTE x = #i * 2 - MOD(#i, 7).\nEND CASE.\nEND LOOP.\n\
+         END FILE.\nEND INPUT PROGRAM.\n\
+         NUMERIC total (F12).\nLEAVE total.\nCOMPUTE total = total + x.\n\
+         SELECT IF MOD(x, 3) <> 0.\n\
+         COMPUTE back3 = LAG(x, 3).\nCOMPUTE #n = #n + 1.\nCOMPUTE n = #n.",
+    );
+    let data = session.dataset().unwrap();
+    let column = |name: &str| -> Vec<Option<f64>> {
+        data.variable(name)
+            .unwrap()
+            .numeric()
+            .unwrap()
+            .iter()
+            .collect()
+    };
+    let (mut running, mut kept) = (0.0, Vec::new());
+    let mut totals = Vec::new();
+    for i in 1..=20_000u32 {
+        let x = f64::from(2 * i - i % 7);
+        running += x;
+        if x % 3.0 != 0.0 {
+            kept.push(x);
+            totals.push(Some(running));
+        }
+    }
+    let back3: Vec<Option<f64>> = (0..kept.len())
+        .map(|j| j.checked_sub(3).map(|k| kept[k]))
+        .collect();
+    let n: Vec<Option<f64>> = (1..=kept.len()).map(|j| Some(j as f64)).collect();
+    assert_eq!(data.case_count(), kept.len());
+    assert_eq!(
+        column("x"),
+        kept.iter().map(|x| Some(*x)).collect::<Vec<_>>()
+    );
+    assert_eq!(column("total"), totals);
+    assert_eq!(column("back3"), back3);
+    assert_eq!(column("n"), n);
+    assert!(data.variable_names().all(|name| !name.starts_with('#')));
+}
