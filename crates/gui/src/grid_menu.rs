@@ -287,8 +287,8 @@ fn cell_entries(
     let mut condition = short(&condition(data, case, column), 40);
     // only a value label differs from the value, so the currency settings do not matter here
     let plain = Currencies::default();
-    let label = edits::cell_text(&variable, case, true, &plain);
-    if label != edits::cell_text(&variable, case, false, &plain) {
+    let label = edits::cell_text(&variable, case, true, &plain, false);
+    if label != edits::cell_text(&variable, case, false, &plain, false) {
         condition.push_str(&format!(" ({})", short(&label, 30)));
     }
     let only = t_args(
@@ -384,7 +384,9 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
         let variable = data.variable_at(column);
         match item {
             Item::Edit => return Ok(Action::EditCell(case, column)),
-            Item::ClearValue => return Ok(Action::Run(edits::cell_edit(&variable, case, "")?)),
+            Item::ClearValue => {
+                return Ok(Action::Run(edits::cell_edit(&variable, case, "", false)?));
+            }
             Item::Filter => return Ok(Action::Run(filter(data, case, column))),
             Item::FilterOff => return Ok(Action::Run("FILTER OFF.".into())),
             Item::KeepOnlyDialog => {
@@ -1014,7 +1016,13 @@ mod tests {
         let data = data(&session);
         let column = index(&session, "monthly_spend");
         assert_eq!(
-            edits::cell_text(&data.variable_at(column), 3, false, &Currencies::default()),
+            edits::cell_text(
+                &data.variable_at(column),
+                3,
+                false,
+                &Currencies::default(),
+                false
+            ),
             "12.35"
         );
         assert_eq!(condition(data, 3, column), "monthly_spend = 12.3456");

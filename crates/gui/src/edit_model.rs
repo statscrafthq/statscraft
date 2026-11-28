@@ -300,7 +300,7 @@ fn set(t: &Table, name: &str, case: usize, cell: Cell) -> Table {
 }
 
 fn edit(session: &Session, name: &str, case: usize, text: &str) -> Result<String, String> {
-    edits::cell_edit(&data(session).variable(name).unwrap(), case, text)
+    edits::cell_edit(&data(session).variable(name).unwrap(), case, text, false)
 }
 
 /// What a number typed into a cell must become.
@@ -476,8 +476,8 @@ fn editing_a_cell_without_changing_its_text_keeps_every_bit() {
         let data = data(session);
         for v in data.variables() {
             for case in 0..data.case_count() {
-                let text = edits::edit_text(&v, case);
-                syntax.push_str(&edits::cell_edit(&v, case, &text).unwrap());
+                let text = edits::edit_text(&v, case, false);
+                syntax.push_str(&edits::cell_edit(&v, case, &text, false).unwrap());
                 syntax.push('\n');
             }
         }
@@ -1290,4 +1290,105 @@ fn filter_from_a_cell_keeps_the_data_and_undo_ends_it() {
     let off = menu(&session, &cell, Item::FilterOff);
     run(&mut session, &off);
     assert!(table(&session).state.contains("filter None"));
+}
+
+/// Under SET DECIMAL=COMMA the grid shows and takes a decimal comma.
+fn comma_session(state: bool) -> Session {
+    let mut session = if state { with_state() } else { plain() };
+    run(&mut session, "SET DECIMAL=COMMA.");
+    session
+}
+
+fn comma_edit(session: &Session, name: &str, case: usize, text: &str) -> Result<String, String> {
+    edits::cell_edit(&data(session).variable(name).unwrap(), case, text, true)
+}
+
+#[test]
+fn a_comma_typed_under_set_decimal_comma_is_stored_to_the_bit() {
+    let texts = [
+        ("3,5", 3.5),
+        ("-0,5", -0.5),
+        (",5", 0.5),
+        ("5,", 5.0),
+        ("1,5e3", 1500.0),
+        ("0,30000000000000004", 0.30000000000000004),
+        ("123456789,123456789", 123_456_789.123_456_79),
+        ("7", 7.0),
+        ("  42  ", 42.0),
+    ];
+    for state in [false, true] {
+        let mut session = comma_session(state);
+        let before = table(&session);
+        for name in ["age", "income", "id"] {
+            for (i, (text, value)) in texts.iter().enumerate() {
+                let case = i % 5;
+                let syntax = comma_edit(&session, name, case, text).unwrap();
+                let (_, after) = op(&mut session, &syntax);
+                same(
+                    &format!("{text:?} into {name}"),
+                    &syntax,
+                    &after,
+                    &set(&before, name, case, num(Some(*value))),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn under_a_decimal_comma_a_period_or_a_second_comma_is_refused_with_the_reason() {
+    let session = comma_session(false);
+    for text in ["3.5", "1.234,5", "1,2,3", "abc", "1;5"] {
+        assert!(comma_edit(&session, "income", 0, text).is_err(), "{text:?}");
+    }
+    let message = comma_edit(&session, "income", 0, "3.5").unwrap_err();
+    assert!(message.contains("comma"), "{message}");
+    // the period stays the mark when the setting is the default
+    let plain = plain();
+    let dot = edits::cell_edit(&data(&plain).variable("income").unwrap(), 0, "3.5", false);
+    assert!(dot.is_ok());
+    assert!(edits::cell_edit(&data(&plain).variable("income").unwrap(), 0, "3,5", false).is_err());
+}
+
+#[test]
+fn under_a_decimal_comma_the_cells_show_and_edit_with_a_comma_and_keep_every_bit() {
+    for state in [false, true] {
+        let mut session = comma_session(state);
+        let before = table(&session);
+        let currencies = session.currencies();
+        let v = data(&session).variable("income").unwrap();
+        assert_eq!(edits::cell_text(&v, 0, false, &currencies, true), "1234,50");
+        assert_eq!(edits::cell_text(&v, 4, false, &currencies, true), "-2,75");
+        assert_eq!(edits::edit_text(&v, 4, true), "-2,75");
+        assert_eq!(
+            edits::cell_text(&v, 0, false, &currencies, false),
+            "1234.50"
+        );
+        // grouped and dollar formats keep their own marks: COMMA shows a period for the point
+        run(&mut session, "FORMATS income (COMMA11.2).");
+        let v = data(&session).variable("income").unwrap();
+        assert_eq!(
+            edits::cell_text(&v, 0, false, &currencies, true),
+            "1,234.50"
+        );
+        run(&mut session, "FORMATS income (DOT11.2).");
+        let v = data(&session).variable("income").unwrap();
+        assert_eq!(
+            edits::cell_text(&v, 0, false, &currencies, true),
+            "1.234,50"
+        );
+        assert!(session.undo() && session.undo());
+        // every cell retyped as the editor shows it keeps its bits
+        let mut syntax = String::new();
+        let data = data(&session);
+        for v in data.variables() {
+            for case in 0..data.case_count() {
+                let text = edits::edit_text(&v, case, true);
+                syntax.push_str(&edits::cell_edit(&v, case, &text, true).unwrap());
+                syntax.push('\n');
+            }
+        }
+        let (_, after) = op(&mut session, &syntax);
+        same("retyped under a comma", &syntax, &after, &before);
+    }
 }
