@@ -457,6 +457,7 @@ impl Chart {
             cell_stats: None,
             decorations: Vec::new(),
             style: Default::default(),
+            decimal_comma: false,
         }
     }
 }

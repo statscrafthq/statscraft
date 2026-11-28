@@ -228,6 +228,7 @@ mod star_join;
 mod statistics;
 mod string_date_functions_r;
 mod summarize_codebook;
+mod table_decimal_comma;
 mod table_labels;
 mod temporary_names;
 mod temporary_state;

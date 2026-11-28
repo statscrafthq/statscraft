@@ -253,6 +253,11 @@ pub struct Table {
     /// The font and the header cell styles a plugin gave.
     #[serde(default, skip_serializing_if = "TableStyle::is_empty")]
     pub style: TableStyle,
+    /// The table was made under SET DECIMAL=COMMA: `cell_text` shows a comma where the formats
+    /// that take the setting's decimal mark (F, E, N, PCT and the like) would show a period.
+    /// The numbers stay raw.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub decimal_comma: bool,
 }
 
 /// The statistics behind the cells of a table, for plugins. Rows and columns count as in
@@ -726,8 +731,11 @@ pub fn cell_text(table: &Table, row: usize, column: usize) -> String {
         .filter(|f| !f.is_empty());
     match (&table.rows[row][column], format) {
         (Cell::Text(t), _) => t.clone(),
-        (Cell::Number(n), Some(format)) => format_value(*n, format, true),
+        (Cell::Number(n), Some(format)) => {
+            format_value_decimal(*n, format, true, table.decimal_comma)
+        }
         (Cell::Number(n), None) if n.fract() == 0.0 => format!("{n:.0}"),
+        (Cell::Number(n), None) if table.decimal_comma => format!("{n:.2}").replace('.', ","),
         (Cell::Number(n), None) => format!("{n:.2}"),
         (Cell::Empty, _) => String::new(),
     }

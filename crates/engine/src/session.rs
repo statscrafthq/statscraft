@@ -1073,6 +1073,12 @@ fn run(
             }
         };
         engine.format_new_variables(command, &names).map_err(fail)?;
+        // under SET DECIMAL=COMMA the tables show the comma where the setting's mark goes
+        if engine.setting("DECIMAL").eq_ignore_ascii_case("COMMA") {
+            tables
+                .iter_mut()
+                .for_each(|table| table.decimal_comma = true);
+        }
         // an OMS file that cannot be written is a warning: the command's own output stays
         if let Err(e) = engine.route_output(&raw.name, &mut tables, true) {
             engine.warn(format!("OMS: {e}"));
