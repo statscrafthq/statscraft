@@ -1074,10 +1074,16 @@ fn run(
         };
         engine.format_new_variables(command, &names).map_err(fail)?;
         // under SET DECIMAL=COMMA the tables show the comma where the setting's mark goes
-        if engine.setting("DECIMAL").eq_ignore_ascii_case("COMMA") {
-            tables
-                .iter_mut()
-                .for_each(|table| table.decimal_comma = true);
+        // and so do the numbers in the texts a procedure writes, but not those of the user's data
+        let protected = engine
+            .setting("DECIMAL")
+            .eq_ignore_ascii_case("COMMA")
+            .then(|| crate::decimal_text::user_texts(engine.dataset()));
+        if let Some(protected) = &protected {
+            for table in tables.iter_mut() {
+                table.decimal_comma = true;
+                crate::decimal_text::comma_table(table, protected);
+            }
         }
         // an OMS file that cannot be written is a warning: the command's own output stays
         if let Err(e) = engine.route_output(&raw.name, &mut tables, true) {
@@ -1106,7 +1112,14 @@ fn run(
             last_line: raw.last_line,
             tables,
             charts: engine.take_charts(),
-            warnings: engine.warnings().to_vec(),
+            warnings: engine
+                .warnings()
+                .iter()
+                .map(|w| match &protected {
+                    Some(protected) => crate::decimal_text::comma_text(w, protected),
+                    None => w.clone(),
+                })
+                .collect(),
             document,
             opened,
             modified: engine.take_modified(),
