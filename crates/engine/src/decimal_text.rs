@@ -111,6 +111,11 @@ pub(crate) fn comma_table(table: &mut Table, protected: &[String]) {
     if let Some(caption) = table.caption.as_mut() {
         fix(caption);
     }
+    // LIST shows the values of the data through their own formats, which already follow the
+    // setting (and a currency format or DOT keeps its own mark): its cells are the data's
+    if table.title == "List" {
+        return;
+    }
     for cell in table.rows.iter_mut().flatten() {
         if let Cell::Text(text) = cell {
             fix(text);

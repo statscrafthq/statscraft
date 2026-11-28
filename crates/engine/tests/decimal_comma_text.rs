@@ -199,7 +199,12 @@ fn no_text_of_any_command_keeps_a_period_in_a_number() {
                 texts.extend(table.columns.iter().cloned());
                 texts.extend(table.column_groups.iter().flatten().cloned());
                 texts.extend(table.caption.clone());
-                for cell in table.rows.iter().flatten() {
+                for cell in table
+                    .rows
+                    .iter()
+                    .flatten()
+                    .filter(|_| table.title != "List")
+                {
                     if let statscraft_engine::Cell::Text(t) = cell {
                         texts.push(t.clone());
                     }
