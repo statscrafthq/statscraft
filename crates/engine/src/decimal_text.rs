@@ -50,6 +50,37 @@ pub(crate) fn user_texts(dataset: Option<&Dataset>) -> Vec<String> {
     texts
 }
 
+/// `text` with each whole occurrence of `kept` replaced by `mark`; None when there is none. An
+/// occurrence inside a longer word or number is not one: "1.5" is not in "11.52".
+fn mask(text: &str, kept: &str, mark: &str) -> Option<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    let mut found = false;
+    let mut before: Option<char> = None;
+    while let Some(at) = rest.find(kept) {
+        let (head, tail) = rest.split_at(at);
+        let after_text = &tail[kept.len()..];
+        let prior = head.chars().next_back().or(before);
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let mut after = after_text.chars();
+        let next = after.next();
+        let continues = next.is_some_and(word)
+            || (next == Some('.') && after.next().is_some_and(|c| c.is_ascii_digit()));
+        let begins = prior.is_some_and(|c| word(c) || c == '.');
+        out.push_str(head);
+        if begins || continues {
+            out.push_str(kept);
+        } else {
+            out.push_str(mark);
+            found = true;
+        }
+        before = kept.chars().next_back();
+        rest = after_text;
+    }
+    out.push_str(rest);
+    found.then_some(out)
+}
+
 /// `text` with the period of each number a comma. A number is digits, one period and digits not
 /// after a letter or an underscore (v1.2 is a name) and not part of a longer run of digits and
 /// periods (2026.11.28 and 1.2.3 are dates and versions). The `protected` texts stay as they are.
@@ -61,9 +92,9 @@ pub(crate) fn comma_text(text: &str, protected: &[String]) -> String {
     let mut work = text.to_string();
     let mut put_aside: Vec<&String> = Vec::new();
     for kept in protected {
-        if work.contains(kept.as_str()) {
-            let mark = format!("\u{1}{}\u{1}", put_aside.len());
-            work = work.replace(kept.as_str(), &mark);
+        let mark = format!("\u{1}{}\u{1}", put_aside.len());
+        if let Some(masked) = mask(&work, kept, &mark) {
+            work = masked;
             put_aside.push(kept);
         }
     }
@@ -166,6 +197,19 @@ mod tests {
         ] {
             assert_eq!(comma_text(text, none), text);
         }
+    }
+
+    #[test]
+    fn a_users_text_inside_a_longer_number_or_word_is_not_kept() {
+        let kept = vec!["1.5".to_string()];
+        assert_eq!(
+            comma_text("11.52 and 0.15.5 and 1.5 and x1.5", &kept),
+            "11,52 and 0.15.5 and 1.5 and x1.5"
+        );
+        assert_eq!(
+            comma_text("value 1.5. Then 2.5", &kept),
+            "value 1.5. Then 2,5"
+        );
     }
 
     #[test]
