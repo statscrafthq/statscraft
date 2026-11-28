@@ -408,7 +408,12 @@ impl Engine {
         let vectors_after = std::mem::take(&mut first.vectors);
 
         let mut random = std::mem::take(&mut self.random);
+        // the kept cases are joined in pieces of CHUNK as they come: a dataset of one case costs
+        // some 2.5 KB, so keeping a million of them used up 2.5 GB before the join
+        let mut chunks: Vec<Dataset> = Vec::new();
         let mut kept: Vec<Dataset> = Vec::new();
+        // the last `lags` cases kept, for LAG
+        let mut recent: std::collections::VecDeque<Dataset> = std::collections::VecDeque::new();
         let mut kept_cases: Vec<Option<usize>> = Vec::new();
         let mut carry: Vec<(String, Carried)> = Vec::new();
         for case in 0..base.case_count() {
@@ -419,7 +424,7 @@ impl Engine {
                     set_carried(&mut row, name, value)?;
                 }
             }
-            let previous = kept[kept.len().saturating_sub(lags)..].to_vec();
+            let previous: Vec<Dataset> = recent.iter().cloned().collect();
             let mut engine = engine(row, Some(case), previous);
             // the random numbers go on from case to case
             engine.random = std::mem::take(&mut random);
@@ -435,12 +440,25 @@ impl Engine {
             let dropped = engine.row.and_then(|row| row.dropped);
             carry = dropped.unwrap_or_else(|| scratch_values(&data, 0, &self.leave));
             if data.case_count() == 1 {
+                if lags > 0 {
+                    recent.push_back(data.clone());
+                    if recent.len() > lags {
+                        recent.pop_front();
+                    }
+                }
                 kept.push(data);
                 kept_cases.push(Some(case));
+                if kept.len() == CHUNK {
+                    chunks.push(Dataset::from_parts(&template, &kept)?);
+                    kept.clear();
+                }
             }
         }
+        if !kept.is_empty() {
+            chunks.push(Dataset::from_parts(&template, &kept)?);
+        }
 
-        let combined = Dataset::from_parts(&template, &kept)?;
+        let combined = Dataset::from_parts(&template, &chunks)?;
         let mut result = base;
         result.take_cases(&kept_cases)?;
         let all: Vec<Option<usize>> = (0..combined.case_count()).map(Some).collect();
@@ -481,6 +499,9 @@ impl Engine {
         Ok(())
     }
 }
+
+/// How many kept cases the case-by-case pass joins at a time.
+const CHUNK: usize = 8192;
 
 /// The most cases back any LAG of the commands reaches.
 fn lag_depth(commands: &[Command]) -> usize {
