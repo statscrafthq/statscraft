@@ -113,6 +113,19 @@ fn twostep_with_a_variable_of_1e200_or_1e_minus_200_returns_the_clusters_of_the_
 }
 
 #[test]
+fn twostep_still_leaves_out_a_variable_that_is_zero_in_every_case() {
+    let (tables, warnings) = run(
+        "COMPUTE zero = 0.\n",
+        "TWOSTEP CLUSTER /CONTINUOUS VARIABLES=x z zero.",
+    );
+    assert_eq!(numbers(table(&tables, "Model Summary"))[0], 2.0);
+    assert!(
+        warnings.iter().any(|w| w.contains("leaves out zero")),
+        "{warnings:?}"
+    );
+}
+
+#[test]
 fn varcomp_shows_an_estimate_beyond_the_range_empty_with_a_warning() {
     let command = "VARCOMP y BY g /RANDOM=g.";
     let (base, _) = run("", command);

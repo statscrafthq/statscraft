@@ -863,7 +863,7 @@ pub(crate) fn mean_sd(values: &[f64]) -> (Option<f64>, Option<f64>) {
     // squares of values near 1e200 or 1e-200 overflow or vanish: work on the values over their
     // largest, then give the scale back
     let largest = values.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-    if largest.is_finite() && !(1e-100..=1e100).contains(&largest) {
+    if largest.is_finite() && largest > 0.0 && !(1e-100..=1e100).contains(&largest) {
         let scaled: Vec<f64> = values.iter().map(|v| v / largest).collect();
         let mean = scaled.iter().sum::<f64>() / n * largest;
         let sd = (values.len() > 1).then(|| variance(&scaled).sqrt() * largest);
