@@ -236,6 +236,7 @@ mod tsmodel;
 mod ttest_r;
 mod twostep;
 mod update_r;
+mod user_missing_equivalence;
 mod varcomp;
 mod vega_lite;
 mod verify;
