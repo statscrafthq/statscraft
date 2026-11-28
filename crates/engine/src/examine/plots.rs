@@ -394,6 +394,9 @@ impl Tables<'_> {
         cells: &[&CellResult],
         power: Option<f64>,
     ) -> Result<(Chart, Vec<Vec<(f64, f64)>>), String> {
+        if cells.len() < 2 {
+            return Err("there is one group only".into());
+        }
         let values: Vec<f64> = cells
             .iter()
             .flat_map(|r| r.pairs.iter().map(|p| p.0))

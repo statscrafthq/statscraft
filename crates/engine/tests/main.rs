@@ -52,6 +52,7 @@ mod dataset_agg_r;
 mod date_command_r;
 mod date_formats;
 mod date_formats_r;
+mod degenerate_groups;
 mod dictionary;
 mod discriminant;
 mod discriminant_r;
