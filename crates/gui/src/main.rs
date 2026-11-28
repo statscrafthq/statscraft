@@ -32,6 +32,8 @@ mod data_dialogs;
 mod data_tools_dialog;
 mod data_tools_dialog_view;
 mod dialogs;
+#[cfg(test)]
+mod edit_model;
 mod editor;
 mod edits;
 mod export_dialog;

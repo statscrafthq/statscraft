@@ -38,6 +38,7 @@ data-delete-one = Delete { $variable }? Ctrl+Z brings it back.
 data-delete-many = Delete { $variables }? Ctrl+Z brings them back.
 data-also-ends-weighting = This also ends weighting.
 data-also-ends-filter = This also ends the filter.
+data-also-ends-split = This also ends the split.
 data-delete = Delete
 data-delete-case-n = Delete case { $case }? Ctrl+Z brings it back.
 
