@@ -5,19 +5,141 @@ use crate::syntax_text::{number, quote, value};
 use statscraft_data::{Measure, MissingValues, Value, Values, Variable};
 use statscraft_engine::{Currencies, format_value, format_value_decimal};
 
-/// Whether a format takes a typed date (true) or date and time (false) as yyyy-mm-dd and
-/// hh:mm:ss; None for other formats.
-fn date_kind(format: &str) -> Option<bool> {
-    let kind: String = format
+/// The leading letters of a format, upper case: "DATE11" as "DATE".
+fn format_keyword(format: &str) -> String {
+    format
         .chars()
         .take_while(char::is_ascii_alphabetic)
         .collect::<String>()
-        .to_ascii_uppercase();
-    match kind.as_str() {
-        "DATE" | "ADATE" | "EDATE" | "SDATE" => Some(true),
-        "DATETIME" => Some(false),
+        .to_ascii_uppercase()
+}
+
+/// Whether a format takes a typed date (true) or date and time (false) as yyyy-mm-dd and
+/// hh:mm:ss; None for other formats. The formats that show a part of a date (month and year,
+/// quarter) take a whole date too.
+fn date_kind(format: &str) -> Option<bool> {
+    match format_keyword(format).as_str() {
+        "DATE" | "ADATE" | "EDATE" | "SDATE" | "JDATE" | "QYR" | "MOYR" | "WKYR" => Some(true),
+        "DATETIME" | "YMDHMS" => Some(false),
         _ => None,
     }
+}
+
+/// A format that shows a length of time and is typed as one.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Duration {
+    /// TIME: hh:mm:ss, the hours as many as there are.
+    Clock,
+    /// MTIME: mm:ss, the minutes as many as there are.
+    Minutes,
+    /// DTIME: d hh:mm:ss.
+    Days,
+}
+
+fn duration_kind(format: &str) -> Option<Duration> {
+    match format_keyword(format).as_str() {
+        "TIME" => Some(Duration::Clock),
+        "MTIME" => Some(Duration::Minutes),
+        "DTIME" => Some(Duration::Days),
+        _ => None,
+    }
+}
+
+/// A length of time in seconds as the editor shows it: `01:02:03`, `-00:10`, `1 02:03:04`,
+/// with the seconds' fraction as the number gives it. None for a value too large to split.
+fn duration_text(v: f64, kind: Duration, comma: bool) -> Option<String> {
+    if !v.is_finite() || v.abs() >= 1e15 {
+        return None;
+    }
+    let text = number(v.abs());
+    let (whole, fraction) = text.split_once('.').unwrap_or((&text, ""));
+    let whole: u64 = whole.parse().ok()?;
+    let seconds = whole % 60;
+    let seconds = match fraction.is_empty() {
+        true => format!("{seconds:02}"),
+        false => format!("{seconds:02}{}{fraction}", if comma { ',' } else { '.' }),
+    };
+    let sign = if v < 0.0 { "-" } else { "" };
+    Some(match kind {
+        Duration::Clock => format!("{sign}{:02}:{:02}:{seconds}", whole / 3600, whole / 60 % 60),
+        Duration::Minutes => format!("{sign}{:02}:{seconds}", whole / 60),
+        Duration::Days => format!(
+            "{sign}{} {:02}:{:02}:{seconds}",
+            whole / 86_400,
+            whole / 3600 % 24,
+            whole / 60 % 60
+        ),
+    })
+}
+
+/// The seconds a typed length of time stands for, as a number literal; None when the text is
+/// not one (so it may be seconds). Two parts are hours and minutes, except for MTIME where
+/// they are minutes and seconds; DTIME may start with the days and a blank. The fraction of
+/// the seconds is kept as typed, so the number is the one the digits name.
+fn duration_literal(text: &str, kind: Duration, comma: bool) -> Result<Option<String>, String> {
+    let bad = || {
+        let form = match kind {
+            Duration::Clock => "hh:mm:ss",
+            Duration::Minutes => "mm:ss",
+            Duration::Days => "d hh:mm:ss",
+        };
+        format!("{text:?} is not a time; type it as {form}")
+    };
+    let text = text.trim();
+    if !text.contains(':') {
+        return Ok(None);
+    }
+    let (negative, text) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest.trim_start()),
+        None => (false, text),
+    };
+    let (days, clock) = match (kind, text.split_once(' ')) {
+        (Duration::Days, Some((days, rest))) => (days, rest.trim_start()),
+        _ => ("0", text),
+    };
+    let whole = |part: &str| -> Result<u64, String> {
+        match !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()) {
+            true => part.parse().map_err(|_| bad()),
+            false => Err(bad()),
+        }
+    };
+    let parts: Vec<&str> = clock.split(':').collect();
+    let (hours, minutes, seconds) = match (parts.len(), kind) {
+        (3, _) => (parts[0], parts[1], parts[2]),
+        (2, Duration::Minutes) => ("0", parts[0], parts[1]),
+        (2, _) => (parts[0], parts[1], "0"),
+        _ => return Err(bad()),
+    };
+    let mark = if comma { ',' } else { '.' };
+    let other = if comma { '.' } else { ',' };
+    if seconds.contains(other) {
+        return Err(bad());
+    }
+    let (second, fraction) = seconds.split_once(mark).unwrap_or((seconds, ""));
+    if seconds.contains(mark) && fraction.is_empty() {
+        return Err(bad());
+    }
+    if !fraction.is_empty() && !fraction.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(bad());
+    }
+    let (days, hours, minutes, second) =
+        (whole(days)?, whole(hours)?, whole(minutes)?, whole(second)?);
+    let minutes_free = kind == Duration::Minutes && parts.len() == 2;
+    if second >= 60 || (minutes >= 60 && !minutes_free) || (kind == Duration::Days && hours >= 24) {
+        return Err(bad());
+    }
+    let total = u128::from(days) * 86_400
+        + u128::from(hours) * 3600
+        + u128::from(minutes) * 60
+        + u128::from(second);
+    if total >= 1_000_000_000_000_000 {
+        return Err(bad());
+    }
+    let sign = if negative { "-" } else { "" };
+    Ok(Some(match fraction.is_empty() {
+        true => format!("{sign}{total}"),
+        false => format!("{sign}{total}.{fraction}"),
+    }))
 }
 
 /// A number shown in its variable's format; a custom currency with the session's SET CCA to
@@ -80,8 +202,13 @@ pub fn edit_text(variable: &Variable, case: usize, comma: bool) -> String {
                     let cut = if date_only { 10 } else { text.len() };
                     text.get(..cut).unwrap_or(&text).to_string()
                 }
-                None if comma => number(v).replace('.', ","),
-                None => number(v),
+                None => match duration_kind(variable.format())
+                    .and_then(|kind| duration_text(v, kind, comma))
+                {
+                    Some(text) => text,
+                    None if comma => number(v).replace('.', ","),
+                    None => number(v),
+                },
             },
         },
         Values::String(values) => values.get(case).to_string(),
@@ -158,6 +285,12 @@ pub fn cell_edit(
     } else if date_kind(variable.format()).is_some() {
         // seconds typed as a number, or a date
         typed_number(trimmed, comma).or_else(|_| date_expression(trimmed))?
+    } else if let Some(kind) = duration_kind(variable.format()) {
+        // seconds typed as a number, or a length of time
+        match duration_literal(trimmed, kind, comma)? {
+            Some(literal) => literal,
+            None => typed_number(trimmed, comma)?,
+        }
     } else {
         typed_number(trimmed, comma)?
     };
