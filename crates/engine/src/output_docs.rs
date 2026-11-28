@@ -526,7 +526,7 @@ impl Engine {
             return Ok(());
         }
         let items = at.map_or(&[][..], |at| &self.documents.open[at].items[..]);
-        std::fs::write(&path, output_file::write(items))
+        statscraft_data::write_bytes(&path, output_file::write(items).as_bytes())
             .map_err(|e| Error(format!("OUTPUT SAVE: cannot write {}: {e}", save.file)))?;
         if let Some(at) = at {
             let document = &mut self.documents.open[at];
@@ -869,7 +869,7 @@ impl Engine {
     }
 
     fn write_file(&self, file: &str, bytes: &[u8]) -> Result<(), Error> {
-        std::fs::write(self.path(file), bytes)
+        statscraft_data::write_bytes(&self.path(file), bytes)
             .map_err(|e| Error(format!("OUTPUT EXPORT: cannot write {file}: {e}")))
     }
 

@@ -371,16 +371,13 @@ impl Dataset {
             None if zsav => statscraft_sav::Compression::Zlib,
             None => statscraft_sav::Compression::Bytecode,
         };
-        // a failed or interrupted write must not destroy the previous session state
-        let mut partial = path.as_os_str().to_owned();
-        partial.push(format!(".{}.partial", std::process::id()));
-        statscraft_sav::write_sav(&partial, &batch, &meta, compression, level)
-            .map_err(|e| e.to_string())
-            .and_then(|()| std::fs::rename(&partial, path).map_err(|e| e.to_string()))
-            .map_err(|e| {
-                let _ = std::fs::remove_file(&partial);
-                file_error(e)
-            })
+        // a failed or interrupted write must not destroy the previous file
+        crate::write_file(path, |file| {
+            let writer = std::io::BufWriter::with_capacity(4 * 1024 * 1024, file);
+            statscraft_sav::write_sav_to_writer(writer, &batch, &meta, compression, level)
+                .map_err(|e| e.to_string())
+        })
+        .map_err(file_error)
     }
 }
 

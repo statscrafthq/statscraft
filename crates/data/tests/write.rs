@@ -125,23 +125,35 @@ fn date_and_time_values_survive_exactly() {
 }
 
 #[test]
+fn a_write_into_a_missing_folder_is_an_error_of_the_file() {
+    let unwritable = scratch("no_such_directory/x.sav");
+    let error = fixture("empty.sav").write_sav(unwritable).unwrap_err();
+    assert!(matches!(error, Error::File(_)), "{error}");
+}
+
+/// A file that may not be written to is refused, stays as it is, and leaves no part.
+#[cfg(unix)]
+#[test]
 fn a_failed_write_keeps_the_existing_file() {
+    use std::os::unix::fs::PermissionsExt;
     let mut data = fixture("survey_basic.sav");
     let path = scratch("kept.sav");
     data.write_sav(&path).unwrap();
     let before = std::fs::read(&path).unwrap();
-
-    // the partial file cannot be created where a directory of that name is in the way
-    let partial = scratch(&format!("kept.sav.{}.partial", std::process::id()));
-    std::fs::create_dir_all(&partial).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
     data.delete_variables(&["age"]).unwrap();
-    assert!(data.write_sav(&path).is_err());
-    assert_eq!(std::fs::read(&path).unwrap(), before);
-    std::fs::remove_dir(&partial).unwrap();
-
-    let unwritable = scratch("no_such_directory/x.sav");
-    let error = fixture("empty.sav").write_sav(unwritable).unwrap_err();
-    assert!(matches!(error, Error::File(_)), "{error}");
+    // a user who may write to anything (root) cannot be refused by permissions
+    if std::fs::OpenOptions::new().write(true).open(&path).is_err() {
+        assert!(data.write_sav(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let names = std::fs::read_dir(path.parent().unwrap()).unwrap();
+        let parts = names.filter_map(|e| e.ok()).filter(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.starts_with("kept.sav.") && name.ends_with(".part")
+        });
+        assert_eq!(parts.count(), 0);
+    }
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
 }
 
 /// A value label has a one-byte length in the file, so it holds up to 255 bytes; labels of
