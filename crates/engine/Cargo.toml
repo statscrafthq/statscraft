@@ -58,3 +58,6 @@ flate2 = "1"
 encoding_rs = "0.8"
 
 [dev-dependencies]
+# MIT OR Apache-2.0; the .sav reader reads on a thread pool, and the tests that watch its
+# allocations run it on a pool of their own (already built for statscraft-sav)
+rayon = "1"

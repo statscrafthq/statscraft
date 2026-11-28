@@ -102,7 +102,9 @@ fn a_stale_part_goes_and_a_symbolic_link_is_written_through() {
         } else {
             std::fs::remove_file(dir.join(format!("{name}.4294967295-0.part"))).unwrap();
         }
-        assert_eq!(std::fs::read(dir.join(name)).unwrap(), before, "{name}");
+        // (not the same bytes: several formats write the time of the write)
+        let again = std::fs::read(dir.join(name)).unwrap();
+        assert_eq!(again.len(), before.len(), "{name}");
         #[cfg(unix)]
         {
             // the link stays a link and the file it points to changes
@@ -172,5 +174,22 @@ fn a_device_is_written_to_as_it_is() {
          WRITE OUTFILE='/dev/null' /x s.\nEXECUTE.",
     );
     assert!(std::path::Path::new("/dev/null").exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// /dev/full takes no byte: a real "no space left" from the system.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_full_disk_is_an_error_of_the_writer_and_not_a_panic() {
+    let dir = temp_dir("full");
+    let mut s = session(&dir);
+    for (template, name) in WRITERS {
+        let message = error(&mut s, &command(template, "/dev/full"));
+        let said = message.to_lowercase();
+        assert!(
+            said.contains("full") || said.contains("space"),
+            "{name}: {message}"
+        );
+    }
     std::fs::remove_dir_all(&dir).unwrap();
 }
