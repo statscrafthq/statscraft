@@ -367,7 +367,7 @@ fn one_sample(run: &mut Run, command: &TTest, variables: &[Variable], value: f64
                 variable.name()
             ));
         }
-        let (d, df) = (m.mean - value, m.w - 1.0);
+        let (d, df) = (m.mean - value, (m.w - 1.0).max(0.0));
         let title = format!("Pooled One-Sample Test (Test Value = {value})");
         run.pool(title, vec![name.clone()], d, se);
         let t = d / se;
@@ -740,7 +740,7 @@ fn paired(run: &mut Run, command: &TTest, pairs: &[(Variable, Variable)]) -> Vec
         let sd = spread(mx.variance + my.variance - 2.0 * sxy);
         let se = sd / w.sqrt();
         let t = d / se;
-        let df = w - 1.0;
+        let df = (w - 1.0).max(0.0);
         let half = t_quantile(run.alpha / 2.0, df) * se;
         let label = Cell::Text(format!(
             "{} - {}",

@@ -368,7 +368,8 @@ impl Engine {
         let mut tables = vec![processing];
         if valid <= 1.0 {
             self.warn(format!(
-                "RELIABILITY: too few cases (N = {valid}) for the scale {label}"
+                "RELIABILITY: too few cases (N = {}) for the scale {label}",
+                valid + 0.0
             ));
             return Ok(tables);
         }

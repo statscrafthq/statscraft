@@ -354,7 +354,8 @@ impl Engine {
             let df_res = n - k as f64;
             if df_res <= 0.0 {
                 return Err(Error(format!(
-                    "2SLS: {n} cases are too few for the {k} coefficients of equation {}",
+                    "2SLS: {} cases are too few for the {k} coefficients of equation {}",
+                    n + 0.0,
                     index + 1
                 )));
             }
