@@ -225,6 +225,7 @@ mod string_date_functions_r;
 mod summarize_codebook;
 mod table_labels;
 mod temporary_names;
+mod temporary_state;
 mod text_files_r;
 mod text_out_r;
 mod timeseries;
