@@ -90,6 +90,7 @@ mod engine;
 mod examine;
 mod examine_normality_r;
 mod examine_r;
+mod extreme_numbers;
 mod factor;
 mod factor_r;
 mod file_handle;

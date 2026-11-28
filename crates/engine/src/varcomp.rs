@@ -667,10 +667,16 @@ impl Engine {
                 variances(&fitted.th)
             }
         };
+        if estimates.iter().any(|v| !v.is_finite()) {
+            warnings.push(
+                "VARCOMP: a variance estimate is beyond the range of numbers (the values of the dependent variable are too large or too small for their squares); it is shown empty"
+                    .into(),
+            );
+        }
         let rows = labels
             .iter()
             .zip(&estimates)
-            .map(|(l, v)| vec![text(l.clone()), Cell::Number(*v)])
+            .map(|(l, v)| vec![text(l.clone()), crate::descriptives::number(Some(*v))])
             .collect();
         tables.push(table(
             "Variance Estimates",
@@ -686,7 +692,7 @@ impl Engine {
             tables.push(matrix_table(
                 "Asymptotic Covariance Matrix",
                 &labels,
-                &|i, j| Cell::Number(v[i][j]),
+                &|i, j| crate::descriptives::number(Some(v[i][j])),
                 format!(
                     "Dependent Variable: {dependent_text}. Method: {}.",
                     method_text(c.method)

@@ -398,6 +398,10 @@ pub(crate) fn precluster(model: &Model, records: Vec<Cf>, settings: &Settings) -
         while tree.depth > settings.levels {
             filled = true;
             let threshold = tree.next_threshold();
+            // distances that are not numbers never fall under a threshold: stop growing it
+            if !threshold.is_finite() {
+                break;
+            }
             let mut entries = tree.leaf_entries();
             if settings.noise > 0.0 {
                 let largest = entries.iter().map(|e| e.n).fold(0.0, f64::max);
@@ -856,6 +860,15 @@ pub(crate) fn mean_sd(values: &[f64]) -> (Option<f64>, Option<f64>) {
     if values.is_empty() {
         return (None, None);
     }
+    // squares of values near 1e200 or 1e-200 overflow or vanish: work on the values over their
+    // largest, then give the scale back
+    let largest = values.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+    if largest.is_finite() && !(1e-100..=1e100).contains(&largest) {
+        let scaled: Vec<f64> = values.iter().map(|v| v / largest).collect();
+        let mean = scaled.iter().sum::<f64>() / n * largest;
+        let sd = (values.len() > 1).then(|| variance(&scaled).sqrt() * largest);
+        return (Some(mean), sd);
+    }
     let mean = values.iter().sum::<f64>() / n;
     let sd = (values.len() > 1).then(|| variance(values).sqrt());
     (Some(mean), sd)
@@ -1002,7 +1015,8 @@ impl Engine {
         // a constant continuous variable has no spread to measure
         let mut k = 0;
         while saved.is_none() && k < continuous.len() {
-            if variance(&raw[k]) > 0.0 {
+            // by the standard deviation: the variance of values near 1e-200 is below the smallest number
+            if mean_sd(&raw[k]).1.is_some_and(|sd| sd > 0.0) {
                 k += 1;
             } else {
                 warnings.push(format!(

@@ -43,6 +43,22 @@ pub(crate) fn cholesky(a: &Matrix) -> Option<Matrix> {
     Some(l)
 }
 
+/// The inverse of a lower-triangular matrix with a non-zero diagonal, by forward substitution:
+/// exact in scale, where the equilibration `inverse_scaled` works on cannot suit a triangle (a
+/// factor whose columns differ by 1e150 has entries of 1e75 against a unit diagonal there).
+pub(crate) fn lower_inverse(l: &Matrix) -> Matrix {
+    let n = l.len();
+    let mut inv = vec![vec![0.0; n]; n];
+    for j in 0..n {
+        for i in j..n {
+            let rest: f64 = (j..i).map(|k| l[i][k] * inv[k][j]).sum();
+            let unit = if i == j { 1.0 } else { 0.0 };
+            inv[i][j] = (unit - rest) / l[i][i];
+        }
+    }
+    inv
+}
+
 /// The transpose of a matrix.
 pub(crate) fn transpose(a: &Matrix) -> Matrix {
     let cols = a.first().map_or(0, Vec::len);

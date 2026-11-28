@@ -1062,6 +1062,9 @@ fn is_transformation(command: &Command) -> bool {
 impl Engine {
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         let mut tables = self.execute_inner(command)?;
+        if !tables.is_empty() {
+            self.warn_extreme_values();
+        }
         // a sum over no cases is -0.0 in floating point; it shows as 0
         for cell in tables.iter_mut().flat_map(|t| t.rows.iter_mut().flatten()) {
             if let Cell::Number(n) = cell
@@ -1071,6 +1074,33 @@ impl Engine {
             }
         }
         Ok(tables)
+    }
+
+    /// Sums of squares of values beyond about 1e100 overflow, and below about 1e-100 vanish, so
+    /// a statistic over such a variable can be empty or lose its digits. The first thousand
+    /// cases of each numeric variable are looked at: a variable in such units has them in its
+    /// first cases too, and the look costs nothing against the analysis it follows.
+    fn warn_extreme_values(&mut self) {
+        let Some(dataset) = self.dataset.as_ref() else {
+            return;
+        };
+        let extreme = |v: f64| v.is_finite() && v != 0.0 && !(1e-100..=1e100).contains(&v.abs());
+        let names: Vec<String> = dataset
+            .variables()
+            .filter(|v| {
+                v.numeric()
+                    .is_ok_and(|values| values.iter().take(1000).flatten().any(extreme))
+            })
+            .map(|v| v.name().to_string())
+            .take(3)
+            .collect();
+        if !names.is_empty() {
+            self.warn(format!(
+                "{} {} values beyond 1E100 or below 1E-100 in size: sums of squares can overflow or vanish there, so statistics may be empty or inexact; rescale the variable",
+                names.join(", "),
+                if names.len() == 1 { "has" } else { "have" }
+            ));
+        }
     }
 
     fn execute_inner(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
