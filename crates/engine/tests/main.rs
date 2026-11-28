@@ -54,6 +54,7 @@ mod dataset_agg_r;
 mod date_command_r;
 mod date_formats;
 mod date_formats_r;
+mod date_variables;
 mod decimal_comma_r;
 mod degenerate_groups;
 mod dictionary;
