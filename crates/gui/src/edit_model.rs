@@ -538,12 +538,11 @@ fn delete_clears_the_selected_cells_and_nothing_else() {
             let mut model = before.clone();
             for name in ["age", "name", "joined"] {
                 let at = model.at(name);
-                for case in first..=last {
-                    model.cols[at].cells[case] = match name {
-                        "name" => Cell::Str(String::new()),
-                        _ => num(None),
-                    };
-                }
+                let empty = match name {
+                    "name" => Cell::Str(String::new()),
+                    _ => num(None),
+                };
+                model.cols[at].cells[first..=last].fill(empty);
             }
             same(
                 &format!("{state}: clear {first}..{last}"),
