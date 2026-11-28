@@ -2228,6 +2228,7 @@ impl Engine {
             terms.insert(0, intercept_term());
         }
         let effects = effects_of(&terms, &factor_names, &covariate_names)?;
+        crate::glm::check_columns("GENLIN", &d, &effects)?;
         let design = Fit::new(&d, effects, &d.y, crit.singular);
         let kept: Vec<usize> = (0..design.p)
             .filter(|&j| !design.redundant[j])

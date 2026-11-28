@@ -251,7 +251,7 @@ impl Engine {
         for k in 1..=top {
             terms.extend(combinations(nf, k).into_iter().map(Term::Factors));
         }
-        let make = |terms: &[Term], dep: usize| -> Model {
+        let make = |terms: &[Term], dep: usize| -> Result<Model, Error> {
             let d = Data {
                 factors: factor_names.clone(),
                 factor_texts: factor_names.clone(),
@@ -292,10 +292,11 @@ impl Engine {
                     .map(|t| effect(t, &factor_names, &covariate_names)),
             );
             let y = d.y.clone();
-            Model {
+            crate::glm::check_columns("ANOVA", &d, &effects)?;
+            Ok(Model {
                 fit: Fit::new(&d, effects, &y, EPS),
                 terms: terms.to_vec(),
-            }
+            })
         };
         let order_of = |t: &Term| match t {
             Term::Covariate(_) => 0,
@@ -304,7 +305,7 @@ impl Engine {
         let mut warnings = Vec::new();
         // an order of interactions that is not of full rank goes, with the orders above it
         if !dependents.is_empty() && !rows.is_empty() {
-            let probe = make(&terms, 0);
+            let probe = make(&terms, 0)?;
             let mut keep_to = top;
             for k in 2..=top {
                 let lower: Vec<usize> = (0..terms.len())
@@ -373,7 +374,7 @@ impl Engine {
             );
         }
         for (dep, dep_name) in dependents.iter().enumerate() {
-            let model = make(&terms, dep);
+            let model = make(&terms, dep)?;
             let all: Vec<usize> = (0..terms.len()).collect();
             let (sst, _) = model.sse(&[]);
             let (sse, rank) = model.sse(&all);
@@ -402,7 +403,7 @@ impl Engine {
                     (false, CovariateOrder::First) => terms[..n_cov].to_vec(),
                     (false, _) => terms.iter().filter(|t| order_of(t) <= 1).cloned().collect(),
                 };
-                let m = make(&model_terms, dep);
+                let m = make(&model_terms, dep)?;
                 (0..n_cov).map(|t| m.coefficient(t)).collect()
             } else {
                 Vec::new()
@@ -590,10 +591,10 @@ impl Engine {
             if !unique && command.mca {
                 // the main-effects models, without and with the covariates
                 let mains: Vec<Term> = terms.iter().filter(|t| order_of(t) == 1).cloned().collect();
-                let factors_model = make(&mains, dep);
+                let factors_model = make(&mains, dep)?;
                 let with_cov: Vec<Term> =
                     terms.iter().filter(|t| order_of(t) <= 1).cloned().collect();
-                let cov_model = (n_cov > 0).then(|| make(&with_cov, dep));
+                let cov_model = (n_cov > 0).then(|| make(&with_cov, dep)).transpose()?;
                 let adjusted_shown = n_cov == 0
                     || command.method == AnovaMethod::Hierarchical
                     || command.covariate_order == CovariateOrder::After;
