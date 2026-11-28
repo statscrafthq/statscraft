@@ -311,7 +311,7 @@ impl Engine {
             if !self.dry_run {
                 let mut text = written.lines.join("\n");
                 text.push('\n');
-                std::fs::write(self.path(&file), text)
+                statscraft_data::write_bytes(&self.path(&file), text.as_bytes())
                     .map_err(|e| Error(format!("cannot write {file}: {e}")))?;
             }
         }

@@ -110,6 +110,7 @@ mod graph;
 mod igraph;
 mod inline_data;
 mod input_program;
+mod io_files;
 mod keyed_data_list;
 mod km_survival;
 mod knn;

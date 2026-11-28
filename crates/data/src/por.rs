@@ -730,14 +730,7 @@ impl Dataset {
         }
 
         let file_error = |e: String| Error::File(format!("{}: {e}", path.display()));
-        let mut partial = path.as_os_str().to_owned();
-        partial.push(format!(".{}.partial", std::process::id()));
-        std::fs::write(&partial, bytes)
-            .and_then(|()| std::fs::rename(&partial, path))
-            .map_err(|e| {
-                let _ = std::fs::remove_file(&partial);
-                file_error(e.to_string())
-            })?;
+        crate::write_bytes(path, &bytes).map_err(file_error)?;
         Ok(warnings)
     }
 

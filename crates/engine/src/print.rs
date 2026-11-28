@@ -600,7 +600,8 @@ impl Engine {
         }
         for (path, encoding, bom, text) in texts {
             let bytes = encode(&text, encoding.as_deref(), bom)?;
-            std::fs::write(&path, bytes).map_err(|e| Error(format!("{}: {e}", path.display())))?;
+            statscraft_data::write_bytes(&path, &bytes)
+                .map_err(|e| Error(format!("{}: {e}", path.display())))?;
         }
         for (path, xsave, parts) in saves {
             let data = Dataset::from_parts(&parts[0], &parts)?;

@@ -1,12 +1,14 @@
 //! Dataset and dictionary model, with reading and writing of `.sav` / `.zsav` files.
 
 mod edit;
+mod files;
 mod por;
 mod retype;
 mod sav;
 pub use sav::Compression as SavCompression;
 
 pub use edit::is_valid_name;
+pub use files::{write_bytes, write_file};
 pub use por::portable_names;
 pub use retype::{NewValues, cut_to};
 

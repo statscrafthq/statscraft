@@ -242,7 +242,7 @@ impl Engine {
                 };
                 write_dta(&data, &options).and_then(|(bytes, warnings)| {
                     self.warn_some(warnings);
-                    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+                    statscraft_data::write_bytes(&path, &bytes)
                 })
             }
             TranslateType::SasTransport => {
@@ -252,7 +252,7 @@ impl Engine {
                 let member = member_name(&path.to_string_lossy());
                 write_xport(&data, &member, now).and_then(|(bytes, warnings)| {
                     self.warn_some(warnings);
-                    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+                    statscraft_data::write_bytes(&path, &bytes)
                 })
             }
             TranslateType::Dbase3 | TranslateType::Dbase4 => {
@@ -264,7 +264,7 @@ impl Engine {
                 write_dbf(&data, &limits, command.recode_missing, today).and_then(
                     |(bytes, warnings)| {
                         self.warn_some(warnings);
-                        std::fs::write(&path, bytes).map_err(|e| e.to_string())
+                        statscraft_data::write_bytes(&path, &bytes)
                     },
                 )
             }
@@ -308,12 +308,7 @@ impl Engine {
                 }
             })
             .collect();
-        // the file is written beside its name and renamed, so a failure leaves no half file
-        let mut part = path.as_os_str().to_owned();
-        part.push(format!(".{}.part", std::process::id()));
-        let part = std::path::PathBuf::from(part);
-        let result = (|| -> Result<(), String> {
-            let file = std::fs::File::create(&part).map_err(|e| e.to_string())?;
+        statscraft_data::write_file(path, |file| {
             let mut file = std::io::BufWriter::new(file);
             let mut bytes = encoder.start().to_vec();
             let mut text = String::new();
@@ -380,14 +375,7 @@ impl Engine {
             }
             flush(&mut text, &mut bytes, true)?;
             file.flush().map_err(|e| e.to_string())
-        })();
-        match result.and_then(|()| std::fs::rename(&part, path).map_err(|e| e.to_string())) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                let _ = std::fs::remove_file(&part);
-                Err(e)
-            }
-        }
+        })
     }
 
     fn write_workbook(
@@ -492,6 +480,10 @@ impl Engine {
             }
             sheet.autofit();
         }
-        book.save(path).map_err(xe)
+        statscraft_data::write_file(path, |file| {
+            let mut file = std::io::BufWriter::new(file);
+            book.save_to_writer(&mut file).map_err(xe)?;
+            file.flush().map_err(|e| e.to_string())
+        })
     }
 }
