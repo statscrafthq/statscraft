@@ -302,6 +302,7 @@ mod logistic_options_r;
 mod means_layers_r;
 mod mult_response_r;
 mod npar_options_r;
+mod oneway_many_groups_r;
 mod oneway_r;
 mod oneway_waller_r;
 mod quick_cluster_r;

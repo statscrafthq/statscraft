@@ -301,6 +301,28 @@ fn simple(title: String, columns: &[&str], rows: Vec<Vec<Cell>>) -> Table {
     }
 }
 
+/// `f` of every item, in order. Many items are shared among the machine's threads in chunks (a
+/// pure function gives the same answer on any of them); few are not worth the threads.
+pub(crate) fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let threads = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(16);
+    if items.len() < 400 || threads < 2 {
+        return items.iter().map(f).collect();
+    }
+    let chunk = items.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .chunks(chunk)
+            .map(|part| scope.spawn(|| part.iter().map(&f).collect::<Vec<R>>()))
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("a pair of the post hoc tests"))
+            .collect()
+    })
+}
+
 /// Mean difference, standard error, significance and interval of one pair by one test.
 /// `ranges` holds, for Dunnett's C, the studentized ranges of k groups with n_a - 1 and n_b - 1
 /// df exceeded with probability alpha. `critical` is the test's critical value, the same for
@@ -460,22 +482,27 @@ pub(crate) fn posthoc_tables(
             };
             // each unordered pair once; the reverse direction mirrors it
             let mut found = vec![vec![[f64::NAN; 5]; groups.len()]; groups.len()];
-            for i in 0..groups.len() {
-                for j in i + 1..groups.len() {
-                    let r = compare(
-                        test,
-                        &groups[i],
-                        &groups[j],
-                        k,
-                        within,
-                        df,
-                        alpha,
-                        (ranges[i], ranges[j]),
-                        critical,
-                    );
-                    found[i][j] = r;
-                    found[j][i] = [-r[0], r[1], r[2], -r[4], -r[3]];
-                }
+            let pairs: Vec<(usize, usize)> = (0..groups.len())
+                .flat_map(|i| (i + 1..groups.len()).map(move |j| (i, j)))
+                .collect();
+            // a studentized range probability costs about a millisecond, so many groups take
+            // minutes on one thread; each pair is worked out on its own, whichever thread
+            let results = parallel_map(&pairs, |&(i, j)| {
+                compare(
+                    test,
+                    &groups[i],
+                    &groups[j],
+                    k,
+                    within,
+                    df,
+                    alpha,
+                    (ranges[i], ranges[j]),
+                    critical,
+                )
+            });
+            for (&(i, j), r) in pairs.iter().zip(results) {
+                found[i][j] = r;
+                found[j][i] = [-r[0], r[1], r[2], -r[4], -r[3]];
             }
             for i in 0..groups.len() {
                 for j in (0..groups.len()).filter(|&j| j != i) {
@@ -1422,4 +1449,19 @@ fn means_plot(
         values: groups.iter().map(|g| g.2).collect(),
     }];
     crate::Chart::lines(title, x, y, categories, series)
+}
+
+#[cfg(test)]
+mod parallel_tests {
+    use super::parallel_map;
+
+    #[test]
+    fn many_items_give_what_a_plain_map_gives_in_the_same_order() {
+        let items: Vec<u64> = (0..5000).collect();
+        let f = |x: &u64| (x * x) as f64 / 7.0 + (*x as f64).sqrt();
+        let plain: Vec<f64> = items.iter().map(f).collect();
+        assert_eq!(parallel_map(&items, f), plain);
+        assert_eq!(parallel_map(&items[..10], f), plain[..10].to_vec());
+        assert!(parallel_map(&[] as &[u64], f).is_empty());
+    }
 }
