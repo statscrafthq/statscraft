@@ -247,6 +247,7 @@ mod ts_more;
 mod tsmodel;
 mod ttest_r;
 mod twostep;
+mod unicode_roundtrip;
 mod update_r;
 mod user_missing_equivalence;
 mod varcomp;
