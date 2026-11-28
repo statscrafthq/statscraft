@@ -691,7 +691,7 @@ mod tests {
         for i in 0..n {
             // small whole numbers pack into one byte, the others follow the opcode
             a.append_value((i % 200) as f64);
-            b.append_option((i % 7 != 0).then(|| (i as f64) * 0.37 - 5.0));
+            b.append_option((i % 7 != 0).then_some((i as f64) * 0.37 - 5.0));
             s.append_value(format!("row {i} {}", "x".repeat(i % 40)));
         }
         let batch = RecordBatch::try_new(
