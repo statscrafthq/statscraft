@@ -10,15 +10,25 @@ pub(crate) type Matrix = Vec<Vec<f64>>;
 /// pivot gives the matrix back, so the same call enters and removes a variable.
 pub(crate) fn sweep(m: &mut Matrix, k: usize) {
     let pivot = m[k][k];
-    let n = m.len();
-    for i in (0..n).filter(|&i| i != k) {
-        for j in (0..n).filter(|&j| j != k) {
-            m[i][j] -= m[i][k] * m[k][j] / pivot;
+    // row k does not change while the others do; each element is worked out as it always was,
+    // on whole rows instead of through an index for every element
+    let row_k = m[k].clone();
+    for (i, row) in m.iter_mut().enumerate() {
+        if i == k {
+            continue;
         }
+        let factor = row[k];
+        for (j, (value, above)) in row.iter_mut().zip(&row_k).enumerate() {
+            if j != k {
+                *value -= factor * above / pivot;
+            }
+        }
+        row[k] /= pivot;
     }
-    for i in (0..n).filter(|&i| i != k) {
-        m[i][k] /= pivot;
-        m[k][i] /= -pivot;
+    for (i, value) in row_k.iter().enumerate() {
+        if i != k {
+            m[k][i] = value / -pivot;
+        }
     }
     m[k][k] = 1.0 / pivot;
 }
@@ -67,14 +77,15 @@ pub(crate) fn transpose(a: &Matrix) -> Matrix {
         .collect()
 }
 
-/// The product a b.
+/// The product a b. The columns of b are read as rows of its transpose: each element is the
+/// same sum in the same order, found without a jump through memory for every term.
 pub(crate) fn multiply(a: &Matrix, b: &Matrix) -> Matrix {
-    let inner = b.len();
-    let cols = b.first().map_or(0, Vec::len);
+    let columns = transpose(b);
     a.iter()
         .map(|row| {
-            (0..cols)
-                .map(|j| (0..inner).map(|k| row[k] * b[k][j]).sum())
+            columns
+                .iter()
+                .map(|column| row.iter().zip(column).map(|(x, y)| x * y).sum())
                 .collect()
         })
         .collect()
@@ -271,5 +282,89 @@ mod tests {
         assert!(close(values[0], 5.0) && close(values[1], 3.0) && close(values[2], 1.0));
         let v = &pairs[1].1;
         assert!(close(v[0].abs(), 0.5_f64.sqrt()) && close(v[0], v[1]));
+    }
+}
+
+#[cfg(test)]
+mod bit_tests {
+    use super::{Matrix, multiply, sweep};
+
+    /// The product and the sweep as they were written first, an element at a time.
+    fn multiply_by_element(a: &Matrix, b: &Matrix) -> Matrix {
+        let inner = b.len();
+        let cols = b.first().map_or(0, Vec::len);
+        a.iter()
+            .map(|row| {
+                (0..cols)
+                    .map(|j| (0..inner).map(|k| row[k] * b[k][j]).sum())
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn sweep_by_element(m: &mut Matrix, k: usize) {
+        let pivot = m[k][k];
+        let n = m.len();
+        for i in (0..n).filter(|&i| i != k) {
+            for j in (0..n).filter(|&j| j != k) {
+                m[i][j] -= m[i][k] * m[k][j] / pivot;
+            }
+        }
+        for i in (0..n).filter(|&i| i != k) {
+            m[i][k] /= pivot;
+            m[k][i] /= -pivot;
+        }
+        m[k][k] = 1.0 / pivot;
+    }
+
+    /// Numbers of every size, from a fixed recurrence.
+    fn matrix(rows: usize, cols: usize, seed: u64) -> Matrix {
+        let mut state = seed;
+        (0..rows)
+            .map(|_| {
+                (0..cols)
+                    .map(|_| {
+                        state = state
+                            .wrapping_mul(6364136223846793005)
+                            .wrapping_add(1442695040888963407);
+                        ((state >> 11) as f64 / (1u64 << 53) as f64 - 0.5)
+                            * 10f64.powi((state % 9) as i32 - 4)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn same_bits(a: &Matrix, b: &Matrix) {
+        assert_eq!(a.len(), b.len());
+        for (x, y) in a.iter().zip(b) {
+            let (x, y): (Vec<u64>, Vec<u64>) = (
+                x.iter().map(|v| v.to_bits()).collect(),
+                y.iter().map(|v| v.to_bits()).collect(),
+            );
+            assert_eq!(x, y);
+        }
+    }
+
+    #[test]
+    fn the_product_has_the_bits_of_the_element_by_element_product() {
+        for (r, i, c) in [(1, 1, 1), (3, 5, 4), (17, 9, 23), (40, 40, 40), (7, 30, 2)] {
+            let (a, b) = (matrix(r, i, 3), matrix(i, c, 5));
+            same_bits(&multiply(&a, &b), &multiply_by_element(&a, &b));
+        }
+        assert!(multiply(&Vec::new(), &Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_has_the_bits_of_the_element_by_element_sweep() {
+        for n in [1, 2, 5, 31] {
+            let mut by_rows = matrix(n, n, 11);
+            let mut by_element = by_rows.clone();
+            for k in (0..n).step_by(2).chain(0..n) {
+                sweep(&mut by_rows, k);
+                sweep_by_element(&mut by_element, k);
+                same_bits(&by_rows, &by_element);
+            }
+        }
     }
 }
