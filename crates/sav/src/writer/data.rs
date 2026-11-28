@@ -320,11 +320,28 @@ fn zlib_compress(data: &[u8], level: flate2::Compression) -> Result<Vec<u8>> {
         .map_err(|e| SavError::Zlib(format!("zlib finish error: {e}")))
 }
 
+/// How many blocks of bytecode are gathered before they are compressed together (in parallel)
+/// and written: about 64 MB of bytecode and as much compressed.
+const ZSAV_GROUP_BLOCKS: usize = 16;
+
 pub(super) fn write_data_zsav<W: Write + Seek>(
     w: &mut W,
     batch: &RecordBatch,
     layout: &CaseLayout,
     level: flate2::Compression,
+) -> Result<()> {
+    write_data_zsav_grouped(w, batch, layout, level, ZSAV_GROUP_BLOCKS)
+}
+
+/// The bytecode goes into blocks of `ZSAV_BLOCK_SIZE`, each compressed on its own, whatever the
+/// group: a group only decides how many blocks wait in memory before they are compressed
+/// together and written, so the file is the same for every `group_blocks`.
+pub(super) fn write_data_zsav_grouped<W: Write + Seek>(
+    w: &mut W,
+    batch: &RecordBatch,
+    layout: &CaseLayout,
+    level: flate2::Compression,
+    group_blocks: usize,
 ) -> Result<()> {
     use rayon::prelude::*;
 
@@ -335,10 +352,44 @@ pub(super) fn write_data_zsav<W: Write + Seek>(
     let zheader_offset = w.stream_position().map_err(SavError::Io)? as i64;
     w.write_all(&[0u8; 24])?;
 
-    // Phase 1: Generate ALL bytecode into a single contiguous buffer
-    let mut encoder = BytecodeEncoder::with_capacity(DEFAULT_BIAS, nrows * row_bytes);
+    let mut blocks: Vec<ZsavBlockInfo> = Vec::new();
+    let mut bytecode_offset: i64 = zheader_offset; // per PSPP spec: starts at zheader file position
+    // the bytecode not yet in a block written
+    let mut pending: Vec<u8> = Vec::new();
+
+    // Compresses the whole blocks of `pending` in parallel (all of it at the end, with the
+    // short last block) and writes them in order.
+    let mut flush = |w: &mut W, pending: &mut Vec<u8>, last: bool| -> Result<()> {
+        let take = match last {
+            true => pending.len(),
+            false => pending.len() / ZSAV_BLOCK_SIZE * ZSAV_BLOCK_SIZE,
+        };
+        if take == 0 {
+            return Ok(());
+        }
+        let compressed: Vec<Vec<u8>> = pending[..take]
+            .par_chunks(ZSAV_BLOCK_SIZE)
+            .map(|chunk| zlib_compress(chunk, level))
+            .collect::<Result<Vec<_>>>()?;
+        for (chunk, compressed) in pending[..take].chunks(ZSAV_BLOCK_SIZE).zip(&compressed) {
+            let compressed_offset = w.stream_position().map_err(SavError::Io)? as i64;
+            w.write_all(compressed)?;
+            blocks.push(ZsavBlockInfo {
+                uncompressed_offset: bytecode_offset,
+                compressed_offset,
+                uncompressed_size: chunk.len() as i32,
+                compressed_size: compressed.len() as i32,
+            });
+            bytecode_offset += chunk.len() as i64;
+        }
+        pending.drain(..take);
+        Ok(())
+    };
+
+    let mut encoder = BytecodeEncoder::new(DEFAULT_BIAS);
     let chunk_rows = CHUNK_ROWS.min(nrows);
     let mut big_buf = vec![0u8; chunk_rows * row_bytes];
+    let group_bytes = ZSAV_BLOCK_SIZE.saturating_mul(group_blocks.max(1));
 
     let mut row = 0;
     while row < nrows {
@@ -351,46 +402,14 @@ pub(super) fn write_data_zsav<W: Write + Seek>(
             encoder.encode_row(row_slice, layout.slots_per_row);
         }
         row += this_chunk;
+        if encoder.output_len() >= group_bytes {
+            pending.extend_from_slice(&encoder.drain_output());
+            flush(w, &mut pending, false)?;
+        }
     }
     encoder.write_eof();
-    let all_bytecode = encoder.drain_output();
-
-    // Phase 2: Split bytecode into blocks, compress all in parallel
-    let n_full_blocks = all_bytecode.len() / ZSAV_BLOCK_SIZE;
-    let has_remainder = !all_bytecode.len().is_multiple_of(ZSAV_BLOCK_SIZE);
-    let n_blocks = n_full_blocks + if has_remainder { 1 } else { 0 };
-
-    let chunk_ranges: Vec<(usize, usize)> = (0..n_blocks)
-        .map(|i| {
-            let start = i * ZSAV_BLOCK_SIZE;
-            let len = (all_bytecode.len() - start).min(ZSAV_BLOCK_SIZE);
-            (start, len)
-        })
-        .collect();
-
-    let compressed_blocks: Vec<Vec<u8>> = chunk_ranges
-        .par_iter()
-        .map(|&(start, len)| zlib_compress(&all_bytecode[start..start + len], level))
-        .collect::<Result<Vec<_>>>()?;
-
-    // Phase 3: Write compressed blocks sequentially, build trailer
-    let mut blocks: Vec<ZsavBlockInfo> = Vec::with_capacity(n_blocks);
-    let mut bytecode_offset: i64 = zheader_offset; // per PSPP spec: starts at zheader file position
-
-    for (i, compressed) in compressed_blocks.iter().enumerate() {
-        let (_, uncompressed_len) = chunk_ranges[i];
-        let compressed_offset = w.stream_position().map_err(SavError::Io)? as i64;
-        w.write_all(compressed)?;
-
-        blocks.push(ZsavBlockInfo {
-            uncompressed_offset: bytecode_offset,
-            compressed_offset,
-            uncompressed_size: uncompressed_len as i32,
-            compressed_size: compressed.len() as i32,
-        });
-
-        bytecode_offset += uncompressed_len as i64;
-    }
+    pending.extend_from_slice(&encoder.drain_output());
+    flush(w, &mut pending, true)?;
 
     // Write ztrailer
     let ztrailer_offset = w.stream_position().map_err(SavError::Io)? as i64;

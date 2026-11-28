@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- Saving a .zsav file no longer holds the whole file in memory twice: 1,000,000 cases and 200 variables (1.5 GB written) peaked at 4.9 GB and now peak at 2.1 GB, the data itself and a little over, and take 20 seconds instead of 24; the file is the same.
 - With SET DECIMAL=COMMA the Variables tab shows value labels and missing values with a decimal comma (1,5 = Low; missing values 98; 99,5), takes them typed that way in the cells and in both dialogs, and refuses a period; the items of a missing values list are then separated by a semicolon, and pasted labels by a semicolon, tab or equals sign.
 - Running totals (LEAVE), LAG and scratch counters run about a fifth to a third faster: each command no longer reads the clock and copies a dozen settings before it runs (1,000,000 cases and 200 variables: LAG 19.5 to 14.5 s, running total 22.7 to 18.7 s, with 4.8 s of opening in each).
 - With SET DECIMAL=COMMA the tables of every command show a decimal comma (3,90, 16,67) in the window and in the Markdown, HTML, PDF and document outputs; before, only the data commands did and the tables of procedures kept a period. The numbers in JSON stay numbers.

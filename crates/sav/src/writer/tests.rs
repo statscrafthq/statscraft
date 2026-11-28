@@ -1018,3 +1018,61 @@ fn test_roundtrip_test3_metadata() {
         "variable_labels count mismatch"
     );
 }
+
+/// Three columns of numbers that do not pack into one byte, enough rows for several zsav blocks.
+fn many_numbers(rows: usize) -> RecordBatch {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("a", DataType::Float64, true),
+        Field::new("b", DataType::Float64, true),
+        Field::new("c", DataType::Float64, true),
+    ]));
+    let column = |k: f64| {
+        let mut builder = Float64Builder::with_capacity(rows);
+        for i in 0..rows {
+            match i % 11 {
+                0 => builder.append_null(),
+                _ => builder.append_value((i as f64) * k + 0.123_456_789),
+            }
+        }
+        Arc::new(builder.finish()) as Arc<dyn Array>
+    };
+    RecordBatch::try_new(schema, vec![column(1.37), column(-0.71), column(3.0)]).unwrap()
+}
+
+#[test]
+fn a_zsav_file_is_the_same_whatever_number_of_blocks_wait_before_they_are_written() {
+    // 500,000 rows of three numbers make about 12 MB of bytecode: three blocks of 4 MB, the
+    // last one short
+    let batch = many_numbers(500_000);
+    let meta = SavMetadata::from_arrow_schema(batch.schema().as_ref());
+    let layout = layout::compute_layout(&batch, &meta, encoding_rs::UTF_8).unwrap();
+    let level = flate2::Compression::new(1);
+    let written = |group: usize| {
+        let mut cursor = Cursor::new(Vec::new());
+        data::write_data_zsav_grouped(&mut cursor, &batch, &layout, level, group).unwrap();
+        cursor.into_inner()
+    };
+    let everything_at_the_end = written(usize::MAX);
+    assert!(everything_at_the_end.len() > 4 * 1024 * 1024);
+    for group in [1, 2, 3, 16] {
+        assert!(
+            written(group) == everything_at_the_end,
+            "groups of {group} blocks"
+        );
+    }
+    // and the file reads back to the numbers that went in
+    let mut file = Cursor::new(Vec::new());
+    write_sav_to_writer(&mut file, &batch, &meta, Compression::Zlib, Some(1)).unwrap();
+    let (back, _) = crate::read_sav_from_reader(Cursor::new(file.into_inner())).unwrap();
+    assert_eq!(back.num_rows(), 500_000);
+    let column = |b: &RecordBatch, i: usize| {
+        b.column(i)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap()
+            .clone()
+    };
+    for i in 0..3 {
+        assert!(column(&back, i) == column(&batch, i), "column {i}");
+    }
+}

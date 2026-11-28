@@ -42,17 +42,6 @@ impl BytecodeEncoder {
         }
     }
 
-    /// Pre-allocate output buffer for estimated data size.
-    pub fn with_capacity(bias: f64, capacity: usize) -> Self {
-        BytecodeEncoder {
-            bias,
-            control_bytes: [0u8; 8],
-            control_idx: 0,
-            raw_buffer: Vec::with_capacity(64),
-            output: Vec::with_capacity(capacity),
-        }
-    }
-
     /// Encode a single 8-byte slot.
     #[inline]
     pub fn encode_slot(&mut self, slot: &[u8; 8]) {
