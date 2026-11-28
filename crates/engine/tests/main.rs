@@ -19,6 +19,7 @@ mod autorecode;
 mod bayes;
 mod bayes_loglinear;
 mod bayes_models;
+mod big_models;
 mod bootstrap;
 mod case_order;
 mod case_selection_r;
