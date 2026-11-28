@@ -46,6 +46,7 @@ mod ctables;
 mod ctables_categories;
 mod ctables_mrsets;
 mod ctables_sigtest;
+mod damaged_files;
 mod data_checks;
 mod data_commands;
 mod dataset_agg_r;

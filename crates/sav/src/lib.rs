@@ -74,13 +74,22 @@ pub fn read_sav_from_reader<R: Read + Seek>(reader: R) -> Result<(RecordBatch, S
     Ok((batch, metadata))
 }
 
+/// The read buffer: for a file, its size (8 KB at least, 64 MB at most); for anything else,
+/// 1 MB.
+fn buffer_size(file: &File) -> usize {
+    match file.metadata() {
+        Ok(meta) if meta.is_file() => meta.len().clamp(8 * 1024, 64 * 1024 * 1024) as usize,
+        _ => 1024 * 1024,
+    }
+}
+
 /// Read only the metadata from a .sav or .zsav file (no data).
 ///
 /// This is much faster than `read_sav()` for files where you only need
 /// variable information, labels, or other metadata.
 pub fn read_sav_metadata(path: impl AsRef<Path>) -> Result<SavMetadata> {
     let file = File::open(path)?;
-    let buf_reader = BufReader::with_capacity(64 * 1024 * 1024, file);
+    let buf_reader = BufReader::with_capacity(buffer_size(&file), file);
     let scanner = SavScanner::open(buf_reader, 0)?;
     Ok(scanner.metadata().clone())
 }
@@ -104,7 +113,7 @@ pub fn read_sav_metadata(path: impl AsRef<Path>) -> Result<SavMetadata> {
 /// ```
 pub fn scan_sav(path: impl AsRef<Path>) -> Result<SavScanner<BufReader<File>>> {
     let file = File::open(path)?;
-    let buf_reader = BufReader::with_capacity(64 * 1024 * 1024, file);
+    let buf_reader = BufReader::with_capacity(buffer_size(&file), file);
     SavScanner::open(buf_reader, 100_000)
 }
 

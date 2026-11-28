@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- Opening a .sav or .zsav file sets aside a read buffer of the file's size (64 MB at most) instead of always 64 MB.
 - Saving a data file (SAVE, XSAVE, EXPORT, SAVE TRANSLATE, WRITE) writes through a symbolic link to the file it points to instead of replacing the link, keeps the file's permissions, refuses a read-only file or a missing folder in plain words, and after any failure leaves the old file as it was with no half-written file beside it.
 - Reading an element of a vector (`v(i)`) in COMPUTE and LOOP finds the variable once per index value instead of for every case: a loop of 190 steps over 500,000 cases takes about 30 percent less time.
 - GET DATA /TYPE=TXT with a format for each variable reads a large text file without holding every value as a string: a CSV of 1,000,000 cases and 200 variables (3.5 GB) ran out of memory under 12 GB and now reads in about 80 seconds with 7 GB.
