@@ -318,7 +318,11 @@ impl Engine {
         if smallest.is_nan() || smallest <= 1.0 {
             return Err(Error(format!(
                 "FACTOR: too few cases (N = {}) for the analysis",
-                if smallest.is_finite() { smallest } else { 0.0 }
+                if smallest.is_finite() {
+                    smallest + 0.0
+                } else {
+                    0.0
+                }
             )));
         }
         if let Some(i) = (0..p).find(|&i| stats[i].2.is_nan() || stats[i].2 <= 0.0) {

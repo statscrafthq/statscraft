@@ -152,6 +152,7 @@ mod mva;
 mod naivebayes;
 mod neural;
 mod nlr;
+mod no_valid_cases;
 mod nomreg;
 mod nomreg_plum_r;
 mod npar;

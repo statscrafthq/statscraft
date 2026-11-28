@@ -164,8 +164,10 @@ impl Engine {
             .sum();
         if n_pos == 0.0 || n_neg == 0.0 {
             return Err(Error(format!(
-                "ROC needs valid cases in both states, but there are {n_pos} positive and \
-                 {n_neg} negative cases"
+                "ROC needs valid cases in both states, but there are {} positive and \
+                 {} negative cases",
+                n_pos + 0.0,
+                n_neg + 0.0
             )));
         }
         let state_text = shown.value(&state, &positive_key);

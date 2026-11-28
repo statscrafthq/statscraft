@@ -1018,7 +1018,13 @@ impl Engine {
                 "Between Groups"
             };
             // source, sum of squares, df, whether the mean square is shown, whether F is tested
-            let mut rows = vec![(combined.to_string(), between, k - 1.0, true, true)];
+            let mut rows = vec![(
+                combined.to_string(),
+                between,
+                (k - 1.0).max(0.0),
+                true,
+                true,
+            )];
             if let Some(asked) = command.polynomial.filter(|_| k >= 2.0) {
                 let degree = usize::from(asked).min(present.len() - 1);
                 if degree < usize::from(asked) {
@@ -1034,7 +1040,13 @@ impl Engine {
                 rows.extend(trend_rows(&x, &sizes, &means, degree, between));
             }
             rows.push(("Within Groups".into(), within, df_within, true, false));
-            rows.push(("Total".into(), between + within, w - 1.0, false, false));
+            rows.push((
+                "Total".into(),
+                between + within,
+                (w - 1.0).max(0.0),
+                false,
+                false,
+            ));
             for (i, (source, ss, df, with_ms, tested)) in rows.into_iter().enumerate() {
                 let f = ss / df / ms_within;
                 anova.push(vec![
