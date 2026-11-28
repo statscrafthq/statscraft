@@ -3,7 +3,7 @@
 use crate::i18n::t;
 use crate::syntax_text::{number, quote, value};
 use statscraft_data::{Measure, MissingValues, Value, Values, Variable};
-use statscraft_engine::{Currencies, format_value};
+use statscraft_engine::{Currencies, format_value, format_value_decimal};
 
 /// Whether a format takes a typed date (true) or date and time (false) as yyyy-mm-dd and
 /// hh:mm:ss; None for other formats.
@@ -21,9 +21,10 @@ fn date_kind(format: &str) -> Option<bool> {
 }
 
 /// A number shown in its variable's format; a custom currency with the session's SET CCA to
-/// CCE specification.
-pub fn number_text(v: f64, format: &str, currencies: &Currencies) -> String {
-    format_value(v, &currencies.resolve(format), true)
+/// CCE specification, and with `comma` (SET DECIMAL=COMMA) a comma where the formats that take
+/// the setting's mark show a period.
+pub fn number_text(v: f64, format: &str, currencies: &Currencies, comma: bool) -> String {
+    format_value_decimal(v, &currencies.resolve(format), true, comma)
 }
 
 fn label_of<'a>(variable: &Variable<'a>, value: &Value) -> Option<&'a str> {
@@ -40,6 +41,7 @@ pub fn cell_text(
     case: usize,
     labels: bool,
     currencies: &Currencies,
+    comma: bool,
 ) -> String {
     match variable.values() {
         Values::Numeric(values) => match values.get(case) {
@@ -49,7 +51,7 @@ pub fn cell_text(
                 .flatten()
             {
                 Some(label) => label.to_string(),
-                None => number_text(v, variable.format(), currencies),
+                None => number_text(v, variable.format(), currencies, comma),
             },
         },
         Values::String(values) => {
@@ -65,8 +67,9 @@ pub fn cell_text(
     }
 }
 
-/// What the cell editor starts with: the full value, not rounded to the display format.
-pub fn edit_text(variable: &Variable, case: usize) -> String {
+/// What the cell editor starts with: the full value, not rounded to the display format, with a
+/// comma for the decimal mark under SET DECIMAL=COMMA.
+pub fn edit_text(variable: &Variable, case: usize, comma: bool) -> String {
     match variable.values() {
         Values::Numeric(values) => match values.get(case) {
             None => String::new(),
@@ -77,6 +80,7 @@ pub fn edit_text(variable: &Variable, case: usize) -> String {
                     let cut = if date_only { 10 } else { text.len() };
                     text.get(..cut).unwrap_or(&text).to_string()
                 }
+                None if comma => number(v).replace('.', ","),
                 None => number(v),
             },
         },
@@ -123,18 +127,39 @@ fn date_expression(text: &str) -> Result<String, String> {
     Ok(expression)
 }
 
+/// A number typed into a cell, as the literal the syntax takes. Under SET DECIMAL=COMMA the
+/// mark is the comma and a period is refused, as the F format reads it.
+fn typed_number(text: &str, comma: bool) -> Result<String, String> {
+    if !comma {
+        return value(text, false);
+    }
+    let text = text.trim();
+    if text.contains('.') {
+        return Err(format!(
+            "{text:?} is not a number; the decimal mark is a comma (SET DECIMAL=COMMA)"
+        ));
+    }
+    value(&text.replace(',', "."), false).map_err(|_| format!("{text:?} is not a number"))
+}
+
 /// The syntax that sets one cell: `case` counts from 0, `$CASENUM` from 1. An empty numeric
-/// cell becomes system-missing.
-pub fn cell_edit(variable: &Variable, case: usize, text: &str) -> Result<String, String> {
+/// cell becomes system-missing. With `comma` a number is typed with a decimal comma.
+pub fn cell_edit(
+    variable: &Variable,
+    case: usize,
+    text: &str,
+    comma: bool,
+) -> Result<String, String> {
     let trimmed = text.trim();
     let new = if variable.is_string() {
         quote(text)
     } else if trimmed.is_empty() {
         "$SYSMIS".to_string()
-    } else if date_kind(variable.format()).is_some() && trimmed.parse::<f64>().is_err() {
-        date_expression(trimmed)?
+    } else if date_kind(variable.format()).is_some() {
+        // seconds typed as a number, or a date
+        typed_number(trimmed, comma).or_else(|_| date_expression(trimmed))?
     } else {
-        value(trimmed, false)?
+        typed_number(trimmed, comma)?
     };
     Ok(format!(
         "IF ($CASENUM = {}) {} = {new}.",
@@ -884,11 +909,19 @@ mod tests {
 
     /// A cell with the default currency specifications.
     fn cell_text(variable: &Variable, case: usize, labels: bool) -> String {
-        super::cell_text(variable, case, labels, &Currencies::default())
+        super::cell_text(variable, case, labels, &Currencies::default(), false)
+    }
+
+    fn edit_text(variable: &Variable, case: usize) -> String {
+        super::edit_text(variable, case, false)
+    }
+
+    fn cell_edit(variable: &Variable, case: usize, text: &str) -> Result<String, String> {
+        super::cell_edit(variable, case, text, false)
     }
 
     fn number_text(v: f64, format: &str) -> String {
-        super::number_text(v, format, &Currencies::default())
+        super::number_text(v, format, &Currencies::default(), false)
     }
 
     fn survey() -> Session {
@@ -1002,7 +1035,7 @@ mod tests {
         with(&session, "price", |v| {
             assert_eq!(cell_text(v, 0, false), "-1,234.50");
             assert_eq!(
-                super::cell_text(v, 0, false, &session.currencies()),
+                super::cell_text(v, 0, false, &session.currencies(), false),
                 "-$1,234.50"
             );
         });

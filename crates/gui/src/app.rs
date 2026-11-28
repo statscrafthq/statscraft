@@ -3254,6 +3254,7 @@ impl App {
         }
         let headers: Vec<String> = data.variable_names().map(str::to_string).collect();
         let currencies = self.session.currencies();
+        let comma = self.decimal_comma();
         let cases = data.case_count();
         let cell = |r: usize, c: usize| {
             let variable = data.variable_at(c);
@@ -3263,7 +3264,7 @@ impl App {
             }
             let labelled = labels && !variable.value_labels().is_empty();
             let sysmis = matches!(variable.values(), Values::Numeric(v) if v.get(r).is_none());
-            let text = edits::cell_text(&variable, r, labelled, &currencies);
+            let text = edits::cell_text(&variable, r, labelled, &currencies, comma);
             ((!sysmis).then_some(text), cell_align(&variable))
         };
         let mut commit = false;
@@ -3323,7 +3324,15 @@ impl App {
         }
     }
 
+    /// SET DECIMAL=COMMA: cells show and take a comma as their decimal mark.
+    fn decimal_comma(&self) -> bool {
+        self.session
+            .setting("DECIMAL")
+            .eq_ignore_ascii_case("COMMA")
+    }
+
     fn edit_cell(&mut self, (row, column): (usize, usize)) {
+        let comma = self.decimal_comma();
         let Some(data) = window_data(&self.session, &self.windows, self.here) else {
             return;
         };
@@ -3331,7 +3340,7 @@ impl App {
             return;
         }
         let text = match row < data.case_count() {
-            true => edits::edit_text(&data.variable_at(column), row),
+            true => edits::edit_text(&data.variable_at(column), row, comma),
             false => String::new(),
         };
         self.view.selected = Some(grid::Selection::cell((row, column)));
@@ -3345,6 +3354,7 @@ impl App {
     }
 
     fn commit_cell(&mut self) {
+        let comma = self.decimal_comma();
         let (Some(e), Some(data)) = (
             self.view.cell_edit.take(),
             window_data(&self.session, &self.windows, self.here),
@@ -3356,7 +3366,7 @@ impl App {
         }
         // a value in the empty row under the last case adds the case first
         let new = e.row >= data.case_count();
-        match edits::cell_edit(&data.variable_at(e.column), e.row, &e.text) {
+        match edits::cell_edit(&data.variable_at(e.column), e.row, &e.text, comma) {
             Ok(syntax) if new => self.run(&format!("ADD CASE.\n{syntax}"), None, After::Show),
             Ok(syntax) => self.run(&syntax, None, After::Show),
             Err(message) => self.status = Err(message),
@@ -3585,8 +3595,9 @@ impl App {
             let size = (data.case_count(), data.variable_count());
             let labels = self.value_labels;
             let currencies = self.session.currencies();
+            let comma = self.decimal_comma();
             let text = grid::copy(s, size, &headers, |r, c| {
-                edits::cell_text(&data.variable_at(c), r, labels, &currencies)
+                edits::cell_text(&data.variable_at(c), r, labels, &currencies, comma)
             });
             (text, s.is_wide())
         };

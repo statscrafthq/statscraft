@@ -186,7 +186,9 @@ mod xport;
 
 pub use chart::Chart;
 pub use expr::functions;
-pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
+pub use format::{
+    Currencies, currency_parts, format_value, format_value_decimal, is_date_time_or_currency,
+};
 pub use get_data::delimited;
 pub use html::{
     STYLE as HTML_STYLE, cell_attributes, header_attributes, label_attributes, table_attributes,

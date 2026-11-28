@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- With SET DECIMAL=COMMA the data window shows numbers with a decimal comma (3,5), the cell editor starts with and takes a comma (a period is refused with the reason), and Copy puts the comma on the clipboard; before, cells showed a period and 3,5 was refused.
 - Deleting a case in the data window of a large file is fast: on 1,000,000 cases and 200 variables it took 15 seconds and 2.5 GB more memory, and now takes under a second beyond opening the file.
 - The data window refuses a date that does not exist (2023-02-29, 2024-04-31) instead of storing the first of the next month, a Decimals or Width edit in the Variables tab is checked like the Type and Format dialog (a width of 3 with 9 decimals is refused), and deleting a variable the split file is by says so before it ends the split.
 - A very long expression no longer crashes the program: a command holds at most 1500 operators in its expressions (the limit was 5000, and a sum of 4000 terms overflowed the stack of a run); the error says so, and SUM(x1 TO x2000) does the same work. DO REPEAT inside DO REPEAT and DO IF inside DO IF stop at 20 and 100 levels with an error, where a deeper nesting ran for minutes.
