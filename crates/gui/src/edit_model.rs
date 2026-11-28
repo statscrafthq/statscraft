@@ -682,7 +682,7 @@ fn deleting_the_variables_of_the_state_ends_what_depended_on_them() {
         ("w", "weight None", "filter Some(\"keep\")"),
         ("keep", "filter None", "weight Some(\"w\")"),
         ("grp", "split None", "weight Some(\"w\")"),
-        ("age", "variables: [\"income\"]", "weight Some(\"w\")"),
+        ("age", "sets [] []", "weight Some(\"w\")"),
     ] {
         let at = variable(&session, name);
         let syntax = menu(&session, &Target::Variables(vec![at]), Item::Delete);

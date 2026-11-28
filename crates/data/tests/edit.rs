@@ -675,6 +675,7 @@ fn delete_variables() {
     // a set that loses its last variable goes away
     data.delete_variables(&["q6_mention1", "q6_mention2", "q6_mention3", "q6_mention3"])
         .unwrap();
+    assert_eq!(data.multiple_response_sets().len(), 1);
     let sets: Vec<&str> = data
         .multiple_response_sets()
         .iter()
@@ -857,4 +858,37 @@ fn invalid_multiple_response_sets_change_nothing() {
         "unknown variable: nope"
     );
     assert!(data.multiple_response_sets().is_empty());
+}
+
+#[test]
+fn a_set_left_with_one_variable_by_a_deletion_goes_away() {
+    // $q5 has five variables, $q6 three: a set needs at least two
+    let mut data = survey();
+    let sets = |data: &Dataset| -> Vec<(String, usize)> {
+        data.multiple_response_sets()
+            .iter()
+            .map(|set| (set.name.clone(), set.variables.len()))
+            .collect()
+    };
+    let before = sets(&data);
+    assert_eq!(before, [("$q5".into(), 5), ("$q6".into(), 3)]);
+    // two of three leave the set with one
+    let mut deleted = data.clone();
+    deleted
+        .delete_variables(&["q6_mention1", "q6_mention2"])
+        .unwrap();
+    assert_eq!(sets(&deleted), [("$q5".into(), 5)]);
+    // one of three leaves two, and the set stays
+    let mut deleted = data.clone();
+    deleted.delete_variables(&["q6_mention1"]).unwrap();
+    assert_eq!(sets(&deleted), [("$q5".into(), 5), ("$q6".into(), 2)]);
+    // four of five leave one
+    data.delete_variables(&["q5_1", "q5_2", "q5_3", "q5_4"])
+        .unwrap();
+    assert_eq!(sets(&data), [("$q6".into(), 3)]);
+    // keeping variables is the same: one variable of a set is no set
+    let mut kept = survey();
+    kept.keep_variables(&["age", "q6_mention1", "q5_1", "q5_2"])
+        .unwrap();
+    assert_eq!(sets(&kept), [("$q5".into(), 2)]);
 }

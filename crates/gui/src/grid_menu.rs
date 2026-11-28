@@ -472,6 +472,20 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
             {
                 question.push_str(&format!(" {}", t("data-also-ends-split")));
             }
+            // a set that would be left with fewer than two variables goes too
+            let sets: Vec<String> = data
+                .multiple_response_sets()
+                .iter()
+                .filter(|set| {
+                    let left = set.variables.iter().filter(|v| !among(Some(v))).count();
+                    left < set.variables.len() && left < 2
+                })
+                .map(|set| set.name.clone())
+                .collect();
+            if !sets.is_empty() {
+                let args = [("sets", listed(&sets).into())];
+                question.push_str(&format!(" {}", t_args("data-also-removes-sets", &args)));
+            }
             Action::Ask(Confirm {
                 question,
                 syntax: format!("DELETE VARIABLES {all}."),
@@ -840,6 +854,36 @@ mod tests {
         let other = ask(&session, &target(&session, &["plan"]), Item::Delete);
         assert_eq!(other.question, "Delete plan? Ctrl+Z brings it back.");
         run_in(&mut session, "SPLIT FILE OFF.");
+        // the multiple response sets that would be left with one variable go too
+        run_in(
+            &mut session,
+            "MRSETS /MCGROUP NAME=$q6 VARIABLES=q6_mention1 q6_mention2 q6_mention3.\n\
+             MRSETS /MCGROUP NAME=$q5 VARIABLES=q5_1 TO q5_5.",
+        );
+        let one = ask(&session, &target(&session, &["q6_mention1"]), Item::Delete);
+        assert_eq!(one.question, "Delete q6_mention1? Ctrl+Z brings it back.");
+        let two = ask(
+            &session,
+            &target(&session, &["q6_mention1", "q6_mention2"]),
+            Item::Delete,
+        );
+        assert_eq!(
+            two.question,
+            "Delete q6_mention1 and q6_mention2? Ctrl+Z brings them back. This also removes $q6, \
+             which would be left with one variable (a set needs two)."
+        );
+        run_in(&mut session, &two.syntax);
+        assert!(
+            session
+                .dataset()
+                .unwrap()
+                .multiple_response_sets()
+                .iter()
+                .all(|s| s.name != "$q6")
+        );
+        assert!(session.undo());
+        assert_eq!(session.dataset().unwrap().multiple_response_sets().len(), 2);
+        run_in(&mut session, "MRSETS /DELETE NAME=ALL.");
         // a run of three is written with TO
         let run = ask(
             &session,

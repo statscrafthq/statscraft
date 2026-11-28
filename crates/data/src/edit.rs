@@ -419,8 +419,9 @@ impl Dataset {
         Ok(())
     }
 
-    /// Deleted variables leave their multiple response sets (a set left empty is dropped) and
-    /// stop being the weight variable. At least one variable must remain.
+    /// Deleted variables leave their multiple response sets, and a set they leave with fewer
+    /// than two variables is dropped (a set needs at least two); they stop being the weight
+    /// variable, the filter or the split. At least one variable must remain.
     pub fn delete_variables(&mut self, names: &[&str]) -> Result<(), Error> {
         let mut keep = vec![true; self.columns.len()];
         for name in names {
@@ -683,11 +684,18 @@ fn taken(column: &ArrayRef, cases: &[Option<usize>]) -> Result<ArrayRef, Error> 
 fn drop_dangling_references(dict: &mut Dictionary) {
     let variables = &dict.variables;
     let exists = |name: &String| variables.iter().any(|v| v.name == *name);
+    // a set a deletion leaves with fewer than two variables is no set; one that had fewer
+    // before (read from a file) is left as it is
+    let mut dropped = Vec::new();
     for set in &mut dict.multiple_response_sets {
+        let before = set.variables.len();
         set.variables.retain(exists);
+        if set.variables.len() < before && set.variables.len() < 2 {
+            dropped.push(set.name.clone());
+        }
     }
     dict.multiple_response_sets
-        .retain(|set| !set.variables.is_empty());
+        .retain(|set| !dropped.contains(&set.name));
     for set in &mut dict.variable_sets {
         set.variables.retain(exists);
     }
