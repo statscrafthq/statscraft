@@ -1309,7 +1309,7 @@ impl Engine {
                     "DISCRIMINANT: the within-groups matrix is singular".into(),
                 ));
             };
-            let (linv, _) = inverse_scaled(&l).expect("a Cholesky factor is regular");
+            let linv = crate::matrix::lower_inverse(&l);
             let between: Matrix = (0..q)
                 .map(|i| (0..q).map(|j| t11[i][j] - w11[i][j]).collect())
                 .collect();
