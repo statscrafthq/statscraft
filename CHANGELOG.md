@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- A very long expression no longer crashes the program: a command holds at most 1500 operators in its expressions (the limit was 5000, and a sum of 4000 terms overflowed the stack of a run); the error says so, and SUM(x1 TO x2000) does the same work. DO REPEAT inside DO REPEAT and DO IF inside DO IF stop at 20 and 100 levels with an error, where a deeper nesting ran for minutes.
 - A decimal comma (SET DECIMAL=COMMA) now works through DATA LIST, GET DATA, NUMBER, STRING and WRITE as in SAVE TRANSLATE: DATA LIST FREE, LIST and FIXED read 3,5 (before, such a value was system-missing there), WRITE and STRING show 3,5, and F and E formats take only the comma, so 3.5 or 1.234,5 is system-missing instead of becoming 35 or 1234.5.
 - A .sav or .zsav file written with LOWEST in a missing range (MISSING VALUES x (LOWEST THRU 0)) keeps the range when other programs open it; a workbook cell for a date from before October 1582 holds the date as text (01/01/0001) instead of asterisks.
 - Opening a .sav or .zsav file sets aside a read buffer of the file's size (64 MB at most) instead of always 64 MB.

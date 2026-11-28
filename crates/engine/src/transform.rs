@@ -88,6 +88,9 @@ pub(crate) fn fit(mut value: String, width: usize) -> String {
     value
 }
 
+/// How deep DO IF structures may stand in one another.
+const MAX_NESTED_DO_IF: usize = 100;
+
 impl Engine {
     /// The cases the open DO IF branch applies to: one entry per case, true where a command
     /// may change the case. None outside DO IF, where every case is active. A command that is
@@ -354,6 +357,13 @@ impl Engine {
     }
 
     pub(crate) fn do_if(&mut self, condition: &Expr) -> Result<(), Error> {
+        // each level keeps a mask of the cases and every command looks through the levels (the
+        // blocks that are no loop are the DO IF structures)
+        if self.blocks.iter().filter(|b| !b.is_loop()).count() >= MAX_NESTED_DO_IF {
+            return Err(Error(format!(
+                "DO IF is nested more than {MAX_NESTED_DO_IF} levels deep"
+            )));
+        }
         let cases = self.active()?.case_count();
         let pending = match self.active_cases() {
             Some(outer) => outer.to_vec(),

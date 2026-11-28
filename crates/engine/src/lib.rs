@@ -846,6 +846,8 @@ pub struct Engine {
     collecting: Option<loops::Collecting>,
     /// How many loops are running.
     loop_depth: usize,
+    /// How many DO REPEAT structures run inside one another.
+    repeat_depth: usize,
     /// TIME PROGRAM: the transformations that define time-dependent covariates for COXREG.
     time_program: Option<coxreg::TimeProgram>,
     /// MODEL PROGRAM: the parameters, the model program and the derivatives program for NLR.

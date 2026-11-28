@@ -945,7 +945,16 @@ fn expression_errors() {
         assert!(error.message.starts_with("expression is nested too deeply"));
     }
     // long operator chains are fine up to a limit
-    assert_eq!(parse(&deep("1 + ", 5000)).1, []);
+    let limit = crate::parser::MAX_OPERATORS;
+    assert_eq!(parse(&deep("1 + ", limit)).1, []);
+    let error = err(&deep("1 + ", limit + 1));
+    assert_eq!(
+        error.message,
+        format!("expression is too long (more than {limit} operators)")
+    );
+    // a list of conditions with their comparisons counts both
+    let both = format!("IF ({}x = 1) y = 1.", "x = 1 OR ".repeat(limit / 2));
+    assert!(err(&both).message.starts_with("expression is too long"));
     for open in ["1 + ", "2 ** -", "a AND "] {
         let error = err(&deep(open, 100_000));
         assert!(
