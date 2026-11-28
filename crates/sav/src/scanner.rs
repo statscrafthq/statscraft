@@ -18,12 +18,22 @@ use crate::metadata::SavMetadata;
 /// processor's cache while every column reads them, and to keep the buffer small.
 const CHUNK_BYTES: usize = 8 * 1024 * 1024;
 
+/// How much of a bytecode-compressed data section is held in memory at a time. The section is
+/// read in windows of this size as the rows are decoded, so the file is never held whole next to
+/// the columns it makes.
+const WINDOW_BYTES: usize = 8 * 1024 * 1024;
+
 /// Compression-specific state for the scanner.
 enum ScanState {
     Uncompressed,
     Bytecode {
+        /// The window of compressed bytes: from the first one not used yet.
         data: Vec<u8>,
         decompressor: BytecodeDecompressor,
+        /// The size of a window, and of each read that fills it up again.
+        window: usize,
+        /// The file has no more bytes after those in `data`.
+        source_done: bool,
     },
     Zlib {
         data: Vec<u8>,
@@ -59,6 +69,11 @@ pub struct SavScanner<R: Read + Seek> {
 impl<R: Read + Seek> SavScanner<R> {
     /// Open a scanner from a reader. Parses the header and dictionary immediately.
     pub fn open(reader: R, batch_size: usize) -> Result<Self> {
+        Self::open_with_window(reader, batch_size, WINDOW_BYTES)
+    }
+
+    /// `open` with the size of the window of compressed bytes given (a test makes it small).
+    fn open_with_window(reader: R, batch_size: usize, window: usize) -> Result<Self> {
         let mut sav_reader = SavReader::new(reader);
 
         // Learn the file length once so that no declared size can make the
@@ -85,11 +100,15 @@ impl<R: Read + Seek> SavScanner<R> {
         let state = match compression {
             Compression::None => ScanState::Uncompressed,
             Compression::Bytecode => {
-                let mut compressed_data = Vec::with_capacity(remaining);
-                sav_reader.inner_mut().read_to_end(&mut compressed_data)?;
+                // the first window only; the rest is read as the rows need it
+                let mut first = vec![0u8; remaining.min(window)];
+                let read = read_full(&mut sav_reader, &mut first)?;
+                first.truncate(read);
                 ScanState::Bytecode {
-                    data: compressed_data,
+                    data: first,
                     decompressor: BytecodeDecompressor::new(bias),
+                    window,
+                    source_done: read < window,
                 }
             }
             Compression::Zlib => {
@@ -352,12 +371,20 @@ impl<R: Read + Seek> SavScanner<R> {
                     }
                 }
             }
-            ScanState::Bytecode { data, decompressor } => {
+            ScanState::Bytecode {
+                data,
+                decompressor,
+                window,
+                source_done,
+            } => {
                 let row_bytes = slots_per_row * 8;
-                let data_ref = data as &[u8];
 
                 // Decompress directly into raw byte buffer (no SlotValue intermediates),
                 // then process column-at-a-time via push_raw_chunk with rayon parallelism.
+                // When the window runs out (at a control block or inside a row), the unused
+                // bytes move to the front, the next window is read after them, and the row is
+                // tried again; with no more bytes in the file a clean end is the end, and a row
+                // cut short is an error.
                 let max_chunk_rows = (CHUNK_BYTES / row_bytes).max(1024);
                 let chunk_rows = cap.min(max_chunk_rows);
                 let chunk_bytes = chunk_rows * row_bytes;
@@ -366,13 +393,38 @@ impl<R: Read + Seek> SavScanner<R> {
                 let mut rows_in_batch = 0;
                 for _ in 0..n {
                     let out_offset = rows_in_batch * row_bytes;
-                    let ok = decompressor.decompress_row_raw(
-                        data_ref,
-                        slots_per_row,
-                        &mut raw_buf,
-                        out_offset,
-                    )?;
-                    if !ok {
+                    let more = loop {
+                        let cp = decompressor.checkpoint();
+                        let result = decompressor.decompress_row_raw(
+                            data.as_slice(),
+                            slots_per_row,
+                            &mut raw_buf,
+                            out_offset,
+                        );
+                        match &result {
+                            Ok(true) => break true,
+                            Ok(false) if decompressor.is_eof() => break false,
+                            // the window ran out at a control block, or inside a row
+                            Ok(false) | Err(SavError::TruncatedFile { .. }) => {}
+                            Err(_) => return result.map(|_| None),
+                        }
+                        if *source_done {
+                            match result {
+                                Err(error) => return Err(error),
+                                Ok(_) => break false,
+                            }
+                        }
+                        decompressor.restore(cp);
+                        let consumed = decompressor.pos();
+                        data.drain(..consumed);
+                        let kept = data.len();
+                        data.resize(kept + *window, 0);
+                        let read = read_full(sav_reader, &mut data[kept..])?;
+                        data.truncate(kept + read);
+                        *source_done = read < *window;
+                        decompressor.set_pos(0);
+                    };
+                    if !more {
                         break;
                     }
                     rows_in_batch += 1;
@@ -624,5 +676,93 @@ mod tests {
         let batch = scanner.collect_single().unwrap();
         assert_eq!(scanner.rows_read(), batch.num_rows());
         assert_eq!(scanner.rows_read(), 7);
+    }
+
+    /// A file with `n` rows of numbers and text, bytecode compressed.
+    fn compressed_bytes(n: usize) -> Vec<u8> {
+        let schema = Arc::new(ArrowSchema::new(vec![
+            Field::new("a", DataType::Float64, true),
+            Field::new("b", DataType::Float64, true),
+            Field::new("s", DataType::Utf8, true),
+        ]));
+        let mut a = Float64Builder::with_capacity(n);
+        let mut b = Float64Builder::with_capacity(n);
+        let mut s = StringBuilder::new();
+        for i in 0..n {
+            // small whole numbers pack into one byte, the others follow the opcode
+            a.append_value((i % 200) as f64);
+            b.append_option((i % 7 != 0).then(|| (i as f64) * 0.37 - 5.0));
+            s.append_value(format!("row {i} {}", "x".repeat(i % 40)));
+        }
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(a.finish()),
+                Arc::new(b.finish()),
+                Arc::new(s.finish()),
+            ],
+        )
+        .unwrap();
+        let meta = SavMetadata::from_arrow_schema(batch.schema().as_ref());
+        let mut buf = Cursor::new(Vec::new());
+        crate::write_sav_to_writer(&mut buf, &batch, &meta, Compression::Bytecode, None).unwrap();
+        buf.into_inner()
+    }
+
+    #[test]
+    fn a_bytecode_file_read_in_small_windows_gives_the_same_rows() {
+        let bytes = compressed_bytes(3000);
+        let whole = SavScanner::open(Cursor::new(bytes.clone()), usize::MAX)
+            .unwrap()
+            .collect_single()
+            .unwrap();
+        assert_eq!(whole.num_rows(), 3000);
+        // windows from a few bytes (smaller than a row) to bigger than the file, and several
+        // batches of a few rows each
+        for window in [1, 7, 64, 1000, 4096, bytes.len(), bytes.len() + 1] {
+            let mut scanner =
+                SavScanner::open_with_window(Cursor::new(bytes.clone()), usize::MAX, window)
+                    .unwrap();
+            let batch = scanner.collect_single().unwrap();
+            assert_eq!(batch, whole, "window {window}");
+            let mut scanner =
+                SavScanner::open_with_window(Cursor::new(bytes.clone()), 77, window).unwrap();
+            let batches = scanner.collect_all().unwrap();
+            let rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+            assert_eq!(rows, 3000, "window {window}, batches of 77");
+            let joined = arrow::compute::concat_batches(&batches[0].schema(), &batches).unwrap();
+            assert_eq!(joined, whole, "window {window}, batches of 77");
+        }
+    }
+
+    #[test]
+    fn a_bytecode_file_cut_short_is_the_same_kind_of_result_in_any_window() {
+        let bytes = compressed_bytes(500);
+        let read = |bytes: &[u8], window: usize| {
+            let mut scanner =
+                SavScanner::open_with_window(Cursor::new(bytes.to_vec()), usize::MAX, window)
+                    .unwrap();
+            // the byte counts in a truncation message are counted from the window, so only
+            // its kind is compared
+            scanner.collect_single().map(|b| b.num_rows()).map_err(|e| {
+                e.to_string()
+                    .split(':')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string()
+            })
+        };
+        // every cut of the last part of the file: the same rows or the same error as in one window
+        for cut in (bytes.len().saturating_sub(300)..bytes.len()).step_by(3) {
+            let cut_bytes = &bytes[..cut];
+            let expected = read(cut_bytes, usize::MAX);
+            for window in [1, 5, 33, 200] {
+                assert_eq!(
+                    read(cut_bytes, window),
+                    expected,
+                    "cut {cut}, window {window}"
+                );
+            }
+        }
     }
 }
