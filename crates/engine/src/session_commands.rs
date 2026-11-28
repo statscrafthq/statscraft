@@ -166,10 +166,15 @@ impl Engine {
 
     /// The value of a setting: as SET gave it, else its default.
     pub(crate) fn setting(&self, name: &str) -> String {
-        self.session.settings.get(name).cloned().unwrap_or_else(|| {
-            let default = SETTINGS.iter().find(|s| s.0 == name);
-            default.map_or_else(String::new, |s| s.1.to_string())
-        })
+        self.setting_str(name).to_string()
+    }
+
+    /// `setting` without a copy, for what a command reads for every case.
+    pub(crate) fn setting_str(&self, name: &str) -> &str {
+        match self.session.settings.get(name) {
+            Some(value) => value,
+            None => SETTINGS.iter().find(|s| s.0 == name).map_or("", |s| s.1),
+        }
     }
 
     /// SET MXLOOPS: the iterations of a loop without an index, and of every MATRIX loop.
@@ -182,15 +187,15 @@ impl Engine {
     /// SET BLANKS and EPOCH, as reading text data and dates follows them.
     pub(crate) fn reading(&self) -> crate::data_list::Reading {
         crate::data_list::Reading {
-            blanks: self.setting("BLANKS").parse().ok(),
-            epoch: self.setting("EPOCH").parse().ok(),
-            comma: self.setting("DECIMAL").eq_ignore_ascii_case("COMMA"),
+            blanks: self.setting_str("BLANKS").parse().ok(),
+            epoch: self.setting_str("EPOCH").parse().ok(),
+            comma: self.setting_str("DECIMAL").eq_ignore_ascii_case("COMMA"),
         }
     }
 
     /// SET FUZZBITS: the bits RND and TRUNC allow when their third argument is left out.
     pub(crate) fn fuzzbits(&self) -> f64 {
-        self.setting("FUZZBITS").parse().unwrap_or(6.0)
+        self.setting_str("FUZZBITS").parse().unwrap_or(6.0)
     }
 
     /// SET SCALEMIN: the different valid values that make a new numeric variable scale.
