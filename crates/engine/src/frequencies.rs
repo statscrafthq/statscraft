@@ -884,6 +884,7 @@ impl Engine {
                     )
                 }), outline: None, hidden: false, cell_stats: None, decorations: Vec::new(),
                 style: Default::default(),
+                decimal_comma: false,
             }
         };
         self.charts.extend(charts);

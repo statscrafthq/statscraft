@@ -1830,6 +1830,7 @@ impl Engine {
                 }),
                 decorations: Vec::new(),
                 style: Default::default(),
+                decimal_comma: false,
             };
             // the tests do not depend on the summary of a layer, so they run once per category
             let tests = if tested_layers.contains(&(layer.term, &layer.combo[..])) {

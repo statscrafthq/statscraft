@@ -386,6 +386,7 @@ impl Context<'_> {
                     cell_stats: None,
                     decorations: Vec::new(),
                     style: Default::default(),
+                    decimal_comma: false,
                 });
                 let mut series = vec![Series {
                     name: self.class_labels[j].clone(),
@@ -531,6 +532,7 @@ impl Context<'_> {
             cell_stats: None,
             decorations: Vec::new(),
             style: Default::default(),
+            decimal_comma: false,
         }
     }
 
@@ -609,6 +611,7 @@ impl Context<'_> {
             cell_stats: None,
             decorations: Vec::new(),
             style: Default::default(),
+            decimal_comma: false,
         }
     }
 
