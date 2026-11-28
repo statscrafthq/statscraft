@@ -131,7 +131,7 @@ impl PlainKind {
 struct Form {
     plain: PlainKind,
     /// The display format carries its own decimal mark (dates, times, currencies).
-    own_mark: bool,
+    setting_mark: bool,
     /// The display format, for FORMAT=VARIABLE.
     format: Option<String>,
 }
@@ -297,11 +297,10 @@ impl Engine {
             .iter()
             .map(|v| {
                 let kind = kind(v.format());
-                let own_mark = is_date_time_or_currency(v.format())
-                    || ["COMMA", "DOLLAR", "DOT"].contains(&kind.as_str());
+                let setting_mark = crate::format::takes_setting_mark(v.format());
                 Form {
                     plain: PlainKind::of(&kind),
-                    own_mark,
+                    setting_mark,
                     format: command
                         .print_formats
                         .then(|| currencies.resolve(v.format())),
@@ -360,7 +359,7 @@ impl Engine {
                             Some(format) => {
                                 let shown = format_value(x, format, true);
                                 let shown = shown.trim();
-                                match comma && !form.own_mark {
+                                match comma && form.setting_mark {
                                     true => text.push_str(&shown.replace('.', ",")),
                                     false => text.push_str(shown),
                                 }

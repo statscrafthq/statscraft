@@ -184,6 +184,7 @@ impl Engine {
         crate::data_list::Reading {
             blanks: self.setting("BLANKS").parse().ok(),
             epoch: self.setting("EPOCH").parse().ok(),
+            comma: self.setting("DECIMAL").eq_ignore_ascii_case("COMMA"),
         }
     }
 

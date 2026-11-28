@@ -194,11 +194,20 @@ pub(crate) fn number_in(
         | FormatType::Qyr
         | FormatType::Moyr
         | FormatType::Wkyr => crate::data_list::date(text, format.kind, epoch),
-        FormatType::F | FormatType::N | FormatType::E if comma_decimal => {
+        // F, E, N and PCT take the decimal indicator of the setting only: under a comma a period is
+        // no decimal indicator (nor a grouping mark), and the value is not a number
+        FormatType::F | FormatType::N | FormatType::E | FormatType::Pct if comma_decimal => {
+            if text.contains('.') {
+                return Err("is not a number: the decimal indicator is a comma");
+            }
             let point = text.contains(',');
+            let kind = match format.kind {
+                FormatType::Pct => FormatType::Pct,
+                _ => FormatType::F,
+            };
             crate::data_list::number(
-                &text.replace('.', "").replace(',', "."),
-                FormatType::F,
+                &text.replace(',', "."),
+                kind,
                 if point { 0 } else { decimals },
             )
         }
@@ -665,6 +674,10 @@ mod tests {
             width: 8,
             decimals: 2,
         };
-        assert_eq!(number("1.234,5", f, true, None), Ok(Some(1234.5)));
+        assert_eq!(number("1234,5", f, true, None), Ok(Some(1234.5)));
+        // F takes the decimal indicator of the setting only, so a period is not a number there
+        assert!(number("1.234,5", f, true, None).is_err());
+        assert!(number("3.5", f, true, None).is_err());
+        assert!(number("3,5", f, false, None).is_err());
     }
 }
