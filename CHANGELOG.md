@@ -7,6 +7,7 @@ no test or verification notes, no comparisons with other software, no internal h
 ## Unreleased
 
 - With SET DECIMAL=COMMA the tables of every command show a decimal comma (3,90, 16,67) in the window and in the Markdown, HTML, PDF and document outputs; before, only the data commands did and the tables of procedures kept a period. The numbers in JSON stay numbers.
+- Deleting variables (DELETE VARIABLES, KEEP, DROP, and Delete in the data window) takes a multiple response set away when it would be left with fewer than two variables, as a set must have at least two; before, a set could stay with one. The data window's question names the sets that go.
 - A time cell in the data window is edited as a time: TIME as 01:02:03, MTIME as 62:03 and DTIME as 0 01:02:03 (with the seconds' fraction as typed, and a minus sign), and plain seconds are still taken; before, the editor showed 3723 and refused 01:02:03. Cells in JDATE, QYR, MOYR, WKYR and YMDHMS formats are typed as a date, as DATE cells are.
 - Opening a compressed .sav file no longer holds the whole file in memory next to the data it makes: a file of 1,000,000 cases and 200 variables (1.8 GB) opened with 3.5 GB at the peak and now opens with 1.7 GB, which is the data itself.
 - With SET DECIMAL=COMMA the data window shows numbers with a decimal comma (3,5), the cell editor starts with and takes a comma (a period is refused with the reason), and Copy puts the comma on the clipboard; before, cells showed a period and 3,5 was refused.

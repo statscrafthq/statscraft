@@ -145,6 +145,7 @@ mod merge_reshape_r;
 mod meta_r;
 mod missing_split_r;
 mod mixed;
+mod mrset_delete;
 mod mult_response;
 mod multibyte_files_r;
 mod multibyte_r;
