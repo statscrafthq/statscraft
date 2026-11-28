@@ -356,3 +356,47 @@ fn leave_takes_a_to_list_of_variables_the_waiting_commands_create() {
     assert_eq!(show(data, "t1"), "1 3 6");
     assert_eq!(show(data, "t2"), "1 2 3");
 }
+
+#[test]
+fn do_repeat_inside_do_repeat_runs_to_a_depth_that_costs_little() {
+    let nest = |n: usize| {
+        format!(
+            "{}COMPUTE q = x.\n{}",
+            "DO REPEAT a = x.\n".repeat(n),
+            "END REPEAT.\n".repeat(n)
+        )
+    };
+    let mut session = session("1 2 3\n4 5 6");
+    run(&mut session, &nest(3));
+    assert_eq!(show(session.dataset().unwrap(), "q"), "1 4");
+    let message = error(&mut session, &nest(21));
+    assert!(
+        message.contains("DO REPEAT is nested more than 20 levels deep"),
+        "{message}"
+    );
+    // a refused structure changes nothing, and the next one runs
+    run(
+        &mut session,
+        &nest(20).replace("COMPUTE q = x.", "COMPUTE r = y."),
+    );
+    assert_eq!(show(session.dataset().unwrap(), "r"), "2 5");
+}
+
+#[test]
+fn do_if_inside_do_if_stops_at_a_hundred_levels() {
+    let nest = |n: usize| {
+        format!(
+            "{}COMPUTE q = 1.\n{}",
+            "DO IF (x > 0).\n".repeat(n),
+            "END IF.\n".repeat(n)
+        )
+    };
+    let mut session = session("1 2 3\n4 5 6");
+    run(&mut session, &nest(100));
+    assert_eq!(show(session.dataset().unwrap(), "q"), "1 1");
+    let message = error(&mut session, &nest(101));
+    assert!(
+        message.contains("DO IF is nested more than 100 levels deep"),
+        "{message}"
+    );
+}

@@ -531,9 +531,11 @@ pub fn parse_raws(
             continue;
         }
         let mut depth = 0;
+        let mut deepest = 0;
         let end = (i + 1..raws.len()).find(|&j| match raws[j].name.as_str() {
             "DO REPEAT" => {
                 depth += 1;
+                deepest = deepest.max(depth);
                 false
             }
             "END REPEAT" if depth == 0 => true,
@@ -551,6 +553,18 @@ pub fn parse_raws(
             i += 1;
             continue;
         };
+        // each level reads the text of those inside it again, so the depth is bounded before it
+        // is read
+        if deepest + 1 > MAX_NESTED_REPEATS {
+            let start = raws[i].tokens.first().map_or(raws[i].end, |t| t.span);
+            let error = SyntaxError::new(
+                start,
+                format!("DO REPEAT is nested more than {MAX_NESTED_REPEATS} levels deep"),
+            );
+            out.push((i..end + 1, Err(error)));
+            i = end + 1;
+            continue;
+        }
         let mut repeat = match parse_command(&raws[i]) {
             Ok(Command::DoRepeat(repeat)) => repeat,
             other => {
@@ -585,6 +599,10 @@ pub fn parse_raws(
     }
     out
 }
+
+/// How deep DO REPEAT structures may stand in one another. The manual allows none inside a DO
+/// REPEAT; a few are harmless, but each level reads the whole text of those inside it.
+pub const MAX_NESTED_REPEATS: usize = 20;
 
 type ParsedRange = (std::ops::Range<usize>, Result<Command, SyntaxError>);
 

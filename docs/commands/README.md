@@ -344,7 +344,7 @@ One page per supported command, generated from the same table that the parser an
   Expressions: + - * / **, = <> < > <= >= (or EQ NE LT GT LE GE), AND OR NOT (or & | ~),
   functions such as MEAN(a, b) or SUM(q1 TO q5); LAG(var [, n]) is the value n cases back.
   A function name may be shortened to three or more letters that start no other function.
-  An expression nests at most 64 levels of parentheses and functions and holds at most 5000 operators.
+  An expression nests at most 64 levels of parentheses and functions and holds at most 1500 operators (use SUM(x1 TO x2000) for a longer sum).
   Scratch variables start with #: they begin at 0 or blank, keep their value from case to case,
   are never saved and are gone when the next procedure starts. System variables: $CASENUM
   is the case number, $SYSMIS the system-missing value, $JDATE today as a day count (1 is

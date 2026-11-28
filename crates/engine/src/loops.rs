@@ -21,8 +21,8 @@ use crate::variables::new_names;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::Values;
 use statscraft_syntax::{
-    Command, DoRepeat, Expr, LoopHeader, RepeatItem, RepeatList, VarItem, VectorSpec,
-    VectorVariables,
+    Command, DoRepeat, Expr, LoopHeader, MAX_NESTED_REPEATS, RepeatItem, RepeatList, VarItem,
+    VectorSpec, VectorVariables,
 };
 
 /// A LOOP whose commands are being collected up to its END LOOP.
@@ -435,6 +435,13 @@ impl Engine {
 
     /// DO REPEAT: the body once per item of the replacement lists.
     pub(crate) fn do_repeat(&mut self, repeat: &DoRepeat) -> Result<Vec<Table>, Error> {
+        // (the parser refuses a deeper structure as a whole; this is the same limit for a
+        // program that is not parsed from text)
+        if self.repeat_depth >= MAX_NESTED_REPEATS {
+            return Err(Error(format!(
+                "DO REPEAT is nested more than {MAX_NESTED_REPEATS} levels deep"
+            )));
+        }
         let data = self.active()?;
         let mut lists: Vec<(String, Vec<RepeatItem>)> = Vec::new();
         for (name, list) in &repeat.lists {
@@ -480,6 +487,7 @@ impl Engine {
         // the commands made from the structure are not kept for a LEAVE that runs the commands
         // again: the structure itself, kept already, makes them again
         let kept = self.clean.as_ref().map(|clean| clean.mark());
+        self.repeat_depth += 1;
         let result = (|| -> Result<(), Error> {
             for i in 0..count {
                 let items: Vec<(&str, &RepeatItem)> = lists
@@ -503,6 +511,7 @@ impl Engine {
             }
             Ok(())
         })();
+        self.repeat_depth -= 1;
         self.warnings = warnings;
         if let (Some(kept), Some(clean)) = (kept, self.clean.as_mut()) {
             clean.keep_commands(kept);

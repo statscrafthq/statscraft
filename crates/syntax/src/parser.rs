@@ -15,6 +15,12 @@ pub(crate) fn is_reserved(word: &str) -> bool {
     RESERVED.iter().any(|r| word.eq_ignore_ascii_case(r))
 }
 
+/// The most binary operators one command may hold in all its expressions. A chain builds a tree
+/// as deep as it is long, trees are walked and dropped recursively, and a run's thread has 2 MiB
+/// of stack: a chain takes about 600 bytes an operator in a release build (4000 overflowed it)
+/// and about 5 KiB in a debug build, which gets a shorter limit.
+pub(crate) const MAX_OPERATORS: usize = if cfg!(debug_assertions) { 300 } else { 1500 };
+
 pub(crate) struct Parser<'a> {
     tokens: &'a [Token],
     pub pos: usize,
@@ -93,8 +99,8 @@ impl<'a> Parser<'a> {
     /// recursively, so the length needs a limit just like the nesting does.
     pub fn count_operator(&mut self) -> PResult<()> {
         self.operators += 1;
-        if self.operators > 5000 {
-            let message = "expression is too long (more than 5000 operators)";
+        if self.operators as usize > MAX_OPERATORS {
+            let message = format!("expression is too long (more than {MAX_OPERATORS} operators)");
             return Err(SyntaxError::new(self.span(), message));
         }
         Ok(())
