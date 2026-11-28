@@ -20,6 +20,7 @@ mod bayes;
 mod bayes_loglinear;
 mod bayes_models;
 mod bootstrap;
+mod case_order;
 mod case_selection_r;
 mod catpca;
 mod catreg;
