@@ -5,6 +5,7 @@ mod common;
 
 mod edit;
 mod fixtures;
+mod kill;
 mod merge_edit;
 mod name_index;
 mod por;
