@@ -127,6 +127,18 @@ pub fn specs_to_missing(specs: &[MissingSpec]) -> MissingValues {
     MissingValues::DiscreteNumeric(discrete_f64)
 }
 
+/// A bound of a missing range as the model has it: LOWEST (a file holds the second most
+/// negative double, an older file of ours the most negative) is f64::MIN, HIGHEST f64::MAX.
+fn open_bound(bound: f64) -> f64 {
+    if bound <= f64::from_bits(crate::constants::LOWEST_BITS) {
+        f64::MIN
+    } else if bound >= f64::MAX {
+        f64::MAX
+    } else {
+        bound
+    }
+}
+
 /// Convert internal MissingValues to public MissingSpec list.
 pub fn missing_to_specs(mv: &MissingValues, file_encoding: &'static Encoding) -> Vec<MissingSpec> {
     match mv {
@@ -136,15 +148,15 @@ pub fn missing_to_specs(mv: &MissingValues, file_encoding: &'static Encoding) ->
         }
         MissingValues::Range { low, high } => {
             vec![MissingSpec::Range {
-                lo: *low,
-                hi: *high,
+                lo: open_bound(*low),
+                hi: open_bound(*high),
             }]
         }
         MissingValues::RangeAndValue { low, high, value } => {
             vec![
                 MissingSpec::Range {
-                    lo: *low,
-                    hi: *high,
+                    lo: open_bound(*low),
+                    hi: open_bound(*high),
                 },
                 MissingSpec::Value(*value),
             ]

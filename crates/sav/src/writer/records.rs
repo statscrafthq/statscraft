@@ -229,6 +229,19 @@ fn missing_count(mv: &MissingValues) -> i32 {
     }
 }
 
+/// The bound of a missing range as the file holds it: LOWEST (the second most negative double,
+/// which the file's own header names; the most negative one is system-missing) and HIGHEST for
+/// a range open at either end.
+fn range_bound(bound: f64) -> f64 {
+    if bound <= f64::MIN {
+        f64::from_bits(LOWEST_BITS)
+    } else if bound >= f64::MAX {
+        f64::from_bits(HIGHEST_BITS)
+    } else {
+        bound
+    }
+}
+
 fn write_missing_values<W: Write>(w: &mut W, mv: &MissingValues) -> Result<()> {
     match mv {
         MissingValues::None => {}
@@ -238,12 +251,12 @@ fn write_missing_values<W: Write>(w: &mut W, mv: &MissingValues) -> Result<()> {
             }
         }
         MissingValues::Range { low, high } => {
-            w.write_f64_le(*low)?;
-            w.write_f64_le(*high)?;
+            w.write_f64_le(range_bound(*low))?;
+            w.write_f64_le(range_bound(*high))?;
         }
         MissingValues::RangeAndValue { low, high, value } => {
-            w.write_f64_le(*low)?;
-            w.write_f64_le(*high)?;
+            w.write_f64_le(range_bound(*low))?;
+            w.write_f64_le(range_bound(*high))?;
             w.write_f64_le(*value)?;
         }
         MissingValues::DiscreteString(vals) => {

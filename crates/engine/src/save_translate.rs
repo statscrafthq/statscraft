@@ -470,7 +470,21 @@ impl Engine {
                                         .map_err(xe)?;
                                 }
                                 None => {
-                                    sheet.write_string(row, c, shown.trim()).map_err(xe)?;
+                                    // a date the display format cannot show (before the
+                                    // calendar starts, after year 9999) is its plain text, as
+                                    // in a CSV file, and not asterisks; other formats keep
+                                    // what they show
+                                    let kind = PlainKind::of(&kind(&format));
+                                    let text = if shown.contains('*')
+                                        && !matches!(kind, PlainKind::Number)
+                                    {
+                                        let mut text = String::new();
+                                        kind.write(&mut text, x, false);
+                                        text
+                                    } else {
+                                        shown.trim().to_string()
+                                    };
+                                    sheet.write_string(row, c, text).map_err(xe)?;
                                 }
                             }
                         }
