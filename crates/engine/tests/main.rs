@@ -57,6 +57,7 @@ mod date_formats;
 mod date_formats_r;
 mod date_variables;
 mod decimal_comma_r;
+mod decimal_comma_text;
 mod degenerate_groups;
 mod dictionary;
 mod discriminant;

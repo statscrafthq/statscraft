@@ -33,6 +33,7 @@ mod curvefit;
 mod data_list;
 mod date;
 mod date_input;
+mod decimal_text;
 mod descriptives;
 mod detectanomaly;
 mod dictionary;
