@@ -6418,7 +6418,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Change settings of the session.",
         syntax: "SET subcommand[=]value [[/] subcommand[=]value ...].\n\
                  Followed: FORMAT=Fw.d (format of new numeric variables, default F8.2), DECIMAL=DOT | COMMA\n\
-                 (decimal mark when reading text data), MPRINT, MEXPAND, MNEST, MITERATE (see DEFINE),\n\
+                 (decimal mark of text data read and written by F, E and PCT formats), MPRINT, MEXPAND, MNEST, MITERATE (see DEFINE),\n\
                  LOCALE='name' (sets DECIMAL to the decimal mark of the locale: et_EE, de_DE give COMMA,\n\
                  en_US, en_GB give DOT; OSLOCALE gives DOT; a later DECIMAL overrides it; files are always\n\
                  Unicode, so a code page in the name changes nothing), UNICODE (Statscraft always works in\n\
@@ -7083,7 +7083,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  no decimal point, as in DATA LIST; X skips the field. DELIMITERS: \\t is a tab, \\\\ a backslash; two delimiters\n\
                  in a row leave a value empty. Default delimiters: tab and comma. A value between\n\
                  qualifiers may hold delimiters and line breaks; a doubled qualifier is one. SET DECIMAL=COMMA\n\
-                 reads a comma as the decimal mark. ENCODING as for INSERT; a byte order mark wins. MAP, the\n\
+                 reads a comma as the decimal mark: F, E and PCT take that mark only (a period there makes the\n\
+                 value system-missing), COMMA and DOLLAR a period, DOT a comma. ENCODING as for INSERT; a byte order mark wins. MAP, the\n\
                  only subcommand allowed after VARIABLES, is accepted and shows nothing.\n\
                  Workbooks (XLSX and XLSM from Excel 2007 on, XLS from Excel 95 to 2003). The first sheet by\n\
                  default; FULL reads from the first to the last cell with a value. READNAMES=ON (default)\n\

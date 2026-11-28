@@ -18,7 +18,6 @@
 //! with an x the distribution does not take. Scoring (APPLYMODEL) is not supported.
 
 use crate::expr_functions as f;
-use crate::format::format_value;
 use crate::{Error, dist, distributions};
 use statscraft_data::{Dataset, Value, Values};
 use statscraft_syntax::{BinaryOp, Expr, FormatType, UnaryOp};
@@ -605,7 +604,14 @@ fn read_number(
             crate::get_data::number(&field, format, false, reading.epoch)
         }
         FormatType::Pibhex => crate::data_list::pibhex(&field, width),
-        _ => crate::data_list::number(&field, *kind, decimals as u8),
+        _ => {
+            let format = statscraft_syntax::Format {
+                kind: *kind,
+                width: width as u16,
+                decimals: decimals as u8,
+            };
+            crate::get_data::number_in(&field, format, reading.comma, reading.epoch, true)
+        }
     };
     read.ok().flatten()
 }
@@ -1303,7 +1309,11 @@ impl Evaluator<'_> {
                     .currencies
                     .resolve(&format!("{kind}{width}.{decimals}"));
                 let write = |v: Option<f64>| match v {
-                    Some(v) => format!("{:>width$}", format_value(v, &spec, false)),
+                    Some(v) => {
+                        let comma = self.reading.comma;
+                        let shown = crate::format::format_value_decimal(v, &spec, false, comma);
+                        format!("{shown:>width$}")
+                    }
                     None => format_number(None, width, decimals),
                 };
                 Column::String(number(0)?.into_iter().map(write).collect())

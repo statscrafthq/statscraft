@@ -50,6 +50,25 @@ const WEEKDAYS: [&str; 7] = [
     "SATURDAY",
 ];
 
+/// True for the formats that take the decimal indicator of SET DECIMAL: F, E, N, Z and PCT (and
+/// no format at all). The dates, times, currencies, COMMA, DOLLAR and DOT keep their own marks.
+pub fn takes_setting_mark(format: &str) -> bool {
+    matches!(
+        crate::save_translate::kind(format).as_str(),
+        "" | "F" | "E" | "N" | "Z" | "PCT"
+    )
+}
+
+/// `format_value` under SET DECIMAL: with `comma` the formats that take the decimal indicator of
+/// the setting (F, E, N, PCT and the like) show a comma where they would show a period.
+pub fn format_value_decimal(value: f64, format: &str, fit: bool, comma: bool) -> String {
+    let shown = format_value(value, format, fit);
+    match comma && takes_setting_mark(format) {
+        true => shown.replace('.', ","),
+        false => shown,
+    }
+}
+
 /// `value` shown in a display format such as "F8.2", "PCT40.1", "COMMA10.0", "DOT8.2",
 /// "DOLLAR8.2", "N5", "E10.3", "DATE11", "TIME11.2", "CCA9.2", or one of the CTABLES formats
 /// NEGPAREN, NEQUAL, PAREN and PCTPAREN, without leading or trailing spaces. A custom

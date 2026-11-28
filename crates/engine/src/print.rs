@@ -31,7 +31,7 @@
 //!   the lines gives a warning. A line has no length limit.
 //! - The pass at the end of a run (see `Engine::finish`) also runs them.
 
-use crate::{Cell, Engine, Error, Table, format_value};
+use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{
     Command, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
@@ -436,6 +436,7 @@ impl Engine {
     /// The lines of the one case.
     fn render(&self, write: bool, layout: &Layout) -> Result<Vec<String>, Error> {
         let data = self.active()?;
+        let comma = self.setting("DECIMAL").eq_ignore_ascii_case("COMMA");
         let mut out = Vec::new();
         for placed in &layout.lines {
             let mut line = Vec::new();
@@ -443,7 +444,7 @@ impl Engine {
                 match piece {
                     Piece::Text(text) => put(&mut line, *column, text),
                     Piece::Value { name, format } => {
-                        let text = self.value_text(data, name, format, write)?;
+                        let text = self.value_text(data, name, format, write, comma)?;
                         put(&mut line, *column, &text);
                     }
                 }
@@ -460,6 +461,7 @@ impl Engine {
         name: &str,
         format: &str,
         write: bool,
+        comma: bool,
     ) -> Result<String, Error> {
         let (kind, width, decimals) = split_format(format);
         Ok(match data.variable(name)?.values() {
@@ -486,7 +488,12 @@ impl Engine {
                     text
                 }
                 Some(value) => {
-                    let text = format_value(value, &self.currency_format(format), false);
+                    let text = crate::format::format_value_decimal(
+                        value,
+                        &self.currency_format(format),
+                        false,
+                        comma,
+                    );
                     if text.chars().count() > width {
                         "*".repeat(width)
                     } else {

@@ -36,11 +36,13 @@ pub(crate) enum Read {
 
 /// What SET gives the reading of text data: BLANKS, the value of a completely blank numeric
 /// field (None: system-missing), and EPOCH, the first year of the window for two-digit years
-/// (None: AUTOMATIC).
+/// (None: AUTOMATIC), and DECIMAL, the decimal indicator.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Reading {
     pub blanks: Option<f64>,
     pub epoch: Option<f64>,
+    /// SET DECIMAL=COMMA: the F and E formats take a comma as their decimal indicator.
+    pub comma: bool,
 }
 
 /// One record of the data with how a warning names it, such as "line 12".
@@ -386,7 +388,6 @@ pub(crate) fn read(
     if text.trim().is_empty() {
         return Read::Number(reading.blanks);
     }
-    let decimals = if fixed { format.decimals } else { 0 };
     let result = match format.kind {
         FormatType::Date
         | FormatType::Adate
@@ -425,7 +426,7 @@ pub(crate) fn read(
             }
         }
         FormatType::Pibhex => pibhex(text, usize::from(format.width)),
-        kind => number(text, kind, decimals),
+        _ => crate::get_data::number_in(text, format, reading.comma, reading.epoch, fixed),
     };
     match result {
         Ok(value) => Read::Number(value),

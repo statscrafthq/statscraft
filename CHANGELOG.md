@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- A decimal comma (SET DECIMAL=COMMA) now works through DATA LIST, GET DATA, NUMBER, STRING and WRITE as in SAVE TRANSLATE: DATA LIST FREE, LIST and FIXED read 3,5 (before, such a value was system-missing there), WRITE and STRING show 3,5, and F and E formats take only the comma, so 3.5 or 1.234,5 is system-missing instead of becoming 35 or 1234.5.
 - Opening a .sav or .zsav file sets aside a read buffer of the file's size (64 MB at most) instead of always 64 MB.
 - Saving a data file (SAVE, XSAVE, EXPORT, SAVE TRANSLATE, WRITE) writes through a symbolic link to the file it points to instead of replacing the link, keeps the file's permissions, refuses a read-only file or a missing folder in plain words, and after any failure leaves the old file as it was with no half-written file beside it.
 - Reading an element of a vector (`v(i)`) in COMPUTE and LOOP finds the variable once per index value instead of for every case: a loop of 190 steps over 500,000 cases takes about 30 percent less time.
