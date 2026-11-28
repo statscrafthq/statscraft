@@ -435,6 +435,11 @@ fn over_scale(df: f64, f: impl Fn(f64) -> f64) -> f64 {
     if df > 50_000.0 {
         return f(1.0);
     }
+    // no degrees of freedom (or none that are a number): no scale to integrate over, and the
+    // loops below never end
+    if df.is_nan() || df <= 0.0 {
+        return f64::NAN;
+    }
     // Integrated over t = ln s, where the density is a smooth hump peaking at t = 0 with spread
     // about 1 / sqrt(2 df); over s a fractional df makes it a fractional power near 0, which
     // quadrature handles badly. `fall` is how far its logarithm lies below the peak.
@@ -853,6 +858,12 @@ mod tests {
             let got = studentized_range_quantile(upper, k, df);
             assert!(close(got, q, 1e-9), "{upper} {k} {df}: {got} vs {q}");
         }
+    }
+
+    #[test]
+    fn studentized_range_without_degrees_of_freedom_is_not_a_number() {
+        assert!(studentized_range_cdf(3.0, 3.0, 0.0).is_nan());
+        assert!(maximum_modulus_cdf(3.0, 3.0, 0.0).is_nan());
     }
 
     #[test]

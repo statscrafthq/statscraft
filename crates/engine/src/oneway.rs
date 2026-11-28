@@ -403,6 +403,13 @@ pub(crate) fn posthoc_tables(
 ) -> (Option<Table>, Option<Table>) {
     let k = groups.len() as f64;
     let (mut comparison, mut subset) = (None, None);
+    // with every group at one case there is no error variance and no degrees of freedom
+    if (df.is_nan() || df <= 0.0 || !within.is_finite()) && !tests.is_empty() {
+        warnings.push(format!(
+            "no post hoc tests for {dependent}: the error has no degrees of freedom"
+        ));
+        return (comparison, subset);
+    }
     let pairwise: Vec<Posthoc> = tests.iter().copied().filter(|&t| !range_only(t)).collect();
     if !pairwise.is_empty() && k >= 2.0 {
         let mut rows = Vec::new();
