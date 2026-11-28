@@ -211,6 +211,31 @@ pub(crate) fn ginverse_scaled(a: &Matrix, eps: f64) -> (Matrix, usize) {
     (out, rank)
 }
 
+/// An error when the design would not fit in memory: a row of every case with a column for each
+/// level combination that occurs (the cross-products are as wide as they are long).
+pub(crate) fn check_columns(name: &str, data: &Data, effects: &[Effect]) -> Result<(), Error> {
+    let columns: usize = effects
+        .iter()
+        .map(|e| {
+            let mut cells: Vec<Vec<usize>> = (0..data.rows())
+                .map(|i| e.factors.iter().map(|&f| data.level[i][f]).collect())
+                .collect();
+            cells.sort();
+            cells.dedup();
+            cells.len()
+        })
+        .sum();
+    let doubles = columns.saturating_mul(columns.max(data.rows()));
+    if doubles > 300_000_000 {
+        return Err(Error(format!(
+            "{name}: the model has {columns} parameters for {} cases, more than fit in memory (the design needs {} GB); use fewer levels or fewer effects",
+            data.rows(),
+            doubles / 125_000_000
+        )));
+    }
+    Ok(())
+}
+
 /// Sets the columns of each effect (the level combinations that occur) and returns the design
 /// row of every case.
 pub(crate) fn design(data: &Data, effects: &mut [Effect]) -> Vec<Vec<f64>> {
@@ -1250,6 +1275,7 @@ impl Engine {
                 "{name}: OUTFILE is for a model with one dependent variable, without WSFACTOR and RANDOM"
             )));
         }
+        crate::glm::check_columns(name, &d, &effects)?;
         let label_of = |f: usize, l: usize| level_texts[f][l].clone();
         let dependent_texts: Vec<String> = dep_vars.iter().map(|v| shown.variable(v)).collect();
         let mut tables = Vec::new();

@@ -907,6 +907,9 @@ fn clone_key(key: &Key) -> Key {
     }
 }
 
+/// The most parameters a model is fitted with (its Hessian is dense).
+const MAX_PARAMETERS: usize = 5000;
+
 /// The design columns of the effects: each effect's level combinations among `levels`.
 fn place_effects(effects: &mut [Effect], levels: &[Vec<usize>]) -> usize {
     let mut start = 0;
@@ -1211,6 +1214,13 @@ impl Engine {
             .map(|&k| case_levels(k).expect("valid"))
             .collect();
         let mut p = place_effects(&mut effects, &subpop_levels);
+        // the Hessian holds the square of the parameters: 1,800,000 of them need terabytes
+        let parameters = p.saturating_mul(j_count.saturating_sub(1));
+        if parameters > MAX_PARAMETERS {
+            return Err(Error(format!(
+                "NOMREG: the model has {parameters} parameters, more than the {MAX_PARAMETERS} it fits; use fewer levels or fewer effects"
+            )));
+        }
         let x: Vec<Vec<f64>> = members
             .iter()
             .zip(&subpop_levels)

@@ -120,20 +120,30 @@ impl Engine {
             .filter(|&c| variables.iter().all(|v| valid(v, c)))
             .collect();
         let listwise_n: f64 = listwise.iter().map(|&c| weight(c)).sum();
+        // the values and validity of each variable once, and one buffer for the cases of a pair
+        let columns_of: Vec<Vec<(f64, bool)>> = variables
+            .iter()
+            .map(|v| {
+                (0..data.case_count())
+                    .map(|c| (value(v, c), valid(v, c)))
+                    .collect()
+            })
+            .collect();
+        let buffer = std::cell::RefCell::new(Vec::<(f64, f64, f64)>::new());
         let compute = |a: usize, b: usize| {
-            let (x, y) = (&variables[a], &variables[b]);
-            let triples: Vec<(f64, f64, f64)> = if command.listwise {
-                listwise
-                    .iter()
-                    .map(|&c| (value(x, c), value(y, c), weight(c)))
-                    .collect()
+            let (x, y) = (&columns_of[a], &columns_of[b]);
+            let mut triples = buffer.borrow_mut();
+            triples.clear();
+            if command.listwise {
+                triples.extend(listwise.iter().map(|&c| (x[c].0, y[c].0, weight(c))));
             } else {
-                cases
-                    .iter()
-                    .filter(|&&c| valid(x, c) && valid(y, c))
-                    .map(|&c| (value(x, c), value(y, c), weight(c)))
-                    .collect()
-            };
+                triples.extend(
+                    cases
+                        .iter()
+                        .filter(|&&c| x[c].1 && y[c].1)
+                        .map(|&c| (x[c].0, y[c].0, weight(c))),
+                );
+            }
             pair(&triples)
         };
         let mut out = Vec::new();
@@ -185,7 +195,10 @@ impl Engine {
             None => (String::new(), String::new()),
         };
         let mut pool = Vec::new();
-        let mut pooled: Vec<(usize, usize)> = Vec::new();
+        // pairs are listed only when the results are being pooled over imputations
+        let pooling = self.pool_items.is_some();
+        let mut pooled: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::new();
         for (rows, columns) in &lists {
             let square = columns.is_none();
             let columns = columns.as_ref().unwrap_or(rows);
@@ -216,8 +229,7 @@ impl Engine {
                         };
                     let p = compute(a, b);
                     let same = a == b;
-                    if !same && !pooled.contains(&(a.min(b), a.max(b))) {
-                        pooled.push((a.min(b), a.max(b)));
+                    if pooling && !same && pooled.insert((a.min(b), a.max(b))) {
                         pool.push(crate::pooling::PoolItem::Estimate {
                             title: "Pooled Correlations".into(),
                             heads: vec![String::new(); 2],
