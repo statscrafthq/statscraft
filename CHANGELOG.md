@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- The data window refuses a date that does not exist (2023-02-29, 2024-04-31) instead of storing the first of the next month, a Decimals or Width edit in the Variables tab is checked like the Type and Format dialog (a width of 3 with 9 decimals is refused), and deleting a variable the split file is by says so before it ends the split.
 - A very long expression no longer crashes the program: a command holds at most 1500 operators in its expressions (the limit was 5000, and a sum of 4000 terms overflowed the stack of a run); the error says so, and SUM(x1 TO x2000) does the same work. DO REPEAT inside DO REPEAT and DO IF inside DO IF stop at 20 and 100 levels with an error, where a deeper nesting ran for minutes.
 - A decimal comma (SET DECIMAL=COMMA) now works through DATA LIST, GET DATA, NUMBER, STRING and WRITE as in SAVE TRANSLATE: DATA LIST FREE, LIST and FIXED read 3,5 (before, such a value was system-missing there), WRITE and STRING show 3,5, and F and E formats take only the comma, so 3.5 or 1.234,5 is system-missing instead of becoming 35 or 1234.5.
 - A .sav or .zsav file written with LOWEST in a missing range (MISSING VALUES x (LOWEST THRU 0)) keeps the range when other programs open it; a workbook cell for a date from before October 1582 holds the date as text (01/01/0001) instead of asterisks.

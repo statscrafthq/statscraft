@@ -95,7 +95,15 @@ fn date_expression(text: &str) -> Result<String, String> {
     let [year, month, day] = parts[..] else {
         return Err(bad());
     };
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || year < 1583 {
+    // a day the month does not have would roll over into the next month without a word
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let last = match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    if !(1..=12).contains(&month) || !(1..=last).contains(&day) || year < 1583 {
         return Err(bad());
     }
     let mut expression = format!("DATE.DMY({day}, {month}, {year})");
@@ -411,6 +419,33 @@ fn is_time(format: &str) -> bool {
         .any(|k| k.keyword == keyword)
 }
 
+/// Why `width` and `decimals` do not make a format of this kind, if they do not.
+fn check_format(kind: &FormatKind, width: usize, decimals: usize) -> Result<(), String> {
+    if width < kind.min || width > kind.max {
+        return Err(format!(
+            "{} takes a width from {} to {}",
+            kind.label, kind.min, kind.max
+        ));
+    }
+    if decimals > 0 && !kind.decimals {
+        return Err(format!("{} takes no decimals", kind.label));
+    }
+    if decimals > 16 || (decimals > 0 && decimals >= width) {
+        return Err("the decimals must be fewer than the width, at most 16".into());
+    }
+    Ok(())
+}
+
+/// Checks a format written as text, such as F8.2, when the dialog offers its kind; the others
+/// are left to the command.
+fn check_text_format(format: &str) -> Result<(), String> {
+    let (keyword, width, decimals) = split_format(format);
+    match FORMAT_KINDS.iter().find(|k| k.keyword == keyword) {
+        Some(kind) => check_format(kind, width, decimals),
+        None => Ok(()),
+    }
+}
+
 /// The Type and Format dialog of one variable.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FormatChoice {
@@ -470,24 +505,13 @@ impl FormatChoice {
             .trim()
             .parse()
             .map_err(|_| "the width must be a whole number".to_string())?;
-        if width < kind.min || width > kind.max {
-            return Err(format!(
-                "{} takes a width from {} to {}",
-                kind.label, kind.min, kind.max
-            ));
-        }
         let decimals: usize = match self.decimals.trim() {
             "" => 0,
             text => text
                 .parse()
                 .map_err(|_| "the decimals must be a whole number".to_string())?,
         };
-        if decimals > 0 && !kind.decimals {
-            return Err(format!("{} takes no decimals", kind.label));
-        }
-        if decimals > 16 || (decimals > 0 && decimals >= width) {
-            return Err("the decimals must be fewer than the width, at most 16".into());
-        }
+        check_format(kind, width, decimals)?;
         let format = match decimals {
             0 => format!("{}{width}", kind.keyword),
             d => format!("{}{width}.{d}", kind.keyword),
@@ -758,11 +782,12 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
             .map_err(|_| format!("the {what} must be a whole number"))
     };
     let format = |width: usize, decimals: usize| {
-        if decimals > 0 {
-            format!("FORMATS {name} ({kind}{width}.{decimals}).")
-        } else {
-            format!("FORMATS {name} ({kind}{width}).")
-        }
+        let text = match decimals {
+            0 => format!("{kind}{width}"),
+            _ => format!("{kind}{width}.{decimals}"),
+        };
+        check_text_format(&text)?;
+        Ok::<_, String>(format!("FORMATS {name} ({text})."))
     };
     let syntax = match field {
         Field::Type => return Err("the type cannot be changed yet".into()),
@@ -784,10 +809,11 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
             if !valid {
                 return Err(format!("{text:?} is not a format such as F8.2 or A20"));
             }
+            check_text_format(&format)?;
             format!("FORMATS {name} ({format}).")
         }
-        Field::Width => format(whole("width")?, decimals),
-        Field::Decimals => format(width, whole("number of decimals")?),
+        Field::Width => format(whole("width")?, decimals)?,
+        Field::Decimals => format(width, whole("number of decimals")?)?,
         Field::Label => format!("VARIABLE LABELS {name} {}.", quote(text.trim())),
         Field::Values => {
             // shortcut: a label cannot hold ";", which separates the pairs here; add a value
@@ -937,6 +963,10 @@ mod tests {
         );
         assert!(date_expression("09.11.2026").is_err());
         assert!(date_expression("2026-13-01").is_err());
+        assert!(date_expression("2023-02-29").is_err());
+        assert!(date_expression("2024-04-31").is_err());
+        assert!(date_expression("1900-02-29").is_err());
+        assert!(date_expression("2000-02-29").is_ok());
     }
 
     #[test]
