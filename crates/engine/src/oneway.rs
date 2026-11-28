@@ -318,7 +318,10 @@ pub(crate) fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + 
             .collect();
         handles
             .into_iter()
-            .flat_map(|h| h.join().expect("a pair of the post hoc tests"))
+            .flat_map(|h| {
+                h.join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
             .collect()
     })
 }
