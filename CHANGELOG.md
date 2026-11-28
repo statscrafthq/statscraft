@@ -6,6 +6,7 @@ no test or verification notes, no comparisons with other software, no internal h
 
 ## Unreleased
 
+- With SET DECIMAL=COMMA the Variables tab shows value labels and missing values with a decimal comma (1,5 = Low; missing values 98; 99,5), takes them typed that way in the cells and in both dialogs, and refuses a period; the items of a missing values list are then separated by a semicolon, and pasted labels by a semicolon, tab or equals sign.
 - With SET DECIMAL=COMMA the tables of every command show a decimal comma (3,90, 16,67) in the window and in the Markdown, HTML, PDF and document outputs; before, only the data commands did and the tables of procedures kept a period. The numbers in JSON stay numbers.
 - Deleting variables (DELETE VARIABLES, KEEP, DROP, and Delete in the data window) takes a multiple response set away when it would be left with fewer than two variables, as a set must have at least two; before, a set could stay with one. The data window's question names the sets that go.
 - A time cell in the data window is edited as a time: TIME as 01:02:03, MTIME as 62:03 and DTIME as 0 01:02:03 (with the seconds' fraction as typed, and a minus sign), and plain seconds are still taken; before, the editor showed 3723 and refused 01:02:03. Cells in JDATE, QYR, MOYR, WKYR and YMDHMS formats are typed as a date, as DATE cells are.

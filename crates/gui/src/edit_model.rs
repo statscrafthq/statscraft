@@ -45,7 +45,7 @@ fn col(data: &Dataset, at: usize) -> Col {
     Col {
         fields: Field::ALL
             .iter()
-            .map(|&f| edits::field_text(&v, f))
+            .map(|&f| edits::field_text(&v, f, false))
             .collect(),
         entry: format!(
             "{:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
@@ -698,7 +698,7 @@ fn field_syntax(
     field: Field,
     text: &str,
 ) -> Result<Option<String>, String> {
-    edits::field_edit(&data(session).variable(name).unwrap(), field, text)
+    edits::field_edit(&data(session).variable(name).unwrap(), field, text, false)
 }
 
 /// The model of a Variable View edit: the field texts at these places become these.
@@ -1012,7 +1012,7 @@ fn a_string_changes_its_width_and_a_number_becomes_text_and_back() {
 
 fn labels_of(session: &Session, name: &str, apply: &[&str]) -> LabelsEditor {
     let others = apply.iter().map(|s| s.to_string()).collect();
-    LabelsEditor::of(&data(session).variable(name).unwrap(), others)
+    LabelsEditor::of(&data(session).variable(name).unwrap(), others, false)
 }
 
 #[test]
@@ -1082,13 +1082,13 @@ fn the_labels_dialog_sets_exactly_the_labels_it_shows() {
 fn the_missing_values_dialog_sets_exactly_what_it_shows() {
     both(|session, state| {
         let others = |names: &[&str]| names.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let mut d = MissingEditor::of(&data(session).variable("age").unwrap(), vec![]);
+        let mut d = MissingEditor::of(&data(session).variable("age").unwrap(), vec![], false);
         d.values = ["-1".into(), "98".into(), "99.5".into()];
         let (before, after) = op(session, &d.syntax().unwrap());
         let at = before.at("age");
         assert_eq!(after.cols[at].fields[7], "-1, 98, 99.5", "{state}");
         assert_eq!(after.cols[at].cells, before.cols[at].cells);
-        let mut d = MissingEditor::of(&data(session).variable("income").unwrap(), vec![]);
+        let mut d = MissingEditor::of(&data(session).variable("income").unwrap(), vec![], false);
         d.range = true;
         d.low = "LO".into();
         d.high = "0".into();
@@ -1096,13 +1096,13 @@ fn the_missing_values_dialog_sets_exactly_what_it_shows() {
         let (before, after) = op(session, &d.syntax().unwrap());
         let at = before.at("income");
         assert_eq!(after.cols[at].fields[7], "LO THRU 0, 999", "{state}");
-        let mut d = MissingEditor::of(&data(session).variable("income").unwrap(), vec![]);
+        let mut d = MissingEditor::of(&data(session).variable("income").unwrap(), vec![], false);
         d.range = true;
         d.low = "10".into();
         d.high = "HI".into();
         let (_, after) = op(session, &d.syntax().unwrap());
         assert_eq!(after.cols[at].fields[7], "10 THRU HI", "{state}");
-        let mut d = MissingEditor::of(&data(session).variable("name").unwrap(), vec![]);
+        let mut d = MissingEditor::of(&data(session).variable("name").unwrap(), vec![], false);
         d.values = ["Anna".into(), "dee".into(), String::new()];
         let (before, after) = op(session, &d.syntax().unwrap());
         let at = before.at("name");
@@ -1112,6 +1112,7 @@ fn the_missing_values_dialog_sets_exactly_what_it_shows() {
         let mut d = MissingEditor::of(
             &data(session).variable("age").unwrap(),
             others(&["id", "grp"]),
+            false,
         );
         d.apply_to_others = true;
         d.values = ["-9".into(), String::new(), String::new()];
@@ -1600,4 +1601,186 @@ fn the_date_formats_that_show_a_part_of_a_date_take_a_whole_date() {
     );
     let var = data(&session).variable("ymd").unwrap();
     assert_eq!(edits::edit_text(&var, 0, false), "2020-03-15 00:00:00");
+}
+
+fn comma_field(
+    session: &Session,
+    name: &str,
+    field: Field,
+    text: &str,
+) -> Result<Option<String>, String> {
+    edits::field_edit(&data(session).variable(name).unwrap(), field, text, true)
+}
+
+fn comma_text(session: &Session, name: &str, field: Field) -> String {
+    edits::field_text(&data(session).variable(name).unwrap(), field, true)
+}
+
+#[test]
+fn the_variables_tab_shows_and_takes_a_decimal_comma_in_labels_and_missing_values() {
+    // value labels pair a code with a label by "=", pairs by ";"; missing values go by ";"
+    let cases = [
+        (
+            "income",
+            Field::Values,
+            "1,5 = Low; 2,25 = Mid; -0,125 = Below",
+        ),
+        ("income", Field::Values, "7 = Seven"),
+        ("income", Field::Missing, "-99; 98,5"),
+        ("income", Field::Missing, "LO THRU -1,5; 999,25"),
+        ("income", Field::Missing, "0,5 THRU HI"),
+        ("income", Field::Missing, "12"),
+        ("age", Field::Missing, "98; 99,5; 100"),
+        ("name", Field::Missing, "x; y"),
+    ];
+    for state in [false, true] {
+        let mut session = comma_session(state);
+        for (name, field, text) in cases {
+            let syntax = comma_field(&session, name, field, text)
+                .unwrap_or_else(|e| panic!("{name} {field:?} {text:?}: {e}"))
+                .unwrap_or_else(|| panic!("{name} {field:?} {text:?}: no change"));
+            let (before, after) = op(&mut session, &syntax);
+            // the fields read back as typed, with the comma, and nothing else changed
+            run(&mut session, &syntax);
+            assert_eq!(
+                comma_text(&session, name, field),
+                text,
+                "{state}: {name} {field:?}"
+            );
+            // typing what is shown is no change
+            assert_eq!(comma_field(&session, name, field, text).unwrap(), None);
+            assert!(session.undo());
+            let at = before.at(name);
+            for (i, (a, b)) in after.cols.iter().zip(&before.cols).enumerate() {
+                if i != at {
+                    assert!(a == b, "{state}: {name} {field:?} changed {}", a.fields[0]);
+                }
+            }
+            assert_eq!(after.cols[at].cells, before.cols[at].cells);
+        }
+    }
+}
+
+#[test]
+fn the_exact_numbers_of_labels_and_missing_values_reach_the_dictionary() {
+    let mut session = comma_session(false);
+    let syntax = comma_field(&session, "income", Field::Values, "1,5 = Low; 0,1 = Tenth")
+        .unwrap()
+        .unwrap();
+    run(&mut session, &syntax);
+    let variable = data(&session).variable("income").unwrap();
+    let codes: Vec<f64> = variable
+        .value_labels()
+        .iter()
+        .map(|(v, _)| match v {
+            statscraft_data::Value::Number(n) => *n,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(codes, [1.5, 0.1]);
+    let syntax = comma_field(&session, "income", Field::Missing, "LO THRU 0,1; 1234,5")
+        .unwrap()
+        .unwrap();
+    run(&mut session, &syntax);
+    let variable = data(&session).variable("income").unwrap();
+    assert_eq!(
+        *variable.missing_values(),
+        statscraft_data::MissingValues::Range {
+            low: f64::MIN,
+            high: 0.1,
+            extra: Some(1234.5)
+        }
+    );
+}
+
+#[test]
+fn under_a_decimal_comma_a_period_in_labels_or_missing_values_is_refused() {
+    let session = comma_session(false);
+    for (field, text) in [
+        (Field::Values, "1.5 = Low"),
+        (Field::Missing, "1.5"),
+        (Field::Missing, "LO THRU 0.5"),
+        (Field::Missing, "1,5, 2,5"),
+        (Field::Missing, "1,5.2"),
+    ] {
+        match comma_field(&session, "income", field, text) {
+            Err(message) => assert!(!message.is_empty()),
+            Ok(Some(syntax)) => {
+                // the engine takes it only if it means the same as the text says
+                let mut s = comma_session(false);
+                assert!(
+                    s.run(&syntax, None).is_err(),
+                    "{field:?} {text:?} gave {syntax}"
+                );
+            }
+            Ok(None) => panic!("{field:?} {text:?}"),
+        }
+    }
+    // with the setting off a comma list and a period are as before
+    let plain_session = plain();
+    let v = data(&plain_session).variable("income").unwrap();
+    assert_eq!(edits::field_text(&v, Field::Missing, false), "LO THRU -1");
+    assert!(edits::field_edit(&v, Field::Missing, "1.5, 2.5", false).is_ok());
+    assert!(edits::field_edit(&v, Field::Values, "1,5 = Low", false).is_err());
+}
+
+#[test]
+fn the_dialogs_show_and_take_a_decimal_comma() {
+    for state in [false, true] {
+        let mut session = comma_session(state);
+        // value labels: the list, then pasted lines separated by a semicolon
+        let mut d = LabelsEditor::of(&data(&session).variable("income").unwrap(), vec![], true);
+        d.pairs = vec![("1,5".into(), "Low".into()), ("2,25".into(), "Mid".into())];
+        let (_, after) = op(&mut session, &d.syntax().unwrap());
+        assert_eq!(
+            after.cols[after.at("income")].fields[6],
+            "1.5 = Low; 2.25 = Mid"
+        );
+        run(&mut session, &d.syntax().unwrap());
+        assert_eq!(
+            comma_text(&session, "income", Field::Values),
+            "1,5 = Low; 2,25 = Mid"
+        );
+        let mut again = LabelsEditor::of(&data(&session).variable("income").unwrap(), vec![], true);
+        assert_eq!(again.pairs[0], ("1,5".to_string(), "Low".to_string()));
+        again.quick = true;
+        again.pasted = "3,5;High\n4,75;Top".into();
+        let syntax = again.syntax().unwrap();
+        run(&mut session, &syntax);
+        assert_eq!(
+            comma_text(&session, "income", Field::Values),
+            "1,5 = Low; 2,25 = Mid; 3,5 = High; 4,75 = Top"
+        );
+        // a comma alone separates nothing under a decimal comma
+        again.pasted = "1,5,Low".into();
+        assert!(again.syntax().is_err());
+        again.quick = false;
+        again.pairs[0].0 = "1.5".into();
+        assert!(again.syntax().is_err());
+        // missing values: three values, or a range and one more
+        let mut m = MissingEditor::of(&data(&session).variable("income").unwrap(), vec![], true);
+        m.range = false;
+        m.values = ["-1,5".into(), "99,5".into(), String::new()];
+        run(&mut session, &m.syntax().unwrap());
+        assert_eq!(comma_text(&session, "income", Field::Missing), "-1,5; 99,5");
+        let mut m = MissingEditor::of(&data(&session).variable("income").unwrap(), vec![], true);
+        assert_eq!(m.values[0], "-1,5");
+        m.range = true;
+        m.low = "LO".into();
+        m.high = "0,5".into();
+        m.extra = "999,25".into();
+        run(&mut session, &m.syntax().unwrap());
+        assert_eq!(
+            comma_text(&session, "income", Field::Missing),
+            "LO THRU 0,5; 999,25"
+        );
+        let m = MissingEditor::of(&data(&session).variable("income").unwrap(), vec![], true);
+        assert_eq!(
+            (m.low.as_str(), m.high.as_str(), m.extra.as_str()),
+            ("LO", "0,5", "999,25")
+        );
+        let mut bad = m.clone();
+        bad.high = "0.5".into();
+        assert!(bad.syntax().is_err());
+    }
 }

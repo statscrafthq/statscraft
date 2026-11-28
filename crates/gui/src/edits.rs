@@ -400,13 +400,30 @@ fn split_format(format: &str) -> (String, usize, usize) {
     )
 }
 
-fn bound_text(v: f64) -> String {
+/// A number as the Variables tab shows it: a comma for the decimal mark under SET DECIMAL=COMMA.
+fn shown(v: f64, comma: bool) -> String {
+    match comma {
+        true => number(v).replace('.', ","),
+        false => number(v),
+    }
+}
+
+/// What separates the items of a list of missing values: a comma, or a semicolon under a
+/// decimal comma, where the comma is part of the numbers.
+fn list_mark(comma: bool) -> &'static str {
+    match comma {
+        true => "; ",
+        false => ", ",
+    }
+}
+
+fn bound_text(v: f64, comma: bool) -> String {
     if v == f64::MIN {
         "LO".into()
     } else if v == f64::MAX {
         "HI".into()
     } else {
-        number(v)
+        shown(v, comma)
     }
 }
 
@@ -432,7 +449,7 @@ fn measure_name(measure: Measure) -> &'static str {
 
 /// The text of one Variable View cell. Value labels and missing values are written the way the
 /// editor reads them back: `1 = Yes; 2 = No` and `98, 99` or `LO THRU -1, 999`.
-pub fn field_text(variable: &Variable, field: Field) -> String {
+pub fn field_text(variable: &Variable, field: Field, comma: bool) -> String {
     let (_, width, decimals) = split_format(variable.format());
     match field {
         Field::Name => variable.name().to_string(),
@@ -450,7 +467,7 @@ pub fn field_text(variable: &Variable, field: Field) -> String {
             .value_labels()
             .iter()
             .map(|(v, label)| match v {
-                Value::Number(n) => format!("{} = {label}", number(*n)),
+                Value::Number(n) => format!("{} = {label}", shown(*n, comma)),
                 Value::String(s) => format!("{s} = {label}"),
             })
             .collect::<Vec<_>>()
@@ -459,17 +476,21 @@ pub fn field_text(variable: &Variable, field: Field) -> String {
             MissingValues::None => String::new(),
             MissingValues::Numbers(values) => values
                 .iter()
-                .map(|v| number(*v))
+                .map(|v| shown(*v, comma))
                 .collect::<Vec<_>>()
-                .join(", "),
+                .join(list_mark(comma)),
             MissingValues::Range { low, high, extra } => {
-                let mut text = format!("{} THRU {}", bound_text(*low), bound_text(*high));
+                let mut text = format!(
+                    "{} THRU {}",
+                    bound_text(*low, comma),
+                    bound_text(*high, comma)
+                );
                 if let Some(extra) = extra {
-                    text.push_str(&format!(", {}", number(*extra)));
+                    text.push_str(&format!("{}{}", list_mark(comma), shown(*extra, comma)));
                 }
                 text
             }
-            MissingValues::Strings(values) => values.join(", "),
+            MissingValues::Strings(values) => values.join(list_mark(comma)),
         },
         Field::Columns => variable
             .display_width()
@@ -485,11 +506,11 @@ pub fn field_text(variable: &Variable, field: Field) -> String {
     }
 }
 
-fn missing_item(item: &str) -> Result<String, String> {
+fn missing_item(item: &str, comma: bool) -> Result<String, String> {
     let bound = |text: &str| match text.trim().to_ascii_uppercase().as_str() {
         "LO" | "LOWEST" => Ok("LOWEST".to_string()),
         "HI" | "HIGHEST" => Ok("HIGHEST".to_string()),
-        _ => value(text, false),
+        _ => typed_number(text, comma),
     };
     let upper = item.to_ascii_uppercase();
     match upper.find(" THRU ") {
@@ -498,7 +519,7 @@ fn missing_item(item: &str) -> Result<String, String> {
             bound(&item[..at])?,
             bound(&item[at + 6..])?
         )),
-        None => value(item, false),
+        None => typed_number(item, comma),
     }
 }
 
@@ -697,11 +718,20 @@ impl FormatChoice {
 /// Lines of `code<separator>label` pasted at once. The separator is the first of tab,
 /// semicolon, equals sign and comma that the text holds; a line splits at its first separator.
 /// Empty lines are left out.
-pub fn parse_labels(text: &str) -> Result<Vec<(String, String)>, String> {
-    let separator = ['\t', ';', '=', ',']
-        .into_iter()
+/// Under a decimal comma the comma is no separator, as it is part of the codes.
+pub fn parse_labels(text: &str, comma: bool) -> Result<Vec<(String, String)>, String> {
+    let separators: &[char] = match comma {
+        true => &['\t', ';', '='],
+        false => &['\t', ';', '=', ','],
+    };
+    let separator = separators
+        .iter()
+        .copied()
         .find(|s| text.contains(*s))
-        .ok_or("put a tab, semicolon, equals sign or comma between each code and its label")?;
+        .ok_or(match comma {
+            true => "put a tab, semicolon or equals sign between each code and its label",
+            false => "put a tab, semicolon, equals sign or comma between each code and its label",
+        })?;
     text.lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
@@ -737,19 +767,21 @@ pub struct LabelsEditor {
     /// Pasting many at once instead of the list.
     pub quick: bool,
     pub pasted: String,
+    /// SET DECIMAL=COMMA: the codes are typed with a decimal comma.
+    comma: bool,
     /// With pasting: the pasted list becomes the whole set (VALUE LABELS) instead of adding
     /// and changing codes (ADD VALUE LABELS).
     pub replace: bool,
 }
 
 impl LabelsEditor {
-    pub fn of(variable: &Variable, others: Vec<String>) -> Self {
+    pub fn of(variable: &Variable, others: Vec<String>, comma: bool) -> Self {
         let pairs: Vec<(String, String)> = variable
             .value_labels()
             .iter()
             .map(|(v, label)| {
                 let code = match v {
-                    Value::Number(n) => number(*n),
+                    Value::Number(n) => shown(*n, comma),
                     Value::String(s) => s.trim_end().to_string(),
                 };
                 (code, label.clone())
@@ -764,6 +796,7 @@ impl LabelsEditor {
             pairs,
             quick: false,
             pasted: String::new(),
+            comma,
             replace: false,
         }
     }
@@ -775,7 +808,7 @@ impl LabelsEditor {
         }
         let names = names.join(" ");
         let (pairs, command) = if self.quick {
-            let pairs = parse_labels(&self.pasted)?;
+            let pairs = parse_labels(&self.pasted, self.comma)?;
             let command = if self.replace {
                 "VALUE LABELS"
             } else {
@@ -804,7 +837,7 @@ impl LabelsEditor {
             }
             let code = match self.string {
                 true => quote(code.trim_end()),
-                false => value(code, false)?,
+                false => typed_number(code, self.comma)?,
             };
             items.push(format!("{code} {}", quote(label)));
         }
@@ -828,10 +861,12 @@ pub struct MissingEditor {
     pub high: String,
     pub extra: String,
     original: String,
+    /// SET DECIMAL=COMMA: the numbers are typed with a decimal comma.
+    comma: bool,
 }
 
 impl MissingEditor {
-    pub fn of(variable: &Variable, others: Vec<String>) -> Self {
+    pub fn of(variable: &Variable, others: Vec<String>, comma: bool) -> Self {
         let mut d = Self {
             name: variable.name().to_string(),
             string: variable.is_string(),
@@ -843,12 +878,13 @@ impl MissingEditor {
             high: String::new(),
             extra: String::new(),
             original: String::new(),
+            comma,
         };
         match variable.missing_values() {
             MissingValues::None => {}
             MissingValues::Numbers(values) => {
                 for (slot, v) in d.values.iter_mut().zip(values) {
-                    *slot = number(*v);
+                    *slot = shown(*v, comma);
                 }
             }
             MissingValues::Strings(values) => {
@@ -858,9 +894,9 @@ impl MissingEditor {
             }
             MissingValues::Range { low, high, extra } => {
                 d.range = true;
-                d.low = bound_text(*low);
-                d.high = bound_text(*high);
-                d.extra = extra.map(number).unwrap_or_default();
+                d.low = bound_text(*low, comma);
+                d.high = bound_text(*high, comma);
+                d.extra = extra.map(|v| shown(v, comma)).unwrap_or_default();
             }
         }
         d.original = d.items().unwrap_or_default();
@@ -877,16 +913,16 @@ impl MissingEditor {
             match (self.low.trim(), self.high.trim()) {
                 ("", "") => {}
                 ("", _) | (_, "") => return Err("give both ends of the range".into()),
-                (low, high) => items.push(missing_item(&format!("{low} THRU {high}"))?),
+                (low, high) => items.push(missing_item(&format!("{low} THRU {high}"), self.comma)?),
             }
             if !self.extra.trim().is_empty() {
-                items.push(value(&self.extra, false)?);
+                items.push(typed_number(&self.extra, self.comma)?);
             }
         } else {
             for v in self.values.iter().filter(|v| !v.trim().is_empty()) {
                 items.push(match self.string {
                     true => quote(v.trim_end()),
-                    false => missing_item(v)?,
+                    false => missing_item(v, self.comma)?,
                 });
             }
         }
@@ -927,8 +963,13 @@ pub fn new_variable(name: &str) -> Result<String, String> {
 }
 
 /// The syntax for an edit of a Variable View cell, or None when the text did not change.
-pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Option<String>, String> {
-    if text == field_text(variable, field) {
+pub fn field_edit(
+    variable: &Variable,
+    field: Field,
+    text: &str,
+    comma: bool,
+) -> Result<Option<String>, String> {
+    if text == field_text(variable, field, comma) {
         return Ok(None);
     }
     let name = variable.name();
@@ -981,11 +1022,11 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
                 let (v, label) = pair
                     .split_once('=')
                     .ok_or_else(|| format!("{pair:?} needs the form value = label"))?;
-                pairs.push(format!(
-                    "{} {}",
-                    value(v.trim(), string)?,
-                    quote(label.trim())
-                ));
+                let code = match string {
+                    true => value(v.trim(), true)?,
+                    false => typed_number(v.trim(), comma)?,
+                };
+                pairs.push(format!("{code} {}", quote(label.trim())));
             }
             match pairs.is_empty() {
                 true => format!("VALUE LABELS {name}."),
@@ -994,12 +1035,12 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
         }
         Field::Missing => {
             let items = text
-                .split(',')
+                .split(if comma { ';' } else { ',' })
                 .map(str::trim)
                 .filter(|item| !item.is_empty())
                 .map(|item| match string {
                     true => Ok(quote(item)),
-                    false => missing_item(item),
+                    false => missing_item(item, comma),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             format!("MISSING VALUES {name} ({}).", items.join(", "))
@@ -1043,6 +1084,18 @@ mod tests {
     /// A cell with the default currency specifications.
     fn cell_text(variable: &Variable, case: usize, labels: bool) -> String {
         super::cell_text(variable, case, labels, &Currencies::default(), false)
+    }
+
+    fn field_text(variable: &Variable, field: Field) -> String {
+        super::field_text(variable, field, false)
+    }
+
+    fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Option<String>, String> {
+        super::field_edit(variable, field, text, false)
+    }
+
+    fn parse_labels(text: &str) -> Result<Vec<(String, String)>, String> {
+        super::parse_labels(text, false)
     }
 
     fn edit_text(variable: &Variable, case: usize) -> String {
@@ -1347,7 +1400,7 @@ mod tests {
     fn the_value_labels_dialog_replaces_or_adds_labels() {
         let mut session = survey();
         let mut d = with(&session, "gender", |v| {
-            LabelsEditor::of(v, vec!["region".into()])
+            LabelsEditor::of(v, vec!["region".into()], false)
         });
         assert_eq!(d.pairs[0], ("1".to_string(), "Male".to_string()));
         assert_eq!(d.syntax().unwrap_err(), "change, add or remove a label");
@@ -1381,7 +1434,7 @@ mod tests {
 
         // pasting: update adds and changes, replace makes the whole set, for two variables
         let mut d = with(&session, "gender", |v| {
-            LabelsEditor::of(v, vec!["region".into()])
+            LabelsEditor::of(v, vec!["region".into()], false)
         });
         d.quick = true;
         d.pasted = "1\tMan\n7\tSeven".into();
@@ -1411,12 +1464,12 @@ mod tests {
         });
 
         // strings get quotes; an empty list clears the labels
-        let mut d = with(&session, "plan", |v| LabelsEditor::of(v, Vec::new()));
+        let mut d = with(&session, "plan", |v| LabelsEditor::of(v, Vec::new(), false));
         d.pairs = vec![("BASIC".into(), "Basic plan".into())];
         let syntax = d.syntax().unwrap();
         assert_eq!(syntax, "VALUE LABELS plan\n  'BASIC' 'Basic plan'.");
         session.run(&syntax, None).unwrap();
-        let mut d = with(&session, "plan", |v| LabelsEditor::of(v, Vec::new()));
+        let mut d = with(&session, "plan", |v| LabelsEditor::of(v, Vec::new(), false));
         d.pairs.clear();
         let syntax = d.syntax().unwrap();
         assert_eq!(syntax, "VALUE LABELS plan.");
@@ -1428,7 +1481,7 @@ mod tests {
     fn the_missing_values_dialog_sets_values_or_a_range() {
         let mut session = survey();
         let mut d = with(&session, "q1_satisfaction", |v| {
-            MissingEditor::of(v, vec!["q2_recommend".into()])
+            MissingEditor::of(v, vec!["q2_recommend".into()], false)
         });
         assert_eq!(d.values[..2], ["98".to_string(), "99".to_string()]);
         assert_eq!(
@@ -1441,7 +1494,7 @@ mod tests {
         session.run(&syntax, None).unwrap();
 
         let mut d = with(&session, "q2_recommend", |v| {
-            MissingEditor::of(v, Vec::new())
+            MissingEditor::of(v, Vec::new(), false)
         });
         assert!(d.range);
         assert_eq!((d.low.as_str(), d.high.as_str()), ("97", "99"));
@@ -1459,7 +1512,7 @@ mod tests {
 
         // none at all, for two variables at once
         let mut d = with(&session, "q1_satisfaction", |v| {
-            MissingEditor::of(v, vec!["q2_recommend".into()])
+            MissingEditor::of(v, vec!["q2_recommend".into()], false)
         });
         d.values = Default::default();
         d.apply_to_others = true;
@@ -1470,7 +1523,9 @@ mod tests {
             assert_eq!(field_text(v, Field::Missing), "")
         });
 
-        let mut d = with(&session, "plan", |v| MissingEditor::of(v, Vec::new()));
+        let mut d = with(&session, "plan", |v| {
+            MissingEditor::of(v, Vec::new(), false)
+        });
         d.values[0] = "NONE".into();
         let syntax = d.syntax().unwrap();
         assert_eq!(syntax, "MISSING VALUES plan ('NONE').");

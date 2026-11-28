@@ -3574,6 +3574,7 @@ impl App {
 
     /// Puts the selection of the grid in view on the clipboard as tab-separated text.
     fn copy_selection(&mut self, ctx: &egui::Context) {
+        let comma = self.decimal_comma();
         let Some(data) = window_data(&self.session, &self.windows, self.here) else {
             return;
         };
@@ -3584,7 +3585,7 @@ impl App {
             let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
             let size = (data.variable_count(), Field::ALL.len());
             let text = grid::copy(s, size, &headers, |r, c| {
-                edits::field_text(&data.variable_at(r), Field::ALL[c])
+                edits::field_text(&data.variable_at(r), Field::ALL[c], comma)
             });
             (text, s.is_wide())
         } else {
@@ -3595,7 +3596,6 @@ impl App {
             let size = (data.case_count(), data.variable_count());
             let labels = self.value_labels;
             let currencies = self.session.currencies();
-            let comma = self.decimal_comma();
             let text = grid::copy(s, size, &headers, |r, c| {
                 edits::cell_text(&data.variable_at(c), r, labels, &currencies, comma)
             });
@@ -4038,6 +4038,7 @@ impl App {
     }
 
     fn variable_view(&mut self, ui: &mut Ui) {
+        let comma = self.decimal_comma();
         if window_data(&self.session, &self.windows, self.here).is_none() && !self.can_start_data()
         {
             return Self::no_data(ui);
@@ -4062,7 +4063,7 @@ impl App {
             let Some(data) = data.filter(|_| r < count) else {
                 return (Some(String::new()), Align::Min);
             };
-            let text = edits::field_text(&data.variable_at(r), field);
+            let text = edits::field_text(&data.variable_at(r), field, comma);
             let right = matches!(field, Field::Width | Field::Decimals | Field::Columns);
             (Some(text), if right { Align::Max } else { Align::Min })
         };
@@ -4160,7 +4161,12 @@ impl App {
                 }
                 return;
             };
-            match edits::field_edit(&data.variable_at(e.row), Field::ALL[e.column], &e.text) {
+            match edits::field_edit(
+                &data.variable_at(e.row),
+                Field::ALL[e.column],
+                &e.text,
+                comma,
+            ) {
                 Ok(Some(syntax)) => {
                     self.run(&syntax, None, After::Show);
                 }
@@ -4183,6 +4189,7 @@ impl App {
     /// Starts editing a cell of the Variable View; in the empty row under the last variable,
     /// only the name, which makes a new variable.
     fn edit_field(&mut self, (row, column): (usize, usize)) {
+        let comma = self.decimal_comma();
         let data = window_data(&self.session, &self.windows, self.here);
         let count = data.map_or(0, Dataset::variable_count);
         if row >= count {
@@ -4229,18 +4236,18 @@ impl App {
                 return;
             }
             Field::Values => {
-                self.view.labels_dialog = Some(edits::LabelsEditor::of(&variable, others));
+                self.view.labels_dialog = Some(edits::LabelsEditor::of(&variable, others, comma));
                 return;
             }
             Field::Missing => {
-                self.view.missing_dialog = Some(edits::MissingEditor::of(&variable, others));
+                self.view.missing_dialog = Some(edits::MissingEditor::of(&variable, others, comma));
                 return;
             }
             _ => {}
         }
         self.view.variable_selected = Some(grid::Selection::cell((row, column)));
         if field.editable(variable.is_string()) {
-            let text = edits::field_text(&variable, field);
+            let text = edits::field_text(&variable, field, comma);
             self.view.field_edit = Some(CellEdit {
                 row,
                 column,
