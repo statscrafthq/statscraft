@@ -299,12 +299,24 @@ pub(crate) struct Evaluator<'a> {
     /// SET BLANKS and EPOCH: NUMBER reads a blank string as BLANKS, and NUMBER and the DATE
     /// functions put a two-digit year in the EPOCH window.
     pub reading: crate::data_list::Reading,
-    /// SET CCA to CCE: the custom currencies STRING writes.
-    pub currencies: crate::format::Currencies,
-    /// $TIME: whole seconds from 1582-10-14 to the local time the command runs.
-    pub now: f64,
+    /// The engine whose settings give the custom currencies (SET CCA to CCE) STRING writes;
+    /// they are read when a function needs them, not for every evaluator.
+    pub engine: &'a crate::Engine,
+    /// $TIME: whole seconds from 1582-10-14 to the local time the command runs, read at the
+    /// first use (a clock read for every evaluator costs more than a COMPUTE of one case).
+    pub now: std::cell::OnceCell<f64>,
     /// $LENGTH and $WIDTH: SET LENGTH (None for NONE) and WIDTH.
     pub page: (Option<f64>, f64),
+}
+
+impl Evaluator<'_> {
+    /// $TIME: whole seconds from 1582-10-14 to the local time of the first use.
+    fn now(&self) -> f64 {
+        *self.now.get_or_init(|| {
+            let local = chrono::Local::now().naive_local().and_utc().timestamp();
+            (local + DAYS_TO_1970 * 86_400) as f64
+        })
+    }
 }
 
 fn finite(value: f64) -> Option<f64> {
@@ -803,13 +815,13 @@ impl Evaluator<'_> {
         }
         let same = |value: Option<f64>| Column::Number(vec![value; self.data.case_count()]);
         let date = |format: &str| {
-            let text = crate::format::format_value(self.now, format, false);
+            let text = crate::format::format_value(self.now(), format, false);
             Column::String(vec![text; self.data.case_count()])
         };
         match name.to_uppercase().as_str() {
-            "$TIME" => return Ok(same(Some(self.now))),
+            "$TIME" => return Ok(same(Some(self.now()))),
             // day 1 is 1582-10-15, the first day of the Gregorian calendar
-            "$JDATE" => return Ok(same(Some((self.now / 86_400.0).floor()))),
+            "$JDATE" => return Ok(same(Some((self.now() / 86_400.0).floor()))),
             "$DATE" => return Ok(date("DATE9")),
             "$DATE11" => return Ok(date("DATE11")),
             "$LENGTH" => return Ok(same(self.page.0)),
@@ -1306,7 +1318,8 @@ impl Evaluator<'_> {
             ("STRING", 2) => {
                 let (kind, width, decimals) = format_arg(function, &args[1])?;
                 let spec = self
-                    .currencies
+                    .engine
+                    .currencies()
                     .resolve(&format!("{kind}{width}.{decimals}"));
                 let write = |v: Option<f64>| match v {
                     Some(v) => {

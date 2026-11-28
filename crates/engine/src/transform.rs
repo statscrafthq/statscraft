@@ -193,14 +193,11 @@ impl Engine {
             random: &self.random,
             fuzzbits: self.fuzzbits(),
             reading: self.reading(),
-            currencies: self.currencies(),
-            now: {
-                let local = chrono::Local::now().naive_local().and_utc().timestamp();
-                (local + crate::expr::DAYS_TO_1970 * 86_400) as f64
-            },
+            engine: self,
+            now: std::cell::OnceCell::new(),
             page: (
-                self.setting("LENGTH").parse().ok(),
-                self.setting("WIDTH").parse().unwrap_or(80.0),
+                self.setting_str("LENGTH").parse().ok(),
+                self.setting_str("WIDTH").parse().unwrap_or(80.0),
             ),
             first_case: self.row.as_ref().map_or(0, |row| row.case),
             previous: self.row.as_ref().map_or(&[], |row| &row.previous[..]),
