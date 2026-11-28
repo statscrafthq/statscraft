@@ -851,6 +851,8 @@ impl Engine {
         let scale_terms: Vec<Term> = command.scale.clone().unwrap_or_default();
         let mut location = effects_of(&location_terms, &factor_names, &covariate_names)?;
         let mut scale = effects_of(&scale_terms, &factor_names, &covariate_names)?;
+        crate::glm::check_columns("PLUM", &d, &location)?;
+        crate::glm::check_columns("PLUM", &d, &scale)?;
         let x_full = design(&d, &mut location);
         let z_full = design(&d, &mut scale);
         // the last level is the redundant one, as the manual says (R's polr drops the first)

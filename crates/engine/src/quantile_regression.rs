@@ -653,6 +653,7 @@ impl Engine {
             ));
         }
         let effects = effects_of(&terms, &factor_names, &covariate_names)?;
+        crate::glm::check_columns("QUANTILE REGRESSION", &d, &effects)?;
         let fit = Fit::new(&d, effects, &d.y, 1e-8);
         let kept: Vec<usize> = (0..fit.p).filter(|&j| !fit.redundant[j]).collect();
         let k = kept.len();

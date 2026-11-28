@@ -2498,6 +2498,7 @@ impl Engine {
         }
         let mut fixed_effects = effects_of(&terms, &factor_names, &covariate_names)?;
         relabel(&mut fixed_effects);
+        crate::glm::check_columns("MIXED", &d, &fixed_effects)?;
         let fixed = Fit::new_centered(&d, fixed_effects, &d.y, command.singular);
         let kept: Vec<usize> = (0..fixed.p).filter(|&j| !fixed.redundant[j]).collect();
         let p = kept.len();
@@ -2571,6 +2572,7 @@ impl Engine {
         for r in &command.random {
             let mut effects = effects_of(&r.terms, &factor_names, &covariate_names)?;
             relabel(&mut effects);
+            crate::glm::check_columns("MIXED", &d, &effects)?;
             let fit = Fit::new(&d, effects, &empty, command.singular);
             let effect_of: Vec<usize> = fit
                 .effects

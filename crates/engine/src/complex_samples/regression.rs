@@ -970,6 +970,7 @@ impl Engine {
         if effects.is_empty() {
             return Err(Error(format!("{name}: the model has no effects")));
         }
+        crate::glm::check_columns(name, &d, &effects)?;
         let fit = Fit::new(&d, effects, &d.y, c.criteria.singular);
         let p = fit.p;
         let df = c.criteria.df.unwrap_or(design.df);

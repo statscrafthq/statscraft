@@ -473,6 +473,7 @@ impl Engine {
                 .collect(),
         };
         let mut effects = effects_of(&terms, &factor_names, &covariate_names)?;
+        crate::glm::check_columns("PLS", &d, &effects)?;
         let x_raw = design(&d, &mut effects);
         let n = x_raw.first().map_or(0, Vec::len);
         let x_names: Vec<String> = effects

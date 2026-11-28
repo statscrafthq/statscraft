@@ -599,6 +599,7 @@ impl Engine {
             });
             e.label = parts.collect::<Vec<_>>().join(" * ");
         }
+        crate::glm::check_columns("VARCOMP", &d, &effects)?;
         let fit = Fit::new(&d, effects, &d.y, c.eps);
         let random: Vec<bool> = fit
             .effects
